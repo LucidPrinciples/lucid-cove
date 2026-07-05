@@ -136,7 +136,7 @@ Built by [Lucid Principles, LLC](https://lucidprinciples.com). This repo is the 
 ---
 
 <p align="center">
-  <a href="https://lucidprinciples.com/vision/"><img src="docs/assets/cove-mark.svg" width="72" alt="Lucid Cove"></a>
+  <a href="https://lucidprinciples.com/vision/"><img src="https://lucidprinciples.com/images/lp-mark.png" width="72" alt="Lucid Principles"></a>
 </p>
 
 <p align="center"><b>Lucid Principles</b><br>
