@@ -349,8 +349,8 @@ function addMessage(role, content, timestamp, model, thinking) {
     const label = document.createElement('span');
     label.className = 'role-label';
     label.textContent = role === 'user'
-        ? MC.operatorName.toUpperCase()
-        : _getActiveAIName().toUpperCase();
+        ? ((MC.presence && MC.presence.display_name) || MC.operatorName).toUpperCase()
+        : ((MC.presence && MC.presence.agent_name) || _getActiveAIName()).toUpperCase();
     leftSide.appendChild(label);
 
     if (model && role !== 'user') {
@@ -1000,8 +1000,8 @@ async function openThreadReader(threadId) {
         data.messages.forEach(msg => {
             const role = msg.role === 'human' ? 'user' : 'assistant';
             const roleLabel = role === 'user'
-                ? MC.operatorName.toUpperCase()
-                : MC.agentName.toUpperCase();
+                ? ((MC.presence && MC.presence.display_name) || MC.operatorName).toUpperCase()
+                : ((MC.presence && MC.presence.agent_name) || MC.agentName).toUpperCase();
             let ts = '';
             if (msg.timestamp) {
                 const d = new Date(msg.timestamp);
