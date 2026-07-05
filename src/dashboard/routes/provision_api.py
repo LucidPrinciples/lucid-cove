@@ -102,7 +102,7 @@ async def provision_hosted_cove(request: Request):
         "model_providers": body.get("model_providers", ["openrouter"]),
         "deploy": {
             "target": "vps",
-            "cove_core_path": HOSTING_COVE_CORE_PATH,
+            "lucid_cove_path": HOSTING_COVE_CORE_PATH,
             "mesh_ip": (body.get("mesh_ip") or env("HOSTING_MESH_IP")).strip(),
             "caddy_dir": env("HOSTING_CADDY_DIR").strip() or None,
         },

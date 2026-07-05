@@ -832,7 +832,7 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     nc_port = deploy.get("nextcloud_port", 8080)
     matrix_port = deploy.get("matrix_port", 8008)
     voice_port = deploy.get("voice_port", 8301)
-    core = deploy.get("cove_core_path", "../cove-core")
+    core = deploy.get("lucid_cove_path") or deploy.get("cove_core_path") or "../cove-core"
     # Shared-Caddy (Haven) per-service network attach. Defined here (early) because the
     # dendrite + voice service blocks below interpolate it. Lists BOTH default and the
     # external lucidcove-net (naming any network disables Compose's implicit default).
@@ -1338,7 +1338,7 @@ shared-Caddy stack into `~/.lucidcove/caddy/` (compose + base `Caddyfile` that i
 shared Caddy up. If you deploy by hand, do this ONCE per box BEFORE the Cove:
    ```
    docker network create lucidcove-net 2>/dev/null || true
-   ( cd ~/.lucidcove/caddy && COVE_CORE={deploy.get("cove_core_path", "../cove-core")} docker compose up -d --build )
+   ( cd ~/.lucidcove/caddy && COVE_CORE={deploy.get("lucid_cove_path") or deploy.get("cove_core_path") or "../cove-core"} docker compose up -d --build )
    ```
 Each Cove's routing snippet lands at `~/.lucidcove/caddy/conf.d/{cid}.caddy` — written by
 the in-browser "Claim your address" step (live-reloaded over the bridge) or, as a fallback,
@@ -1361,7 +1361,7 @@ Generated centralized (single-stack) Cove. Target: **{deploy.get("target", "stan
 Team: **{"on (steward + build team)" if team_on else "off (solo — operator + personal agent)"}**.
 {shared_section}
 ## Deploy
-1. Make sure cove-core is cloned at `{deploy.get("cove_core_path", "../cove-core")}` (the app mounts it).
+1. Make sure your lucid-cove clone is at `{deploy.get("lucid_cove_path") or deploy.get("cove_core_path") or "../cove-core"}` (the app mounts it).
 2. Fill in model API keys in `.env` (the providers you wired).
 3. From this folder:
    ```
@@ -1610,7 +1610,7 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
     # mesh-step UI's copy-paste join one-liner (run-2 4.1/4.2 — no folder digging).
     # Only derivable on the install.sh path: cove_core_path is the HOST clone dir
     # (this provisioner usually runs in a container, so root.resolve() would lie).
-    _core_host = (deploy.get("cove_core_path") or "").strip()
+    _core_host = (deploy.get("lucid_cove_path") or deploy.get("cove_core_path") or "").strip()
     if _core_host.startswith("/") and out_root.name == "out":
         deploy = dict(deploy)
         deploy["_host_dir"] = f"{_core_host}/out/{cove['id']}-cove"

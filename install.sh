@@ -159,7 +159,7 @@ from_scratch: true
 team: on
 deploy:
   target: standalone
-  cove_core_path: $CORE
+  lucid_cove_path: $CORE
   app_port: $APP_PORT
   nextcloud_port: $NC_PORT
   matrix_port: $MX_PORT

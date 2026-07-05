@@ -16,8 +16,8 @@ A "Cove" is a self-contained home for you (or your family) and your intelligence
 ## 1. Clone
 
 ```bash
-git clone https://github.com/LucidPrinciples/lucid-cove.git cove-core
-cd cove-core
+git clone https://github.com/LucidPrinciples/lucid-cove.git
+cd lucid-cove
 ```
 
 ## 2. Write your config
@@ -39,7 +39,7 @@ team: on
 model_providers: []              # leave empty — connect a model in the wizard
 deploy:
   target: standalone
-  cove_core_path: /absolute/path/to/this/clone
+  lucid_cove_path: /absolute/path/to/lucid-cove   # the folder you just cloned — run `pwd` inside it
 matrix:
   enabled: true
 compute:

@@ -44,9 +44,10 @@ deploy:
                                    #   preflights ports for collisions (#164), installs a
                                    #   per-Cove Caddy snippet + reloads (#165), and creates
                                    #   the Cloudflare wildcard DNS (#166) — no manual ops)
-  # cove-core source the app mounts at runtime. For a self-host clone this is the
-  # path to the cloned lucid-cove-core repo on the host.
-  cove_core_path: "../cove-core"
+  # The app mounts the platform source from your cloned repo at runtime. Set this to
+  # the ABSOLUTE path of your lucid-cove clone (e.g. /home/you/lucid-cove). The
+  # one-command install.sh fills this in automatically; set it by hand for a manual install.
+  lucid_cove_path: "/absolute/path/to/lucid-cove"
   app_port: 8200                   # host port for the Cove app (auto-bumped if taken, co-located)
   nextcloud_port: 8080             # host port for Nextcloud (auto-bumped if taken, co-located)
   # matrix_port: 8008              # host port for this Cove's Dendrite (auto-bumped if taken)
