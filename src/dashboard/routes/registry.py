@@ -99,6 +99,17 @@ RESERVED_COVE_NAMES = {
     "lucid", "lucidcove", "lucid cove", "lucid principles", "lucidprinciples",
     "lucid tuner", "lucidtuner", "cove", "haven", "admin", "administrator",
     "system", "support", "official", "lucidprinciples official",
+    # CF-119 (flip gate): brand + protocol names
+    "lucidpath", "lucid path", "thelucidpath", "ltp", "lucidtunerprotocol",
+    "drop", "thedrop", "founder",
+    # system roles — load-bearing words in every Cove's UI
+    "steward", "merchant", "agent", "operator", "moderator", "root",
+    "security", "help", "api", "registry", "hub", "market",
+    # the standard agent names (agent/handle namespaces meet in Matrix — the
+    # run-3 register-collision class; a stranger claiming @stuart would shadow
+    # every Cove's steward). Fleet/founder writes are trusted and unaffected.
+    "stuart", "mercer", "atlas", "lt", "jules", "julian", "socrates",
+    "archer", "archimedes", "arthur", "ezra", "gabe", "iris", "vera", "soren",
 } | _env_extra_reserved()
 
 
@@ -125,6 +136,12 @@ async def availability(request: Request, name: str = "", handle: str = ""):
             out["name_available"] = (nstatus == "available")  # back-compat boolean
         if handle:
             h = handle.lstrip("@").lower()
+            # CF-119: reserved handles report honestly here too — without this the
+            # checker said "available" and signup then 409'd (lying UX).
+            if h in RESERVED_COVE_NAMES:
+                out["handle_status"] = "reserved"
+                out["handle_available"] = False
+                return out
             # Handle status (#4 — the @jag case):
             #   claimed            → already owned by a live Cove (registry_handles). Unavailable.
             #   account_unclaimed  → exists as an LP app-account username but NO Cove has claimed
