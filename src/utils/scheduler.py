@@ -919,10 +919,19 @@ class AgentScheduler:
             # batch-10 #7 (locked 2026-07-04): Cove morning self-tune at 06:30 ET. The
             # Drop publishes ~05:30 ET from Socrates, so 06:30 leaves an hour of slack for
             # the package to land before the Cove tunes off it.
-            schedule.every().day.at("06:30", tz).do(
+            # Multi-Cove-per-machine (Haven-on-one-box): stagger the self-tune by a
+            # deterministic per-Cove offset (0-25 min) so several Coves sharing one local
+            # Ollama don't all fire at 06:30 and thrash it. Paired with the host-shared
+            # dispatch lock, co-located Coves serialize (a deferred Cove is caught by the
+            # 30-min safety sweep below); a single Cove just tunes at its own :30-:55.
+            import os as _os, hashlib as _hl
+            _cid = (_os.getenv("COVE_ID") or _get_instance().get("id") or "").strip()
+            _off = (int(_hl.sha1(_cid.encode()).hexdigest(), 16) % 26) if _cid else 0
+            _tune_at = "06:%02d" % (30 + _off)
+            schedule.every().day.at(_tune_at, tz).do(
                 self._schedule_async(self._run_tuning_sweep)
             )
-            print("[scheduler]   06:30 — Cove self-tune (team + presences, deduped)")
+            print(f"[scheduler]   {_tune_at} — Cove self-tune (team + presences, deduped)")
             # LTP Protocol Spec §6 safety sweep: every 30 minutes, 07:30–12:30
             # local, retry anyone still missing today's echo. Dedup-safe (the
             # sweep checks who tuned first), so it's a cheap no-op on a settled

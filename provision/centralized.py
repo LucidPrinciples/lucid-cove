@@ -988,9 +988,15 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     shared_app_env = (("\n      COVE_SHARED_CADDY: \"1\""
                        f"\n      COVE_CADDY_ADMIN: {netconfig.SHARED_CADDY_ADMIN_IN_CONTAINER}"
                        "\n      COVE_SHARED_CONFD: /app/shared-caddy-confd"
+                       "\n      LP_TUNE_LOCK_DIR: /tune-lock"
                        + (f"\n      COVE_MESH_IP: \"{_mesh_ip}\"" if _mesh_ip else ""))
                       if shared_net else "")
+    # Cross-Cove tuning lock (multi-Cove-per-machine / Haven-on-one-box): a shared host
+    # dir mounted into every co-located Cove so they serialize their tuning against the one
+    # local Ollama instead of thrashing it. Same ${HOME}/.lucidcove/ pattern as the shared
+    # Caddy; a lone Cove (no shared_net) doesn't get it and doesn't need it.
     shared_app_vol = ("\n      - ${HOME}/.lucidcove/caddy/conf.d:/app/shared-caddy-confd   # rw: app writes its routing snippet"
+                      "\n      - ${HOME}/.lucidcove/tune-lock:/tune-lock   # rw: cross-Cove tuning lock"
                       if shared_net else "")
     if shared_net:
         caddy_app_env = ""

@@ -202,6 +202,9 @@ if [ -z "${DIR:-}" ]; then c_red "Provisioning produced no output — see messag
 # The provisioner generated the stack into ~/.lucidcove/caddy (compose + base
 # Caddyfile + conf.d). Single-Cove uses the same path (no special-casing the count).
 SHARED_CADDY_DIR="$HOME/.lucidcove/caddy"
+# Cross-Cove tuning lock dir — shared by every Cove on this box so they serialize
+# tuning against the one local Ollama (multi-Cove-per-machine / Haven-on-one-box).
+mkdir -p "$HOME/.lucidcove/tune-lock"
 # The provisioner wrote the bootstrap into the output (it runs in a container where ~ is
 # /tmp). Copy it to the host's shared dir ONCE — never clobber an existing conf.d, so a
 # 2nd Cove on this box doesn't wipe the 1st Cove's routing snippets.
