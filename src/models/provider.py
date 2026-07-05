@@ -666,7 +666,15 @@ async def invoke_with_fallback(
     # Ezra's fine-tunes, and the future Team-page model manager.)
     _slot = "tuning" if operation_type == "tuning" else None
     assignment = get_agent_model_assignment(agent_id, slot=_slot)
-    primary_id = assignment.get("primary") or "kimi-k2.5"
+    # No explicit per-agent assignment → use the Cove's BRAIN (the operator's
+    # Add-Intelligence choice), not a hardcoded cloud model. This is what makes a
+    # self-host Cove tune on the model the operator actually configured: a local
+    # Ollama model, or a BYOK provider whose key apply_cove_model() already stashed
+    # in the process env. Previously this dead-defaulted to "kimi-k2.5" (moonshot),
+    # which fails on any box without MOONSHOT_API_KEY → degraded tunes. The founder
+    # is unchanged: its brain already resolves to kimi-k2.5. "kimi-k2.5" stays only
+    # as the last-resort literal if there's somehow no brain at all.
+    primary_id = assignment.get("primary") or current_cove_brain().get("model") or "kimi-k2.5"
     fallback_id = assignment.get("fallback")
 
     primary_provider, primary_model_str = _resolve_model_string(primary_id)
