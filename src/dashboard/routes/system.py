@@ -892,6 +892,13 @@ async def run_backup(request: Request):
     backup_email = env("BACKUP_GIT_EMAIL", "backup@mc.internal")
     backup_name = env("BACKUP_GIT_NAME", "MC Backup")
 
+    # A fresh self-host has no backup git repo wired (that's the founder's
+    # /backup/agent mount + deploy key). Skip cleanly instead of reporting scary
+    # git=FAIL/db=FAIL on every Cove that hasn't set up backups yet.
+    if not (Path(repo_root) / ".git").exists():
+        return {"skipped": True, "configured": False,
+                "summary": "Backup not configured on this Cove (no backup repo)."}
+
     # ── Git backup (code repo) ──────────────────────────────────────────
     try:
         now_str = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M ET")

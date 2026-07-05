@@ -534,11 +534,15 @@ class AgentScheduler:
             dur = int((time.time() - started) * 1000)
             if resp.status_code == 200:
                 data = resp.json()
-                git_ok = data.get("results", {}).get("git", {}).get("ok", False)
-                db_ok = data.get("results", {}).get("db", {}).get("ok", False)
-                print(f"{ts_log()} [scheduler] Backup complete — git={'OK' if git_ok else 'FAIL'} db={'OK' if db_ok else 'FAIL'}")
-                await _log_run_finish(run_id, "success" if (git_ok or db_ok) else "error", dur,
-                                      None if (git_ok or db_ok) else "git and db both failed")
+                if data.get("skipped"):
+                    print(f"{ts_log()} [scheduler] Weekly backup skipped — {data.get('summary', 'not configured')}")
+                    await _log_run_finish(run_id, "success", dur, None)
+                else:
+                    git_ok = data.get("results", {}).get("git", {}).get("ok", False)
+                    db_ok = data.get("results", {}).get("db", {}).get("ok", False)
+                    print(f"{ts_log()} [scheduler] Backup complete — git={'OK' if git_ok else 'FAIL'} db={'OK' if db_ok else 'FAIL'}")
+                    await _log_run_finish(run_id, "success" if (git_ok or db_ok) else "error", dur,
+                                          None if (git_ok or db_ok) else "git and db both failed")
             else:
                 print(f"{ts_log()} [scheduler] Backup request failed: HTTP {resp.status_code}")
                 await _log_run_finish(run_id, "error", dur, f"HTTP {resp.status_code}")
