@@ -143,7 +143,7 @@ async def ensure_steward() -> dict:
                 "python3 /cove-core/provision/set_domain.py --remove-matrix-user %s "
                 "--cove-id <cove_id>, then reopen Connect." % STEWARD_LOCALPART,
             )
-    return {"user": user, "pw": pw, "token": login["access_token"]}
+    return {"user": user, "pw": pw, "token": login["data"]["access_token"]}
 
 
 async def _live_cove_name() -> str:
