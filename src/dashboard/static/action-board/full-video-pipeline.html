@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Pipeline — Tools</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; }
+
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 1px solid #222; }
+.header h1 { font-size: 18px; font-weight: 600; color: #5ce1e6; }
+.header a { color: #5ce1e6; text-decoration: none; font-size: 13px; }
+
+.flow-description { color: #999; font-size: 13px; line-height: 1.6; margin-bottom: 24px; max-width: 640px; }
+
+.section-title { font-size: 14px; font-weight: 600; color: #e0e0e8; margin-bottom: 12px; }
+
+/* Video cards */
+.video-list { display: flex; flex-direction: column; gap: 8px; max-width: 640px; margin-bottom: 32px; }
+
+.video-card {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 16px; background: #111118; border: 1px solid #1e1e2a;
+    border-radius: 8px; cursor: pointer; transition: all 0.15s;
+}
+.video-card:hover { border-color: #333; background: #151520; }
+
+.video-icon { font-size: 20px; flex-shrink: 0; }
+
+.video-info { flex: 1; min-width: 0; }
+.video-name { font-size: 14px; font-weight: 600; color: #e0e0e8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.video-meta { font-size: 11px; color: #666; margin-top: 3px; }
+
+.video-status { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; }
+.status-dot.new { background: #5ce1e6; }
+.status-dot.transcribed { background: #ffd166; }
+.status-dot.moments { background: #8bc48a; }
+.status-dot.processed { background: #a064e6; }
+
+.status-label { font-size: 11px; color: #888; }
+
+.video-action { font-size: 12px; color: #5ce1e6; font-weight: 600; flex-shrink: 0; padding: 4px 10px; border: 1px solid rgba(92,225,230,0.3); border-radius: 5px; background: rgba(92,225,230,0.08); }
+
+.empty-state { padding: 40px; text-align: center; color: #555; font-size: 13px; line-height: 1.6; }
+.empty-state strong { color: #5ce1e6; }
+
+.loading { text-align: center; padding: 40px; color: #666; }
+
+/* Pipeline legend */
+.legend { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #777; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Video Pipeline</h1>
+    <a href="/" class="back-mc" target="_top">← Back to Mission Control</a>
+</div>
+<script>
+if (window.location.search.includes('embedded=1')) {
+    document.querySelector('.back-mc')?.remove();
+}
+</script>
+
+<div class="flow-description">
+    Pick a video to start the pipeline. Transcribe, edit, find moments, crop & caption, distribute.
+</div>
+
+<div class="legend">
+    <div class="legend-item"><div class="status-dot new"></div> New</div>
+    <div class="legend-item"><div class="status-dot transcribed"></div> Transcribed</div>
+    <div class="legend-item"><div class="status-dot moments"></div> Moments Found</div>
+    <div class="legend-item"><div class="status-dot processed"></div> Clips Made</div>
+</div>
+
+<div style="margin-bottom:18px;">
+    <button id="pa-toggle" onclick="togglePostingAccounts()" style="background:#14140e;border:1px solid #2a2d3a;color:#ccc;border-radius:6px;padding:8px 12px;font-size:12px;cursor:pointer;">📡 Posting Accounts <span id="pa-state" style="color:#888;margin-left:6px;font-size:11px;"></span></button>
+    <button id="pk-toggle" onclick="togglePipelineKeys()" style="background:#14140e;border:1px solid #2a2d3a;color:#ccc;border-radius:6px;padding:8px 12px;font-size:12px;cursor:pointer;margin-left:8px;">🔑 Pipeline Services <span id="pk-state" style="color:#888;margin-left:6px;font-size:11px;"></span></button>
+    <div id="pipeline-keys" style="display:none;margin-top:10px;max-width:580px;border:1px solid #232633;border-radius:8px;padding:14px 16px;background:#0d0d12;">
+        <!-- CF-96: active transcription path from the ONE compute resolver -->
+        <div id="pk-active-path" style="font-size:12px;color:#8fdca0;margin-bottom:10px;font-weight:600;"></div>
+        <div style="font-size:11px;color:#888;margin-bottom:12px;">Cove-wide keys for the services the pipeline calls. Any ONE transcription key enables cloud transcription on a GPU-less Cove. Keys are stored on the Cove and never shown — save an empty field to remove one. <span id="pk-admin-note" style="color:#a86;"></span></div>
+        <div id="pk-rows" style="display:grid;gap:8px;"></div>
+        <div style="font-size:10px;color:#666;margin-top:8px;">Posting accounts (X / YouTube) are per-presence — manage them under 📡 Posting Accounts.</div>
+    </div>
+    <div id="posting-accounts" style="display:none;margin-top:10px;max-width:580px;border:1px solid #232633;border-radius:8px;padding:14px 16px;background:#0d0d12;">
+        <div style="font-size:11px;color:#888;margin-bottom:12px;">These accounts are <strong>yours</strong> — each presence posts from its own. Keys are stored securely and never shown.</div>
+        <div style="font-weight:600;font-size:12px;color:#ccc;margin-bottom:6px;">𝕏 (Twitter) <span id="pa-x-state" style="font-weight:normal;font-size:10px;margin-left:6px;"></span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <input type="password" id="pa-x-api-key" placeholder="API Key" autocomplete="off" style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+            <input type="password" id="pa-x-api-secret" placeholder="API Secret" autocomplete="off" style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+            <input type="password" id="pa-x-access-token" placeholder="Access Token" autocomplete="off" style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+            <input type="password" id="pa-x-access-token-secret" placeholder="Access Token Secret" autocomplete="off" style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+        </div>
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+            <button onclick="saveXAccount()" style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 14px;font-size:11px;cursor:pointer;">Save X Keys</button>
+            <span id="pa-x-save" style="font-size:11px;"></span>
+        </div>
+        <div style="font-size:10px;color:#666;margin-top:4px;">From the X developer portal (OAuth 1.0a user tokens). All four required.</div>
+        <hr style="border:none;border-top:1px solid #1c1f29;margin:14px 0;">
+        <div style="font-weight:600;font-size:12px;color:#ccc;margin-bottom:6px;">▶ YouTube <span id="pa-yt-state" style="font-weight:normal;font-size:10px;margin-left:6px;"></span></div>
+        <div id="pa-yt-app" style="display:none;margin-bottom:8px;">
+            <div style="font-size:10px;color:#888;margin-bottom:6px;">Cove-wide Google app (set once, from Google Cloud Console). Each presence then connects their own channel.</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <input type="text" id="pa-yt-client-id" placeholder="Client ID" autocomplete="off" style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+                <input type="password" id="pa-yt-client-secret" placeholder="Client Secret" autocomplete="off" style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+                <input type="text" id="pa-yt-redirect" placeholder="Redirect URI (https://…/api/youtube/oauth-callback)" style="grid-column:1/3;background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+            </div>
+            <div style="margin-top:8px;"><button onclick="saveYouTubeClient()" style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 14px;font-size:11px;cursor:pointer;">Save App Creds</button> <span id="pa-yt-app-save" style="font-size:11px;margin-left:8px;"></span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+            <button id="pa-yt-connect" onclick="connectYouTube()" style="background:#2a1c1c;border:1px solid #6a2a2a;color:#dbb;border-radius:4px;padding:6px 14px;font-size:11px;cursor:pointer;">Connect YouTube</button>
+            <a onclick="toggleYtApp()" style="color:#5ce1e6;cursor:pointer;font-size:11px;">App creds</a>
+            <a onclick="loadPostingAccounts()" style="color:#888;cursor:pointer;font-size:11px;">↻ refresh</a>
+        </div>
+        <div style="font-size:10px;color:#666;margin-top:4px;">Opens Google sign-in in a new tab — approve, then hit refresh.</div>
+    </div>
+</div>
+
+<div id="content" class="loading">Loading videos...</div>
+
+<script>
+const embedded = window.location.search.includes('embedded=1');
+const embParam = embedded ? '&embedded=1' : '';
+// Set from /api/video/capabilities. When false (no GPU + no cloud ASR key) the
+// pipeline runs in schedule + posting mode: transcription/clip steps are off.
+let CAN_TRANSCRIBE = true;
+
+const DEGRADED_BANNER = `
+    <div class="empty-state" style="text-align:left;color:#d8c8a0;border:1px solid #3a2f1a;background:#16140e;border-radius:8px;padding:14px 16px;margin-bottom:18px;max-width:640px;">
+        <strong style="color:#ffd166;">Transcription is off on this Cove</strong> — no GPU and no cloud ASR key, so the pipeline is in <strong>schedule + posting</strong> mode. You can still crop, schedule and post videos; auto transcripts and clip-finding are paused.<br><br>
+        <a onclick="openPipelineKeys()" style="color:#5ce1e6;cursor:pointer;">Add a Groq / OpenAI / Deepgram key →</a>
+        &nbsp;·&nbsp;
+        <a onclick="openRentGpu()" style="color:#5ce1e6;cursor:pointer;">Rent a GPU from another Cove →</a>
+    </div>`;
+
+function openRentGpu() {
+    const url = '/static/action-board/rent-gpu.html' + (embedded ? '?embedded=1' : '');
+    window.location.href = url;
+}
+
+// ── Pipeline Services (Cove-wide keys — AT-1) ─────────────────────────
+function togglePipelineKeys() {
+    const p = document.getElementById('pipeline-keys');
+    const show = p.style.display === 'none';
+    p.style.display = show ? '' : 'none';
+    if (show) loadPipelineKeys();
+}
+function openPipelineKeys() {
+    const p = document.getElementById('pipeline-keys');
+    if (p && p.style.display === 'none') togglePipelineKeys();
+    if (p) p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+async function loadPipelineKeys() {
+    const rows = document.getElementById('pk-rows');
+    if (!rows) return;
+    let d = null;
+    try { d = await (await fetch('/api/pipeline/keys')).json(); } catch (e) {}
+    if (!d || !d.ok) { rows.innerHTML = '<div style="font-size:11px;color:#a66;">Could not load key status.</div>'; return; }
+    const canEdit = !!d.can_edit;
+    const note = document.getElementById('pk-admin-note');
+    if (note) note.textContent = canEdit ? '' : 'View only — an Admin Presence sets these.';
+    const order = ['groq', 'openai', 'deepgram', 'github'];
+    rows.innerHTML = order.filter(s => d.services[s]).map(s => {
+        const sv = d.services[s];
+        const state = sv.set
+            ? '<span style="color:#7dc98f;">● set' + (sv.source === 'env' ? ' (from .env)' : '') + '</span>'
+            : '<span style="color:#888;">○ not set</span>';
+        const dis = canEdit ? '' : 'disabled';
+        return '<div style="display:grid;grid-template-columns:170px 1fr auto;gap:8px;align-items:center;">'
+            + '<div style="font-size:11px;color:#ccc;">' + sv.label + '<div style="font-size:10px;">' + state + '</div></div>'
+            + '<input type="password" id="pk-key-' + s + '" placeholder="' + (sv.set ? '•••••••• (saved — paste to rotate)' : 'paste key') + '" autocomplete="off" ' + dis
+            + ' style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">'
+            + '<button onclick="savePipelineKey(\'' + s + '\')" ' + dis + ' style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 12px;font-size:11px;cursor:pointer;">Save</button>'
+            + '</div>';
+    }).join('');
+    // CF-110 #3 — Analysis model dropdown. "" == the agent's default chain. The
+    // moments chain consults a set model FIRST (sovereignty gate still applies
+    // server-side: a paid pick is ignored on a local-mode Cove).
+    const am = d.analysis_model || { selected: '', options: [] };
+    const dis2 = canEdit ? '' : 'disabled';
+    const optHtml = ['<option value="">Your agent\'s model (default)</option>']
+        .concat((am.options || []).map(o =>
+            '<option value="' + esc(o.id) + '"' + (o.id === am.selected ? ' selected' : '') + '>'
+            + esc(o.label) + '</option>')).join('');
+    rows.innerHTML += '<div style="display:grid;grid-template-columns:170px 1fr auto;gap:8px;align-items:center;margin-top:10px;border-top:1px solid #1e2130;padding-top:10px;">'
+        + '<div style="font-size:11px;color:#ccc;">Analysis model<div style="font-size:10px;color:#888;">moments analysis</div></div>'
+        + '<select id="pk-analysis-model" ' + dis2 + ' style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">' + optHtml + '</select>'
+        + '<button onclick="saveAnalysisModel()" ' + dis2 + ' style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 12px;font-size:11px;cursor:pointer;">Save</button>'
+        + '</div>';
+    const btnState = document.getElementById('pk-state');
+    if (btnState) {
+        const nSet = order.filter(s => d.services[s] && d.services[s].set).length;
+        btnState.textContent = nSet ? (nSet + ' set') : '';
+    }
+    loadActivePath();
+}
+async function saveAnalysisModel() {
+    const sel = document.getElementById('pk-analysis-model');
+    if (!sel) return;
+    try {
+        const r = await fetch('/api/pipeline/analysis-model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: sel.value }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(j.error || 'Could not save the analysis model.'); return; }
+        loadPipelineKeys();
+    } catch (e) { alert('Could not save the analysis model.'); }
+}
+// CF-96: header line naming the ACTIVE transcription path (rented GPU / cloud /
+// local GPU / off) from the one resolver — so the panel states what actually runs,
+// not just which keys exist.
+async function loadActivePath() {
+    const el = document.getElementById('pk-active-path');
+    if (!el) return;
+    try {
+        const s = await (await fetch('/api/compute/status')).json();
+        const va = (s && s.video_asr) || {};
+        if (va.ready) {
+            el.textContent = 'Transcription: ' + (va.label || va.path || 'on');
+            el.style.color = '#8fdca0';
+        } else {
+            el.textContent = 'Transcription: ' + (va.label || 'off — add a key or rent a GPU');
+            el.style.color = '#e0b96a';
+        }
+    } catch (e) { el.textContent = ''; }
+}
+async function savePipelineKey(service) {
+    const inp = document.getElementById('pk-key-' + service);
+    const key = inp ? inp.value.trim() : '';
+    if (!key && !confirm('Save empty = remove the saved ' + service + ' key. Continue?')) return;
+    try {
+        const r = await fetch('/api/pipeline/keys', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ service, key }),
+        });
+        const d = await r.json();
+        if (!r.ok || d.error) { alert(d.error || 'Could not save.'); return; }
+        if (inp) inp.value = '';
+        loadPipelineKeys();
+    } catch (e) { alert('Could not save: ' + e.message); }
+}
+
+// ── Posting Accounts (per-presence) ───────────────────────────────────
+function togglePostingAccounts() {
+    const p = document.getElementById('posting-accounts');
+    const show = p.style.display === 'none';
+    p.style.display = show ? '' : 'none';
+    if (show) loadPostingAccounts();
+}
+async function loadPostingAccounts() {
+    try {
+        const r = await fetch('/api/posting/accounts');
+        const d = r.ok ? await r.json() : {};
+        const xConfigured = !!(d.x && d.x.configured);
+        const xs = document.getElementById('pa-x-state');
+        if (xs) { xs.textContent = xConfigured ? '✓ connected' : 'not set'; xs.style.color = xConfigured ? '#2ecc71' : '#e67e22'; }
+
+        const yt = d.youtube || {};
+        const yts = document.getElementById('pa-yt-state');
+        const connectBtn = document.getElementById('pa-yt-connect');
+        if (yts) {
+            if (yt.connected) { yts.textContent = '✓ connected'; yts.style.color = '#2ecc71'; }
+            else if (yt.app_configured) { yts.textContent = 'not connected'; yts.style.color = '#e67e22'; }
+            else { yts.textContent = 'set app creds first'; yts.style.color = '#e67e22'; const app = document.getElementById('pa-yt-app'); if (app) app.style.display = ''; }
+        }
+        if (connectBtn) { connectBtn.disabled = !yt.app_configured; connectBtn.style.opacity = yt.app_configured ? '1' : '0.5'; }
+
+        const st = document.getElementById('pa-state');
+        if (st) st.textContent = [xConfigured ? 'X' : null, yt.connected ? 'YouTube' : null].filter(Boolean).map(s => '· ' + s + ' ready').join(' ');
+    } catch (e) {}
+}
+function toggleYtApp() {
+    const a = document.getElementById('pa-yt-app');
+    if (a) a.style.display = a.style.display === 'none' ? '' : 'none';
+}
+function connectYouTube() {
+    // OAuth must leave the iframe (Google blocks framing) — open at top level.
+    window.open('/api/youtube/auth', '_blank');
+}
+async function saveYouTubeClient() {
+    const body = {
+        client_id: document.getElementById('pa-yt-client-id').value.trim(),
+        client_secret: document.getElementById('pa-yt-client-secret').value.trim(),
+        redirect_uri: document.getElementById('pa-yt-redirect').value.trim(),
+    };
+    const s = document.getElementById('pa-yt-app-save');
+    s.textContent = 'Saving…'; s.style.color = '#5ce1e6';
+    try {
+        const r = await fetch('/api/posting/youtube/client', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+            s.textContent = d.app_configured ? '✓ app ready — now Connect' : '✓ saved (need id, secret + redirect)';
+            s.style.color = d.app_configured ? '#2ecc71' : '#e67e22';
+            document.getElementById('pa-yt-client-secret').value = '';
+            loadPostingAccounts();
+        } else {
+            s.textContent = d.error || 'Failed'; s.style.color = '#e74c3c';
+        }
+    } catch (e) { s.textContent = e.message; s.style.color = '#e74c3c'; }
+}
+async function saveXAccount() {
+    const body = {
+        api_key: document.getElementById('pa-x-api-key').value.trim(),
+        api_secret: document.getElementById('pa-x-api-secret').value.trim(),
+        access_token: document.getElementById('pa-x-access-token').value.trim(),
+        access_token_secret: document.getElementById('pa-x-access-token-secret').value.trim(),
+    };
+    const s = document.getElementById('pa-x-save');
+    s.textContent = 'Saving…'; s.style.color = '#5ce1e6';
+    try {
+        const r = await fetch('/api/posting/x', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (r.ok && d.ok) {
+            s.textContent = d.configured ? '✓ saved — X ready' : '✓ saved (need all four keys)';
+            s.style.color = d.configured ? '#2ecc71' : '#e67e22';
+            ['pa-x-api-key', 'pa-x-api-secret', 'pa-x-access-token', 'pa-x-access-token-secret']
+                .forEach(id => { document.getElementById(id).value = ''; });
+            loadPostingAccounts();
+        } else {
+            s.textContent = d.error || 'Failed'; s.style.color = '#e74c3c';
+        }
+    } catch (e) { s.textContent = e.message; s.style.color = '#e74c3c'; }
+}
+
+async function init() {
+    const container = document.getElementById('content');
+
+    // Fetch inbox, transcripts, and transcription capability in parallel
+    const [inboxResp, transcriptsResp, capResp] = await Promise.all([
+        fetch('/api/video/inbox'),
+        fetch('/api/video/transcripts'),
+        fetch('/api/video/capabilities'),
+    ]);
+    const inboxData = await inboxResp.json();
+    const transcriptsData = await transcriptsResp.json();
+    try { CAN_TRANSCRIBE = (await capResp.json()).transcription !== false; } catch (e) { CAN_TRANSCRIBE = true; }
+
+    const inboxFiles = inboxData.files || [];
+    const transcripts = transcriptsData.transcripts || [];
+
+    // Build a map of stems to their pipeline status
+    const transcriptMap = {};
+    for (const t of transcripts) {
+        transcriptMap[t.stem] = t;
+    }
+
+    // Merge: inbox videos + transcribed videos that may have moved out of inbox
+    const videos = [];
+    const seen = new Set();
+
+    // First: inbox videos (may or may not have transcripts)
+    for (const f of inboxFiles) {
+        const ext = f.filename.lastIndexOf('.');
+        const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;
+        const t = transcriptMap[stem];
+        seen.add(stem);
+        videos.push({
+            stem,
+            filename: f.filename,
+            size_mb: f.size_mb,
+            status: t ? (t.has_moments ? 'moments' : (t.has_edits ? 'transcribed' : 'transcribed')) : 'new',
+            has_moments: t?.has_moments || false,
+            has_edits: t?.has_edits || false,
+        });
+    }
+
+    // Then: transcribed videos not in inbox (moved to processing/)
+    for (const t of transcripts) {
+        if (seen.has(t.stem)) continue;
+        videos.push({
+            stem: t.stem,
+            filename: t.stem,
+            size_mb: null,
+            status: t.has_moments ? 'moments' : 'transcribed',
+            has_moments: t.has_moments,
+            has_edits: t.has_edits,
+        });
+    }
+
+    const bannerHtml = CAN_TRANSCRIBE ? '' : DEGRADED_BANNER;
+
+    if (videos.length === 0) {
+        container.innerHTML = bannerHtml + `
+            <div class="empty-state">
+                <strong>No videos in the pipeline</strong><br>
+                Drop video files into your video inbox folder<br>
+                (AgentSkills/Content/video/inbox/) to get started.
+            </div>`;
+        return;
+    }
+
+    let html = bannerHtml + '<div class="video-list">';
+    for (const v of videos) {
+        const statusClass = v.status;
+        const sizeStr = v.size_mb ? `${v.size_mb} MB` : '';
+
+        let actionLabel, actionUrl;
+        if (v.status === 'new') {
+            actionLabel = CAN_TRANSCRIBE ? 'Transcribe' : 'Schedule';
+            actionUrl = null; // triggers transcription (or schedule, when degraded)
+        } else if (v.status === 'transcribed' && !v.has_moments) {
+            actionLabel = 'Edit';
+            actionUrl = `/static/action-board/video-transcript-editor.html?stem=${v.stem}${embParam}`;
+        } else if (v.has_moments) {
+            actionLabel = 'Moments';
+            actionUrl = `/static/action-board/video-moments-review.html?stem=${v.stem}${embParam}`;
+        } else {
+            actionLabel = 'Edit';
+            actionUrl = `/static/action-board/video-transcript-editor.html?stem=${v.stem}${embParam}`;
+        }
+
+        html += `
+        <div class="video-card" onclick="openVideo('${esc(v.stem)}', '${esc(v.filename)}', '${v.status}', ${v.has_moments}, this)" data-stem="${esc(v.stem)}">
+            <div class="video-icon">🎬</div>
+            <div class="video-info">
+                <div class="video-name">${esc(v.filename)}</div>
+                <div class="video-meta">${sizeStr}</div>
+            </div>
+            <div class="video-status">
+                <div class="status-dot ${statusClass}"></div>
+                <span class="status-label">${statusLabel(v.status, v.has_moments)}</span>
+            </div>
+            <div class="video-action" data-action="${actionLabel}">${actionLabel}</div>
+        </div>`;
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function statusLabel(status, hasMoments) {
+    if (hasMoments) return 'Moments ready';
+    if (status === 'transcribed') return 'Transcribed';
+    return 'New';
+}
+
+async function openVideo(stem, filename, status, hasMoments, card) {
+    if (status === 'new' && !CAN_TRANSCRIBE) {
+        // Degraded (schedule + posting) mode: skip transcription, go straight to the
+        // crop / format / schedule step so the raw video can still be posted.
+        window.location.href = `/static/action-board/video-crop-position.html?stem=${stem}${embParam}`;
+        return;
+    }
+    if (status === 'new') {
+        // A14: transcription runs as a BACKGROUND JOB — a big video 504'd the old
+        // held-open request while the job actually succeeded. Kick /start, then
+        // poll every 5s. The UI states are unchanged ("Transcribing…" → nav).
+        const action = card.querySelector('.video-action');
+        action.textContent = 'Transcribing...';
+        action.style.opacity = '0.6';
+        try {
+            const start = await fetch('/api/video/transcribe/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename }),
+            });
+            const sd = await start.json().catch(() => ({}));
+            if (!start.ok || !sd.job_id) {
+                action.textContent = 'Failed';
+                action.style.color = '#ff7070';
+                console.error('Transcription start failed:', sd);
+                return;
+            }
+            // #4: show the live PHASE instead of a static "Transcribing…" — a
+            // multi-minute mesh transfer looked identical to a hang before this.
+            const job = await pollVideoJob(sd.job_id, 5000, (phase) => {
+                const label = PHASE_LABELS[phase];
+                if (label) action.textContent = label;
+            });
+            if (job.state === 'done') {
+                action.textContent = 'Done';
+                window.location.href = `/static/action-board/video-transcript-editor.html?stem=${stem}${embParam}`;
+            } else {
+                action.textContent = 'Failed';
+                action.style.color = '#ff7070';
+                console.error('Transcription failed:', job.error || job);
+            }
+        } catch(e) {
+            action.textContent = 'Error';
+            console.error(e);
+        }
+        return;
+    }
+
+    // Navigate to the appropriate pipeline step
+    let url;
+    if (hasMoments) {
+        url = `/static/action-board/video-moments-review.html?stem=${stem}${embParam}`;
+    } else {
+        url = `/static/action-board/video-transcript-editor.html?stem=${stem}${embParam}`;
+    }
+    window.location.href = url;
+}
+
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// #4: friendly labels for the coarse job phase (phases only, no percent bars).
+const PHASE_LABELS = {
+    queued: 'Queued…', transferring: 'Transferring…', transcribing: 'Transcribing…',
+    analyzing: 'Analyzing…', rendering: 'Rendering…',
+};
+
+// A14: poll a background video job until it finishes. Resolves with the final
+// job object ({state, phase, result, error, ...}). Polls every 5s; state stays
+// 'running' on transient fetch errors so a blip doesn't abort a long job.
+// onPhase(phase) (optional, #4) fires each cycle so the UI can name what the job
+// is doing right now instead of a bare spinner.
+async function pollVideoJob(jobId, intervalMs = 5000, onPhase = null) {
+    while (true) {
+        await new Promise(r => setTimeout(r, intervalMs));
+        try {
+            const r = await fetch('/api/video/jobs/' + jobId);
+            if (!r.ok) continue;
+            const j = await r.json();
+            if (onPhase && j.phase) { try { onPhase(j.phase); } catch (e) {} }
+            if (j.state === 'done' || j.state === 'failed') return j;
+        } catch (e) { /* transient — keep polling */ }
+    }
+}
+
+init();
+</script>
+</body>
+</html>

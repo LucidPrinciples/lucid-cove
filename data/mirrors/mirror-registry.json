@@ -1,0 +1,37 @@
+{
+  "mirrors": [
+    {
+      "id": "scripture-tpt",
+      "name": "Scripture — The Passion Translation",
+      "description": "Biblical passages from The Passion Translation mapped to Lucid Principles tuning combinations. Each passage selected for resonance with the principle's teaching, frequency, and signal character.",
+      "type": "text",
+      "canon": "Bible (The Passion Translation)",
+      "curator": "Jeff Garriotte",
+      "default": true,
+      "content_file": "scripture-tpt.yaml",
+      "icon": "book"
+    },
+    {
+      "id": "music-mirror",
+      "name": "Music Mirror",
+      "description": "Popular songs mapped to Lucid Principles through shared lyrical resonance. Each song carries a frequency — the music mirror reflects your tuning through songs you already know.",
+      "type": "music",
+      "canon": "Popular Music",
+      "curator": "Lucid Tuner",
+      "default": true,
+      "content_file": "music-mirror.yaml",
+      "icon": "music"
+    },
+    {
+      "id": "tao-mirror",
+      "name": "Tao Te Ching",
+      "description": "Ancient wisdom from Lao Tzu mapped to Lucid Principles. The Tao speaks to the same territory — pattern recognition, non-attachment, alignment with the flow of reality.",
+      "type": "text",
+      "canon": "Tao Te Ching (Lao Tzu)",
+      "curator": "Lucid Tuner",
+      "default": false,
+      "content_file": "tao-mirror.yaml",
+      "icon": "book"
+    }
+  ]
+}

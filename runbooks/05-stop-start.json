@@ -1,0 +1,24 @@
+{
+  "id": "stop-start-cove",
+  "num": 5,
+  "title": "Stop / start your Cove",
+  "when": "You need to take the Cove offline or bring it back up.",
+  "category": "ops",
+  "audience": "steward",
+  "description": "Stop leaves your data intact (volumes persist). 'down -v' DELETES your data \u2014 don't use it unless you mean to wipe the Cove. Run from your Cove's folder.",
+  "steps": [
+    {
+      "label": "Stop (keeps data)",
+      "command": "docker compose stop"
+    },
+    {
+      "label": "Start again",
+      "command": "docker compose up -d"
+    },
+    {
+      "label": "Stop + remove containers (keeps data)",
+      "command": "docker compose down",
+      "note": "Volumes persist. Your data is safe."
+    }
+  ]
+}

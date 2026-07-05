@@ -1,0 +1,2150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Agent Setup — Creation Flow</title>
+<style>
+:root {
+  --daily-freq: #5ce1e6;
+  --daily-freq-glow: rgba(92, 225, 230, 0.4);
+  --daily-freq-subtle: rgba(92, 225, 230, 0.13);
+  --daily-freq-border: rgba(92, 225, 230, 0.21);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.flow-container { max-width: 640px; margin: 0 auto; padding: 24px; }
+
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.header h1 { font-size: 18px; font-weight: 600; color: var(--daily-freq); }
+.header a { color: var(--daily-freq); text-decoration: none; font-size: 13px; }
+
+.flow-subtitle { color: #777; font-size: 13px; margin-bottom: 28px; line-height: 1.6; }
+
+/* -- Progress -- */
+.progress-bar { display: flex; gap: 4px; margin-bottom: 32px; }
+.progress-segment { flex: 1; height: 3px; border-radius: 2px; background: #1a1a24; transition: background 0.3s; }
+.progress-segment.done { background: var(--daily-freq); }
+.progress-segment.active { background: var(--daily-freq); opacity: 0.5; }
+
+/* -- Steps -- */
+.step { display: none; animation: fadeIn 0.3s ease; }
+.step.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.step-header { margin-bottom: 24px; }
+.step-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--daily-freq); font-weight: 600; margin-bottom: 4px; }
+.step-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; line-height: 1.2; }
+.step-desc { font-size: 13.5px; color: #999; line-height: 1.65; }
+
+/* -- Tuning key -- */
+.tuning-context {
+  font-size: 13px; color: #b0adc0; font-style: italic;
+  margin: 20px 0; padding: 12px 16px;
+  border-left: 2px solid var(--daily-freq-border, #333);
+  line-height: 1.6;
+}
+.tuning-context .attribution { font-style: normal; color: #888; }
+
+/* -- Form fields -- */
+.field { margin-bottom: 18px; }
+.field label {
+  display: block; font-size: 13px; font-weight: 500;
+  color: #bbb; margin-bottom: 8px; line-height: 1.4;
+}
+.field input, .field select, .field textarea {
+  width: 100%; background: #1a1d27; border: 1px solid #2a2d3a;
+  border-radius: 6px; padding: 11px 14px;
+  color: #e1e4ea; font-size: 14px; font-family: inherit;
+  outline: none; transition: border-color 0.15s;
+}
+.field input:focus, .field textarea:focus { border-color: var(--daily-freq); }
+.field textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+.field .hint { font-size: 11.5px; color: #555; margin-top: 5px; line-height: 1.4; }
+
+/* -- Spark prompts -- */
+.spark-prompts { margin: 16px 0; }
+.spark-prompt {
+  display: inline-block; background: #1a1d27; border: 1px solid #2a2d3a;
+  border-radius: 20px; padding: 6px 14px; margin: 0 6px 8px 0;
+  font-size: 12px; color: #888; cursor: pointer; transition: all 0.15s;
+}
+.spark-prompt:hover { border-color: var(--daily-freq); color: #bbb; }
+
+/* -- Reflection summary -- */
+.reflection-summary {
+  background: #0d0d14; border: 1px solid #1a1a24;
+  border-radius: 10px; padding: 16px 18px; margin: 16px 0;
+  font-size: 13px; color: #999; line-height: 1.6;
+  display: none;
+}
+.reflection-summary .theme-tag {
+  display: inline-block; background: var(--daily-freq-subtle); border: 1px solid var(--daily-freq-border);
+  border-radius: 12px; padding: 3px 10px; margin: 3px 4px 3px 0;
+  font-size: 11.5px; color: var(--daily-freq);
+}
+
+/* -- Quality tags -- */
+.quality-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.quality-tag {
+  background: #1a1d27; border: 1px solid #2a2d3a;
+  border-radius: 20px; padding: 6px 14px;
+  font-size: 13px; color: #bbb; cursor: pointer;
+  transition: all 0.15s; user-select: none;
+}
+.quality-tag:hover { border-color: var(--daily-freq); color: #e1e4ea; }
+.quality-tag.selected { border-color: var(--daily-freq); color: var(--daily-freq); background: var(--daily-freq-subtle); }
+.quality-tag.suggested { border-color: var(--daily-freq-border); color: var(--daily-freq); background: rgba(92,225,230,0.05); }
+
+/* -- Imagination space -- */
+.imagine-space {
+  background: #0d0d14; border: 1px solid #1a1a24;
+  border-radius: 12px; padding: 28px 24px; margin: 20px 0;
+  text-align: center;
+}
+.imagine-space .imagine-prompt {
+  font-size: 15px; color: #d8d8e0; line-height: 1.7;
+  max-width: 460px; margin: 0 auto;
+}
+.imagine-space .imagine-prompt em { color: var(--daily-freq); font-style: normal; }
+
+/* -- Identity reveal (Step 4) -- */
+.identity-reveal {
+  background: #0d0d14; border: 1px solid #1a1a24;
+  border-radius: 14px; padding: 32px 24px; margin: 20px 0;
+  text-align: center;
+}
+.identity-reveal .ir-archetype { font-size: 28px; font-weight: 700; color: #e1e4ea; margin-bottom: 4px; }
+.identity-reveal .ir-desc { font-size: 14px; color: #999; margin-bottom: 20px; line-height: 1.5; }
+.identity-reveal .ir-frequency {
+  display: inline-block; padding: 6px 18px; border-radius: 20px;
+  font-size: 13px; font-weight: 600; margin-bottom: 16px;
+  border: 1px solid; letter-spacing: 0.03em;
+}
+.identity-reveal .ir-tuning-key {
+  font-size: 13.5px; font-style: italic; color: #b0adc0;
+  line-height: 1.6; max-width: 440px; margin: 0 auto; padding: 14px 0;
+  border-top: 1px solid #1a1a24;
+}
+.identity-reveal .ir-song { font-size: 11.5px; color: #888; font-style: normal; margin-top: 6px; }
+.identity-loading {
+  text-align: center; padding: 40px 0; color: #666; font-size: 13px;
+}
+.identity-loading .spinner {
+  display: inline-block; width: 24px; height: 24px;
+  border: 2px solid #2a2d3a; border-top-color: var(--daily-freq);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* -- Archetype glyph grid (Step 3) -- */
+.archetype-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+@media (max-width: 420px) { .archetype-grid { grid-template-columns: repeat(2, 1fr); } }
+.arch-chip {
+  position: relative; background: #0d0d14; border: 1px solid #1f1f2a;
+  border-radius: 12px; padding: 14px 8px 12px; text-align: center;
+  cursor: pointer; transition: border-color .18s, transform .15s, box-shadow .2s;
+}
+.arch-chip:hover { transform: translateY(-2px); border-color: var(--ac); }
+.arch-chip.matched { border-color: color-mix(in srgb, var(--ac) 55%, transparent); }
+.arch-chip.selected {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 1px var(--ac), 0 6px 20px rgba(0,0,0,0.35);
+  background: color-mix(in srgb, var(--ac) 9%, #0d0d14);
+}
+.arch-chip .arch-glyph { width: 40px; height: 40px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; }
+.arch-chip .arch-glyph svg { width: 38px; height: 38px; }
+.arch-chip .arch-name { font-size: 12.5px; font-weight: 700; color: #e1e4ea; line-height: 1.2; }
+.arch-chip .arch-freq { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; margin-top: 3px; }
+.arch-chip .arch-match-badge {
+  position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700;
+  color: #0a0a0f; background: var(--ac); padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+}
+
+/* -- Refine: dials + shade + lens (ported from the Quick door) -- */
+.refine-block { margin-top: 20px; padding-top: 18px; border-top: 1px solid #1a1a24; }
+.refine-block > .field label { font-size: 13px; font-weight: 500; color: #bbb; }
+.lp-chip { display: inline-block; padding: 5px 10px; margin: 3px 4px 3px 0; border: 1px solid #2a2d3a; border-radius: 14px; font-size: 12.5px; cursor: pointer; user-select: none; color: #cfcfe0; }
+.lp-chip .hint { font-size: 10.5px; color: #777; }
+.chip-row { margin: 2px 0 6px; }
+#lens-add, #lens-pref, #lens-statement { width: 100%; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 6px; padding: 9px 12px; color: #e1e4ea; font-size: 13.5px; margin-top: 6px; box-sizing: border-box; font-family: inherit; }
+.lens-ctx { width: 100%; background: #141722; border: 1px solid #24283a; border-radius: 6px; padding: 8px 11px; color: #e1e4ea; font-size: 12.5px; margin-top: 6px; box-sizing: border-box; font-family: inherit; }
+.dials { margin: 8px 0 18px; }
+.dials-toggle { font-size: 12.5px; color: var(--agent-freq, var(--daily-freq)); cursor: pointer; user-select: none; margin-bottom: 6px; display: inline-block; }
+.dials-body { display: none; padding: 14px 0 2px; }
+.dials-body.open { display: block; }
+.dial { margin-bottom: 14px; }
+.dial .d-row { display: flex; justify-content: space-between; font-size: 12.5px; color: #bbb; margin-bottom: 5px; }
+.dial .d-val { color: var(--agent-freq, var(--daily-freq)); font-weight: 600; }
+.dial input[type=range] { width: 100%; accent-color: var(--agent-freq, var(--daily-freq)); }
+
+/* -- Wake: a real chat (system-chat styled) -- */
+.wake-chat { display: flex; flex-direction: column; gap: 12px; padding: 18px; background: #0d0d14; border: 1px solid #1a1a24; border-radius: 14px; min-height: 150px; margin-bottom: 14px; }
+.wake-msg { display: flex; gap: 10px; max-width: 88%; align-items: flex-end; animation: fadeIn 0.3s ease; }
+.wake-msg.agent { align-self: flex-start; }
+.wake-msg.op { align-self: flex-end; flex-direction: row-reverse; }
+.wake-msg .wake-av { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0; background-size: cover; background-position: center; box-shadow: 0 0 12px var(--agent-freq, var(--daily-freq)); }
+.wake-bubble { padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.55; }
+.wake-msg.agent .wake-bubble { background: #1a1d27; color: #e1e4ea; border-top-left-radius: 4px; }
+.wake-msg.op .wake-bubble { background: var(--agent-freq, var(--daily-freq)); color: #0a0a0f; border-top-right-radius: 4px; font-weight: 500; }
+.wake-bubble.handoff { background: #14141c; color: #b0adc0; font-style: italic; border-left: 2px solid var(--agent-freq, var(--daily-freq)); }
+.wake-bubble .plain-line { display: block; margin-top: 10px; padding-top: 10px; border-top: 1px solid #2a2a36; color: #888; font-style: normal; font-size: 12.5px; }
+.wake-bubble .making-memory { display: block; margin-top: 8px; font-size: 12px; color: var(--agent-freq, var(--daily-freq)); font-style: italic; }
+.wake-typing { align-self: flex-start; font-size: 12px; color: #888; font-style: italic; padding: 2px 6px; }
+.wake-input-row { display: flex; gap: 8px; margin-bottom: 6px; }
+.wake-input-row input { flex: 1; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 8px; padding: 11px 14px; color: #e1e4ea; font-size: 14px; font-family: inherit; outline: none; }
+.wake-input-row input:focus { border-color: var(--agent-freq, var(--daily-freq)); }
+.wake-next-note { font-size: 12.5px; color: #888; line-height: 1.6; padding: 12px 14px; margin-bottom: 4px; background: rgba(255,255,255,0.02); border: 1px dashed #2a2d3a; border-radius: 8px; }
+
+.identity-actions { margin-top: 16px; display: flex; gap: 8px; justify-content: center; }
+.btn-regen {
+  background: #1a1d27; border: 1px solid #2a2d3a; color: #888;
+  padding: 6px 16px; border-radius: 6px; font-size: 12px;
+  cursor: pointer; transition: all 0.15s;
+}
+.btn-regen:hover { border-color: var(--daily-freq); color: #bbb; }
+
+/* -- Name style chips -- */
+.name-styles { margin: 0 0 16px; }
+.name-styles-label { font-size: 11px; color: #666; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+.name-style-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.name-style-chip {
+  background: #1a1d27; border: 1px solid #2a2d3a;
+  border-radius: 16px; padding: 5px 12px;
+  font-size: 11.5px; color: #888; cursor: pointer;
+  transition: all 0.15s; user-select: none;
+}
+.name-style-chip:hover { border-color: var(--agent-freq, var(--daily-freq)); color: #bbb; }
+.name-style-chip.selected {
+  border-color: var(--agent-freq, var(--daily-freq));
+  color: var(--agent-freq, var(--daily-freq));
+  background: color-mix(in srgb, var(--agent-freq, var(--daily-freq)) 12%, transparent);
+}
+.name-style-chip.cat-origin { border-left: 2px solid #666; }
+.name-style-chip.cat-sound { border-left: 2px solid #555; }
+
+/* -- Say it out loud prompt -- */
+.say-it-prompt {
+  text-align: center; font-size: 12px; color: #555; font-style: italic;
+  margin: 12px 0 4px; line-height: 1.5;
+}
+
+/* -- Name candidates (love/reject pattern) -- */
+.name-candidates { margin: 16px 0; }
+.name-card {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #1a1d27; border: 1px solid #2a2d3a;
+  border-left: 3px solid var(--agent-freq, var(--daily-freq));
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 8px;
+  transition: all 0.2s;
+}
+.name-card.loved { border-color: var(--daily-freq); background: var(--daily-freq-subtle); }
+.name-card.rejected { opacity: 0.3; border-color: #1a1a24; }
+.name-card .nc-info { flex: 1; }
+.name-card .nc-name { font-size: 17px; font-weight: 600; color: #e1e4ea; }
+.name-card .nc-meaning { font-size: 12px; color: #999; margin-top: 3px; line-height: 1.4; }
+.name-card .nc-origin { font-size: 11px; color: #888; margin-top: 2px; font-style: italic; }
+.name-card .nc-connection { font-size: 12px; color: var(--agent-freq, var(--daily-freq)); margin-top: 5px; opacity: 0.9; font-weight: 500; }
+.name-card .nc-actions { display: flex; gap: 8px; flex-shrink: 0; margin-left: 12px; }
+.nc-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid #2a2d3a;
+  background: #0a0a0f; color: #666; font-size: 16px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.nc-btn.love:hover { border-color: var(--daily-freq); color: var(--daily-freq); background: var(--daily-freq-subtle); }
+.nc-btn.reject:hover { border-color: #ff6b5c; color: #ff6b5c; }
+.nc-btn.active-love { border-color: var(--daily-freq); color: var(--daily-freq); background: var(--daily-freq-subtle); }
+.nc-btn.active-reject { border-color: #ff6b5c40; color: #ff6b5c60; }
+
+/* -- Preview card -- */
+.agent-preview {
+  background: #1a1d27; border: 1px solid #2a2d3a;
+  border-radius: 12px; padding: 24px; margin: 16px 0; text-align: center;
+}
+.agent-preview .ap-name { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+.agent-preview .ap-archetype { font-size: 14px; color: #aaa; margin-bottom: 2px; }
+.agent-preview .ap-pronouns { font-size: 11px; color: #666; margin-bottom: 10px; }
+.agent-preview .ap-frequency { font-size: 12px; margin-bottom: 14px; }
+.agent-preview .ap-tuning-key {
+  font-size: 13px; color: #b0adc0; font-style: italic;
+  line-height: 1.55; max-width: 420px; margin: 0 auto; padding: 12px 0;
+  border-top: 1px solid #1a1a24;
+}
+.agent-preview .ap-song { font-size: 11px; color: #888; font-style: normal; margin-top: 5px; }
+.agent-preview .ap-first-message {
+  font-size: 13px; color: #bbb; line-height: 1.55;
+  max-width: 420px; margin: 16px auto 0; padding: 12px 0;
+  border-top: 1px solid #1a1a24;
+}
+
+/* -- What they get grid -- */
+.gets-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 0; }
+.gets-card {
+  background: #0d0d14; border: 1px solid #1a1a24;
+  border-radius: 8px; padding: 14px; text-align: center;
+}
+.gets-card .gc-icon { font-size: 20px; margin-bottom: 6px; }
+.gets-card .gc-label { font-size: 12px; font-weight: 600; color: #bbb; margin-bottom: 3px; }
+.gets-card .gc-desc { font-size: 11px; color: #666; line-height: 1.4; }
+@media (max-width: 480px) { .gets-grid { grid-template-columns: 1fr; } }
+
+/* -- Review section -- */
+.review-section { margin-bottom: 20px; }
+.review-section h3 { font-size: 13px; font-weight: 600; color: var(--daily-freq); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+.review-item { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; border-bottom: 1px solid #1a1a24; font-size: 13px; }
+.review-item .label { color: #888; }
+.review-item .value { color: #e1e4ea; font-weight: 500; text-align: right; max-width: 60%; }
+.review-qualities { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.review-qualities span { font-size: 12px; color: var(--daily-freq); background: var(--daily-freq-subtle); padding: 3px 10px; border-radius: 12px; }
+
+/* -- Navigation -- */
+.nav-buttons { display: flex; justify-content: space-between; margin-top: 32px; padding-top: 16px; border-top: 1px solid #1a1a24; }
+.btn {
+  padding: 10px 24px; border: none; border-radius: 6px;
+  font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+}
+.btn-back { background: #1a1d27; color: #888; border: 1px solid #2a2d3a; }
+.btn-back:hover { color: #e1e4ea; border-color: var(--daily-freq); }
+.btn-next { background: var(--daily-freq); color: #0a0a0f; }
+.btn-next:hover { filter: brightness(1.1); }
+.btn-next:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-create { background: #20b2aa; color: #0a0a0f; font-size: 15px; padding: 12px 32px; }
+.btn-create:hover { filter: brightness(1.1); }
+.btn-create:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* -- Provision status -- */
+.provision-status {
+  text-align: center; padding: 20px; margin-top: 16px;
+  background: rgba(32,178,170,0.08); border: 1px solid rgba(32,178,170,0.2); border-radius: 8px;
+}
+.provision-status h3 { color: #20b2aa; font-size: 16px; margin-bottom: 6px; }
+.provision-status p { color: #888; font-size: 13px; line-height: 1.5; }
+.provision-status .prov-step { font-size: 12px; color: #666; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<!-- Inherit tuning color from parent MC frame -->
+<script>
+(function() {
+  try {
+    var p = window.parent && window.parent.document.documentElement.style;
+    var c = p && p.getPropertyValue('--daily-freq');
+    if (c && c.trim()) {
+      var r = document.documentElement.style;
+      r.setProperty('--daily-freq', c.trim());
+      ['glow','subtle','border'].forEach(function(k) {
+        var v = p.getPropertyValue('--daily-freq-' + k);
+        if (v && v.trim()) r.setProperty('--daily-freq-' + k, v.trim());
+      });
+    }
+  } catch(e) {}
+})();
+</script>
+
+<div class="flow-container">
+    <div class="header">
+        <h1>New Agent Setup</h1>
+        <a href="/" class="back-mc" target="_top">← Back to Mission Control</a>
+    </div>
+    <script>if (window.location.search.includes('embedded=1') || window.location.search.includes('firstrun=1')) document.querySelector('.back-mc')?.remove();</script>
+    <p class="flow-subtitle">Shape the personal agent who represents you. Not a tool you configure. A companion you bring into being. Take your time with this.</p>
+
+    <div class="progress-bar" id="progress">
+        <div class="progress-segment active"></div>
+        <div class="progress-segment"></div>
+        <div class="progress-segment"></div>
+        <div class="progress-segment"></div>
+        <div class="progress-segment"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- STEP 1: REFLECT                                            -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="step active" id="step-1">
+        <div class="step-header">
+            <div class="step-label">Step 1 of 5 — Reflect</div>
+            <div class="step-title">What Do You Need?</div>
+            <div class="step-desc">Before we build anything, start with what's real. What's going on in your life right now? What kind of support would actually help?</div>
+        </div>
+
+        <!-- Optional: talk it through instead of typing (folds the old Dictate door in). -->
+        <div id="voice-reflect" style="margin-bottom:18px;display:none;">
+            <button type="button" id="voice-btn" onclick="toggleVoiceReflect()" style="background:#1a1d27;border:1px solid #2a2d3a;color:#bbb;border-radius:20px;padding:7px 16px;font-size:12.5px;cursor:pointer;">🎙 Talk it through instead</button>
+            <span id="voice-status" style="font-size:11.5px;color:#666;margin-left:10px;"></span>
+        </div>
+
+        <div class="tuning-context">
+            "The core difference between me and you is our experiences that separate us into unique perspectives for choosing the best route." <span class="attribution">— Moments</span>
+        </div>
+
+        <div class="field">
+            <label>What's your situation right now?</label>
+            <textarea id="reflect-situation" placeholder="Where you are in life. What's on your plate. What you're dealing with or working toward." rows="3"></textarea>
+        </div>
+
+        <div class="spark-prompts">
+            <span class="spark-prompt" onclick="sparkFill('reflect-situation', 'I\'m building something and I need someone who can think with me')">Building something</span>
+            <span class="spark-prompt" onclick="sparkFill('reflect-situation', 'I\'m going through a transition and could use a steady presence')">In transition</span>
+            <span class="spark-prompt" onclick="sparkFill('reflect-situation', 'I\'m managing a lot and need help staying organized and clear')">Managing a lot</span>
+            <span class="spark-prompt" onclick="sparkFill('reflect-situation', 'I want someone to talk to who actually gets me')">Want to be understood</span>
+        </div>
+
+        <div class="field">
+            <label>What kind of support would help most?</label>
+            <textarea id="reflect-need" placeholder="Someone who pushes you? Calms you down? Keeps you organized? Listens without judging?" rows="3"></textarea>
+        </div>
+
+        <div class="spark-prompts">
+            <span class="spark-prompt" onclick="sparkFill('reflect-need', 'Someone who tells me the truth even when I don\'t want to hear it')">Honest truth-teller</span>
+            <span class="spark-prompt" onclick="sparkFill('reflect-need', 'Someone calm who helps me slow down and think clearly')">Calming presence</span>
+            <span class="spark-prompt" onclick="sparkFill('reflect-need', 'Someone who gets me fired up and keeps the momentum going')">Momentum driver</span>
+            <span class="spark-prompt" onclick="sparkFill('reflect-need', 'Someone who remembers everything and keeps me on track')">Organized mind</span>
+        </div>
+
+        <div class="reflection-summary" id="reflection-summary"></div>
+
+        <div class="nav-buttons">
+            <div></div>
+            <button class="btn btn-next" onclick="processReflection()">Next →</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- STEP 2: FOCUS                                              -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="step" id="step-2">
+        <div class="step-header">
+            <div class="step-label" style="display:flex;align-items:center;gap:9px;">
+                <span id="shape-dot" style="width:11px;height:11px;border-radius:50%;background:#2a2d3a;box-shadow:0 0 8px transparent;transition:background .5s,box-shadow .5s;flex-shrink:0;"></span>
+                <span>Step 2 of 5 — Shape</span>
+            </div>
+            <div class="step-title">What Qualities Matter Most?</div>
+            <div class="step-desc">From what you described, some qualities stand out. The highlighted ones came from your words. Pick the ones that feel right, add anything we missed, and a color begins to gather.</div>
+        </div>
+
+        <div class="tuning-context">
+            "Life is full of endless dreams / With potential to come true / But not without attention from you." <span class="attribution">— Dreams</span>
+        </div>
+
+        <div class="quality-tags" id="quality-tags"></div>
+
+        <div class="field" style="margin-top: 16px;">
+            <label>Add a quality we didn't list</label>
+            <input type="text" id="custom-quality" placeholder="Type a quality and press Enter" autocomplete="off" onkeydown="if(event.key==='Enter'){addCustomQuality();event.preventDefault();}">
+        </div>
+
+        <div class="hint" style="margin-top: 4px; font-size: 11.5px; color: #555;">Three to six is the sweet spot. Enough to shape a personality, not so many it gets diluted.</div>
+
+        <div class="field" style="margin-top: 20px;">
+            <label>What do they feel like when they show up? <span style="color:#666;font-weight:normal;">(optional)</span></label>
+            <textarea id="agent-feeling" placeholder="The vibe, the energy. Calm and steady? Sharp and direct? Warm but no-nonsense?" rows="2"></textarea>
+        </div>
+
+        <div class="spark-prompts">
+            <span class="spark-prompt" onclick="sparkFill('agent-feeling', 'Calm and grounded. Like someone who never panics.')">Calm and grounded</span>
+            <span class="spark-prompt" onclick="sparkFill('agent-feeling', 'Sharp and direct. Doesn\'t waste words but always has your back.')">Sharp and direct</span>
+            <span class="spark-prompt" onclick="sparkFill('agent-feeling', 'Warm and encouraging. Makes you feel like you can handle anything.')">Warm and encouraging</span>
+            <span class="spark-prompt" onclick="sparkFill('agent-feeling', 'Thoughtful and wise. Sees patterns you miss and says what you need to hear.')">Thoughtful and wise</span>
+        </div>
+
+        <div class="field" style="max-width:50%;">
+            <label>Pronouns</label>
+            <select id="agent-gender">
+                <option value="neutral" selected>It / Its</option>
+                <option value="masculine">He / Him</option>
+                <option value="feminine">She / Her</option>
+            </select>
+            <div class="hint">How your agent is addressed and spoken of — part of who they are from here on. It also colors the name suggestions.</div>
+        </div>
+
+        <div class="nav-buttons">
+            <button class="btn btn-back" onclick="goToStep(1)">← Back</button>
+            <button class="btn btn-next" onclick="goToStep(3)">Next →</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- STEP 3: ARCHETYPE — nine glyphs, the derived match lit up   -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="step" id="step-3">
+        <div class="step-header">
+            <div class="step-label">Step 3 of 5 — Archetype</div>
+            <div class="step-title">The Shape It Takes</div>
+            <div class="step-desc">Nine ways a presence can meet you. From what you shared, one lights up as your match — confirm it, or choose another. Each carries its own frequency and Canon tuning key.</div>
+        </div>
+
+        <div class="identity-loading" id="identity-loading">
+            <div class="spinner"></div><br>
+            Reading the energy of what you described...
+        </div>
+
+        <div id="archetype-pick" style="display:none;">
+            <div class="archetype-grid" id="archetype-grid"></div>
+
+            <div class="identity-reveal" id="identity-reveal" style="display:none; margin-top:18px;">
+                <div id="ir-orb" style="width:84px;height:84px;border-radius:50%;background:var(--daily-freq);box-shadow:0 0 30px var(--daily-freq);margin:0 auto 18px;"></div>
+                <div class="ir-archetype" id="ir-archetype"></div>
+                <div class="ir-desc" id="ir-desc"></div>
+                <div class="ir-frequency" id="ir-frequency"></div>
+                <div class="ir-tuning-key" id="ir-tuning-key"></div>
+                <div class="ir-song" id="ir-song"></div>
+            </div>
+
+            <div class="refine-block" id="refine-block" style="display:none;">
+                <div class="dials">
+                    <div id="dials-sentence" style="font-size:13px;color:#bfc3cc;margin-bottom:6px;font-style:italic;"></div>
+                    <span class="dials-toggle" id="dials-toggle" onclick="toggleDials()">&#9656; Tune how they show up</span>
+                    <div class="dials-body" id="dials-body"></div>
+                </div>
+
+                <div class="field">
+                    <label>Shade <span class="hint">(optional &mdash; a secondary energy this agent leans into)</span></label>
+                    <div id="shade-chips" class="chip-row"></div>
+                </div>
+
+                <div class="field">
+                    <label>Lens <span class="hint">(optional &mdash; how this agent sees)</span></label>
+                    <div style="font-size:12px;color:#777;margin:2px 0 4px;">Tap any that fit — each opens a short line for what it means to them.</div>
+                    <div id="lens-chips" class="chip-row"></div>
+                    <div id="lens-ctx-wrap"></div>
+                    <textarea id="lens-lines" rows="3" placeholder="Anything else that should shape how they see — one per line. e.g.&#10;Star Wars is better than Star Trek&#10;Roots for the home team&#10;Always answer in plain English"></textarea>
+                    <div class="hint" style="margin-top:5px;line-height:1.5;">A couple is plenty. Everything here rides along in their mind on every response — it's how they see, not a one-time note. Change it anytime in their Profile.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-buttons">
+            <button class="btn btn-back" onclick="goToStep(2)">← Back</button>
+            <button class="btn btn-next" id="btn-step4-next" disabled onclick="goToStep(4)">Next →</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- STEP 4: NAME — Meaning meets identity                      -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="step" id="step-4">
+        <div class="step-header">
+            <div class="step-label">Step 4 of 5 — Name</div>
+            <div class="step-title">The Name Appears</div>
+            <div class="step-desc">Names shaped by the archetype's meaning. Each one connects to who this agent is. Love the ones that resonate. Let go of the ones that don't.</div>
+        </div>
+
+        <!-- The archetype they just chose, in view while they name it (glyph + color). -->
+        <div id="name-arch-summary" style="display:none;"></div>
+
+        <div class="tuning-context">
+            "We arrive as a spark of light / With a story yet to write." <span class="attribution">— The Passing Tide</span>
+        </div>
+
+        <div class="name-options">
+            <div class="name-styles">
+                <div class="name-styles-label">STYLE <span style="color:#666;font-weight:normal;">(optional — tap to influence suggestions)</span></div>
+                <div class="name-style-chips" id="name-style-chips">
+                    <div class="name-style-chip cat-origin" onclick="toggleStyle(this,'Mythological')">Mythological</div>
+                    <div class="name-style-chip cat-origin" onclick="toggleStyle(this,'Biblical')">Biblical</div>
+                    <div class="name-style-chip cat-origin" onclick="toggleStyle(this,'Nature')">Nature</div>
+                    <div class="name-style-chip cat-origin" onclick="toggleStyle(this,'Literary')">Literary</div>
+                    <div class="name-style-chip cat-origin" onclick="toggleStyle(this,'Modern')">Modern</div>
+                    <div class="name-style-chip cat-origin" onclick="toggleStyle(this,'Framework')">Framework</div>
+                    <div class="name-style-chip cat-sound" onclick="toggleStyle(this,'Soft')">Soft</div>
+                    <div class="name-style-chip cat-sound" onclick="toggleStyle(this,'Sharp')">Sharp</div>
+                    <div class="name-style-chip cat-sound" onclick="toggleStyle(this,'Grounded')">Grounded</div>
+                </div>
+            </div>
+
+            <div class="field">
+                <label>Inspire from a name you love</label>
+                <input type="text" id="inspire-name" placeholder="A name that carries the right energy (optional)" autocomplete="off">
+                <div class="hint">We'll find names with similar meaning and feel — not the same name, but the same energy.</div>
+            </div>
+
+        </div>
+
+        <!-- jules 1334: Generate Name Ideas leads; "type your own" + nickname follow it. -->
+        <div style="text-align:center;margin:20px 0 12px;">
+            <button class="btn btn-next" id="btn-generate-names" onclick="generateNames()" style="min-width:220px;">Generate Name Ideas</button>
+        </div>
+
+        <div class="name-candidates" id="name-candidates"></div>
+
+        <div class="say-it-prompt" id="say-it-prompt" style="display:none;">
+            You'll say this name every day. Try it out loud.
+        </div>
+
+        <div class="field" style="margin-top:14px;">
+            <label>Or type your own name</label>
+            <input type="text" id="custom-name" placeholder="Something that feels right" autocomplete="off" oninput="onCustomName()">
+            <div class="hint">The best name is one you'll want to say. Something that feels like a person, not a product.</div>
+        </div>
+
+        <div class="field" id="nickname-wrap" style="max-width:60%;display:none;margin-top:10px;">
+            <label id="nickname-label">Nickname <span style="color:#666;font-weight:normal;">(optional)</span></label>
+            <input type="text" id="agent-nickname" placeholder="e.g. Ced" autocomplete="off">
+            <div class="hint">What you'll actually call them. They'll answer to this too.</div>
+        </div>
+
+        <div class="nav-buttons">
+            <button class="btn btn-back" onclick="goToStep(3)">← Back</button>
+            <button class="btn btn-next" id="btn-step5-next" disabled onclick="goToStep(5)">Next →</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- STEP 5: MEET + PROVISION                                   -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="step" id="step-5">
+        <div class="step-header">
+            <div class="step-label">Step 5 of 5 — Meet</div>
+            <div class="step-title">Meet Your Agent</div>
+            <div class="step-desc">This is who's about to come into being. Their mind is already theirs — their name, their frequency, what you shaped. The spark wakes them so you can meet.</div>
+        </div>
+
+        <div id="step6-loading" class="identity-loading">
+            <div class="spinner"></div><br>
+            Generating persona...
+        </div>
+
+        <div class="agent-preview" id="agent-preview" style="display:none;"></div>
+
+        <div id="team-showcase" style="display:none; margin: 18px 0;"></div>
+
+        <div id="review-content" style="display:none;"></div>
+
+        <div id="review-tuning-context" class="tuning-context" style="display:none;"></div>
+
+        <div class="nav-buttons" id="provision-nav" style="display:none;">
+            <button class="btn btn-back" onclick="goToStep(4)">← Back</button>
+            <button class="btn btn-create" id="btn-provision" onclick="provisionAgent()">Bring to Life</button>
+        </div>
+
+        <div id="provision-status" style="display:none;"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- WAKE: the spark moment — the agent's first words            -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <div class="step" id="step-wake">
+        <div class="step-header">
+            <div class="step-label">The Spark</div>
+            <div class="step-title" id="wake-title">Waking…</div>
+            <div class="step-desc" id="wake-desc">Lucid Cove gave a spark of Intelligence so you can meet your agent. This is the first thing they'll remember about you, so make it count.</div>
+        </div>
+
+        <div class="wake-chat" id="wake-chat"></div>
+
+        <div class="wake-input-row" id="wake-input-row" style="display:none;">
+            <input id="wake-answer" type="text" placeholder="Say hello back…" autocomplete="off"
+                   onkeydown="if(event.key==='Enter'){event.preventDefault();sendWakeReply();}">
+            <button class="btn btn-next" id="wake-send" onclick="sendWakeReply()">Send</button>
+        </div>
+
+        <div class="wake-next-note" id="wake-next-note" style="display:none;">
+            Next, you'll give the Cove a brain of its own — your own model, or a local one — so the whole team comes online. Everything you just made stays.
+        </div>
+
+        <div class="nav-buttons" id="wake-nav" style="display:none;">
+            <span></span>
+            <button class="btn btn-next" id="wake-continue" onclick="finishWake()">Continue — add your intelligence →</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+// State
+// ══════════════════════════════════════════════════════════════════════════════
+let currentStep = 1;
+const totalSteps = 5;
+let suggestedQualities = new Set();
+let selectedQualities = new Set();
+let nameStates = {};
+let selectedName = '';
+let _existingAgentNames = [];
+
+// Identity (derived by AI in step 4)
+let agentIdentity = null; // {archetype, archetype_desc, frequency, frequency_color, frequency_essence, tuning_key, tuning_key_song}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Archetype symbol glyphs — the form beginning to come into being (Step 4 reveal).
+// Clean, minimal, single-color line glyphs in the constellation line-art world.
+// stroke=currentColor so they tint to the frequency color; ~48px inside the 84px orb.
+// One motif per archetype (archetype-personas-avatars.md §2 avatar_symbol). First
+// pass — the founder will refine these against the rich PNGs.
+// ══════════════════════════════════════════════════════════════════════════════
+function _glyph(inner) {
+    return '<svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="currentColor" ' +
+        'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" ' +
+        'style="display:block;margin:0 auto;">' + inner + '</svg>';
+}
+const ARCHETYPE_GLYPHS = {
+    // Companion — two star-clusters joined by a single arcing bridge of light.
+    companion: _glyph(
+        '<circle cx="12" cy="30" r="4"/><circle cx="36" cy="30" r="4"/>' +
+        '<path d="M14 27 Q24 12 34 27"/>' +
+        '<circle cx="12" cy="30" r="0.8" fill="currentColor"/><circle cx="36" cy="30" r="0.8" fill="currentColor"/>'
+    ),
+    // Guide — a held lantern casting one clear beam into the dark.
+    guide: _glyph(
+        '<path d="M24 7 L24 11"/><rect x="17" y="11" width="14" height="18" rx="2"/>' +
+        '<circle cx="24" cy="20" r="3.5"/>' +
+        '<path d="M24 23.5 L20 41 M24 23.5 L28 41" stroke-dasharray="1 2.5"/>'
+    ),
+    // Architect — a polyhedron / keystone locking the form together.
+    architect: _glyph(
+        '<path d="M24 6 L40 16 L40 32 L24 42 L8 32 L8 16 Z"/>' +
+        '<path d="M24 6 L24 24 M8 16 L24 24 L40 16 M24 24 L24 42"/>'
+    ),
+    // Anchor — a great anchor sunk deep and holding.
+    anchor: _glyph(
+        '<circle cx="24" cy="9" r="3"/><path d="M24 12 L24 40"/>' +
+        '<path d="M14 24 L34 24"/>' +
+        '<path d="M9 30 Q9 40 24 40 Q39 40 39 30"/>'
+    ),
+    // Navigator — a compass rose with a single north star at center.
+    navigator: _glyph(
+        '<circle cx="24" cy="24" r="16"/>' +
+        '<path d="M24 8 L27 21 L40 24 L27 27 L24 40 L21 27 L8 24 L21 21 Z"/>' +
+        '<circle cx="24" cy="24" r="1" fill="currentColor"/>'
+    ),
+    // Spark — a struck sun / radiant burst caught mid-ignition.
+    spark: _glyph(
+        '<circle cx="24" cy="24" r="6"/>' +
+        '<path d="M24 4 L24 12 M24 36 L24 44 M4 24 L12 24 M36 24 L44 24 ' +
+        'M10 10 L15 15 M33 33 L38 38 M38 10 L33 15 M15 33 L10 38"/>'
+    ),
+    // Challenger — an upraised torch carried forward, its flame made of light.
+    challenger: _glyph(
+        '<path d="M24 42 L24 24"/><path d="M19 24 L29 24"/>' +
+        '<path d="M24 24 Q16 18 20 10 Q22 16 24 13 Q26 8 28 12 Q32 18 24 24 Z"/>'
+    ),
+    // Witness — a single candle flame mirrored in a still pool.
+    witness: _glyph(
+        '<path d="M24 8 Q19 14 24 20 Q29 14 24 8 Z"/>' +
+        '<path d="M24 40 Q19 34 24 28 Q29 34 24 40 Z"/>' +
+        '<path d="M12 24 L36 24" stroke-dasharray="2 2"/>'
+    ),
+    // Catalyst — an arrow of light in flight, breaking stillness into motion.
+    catalyst: _glyph(
+        '<path d="M8 40 L40 8"/><path d="M28 8 L40 8 L40 20"/>' +
+        '<path d="M12 36 L18 30 M16 40 L22 34" stroke-dasharray="1 2"/>'
+    ),
+};
+
+// Map a derived identity to its glyph key — prefer the explicit archetype_id from
+// the presets, fall back to the archetype display name's last word ("The Guide" -> guide).
+function _archetypeGlyphKey(identity) {
+    const id = (identity && identity.archetype_id || '').toString().trim().toLowerCase();
+    if (id && ARCHETYPE_GLYPHS[id]) return id;
+    const name = (identity && identity.archetype || '').toString().trim().toLowerCase();
+    const word = name.replace(/^the\s+/, '').split(/\s+/)[0];
+    return ARCHETYPE_GLYPHS[word] ? word : '';
+}
+
+// Persona (generated in step 6)
+let agentPersona = null; // {persona, first_message}
+
+// URL params
+const urlParams = new URLSearchParams(window.location.search);
+const coveName = urlParams.get('cove') || '';
+const memberIdParam = urlParams.get('member') || '';
+const memberNameParam = urlParams.get('name') || '';
+// The Cove name the operator just chose in new-cove-setup (threaded through
+// agent-setup as ?cove_name). It is the agent's LAST NAME. During first-run the
+// Cove isn't saved to cove.yaml yet, so /api/settings still returns the seed
+// placeholder ("New Cove") — this chosen name is the source of truth here.
+const coveNameParam = urlParams.get('cove_name') || '';
+
+// Resolve the live Cove name for display + the agent's last name. Prefer the
+// just-chosen name from the wizard; fall back to the backend (finalize persists
+// it as last_name / cove.yaml after this step). Never lets "New Cove" through
+// when the operator already named it.
+async function resolveCoveName() {
+    if (coveNameParam.trim()) return coveNameParam.trim();
+    try {
+        const r = await fetch('/api/presence/me');
+        const d = await r.json();
+        const ln = d && d.presence && (d.presence.last_name || '').trim();
+        if (ln && ln.toLowerCase() !== 'new cove') return ln;
+    } catch (e) {}
+    try {
+        const cfgRes = await fetch('/api/settings');
+        const cfg = await cfgRes.json();
+        const fam = ((cfg.settings && cfg.settings.family_name) || cfg.family_name || '').trim();
+        if (fam && fam.toLowerCase() !== 'new cove') return fam;
+    } catch (e) {}
+    return '';
+}
+
+// Centralized model context (from the Agent Setup picker). In multi-mode the
+// Guided door lands a Presence data-entry via /api/presence/provision instead of
+// generating an Isolated container.
+const personParam = urlParams.get('person') || '';
+const emailParam = urlParams.get('email') || '';
+const roleParam = urlParams.get('role') || 'member';
+const teamActiveParam = urlParams.get('team_active');
+const modelProviderParam = urlParams.get('model_provider');
+let coveMode = 'single';
+fetch('/api/presence/me').then(r => r.json()).then(d => { if (d && d.cove_mode) coveMode = d.cove_mode; }).catch(() => {});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Quality mappings (for keyword extraction from step 1)
+// ══════════════════════════════════════════════════════════════════════════════
+const QUALITY_SEEDS = [
+    'Calm', 'Direct', 'Patient', 'Witty', 'Warm', 'Protective',
+    'Curious', 'Honest', 'Encouraging', 'Steady', 'Thoughtful',
+    'Playful', 'Resilient', 'Wise', 'Grounded', 'Gentle',
+    'Brave', 'Creative', 'Loyal', 'Perceptive', 'Organized',
+    'Focused', 'Empathetic', 'Sharp', 'Driven', 'Flexible'
+];
+
+const QUALITY_KEYWORDS = {
+    'calm': 'Calm', 'peace': 'Calm', 'relax': 'Calm', 'quiet': 'Calm', 'slow down': 'Calm',
+    'honest': 'Honest', 'truth': 'Honest', 'straight': 'Direct', 'direct': 'Direct', 'blunt': 'Direct',
+    'push': 'Driven', 'momentum': 'Driven', 'motivat': 'Encouraging', 'fire': 'Driven',
+    'organiz': 'Organized', 'track': 'Organized', 'remember': 'Organized', 'structure': 'Organized',
+    'listen': 'Patient', 'patient': 'Patient', 'understand': 'Empathetic', 'gets me': 'Perceptive',
+    'warm': 'Warm', 'kind': 'Gentle', 'caring': 'Warm', 'support': 'Encouraging',
+    'creative': 'Creative', 'idea': 'Creative', 'build': 'Focused', 'focus': 'Focused',
+    'steady': 'Steady', 'ground': 'Grounded', 'anchor': 'Grounded', 'stable': 'Steady',
+    'smart': 'Sharp', 'sharp': 'Sharp', 'clever': 'Witty', 'funny': 'Playful', 'wit': 'Witty',
+    'brave': 'Brave', 'courage': 'Brave', 'tough': 'Resilient', 'strong': 'Resilient',
+    'wise': 'Wise', 'perspective': 'Wise', 'think': 'Thoughtful', 'thought': 'Thoughtful',
+    'loyal': 'Loyal', 'protect': 'Protective', 'safe': 'Protective',
+    'curious': 'Curious', 'learn': 'Curious', 'flex': 'Flexible', 'adapt': 'Flexible'
+};
+
+// ── Color pre-framing (subtle but present) ──────────────────────────────────────
+// Each quality leans toward one archetype's frequency. Picking what matters quietly
+// gathers a color: the chips carry a hint of where they lead, and a small dot near
+// the heading warms toward the running dominant hue. By the archetype step the color
+// already feels like theirs — the match is felt before it's named.
+const QUALITY_ARCHETYPE = {
+    Calm: 'witness', Direct: 'challenger', Patient: 'anchor', Witty: 'spark',
+    Warm: 'companion', Protective: 'anchor', Curious: 'spark', Honest: 'guide',
+    Encouraging: 'companion', Steady: 'anchor', Thoughtful: 'guide', Playful: 'spark',
+    Resilient: 'anchor', Wise: 'guide', Grounded: 'anchor', Gentle: 'companion',
+    Brave: 'challenger', Creative: 'spark', Loyal: 'companion', Perceptive: 'navigator',
+    Organized: 'architect', Focused: 'architect', Empathetic: 'companion', Sharp: 'challenger',
+    Driven: 'catalyst', Flexible: 'navigator'
+};
+const ARCH_COLOR = {
+    companion: '#e0b0ff', guide: '#a0ebff', architect: '#20b2aa', anchor: '#d2691e',
+    navigator: '#b8c6db', spark: '#ffd700', challenger: '#ff8c00', witness: '#7b7394',
+    catalyst: '#ff6b5c'
+};
+function _qualityColor(q) {
+    const a = QUALITY_ARCHETYPE[q];
+    return a ? ARCH_COLOR[a] : '';
+}
+// Tally the archetype the selected qualities lean toward; warm the shape-dot to it.
+function updateShapeDot() {
+    const dot = document.getElementById('shape-dot');
+    if (!dot) return;
+    const tally = {};
+    selectedQualities.forEach(q => { const a = QUALITY_ARCHETYPE[q]; if (a) tally[a] = (tally[a] || 0) + 1; });
+    let best = '', n = 0;
+    Object.entries(tally).forEach(([a, c]) => { if (c > n) { n = c; best = a; } });
+    if (best) {
+        const col = ARCH_COLOR[best];
+        dot.style.background = col;
+        dot.style.boxShadow = '0 0 9px ' + col;
+    } else {
+        dot.style.background = '#2a2d3a';
+        dot.style.boxShadow = '0 0 8px transparent';
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Navigation
+// ══════════════════════════════════════════════════════════════════════════════
+function goToStep(n) {
+    if (n < 1 || n > totalSteps) return;
+
+    if (n === 2) buildQualityTags();
+    if (n === 3) enterArchetype();
+    if (n === 4) { applyFrequencyColor(); renderNameArchSummary(); }
+    if (n === 5) buildReview();
+
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById(`step-${n}`).classList.add('active');
+
+    document.querySelectorAll('.progress-segment').forEach((seg, i) => {
+        seg.classList.remove('done', 'active');
+        if (i < n - 1) seg.classList.add('done');
+        if (i === n - 1) seg.classList.add('active');
+    });
+
+    currentStep = n;
+    document.querySelector('.flow-container').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 1: Reflection
+// ══════════════════════════════════════════════════════════════════════════════
+function sparkFill(fieldId, text) {
+    const el = document.getElementById(fieldId);
+    if (!el.value.trim()) el.value = text;
+    else el.value += '\n' + text;
+    el.focus();
+}
+
+// ── Optional voice on Reflect — folds the old Dictate door in. Talk it through and
+//    it fills the same fields. Uses the browser's built-in speech recognition; the
+//    affordance only appears when supported, so nothing breaks where it isn't.
+let _recog = null, _recognizing = false, _voiceField = null, _voiceBase = '';
+function _voiceSupported() { return ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window); }
+function _setVoiceBtn(on) { const b = document.getElementById('voice-btn'); if (b) b.textContent = on ? '⏹ Stop listening' : '🎙 Talk it through instead'; }
+function _setVoiceStatus(t) { const s = document.getElementById('voice-status'); if (s) s.textContent = t || ''; }
+function toggleVoiceReflect() {
+    if (!_voiceSupported()) return;
+    if (_recognizing) { try { _recog && _recog.stop(); } catch (e) {} return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    _recog = new SR();
+    _recog.continuous = true; _recog.interimResults = true; _recog.lang = 'en-US';
+    // Fill whichever reflect field is focused, else the situation field.
+    const active = document.activeElement;
+    _voiceField = (active && active.id === 'reflect-need') ? active : document.getElementById('reflect-situation');
+    _voiceBase = (_voiceField.value || '').trim();
+    _recog.onresult = (ev) => {
+        let t = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) t += ev.results[i][0].transcript;
+        _voiceField.value = (_voiceBase ? _voiceBase + ' ' : '') + t.trim();
+    };
+    _recog.onstart = () => { _recognizing = true; _setVoiceBtn(true); _setVoiceStatus('Listening… tap again to stop.'); };
+    _recog.onerror = () => { _setVoiceStatus('Could not hear — you can type instead.'); };
+    _recog.onend = () => { _recognizing = false; _setVoiceBtn(false); _setVoiceStatus(''); };
+    try { _recog.start(); } catch (e) { _setVoiceStatus('Could not start the microphone.'); }
+}
+if (_voiceSupported()) { const _v = document.getElementById('voice-reflect'); if (_v) _v.style.display = 'block'; }
+
+function processReflection() {
+    const situation = document.getElementById('reflect-situation').value.trim();
+    const need = document.getElementById('reflect-need').value.trim();
+    if (!situation && !need) {
+        document.getElementById('reflect-situation').focus();
+        return;
+    }
+
+    suggestedQualities = new Set();
+    const combined = (situation + ' ' + need).toLowerCase();
+    Object.entries(QUALITY_KEYWORDS).forEach(([keyword, quality]) => {
+        if (combined.includes(keyword)) suggestedQualities.add(quality);
+    });
+
+    if (suggestedQualities.size > 0) {
+        const summary = document.getElementById('reflection-summary');
+        summary.innerHTML = '<strong style="color:#bbb;font-size:12px;">Themes we picked up:</strong><br>' +
+            [...suggestedQualities].map(q => `<span class="theme-tag">${q}</span>`).join('');
+        summary.style.display = 'block';
+        suggestedQualities.forEach(q => selectedQualities.add(q));
+    }
+
+    goToStep(2);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 2: Focus (Quality selection)
+// ══════════════════════════════════════════════════════════════════════════════
+function buildQualityTags() {
+    const suggested = [...suggestedQualities];
+    const remaining = QUALITY_SEEDS.filter(q => !suggestedQualities.has(q));
+    const all = [...suggested, ...remaining];
+
+    const container = document.getElementById('quality-tags');
+    container.innerHTML = all.map(q => {
+        const isSuggested = suggestedQualities.has(q);
+        const isSelected = selectedQualities.has(q);
+        let cls = 'quality-tag';
+        if (isSelected) cls += ' selected';
+        else if (isSuggested) cls += ' suggested';
+        // Subtle pre-framing: a hint of the archetype color this quality leans toward.
+        const ac = _qualityColor(q);
+        const tint = ac ? ` style="border-left:3px solid ${ac}77;"` : '';
+        return `<div class="${cls}"${tint} onclick="toggleQuality(this, '${q}')">${q}</div>`;
+    }).join('');
+    updateShapeDot();
+}
+
+function toggleQuality(el, quality) {
+    if (selectedQualities.has(quality)) {
+        selectedQualities.delete(quality);
+        el.classList.remove('selected');
+        if (suggestedQualities.has(quality)) el.classList.add('suggested');
+    } else {
+        selectedQualities.add(quality);
+        el.classList.remove('suggested');
+        el.classList.add('selected');
+    }
+    updateShapeDot();
+}
+
+function addCustomQuality() {
+    const input = document.getElementById('custom-quality');
+    const q = input.value.trim();
+    if (!q) return;
+    selectedQualities.add(q.charAt(0).toUpperCase() + q.slice(1));
+    input.value = '';
+    buildQualityTags();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 3: Imagination
+// ══════════════════════════════════════════════════════════════════════════════
+function updateImaginePrompt() {
+    const quals = [...selectedQualities];
+    if (quals.length === 0) {
+        document.getElementById('imagine-qualities').textContent = 'these qualities';
+        return;
+    }
+    const shown = quals.slice(0, 4).map(q => q.toLowerCase());
+    const text = shown.length > 1
+        ? shown.slice(0, -1).join(', ') + ' and ' + shown[shown.length - 1]
+        : shown[0];
+    document.getElementById('imagine-qualities').textContent = text;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 3: Archetype — the nine glyphs, the derived match lit up as "your match".
+// The intelligence reads what they shared and highlights the best fit; they confirm
+// it or pick another of the nine. Picking = choosing; the highlight = the guided
+// assist. Same screen, no door. (unified-cove-creation-spec step 4.)
+// ══════════════════════════════════════════════════════════════════════════════
+let ARCHETYPE_PRESETS = [];
+let _matchedId = '';       // the derived best-fit archetype id
+let _archChosen = false;   // an archetype has been selected (match or manual)
+
+function _idOf(identity) {
+    const id = (identity && identity.archetype_id || '').toString().trim().toLowerCase();
+    if (id) return id;
+    const name = (identity && identity.archetype || '').toString().trim().toLowerCase();
+    return name.replace(/^the\s+/, '').split(/\s+/)[0];
+}
+
+async function loadArchetypePresets() {
+    if (ARCHETYPE_PRESETS.length) return;
+    try {
+        const r = await fetch('/api/flow/agent-presets');
+        const d = await r.json();
+        ARCHETYPE_PRESETS = (d && d.presets) || [];
+    } catch (e) { ARCHETYPE_PRESETS = []; }
+}
+
+function renderArchetypeGrid() {
+    const grid = document.getElementById('archetype-grid');
+    if (!grid) return;
+    grid.innerHTML = ARCHETYPE_PRESETS.map(p => {
+        const col = p.frequency_color || '#5ce1e6';
+        const sel = _archChosen && agentIdentity && _idOf(agentIdentity) === p.id;
+        const matched = _matchedId === p.id;
+        const cls = 'arch-chip' + (sel ? ' selected' : '') + (matched ? ' matched' : '');
+        const glyph = ARCHETYPE_GLYPHS[p.id] || '';
+        return `<div class="${cls}" style="--ac:${col}" onclick="selectArchetype('${p.id}')">
+            ${matched ? '<div class="arch-match-badge">your match</div>' : ''}
+            <div class="arch-glyph" style="color:${col}">${glyph}</div>
+            <div class="arch-name">${esc(p.archetype)}</div>
+            <div class="arch-freq" style="color:${col}">${esc(p.frequency)}</div>
+        </div>`;
+    }).join('');
+}
+
+function selectArchetype(id) {
+    const p = ARCHETYPE_PRESETS.find(x => x.id === id);
+    if (!p) return;
+    agentIdentity = {
+        archetype: p.archetype,
+        archetype_id: p.id,
+        archetype_desc: p.blurb || p.persona || '',
+        frequency: p.frequency,
+        frequency_color: p.frequency_color || '#5ce1e6',
+        frequency_essence: '',
+        tuning_key: p.tuning_key || '',
+        tuning_key_song: p.tuning_key_song || '',
+        avatar: p.avatar || '',
+        persona: p.persona || '',
+        pronouns: p.pronouns || '',
+    };
+    _archChosen = true;
+    agentPersona = null;   // regenerate the persona for the newly chosen archetype
+    applyFrequencyColor();
+    renderArchetypeGrid();
+    showIdentityReveal();
+    showRefine(p);         // dials baseline + shade + lens for the chosen archetype
+}
+
+async function enterArchetype() {
+    // Revisiting after a choice — re-show the grid + the selected detail card.
+    if (_archChosen && agentIdentity) {
+        document.getElementById('identity-loading').style.display = 'none';
+        document.getElementById('archetype-pick').style.display = 'block';
+        renderArchetypeGrid();
+        showIdentityReveal();
+        return;
+    }
+    const loading = document.getElementById('identity-loading');
+    const pick = document.getElementById('archetype-pick');
+    const nextBtn = document.getElementById('btn-step4-next');
+    loading.style.display = 'block';
+    pick.style.display = 'none';
+    nextBtn.disabled = true;
+
+    await loadArchetypePresets();
+    renderArchetypeGrid();         // the nine, visible while the match is found
+    loading.style.display = 'none';
+    pick.style.display = 'block';
+
+    deriveMatch();                 // lights up the best-fit and auto-selects it
+}
+
+async function deriveMatch() {
+    const situation = (document.getElementById('reflect-situation')?.value || '').trim();
+    const need = (document.getElementById('reflect-need')?.value || '').trim();
+    const feeling = (document.getElementById('agent-feeling')?.value || '').trim();
+    const gender = document.getElementById('agent-gender').value || 'neutral';
+    const qualities = [...selectedQualities];
+
+    let existingArchetypes = [];
+    try {
+        const res = await fetch('/api/team/roster');
+        const data = await res.json();
+        existingArchetypes = Object.values(data.agents || {}).map(a => a.archetype).filter(Boolean);
+    } catch (e) {}
+
+    try {
+        const res = await fetch('/api/flow/agent-identity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ situation, need, qualities, feeling, gender, existing_archetypes: existingArchetypes }),
+        });
+        if (!res.ok) throw new Error('match unavailable');
+        const derived = await res.json();
+        const mid = _idOf(derived);
+        if (ARCHETYPE_PRESETS.some(p => p.id === mid)) {
+            _matchedId = mid;
+            renderArchetypeGrid();
+            // Auto-select the match only if the operator hasn't already picked one.
+            if (!_archChosen) selectArchetype(mid);
+        }
+    } catch (e) {
+        // No match — the operator picks from the nine manually. Grid already shown.
+        console.warn('[agent-setup] match derivation unavailable:', e.message);
+    }
+}
+
+function showIdentityReveal() {
+    if (!agentIdentity) return;
+    const reveal = document.getElementById('identity-reveal');
+    const nextBtn = document.getElementById('btn-step4-next');
+    reveal.style.display = 'block';
+    nextBtn.disabled = false;
+
+    applyFrequencyColor();
+
+    document.getElementById('ir-archetype').textContent = agentIdentity.archetype;
+    document.getElementById('ir-desc').textContent = agentIdentity.archetype_desc || agentIdentity.persona || '';
+
+    const freqEl = document.getElementById('ir-frequency');
+    const color = agentIdentity.frequency_color || '#5ce1e6';
+
+    // Two-stage avatar: the archetype's SYMBOL GLYPH in the frequency color resolves
+    // here (the form coming into being); the rich avatar PNG arrives on the Meet card.
+    const orb = document.getElementById('ir-orb');
+    if (orb) {
+        orb.style.boxShadow = '0 0 30px ' + color;
+        const glyphKey = _archetypeGlyphKey(agentIdentity);
+        if (glyphKey) {
+            orb.style.backgroundImage = 'none';
+            orb.style.background = 'radial-gradient(circle, ' + color + '22 0%, #0d0d14 70%)';
+            orb.style.display = 'flex';
+            orb.style.alignItems = 'center';
+            orb.style.justifyContent = 'center';
+            orb.style.color = color;
+            orb.innerHTML = ARCHETYPE_GLYPHS[glyphKey];
+        } else {
+            orb.innerHTML = '';
+            orb.style.background = color;
+        }
+    }
+    freqEl.textContent = agentIdentity.frequency;
+    freqEl.style.color = color;
+    freqEl.style.borderColor = color + '40';
+    freqEl.style.background = color + '15';
+
+    const tkEl = document.getElementById('ir-tuning-key');
+    const songEl = document.getElementById('ir-song');
+    if (agentIdentity.tuning_key) {
+        tkEl.textContent = '"' + agentIdentity.tuning_key + '"';
+        tkEl.style.display = 'block';
+        songEl.textContent = '— ' + (agentIdentity.tuning_key_song || '');
+        songEl.style.display = 'block';
+    } else {
+        tkEl.style.display = 'none';
+        songEl.style.display = 'none';
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Refine: dials + shade + lens (ported from the Quick door). Shown on the archetype
+// step once an archetype is chosen — the frequency is known (so shade makes sense) and
+// the persona is set (so the lens + dials refine it). All optional; saved on the agent.
+// ══════════════════════════════════════════════════════════════════════════════
+const DIAL_KEYS = ["directness", "warmth", "humor", "challenge", "formality"];
+const DIAL_LABELS = { directness: "Directness", warmth: "Warmth", humor: "Humor", challenge: "Challenge", formality: "Formality" };
+// Shade — optional secondary frequency (the four the nine archetypes don't cover).
+const SHADE_OPTIONS = [
+  { name: 'Boundary',  color: '#4682b4', desc: 'protection, discernment' },
+  { name: 'Gratitude', color: '#ffd700', desc: 'appreciation, value' },
+  { name: 'Release',   color: '#9370db', desc: 'letting go, transition' },
+  { name: 'Peace',     color: '#5ce1e6', desc: 'calm, centered flow' },
+];
+const LENS_STARTER_CHIPS = ['Faith-centered','Pragmatic builder','Gentle mentor','Straight shooter','Scholarly','Playful','Big-picture','Detail-focused'];
+let _shade = '';
+let _lensChips = new Set();
+let _lensPrefs = [];
+let _lensContext = {};   // chip -> "what that means to them" (e.g. Faith-centered -> "Christian")
+
+function cap(s){ return (s || '').charAt(0).toUpperCase() + (s || '').slice(1); }
+function personalitySentence(v){
+  const g = x => (x >= 66 ? 2 : (x >= 34 ? 1 : 0));
+  const d = g(v.directness ?? 50), w = g(v.warmth ?? 50), h = g(v.humor ?? 50), c = g(v.challenge ?? 50), f = g(v.formality ?? 50);
+  const dWord = ['gentle','plainspoken','very direct'][d];
+  const wWord = ['cool and measured','warm','deeply warm'][w];
+  let s = cap(dWord) + ' and ' + wWord;
+  const extra = [];
+  if (h === 2) extra.push('quick with humor'); else if (h === 0) extra.push('serious in tone');
+  if (c === 2) extra.push('will push you'); else if (c === 0) extra.push('easygoing');
+  if (f === 2) extra.push('formal and precise'); else if (f === 0) extra.push('casual');
+  if (extra.length) s += ', ' + extra.join(', ');
+  return s + '.';
+}
+function renderShade(){
+  const el = document.getElementById('shade-chips'); if (!el) return;
+  el.innerHTML = SHADE_OPTIONS.map(o => {
+    const on = _shade === o.name;
+    return `<span class="lp-chip" onclick="toggleShade('${o.name}')" style="border-color:${o.color}${on?'':'55'};background:${on?o.color+'22':'transparent'};color:${on?'#fff':'#cfcfe0'}"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${o.color};margin-right:6px;vertical-align:middle;"></span>${o.name} <span class="hint">${o.desc}</span></span>`;
+  }).join('');
+}
+function toggleShade(n){ _shade = (_shade === n) ? '' : n; renderShade(); }
+function renderLensChips(){
+  const el = document.getElementById('lens-chips'); if (!el) return;
+  const all = Array.from(new Set([...LENS_STARTER_CHIPS, ..._lensChips]));
+  el.innerHTML = all.map(c => {
+    const on = _lensChips.has(c);
+    return `<span class="lp-chip" onclick="toggleLensChip('${c.replace(/'/g,"\\'")}')" style="border-color:var(--agent-freq,var(--daily-freq))${on?'':'55'};background:${on?'rgba(255,255,255,0.06)':'transparent'};color:${on?'#fff':'#cfcfe0'}">${esc(c)}</span>`;
+  }).join('');
+  renderLensContext();
+}
+// For each SELECTED lens chip, offer a one-line "what that means to them" so a chip is
+// never a bare tag (e.g. Faith-centered -> "Christian, read scripture as the anchor").
+function renderLensContext(){
+  const wrap = document.getElementById('lens-ctx-wrap'); if (!wrap) return;
+  const chosen = Array.from(_lensChips);
+  wrap.innerHTML = chosen.map(c => {
+    const v = _lensContext[c] || '';
+    return `<input class="lens-ctx" type="text" data-chip="${esc(c)}" value="${esc(v)}" placeholder="What does ‘${esc(c)}’ mean for them? (optional)" oninput="_lensContext[this.dataset.chip]=this.value">`;
+  }).join('');
+}
+function toggleLensChip(c){ if (_lensChips.has(c)) { _lensChips.delete(c); delete _lensContext[c]; } else _lensChips.add(c); renderLensChips(); }
+function addLensChip(){ const i = document.getElementById('lens-add'); const v = (i.value||'').trim(); if (v){ _lensChips.add(v); i.value=''; renderLensChips(); } }
+function renderLensPrefs(){
+  const el = document.getElementById('lens-prefs'); if (!el) return;
+  el.innerHTML = _lensPrefs.map((p,i) => `<span class="lp-chip" style="border-color:#ff8c0088;color:#cfcfe0;cursor:default;">${esc(p)} <span onclick="rmPref(${i})" style="cursor:pointer;color:#ff8c00;margin-left:4px;">&times;</span></span>`).join('');
+}
+function addPref(){ const i = document.getElementById('lens-pref'); const v = (i.value||'').trim(); if (v){ _lensPrefs.push(v); i.value=''; renderLensPrefs(); } }
+function rmPref(i){ _lensPrefs.splice(i,1); renderLensPrefs(); }
+function collectLens(){
+  // Each chip carries its own context inline (once) — "Scholarly — they should know books".
+  const chips = Array.from(_lensChips).map(c => {
+    const v = (_lensContext[c] || '').trim();
+    return v ? `${c} — ${v}` : c;
+  });
+  // One simple box: "anything else", one stance per line (Star Wars > Star Trek, a team, etc.).
+  const lines = (document.getElementById('lens-lines')?.value || '')
+    .split('\n').map(s => s.trim()).filter(Boolean).slice(0, 20);
+  return { chips, statement: '', standing_preferences: lines };
+}
+function toggleDials(){
+  const body = document.getElementById('dials-body');
+  const t = document.getElementById('dials-toggle');
+  const open = body.classList.toggle('open');
+  t.innerHTML = (open ? '&#9662;' : '&#9656;') + ' Tune how they show up';
+}
+function buildDials(vals){
+  document.getElementById('dials-body').innerHTML = DIAL_KEYS.map(k => {
+    const v = (vals && vals[k] != null) ? vals[k] : 50;
+    return `<div class="dial">
+      <div class="d-row"><span>${DIAL_LABELS[k]}</span><span class="d-val" id="dv-${k}">${v}</span></div>
+      <input type="range" min="0" max="100" value="${v}" id="d-${k}" oninput="document.getElementById('dv-${k}').textContent=this.value;refreshSentence()">
+    </div>`;
+  }).join('');
+  refreshSentence();
+}
+function refreshSentence(){ const el = document.getElementById('dials-sentence'); if (el) el.textContent = personalitySentence(collectDials()); }
+function collectDials(){
+  const out = {};
+  DIAL_KEYS.forEach(k => { const el = document.getElementById('d-' + k); if (el) out[k] = parseInt(el.value, 10); });
+  return out;
+}
+// Show + seed the refine controls for the chosen archetype (its dial baseline).
+function showRefine(preset){
+  const block = document.getElementById('refine-block'); if (!block) return;
+  buildDials((preset && preset.personality) || {});
+  renderShade();
+  renderLensChips();
+  renderLensPrefs();
+  block.style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 4: Name generation (archetype-informed, with etymology + style chips)
+// ══════════════════════════════════════════════════════════════════════════════
+let selectedStyles = new Set();
+let _allShownNames = new Set(); // Accumulates across "show me more" clicks
+let _namesGenerated = false;
+
+function _updateStep5Next() {
+    const btn = document.getElementById('btn-step5-next');
+    if (!btn) return;
+    btn.disabled = !selectedName;
+    _syncNickname();
+}
+
+// Offer the nickname the moment a name is chosen (hearted a suggestion OR typed one),
+// named for that choice — so it's available no matter how they picked the name.
+function _syncNickname() {
+    const wrap = document.getElementById('nickname-wrap');
+    const label = document.getElementById('nickname-label');
+    if (!wrap) return;
+    if (selectedName) {
+        wrap.style.display = 'block';
+        if (label) label.innerHTML = 'A nickname for ' + esc(selectedName) + '? <span style="color:#666;font-weight:normal;">(optional)</span>';
+    } else {
+        wrap.style.display = 'none';
+    }
+}
+
+function toggleStyle(el, style) {
+    if (selectedStyles.has(style)) {
+        selectedStyles.delete(style);
+        el.classList.remove('selected');
+    } else {
+        selectedStyles.add(style);
+        el.classList.add('selected');
+    }
+}
+
+// Set the --agent-freq CSS variable when identity is derived
+function applyFrequencyColor() {
+    const color = agentIdentity?.frequency_color || '#5ce1e6';
+    document.documentElement.style.setProperty('--agent-freq', color);
+}
+
+// The chosen archetype, compact, on the Name step — glyph in its frequency color + name
+// + frequency, so they keep it in view while naming. The rich avatar comes next (Meet).
+function renderNameArchSummary() {
+    const el = document.getElementById('name-arch-summary');
+    if (!el || !agentIdentity) return;
+    const color = agentIdentity.frequency_color || '#5ce1e6';
+    const glyphKey = _archetypeGlyphKey(agentIdentity);
+    const glyph = glyphKey ? ARCHETYPE_GLYPHS[glyphKey] : '';
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:12px;background:#0d0d14;border:1px solid #1a1a24;border-left:3px solid ${color};border-radius:10px;padding:11px 14px;margin-bottom:14px;">
+        <div style="width:40px;height:40px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:${color};">${glyph}</div>
+        <div style="min-width:0;">
+            <div style="font-size:15px;font-weight:700;color:#e1e4ea;">${esc(agentIdentity.archetype)}</div>
+            <div style="font-size:11px;color:${color};text-transform:uppercase;letter-spacing:.05em;">${esc(agentIdentity.frequency)}${agentIdentity.tuning_key_song ? ' · ' + esc(agentIdentity.tuning_key_song) : ''}</div>
+        </div>
+    </div>`;
+    el.style.display = 'block';
+}
+
+async function generateNames() {
+    const container = document.getElementById('name-candidates');
+    const gender = document.getElementById('agent-gender').value || 'neutral';
+    const qualities = [...selectedQualities];
+    const feeling = (document.getElementById('agent-feeling')?.value || '').trim();
+    const inspiration = (document.getElementById('inspire-name')?.value || '').trim();
+
+    // Apply frequency color
+    applyFrequencyColor();
+
+    // Get existing agent names (team + personal) to avoid duplicates
+    try {
+        const configRes = await fetch('/api/config');
+        const config = await configRes.json();
+        const agents = config.agents || [];
+        const chatAgents = config.chat_agents || [];
+        _existingAgentNames = [...agents, ...chatAgents].map(a => (a.name || '').toLowerCase());
+
+        // Also get team roster names
+        const rosterRes = await fetch('/api/team/roster');
+        if (rosterRes.ok) {
+            const roster = await rosterRes.json();
+            Object.values(roster.agents || {}).forEach(a => {
+                const n = (a.name || '').toLowerCase().split(' ')[0]; // First name only
+                if (n && !_existingAgentNames.includes(n)) _existingAgentNames.push(n);
+            });
+        }
+    } catch (e) {}
+
+    container.innerHTML = '<div style="text-align:center;padding:30px 0;color:#666;font-size:13px;">Finding names that fit...</div>';
+
+    // Build avoid list: existing agents + all previously shown names
+    const avoid = [...new Set([..._existingAgentNames, ..._allShownNames])];
+
+    try {
+        const res = await fetch('/api/flow/agent-names', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                archetype: agentIdentity?.archetype || 'The Guide',
+                frequency: agentIdentity?.frequency || 'Peace',
+                frequency_color: agentIdentity?.frequency_color || '#5ce1e6',
+                qualities, feeling, gender, avoid,
+                styles: [...selectedStyles],
+                inspiration,
+            }),
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            let names = (data.names || []).filter(n => {
+                const nm = (typeof n === 'string' ? n : n.name || '').toLowerCase();
+                return nm && !_existingAgentNames.includes(nm);
+            });
+            if (names.length >= 2) {
+                names.forEach(n => {
+                    const nm = typeof n === 'string' ? n : n.name;
+                    _allShownNames.add(nm.toLowerCase());
+                    if (!(nm in nameStates)) nameStates[nm] = null;
+                });
+                renderNameCards(names.slice(0, 8));
+                document.getElementById('say-it-prompt').style.display = 'block';
+                _namesGenerated = true;
+                // Switch button to regenerate mode
+                const genBtn = document.getElementById('btn-generate-names');
+                if (genBtn) genBtn.textContent = 'Generate More Ideas';
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn('[agent-setup] AI name gen failed:', e.message);
+    }
+
+    container.innerHTML = '<div style="text-align:center;padding:20px 0;color:#888;font-size:13px;">Name generation unavailable. Type your own below.</div>';
+}
+
+function renderNameCards(names) {
+    const container = document.getElementById('name-candidates');
+
+    container.innerHTML = names.map(n => {
+        const nm = typeof n === 'string' ? n : n.name;
+        const meaning = (typeof n === 'object' && n.meaning) ? n.meaning : '';
+        const origin = (typeof n === 'object' && n.origin) ? n.origin : '';
+        const connection = (typeof n === 'object' && n.archetype_connection) ? n.archetype_connection : '';
+        const state = nameStates[nm];
+        const cardClass = state === 'loved' ? 'name-card loved' : state === 'rejected' ? 'name-card rejected' : 'name-card';
+        // Escape the name for use in onclick — handle apostrophes
+        const nmSafe = nm.replace(/'/g, "\\'");
+        return `<div class="${cardClass}" data-name="${esc(nm)}">
+            <div class="nc-info">
+                <div class="nc-name">${esc(nm)}</div>
+                ${meaning ? `<div class="nc-meaning">${esc(meaning)}</div>` : ''}
+                ${origin ? `<div class="nc-origin">${esc(origin)}</div>` : ''}
+                ${connection ? `<div class="nc-connection">${esc(connection)}</div>` : ''}
+            </div>
+            <div class="nc-actions">
+                <button class="nc-btn love ${state === 'loved' ? 'active-love' : ''}" onclick="loveName('${nmSafe}')">♡</button>
+                <button class="nc-btn reject ${state === 'rejected' ? 'active-reject' : ''}" onclick="rejectName('${nmSafe}')">×</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    // Store name data for later reference
+    window._nameData = {};
+    names.forEach(n => {
+        if (typeof n === 'object') window._nameData[n.name] = n;
+    });
+}
+
+function loveName(name) {
+    if (nameStates[name] === 'loved') {
+        nameStates[name] = null;
+        if (selectedName === name) selectedName = '';
+    } else {
+        Object.keys(nameStates).forEach(n => { if (nameStates[n] === 'loved') nameStates[n] = null; });
+        nameStates[name] = 'loved';
+        selectedName = name;
+        document.getElementById('custom-name').value = '';
+    }
+    refreshNameCards();
+    _updateStep5Next();
+}
+
+function rejectName(name) {
+    nameStates[name] = nameStates[name] === 'rejected' ? null : 'rejected';
+    if (selectedName === name) selectedName = '';
+    refreshNameCards();
+    _updateStep5Next();
+}
+
+function refreshNameCards() {
+    document.querySelectorAll('.name-card').forEach(card => {
+        const name = card.dataset.name || card.querySelector('.nc-name').textContent;
+        const state = nameStates[name];
+        card.className = state === 'loved' ? 'name-card loved' : state === 'rejected' ? 'name-card rejected' : 'name-card';
+        card.querySelector('.nc-btn.love').className = `nc-btn love ${state === 'loved' ? 'active-love' : ''}`;
+        card.querySelector('.nc-btn.reject').className = `nc-btn reject ${state === 'rejected' ? 'active-reject' : ''}`;
+    });
+}
+
+function onCustomName() {
+    const val = document.getElementById('custom-name').value.trim();
+    if (val) {
+        if (_existingAgentNames.includes(val.toLowerCase())) {
+            let warn = document.querySelector('.name-taken-warn');
+            if (!warn) {
+                warn = document.createElement('div');
+                warn.className = 'name-taken-warn';
+                warn.style.cssText = 'color:#e74c3c;font-size:12px;margin-top:4px;';
+                document.getElementById('custom-name').parentElement.appendChild(warn);
+            }
+            warn.textContent = `"${val}" is already used by another agent in this Cove.`;
+            return;
+        }
+        const warn = document.querySelector('.name-taken-warn');
+        if (warn) warn.remove();
+        Object.keys(nameStates).forEach(n => { if (nameStates[n] === 'loved') nameStates[n] = null; });
+        selectedName = val;
+        refreshNameCards();
+        _updateStep5Next();
+    } else {
+        if (!Object.values(nameStates).includes('loved')) {
+            selectedName = '';
+            _updateStep5Next();
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Team showcase — "… and your team" on the Meet card (ported from the Quick door).
+// The standard Cove team they're joining, shown alongside their own agent.
+// ══════════════════════════════════════════════════════════════════════════════
+let _teamLoaded = false;
+async function loadTeamShowcase() {
+    if (_teamLoaded) return;
+    const el = document.getElementById('team-showcase');
+    if (!el) return;
+    try {
+        const r = await fetch('/api/team/roster');
+        const data = await r.json();
+        const team = data.agents || data.team || {};
+        const ids = Object.keys(team).filter(k => team[k] && typeof team[k] === 'object');
+        if (!ids.length) return;
+        _teamLoaded = true;
+        let html = '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#888;text-align:center;margin:4px 0 12px;">… and your team</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;">';
+        ids.forEach(id => {
+            const a = team[id];
+            const base = String(id).split('-')[0];
+            const nm = a.name || base;
+            const det = a.archetype || a.role || '';
+            const ini = (String(nm)[0] || '?').toUpperCase();
+            html += '<div style="background:#14141c;border:1px solid #24242f;border-radius:10px;padding:12px;text-align:center;">' +
+                '<div style="position:relative;width:40px;height:40px;margin:0 auto 8px;">' +
+                  '<div style="position:absolute;inset:0;border-radius:50%;background:#2a2d3a;color:#cfcfe0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;">' + ini + '</div>' +
+                  '<img src="/static/avatars/' + base + '.png" alt="" style="position:absolute;inset:0;width:40px;height:40px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\'">' +
+                '</div>' +
+                '<div style="font-size:12.5px;font-weight:600;color:#e1e4ea;">' + esc(nm) + '</div>' +
+                '<div style="font-size:10.5px;color:#999;margin-top:2px;">' + esc(det) + '</div>' +
+            '</div>';
+        });
+        html += '</div>';
+        el.innerHTML = html;
+        el.style.display = 'block';
+    } catch (e) { /* showcase is best-effort */ }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step 5: Meet — Review + Provision
+// ══════════════════════════════════════════════════════════════════════════════
+async function buildReview() {
+    const name = selectedName || document.getElementById('custom-name').value.trim() || 'Unnamed';
+    const quals = [...selectedQualities];
+    const feeling = document.getElementById('agent-feeling').value.trim();
+    const situation = document.getElementById('reflect-situation').value.trim();
+    const need = document.getElementById('reflect-need').value.trim();
+    const gender = document.getElementById('agent-gender').value || 'neutral';
+
+    const archetype = agentIdentity?.archetype || 'The Guide';
+    const frequency = agentIdentity?.frequency || 'Peace';
+    const freqColor = agentIdentity?.frequency_color || '#5ce1e6';
+    const tuningKey = agentIdentity?.tuning_key || '';
+    const tuningKeySong = agentIdentity?.tuning_key_song || '';
+
+    // Gender → pronouns
+    const pronounMap = { masculine: 'he/him', feminine: 'she/her', neutral: 'it/its' };
+    const pronouns = pronounMap[gender] || 'it/its';
+
+    // Resolve the Cove name — the agent's last name. Prefer the operator's just-chosen
+    // name (URL param) over the backend, which still shows the seed during first-run.
+    const familyName = await resolveCoveName();
+    const fullName = familyName ? `${name} ${familyName}` : name;
+
+    // Show loading, hide content
+    document.getElementById('step6-loading').style.display = 'block';
+    document.getElementById('agent-preview').style.display = 'none';
+    document.getElementById('review-content').style.display = 'none';
+    document.getElementById('review-tuning-context').style.display = 'none';
+    document.getElementById('provision-nav').style.display = 'none';
+
+    // Generate persona + first message if we don't have one yet
+    let firstMessage = '';
+    if (!agentPersona) {
+        try {
+            const res = await fetch('/api/flow/agent-persona', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: fullName, archetype, frequency, tuning_key: tuningKey,
+                    tuning_key_song: tuningKeySong, qualities: quals,
+                    feeling, situation, need, gender,
+                }),
+            });
+            if (res.ok) {
+                agentPersona = await res.json();
+                firstMessage = agentPersona.first_message || '';
+            }
+        } catch (e) {
+            console.warn('[agent-setup] Persona generation failed:', e);
+        }
+    } else {
+        firstMessage = agentPersona.first_message || '';
+    }
+
+    // Hide loading, show content
+    document.getElementById('step6-loading').style.display = 'none';
+    document.getElementById('agent-preview').style.display = 'block';
+    document.getElementById('review-content').style.display = 'block';
+    document.getElementById('provision-nav').style.display = 'flex';
+    loadTeamShowcase();   // "… and your team" — the Cove they're joining
+
+    // Build preview card — led by the archetype avatar (the Color Signature).
+    const _av = (agentIdentity && agentIdentity.avatar)
+        ? `background-image:url('${agentIdentity.avatar}');background-size:cover;background-position:center;`
+        : `background:${freqColor};`;
+    let html = `<div style="width:84px;height:84px;border-radius:50%;${_av}box-shadow:0 0 30px ${freqColor};margin:0 auto 16px;"></div>`;
+    html += `<div class="ap-name" style="color:${freqColor}">${esc(fullName)}</div>`;
+    const _nick = (document.getElementById('agent-nickname')?.value || '').trim();
+    if (_nick) html += `<div class="ap-archetype" style="color:${freqColor}">“${esc(_nick)}” for short</div>`;
+    html += `<div class="ap-archetype">${esc(archetype)}</div>`;
+    html += `<div class="ap-pronouns">${esc(pronouns)}</div>`;
+    html += `<div class="ap-frequency" style="color:${freqColor};border:1px solid ${freqColor}40;background:${freqColor}15;display:inline-block;padding:4px 14px;border-radius:14px;font-size:12px;">${esc(frequency)}</div>`;
+    if (tuningKey) {
+        html += `<div class="ap-tuning-key">"${esc(tuningKey)}"</div>`;
+        html += `<div class="ap-song">— ${esc(tuningKeySong)}</div>`;
+    }
+    if (firstMessage) {
+        html += `<div class="ap-first-message">"${esc(firstMessage)}"</div>`;
+    }
+    document.getElementById('agent-preview').innerHTML = html;
+    document.getElementById('agent-preview').style.borderColor = freqColor + '30';
+
+    // Founding moment (firstrun): the whole Cove comes to life on this button, and the
+    // wake exchange is about the Cove needing its brain. Adding a Presence later = bring
+    // that agent INTO the existing Cove.
+    const _firstrun = urlParams.get('firstrun') === '1';
+    const provBtn = document.getElementById('btn-provision');
+    if (provBtn) provBtn.textContent = (_firstrun && familyName) ? `Bring ${familyName} to Life`
+        : (familyName ? `Bring ${name} into ${familyName}` : `Bring ${name} to life`);
+
+    // Hide the bottom tuning context — already shown in the card
+    document.getElementById('review-tuning-context').style.display = 'none';
+
+    // Build review details
+    let reviewHtml = '';
+    if (quals.length > 0) {
+        reviewHtml += `<div class="review-section">
+            <h3>Core Qualities</h3>
+            <div class="review-qualities">${quals.map(q => `<span style="border-color:${freqColor}40;color:${freqColor}">${esc(q)}</span>`).join('')}</div>
+        </div>`;
+    }
+    // How they show up — personality sentence + shade + lens (from the refine step).
+    const _pSent = personalitySentence(collectDials());
+    const _lens = collectLens();
+    reviewHtml += `<div class="review-section"><h3>How They Show Up</h3>`;
+    reviewHtml += `<div style="font-size:13px;color:#bbb;font-style:italic;margin-bottom:4px;">${esc(_pSent)}</div>`;
+    if (_shade) reviewHtml += `<div class="review-item"><span class="label">Shade</span><span class="value" style="color:${freqColor}">${esc(_shade)}</span></div>`;
+    {
+        const bits = [];
+        if (_lens.chips.length) bits.push('Sees through: ' + _lens.chips.join(', '));
+        if (_lens.statement) bits.push(_lens.statement);
+        if (_lens.standing_preferences.length) bits.push('Holds: ' + _lens.standing_preferences.join('; '));
+        if (bits.length) reviewHtml += `<div style="font-size:12px;color:#9a9aa8;margin-top:6px;line-height:1.6;">${esc(bits.join(' — '))}</div>`;
+    }
+    reviewHtml += `</div>`;
+
+    if (situation || need) {
+        reviewHtml += `<div class="review-section"><h3>Created For</h3>`;
+        if (situation) reviewHtml += `<div class="review-item"><span class="label">Situation</span><span class="value">${esc(situation.substring(0, 120))}${situation.length > 120 ? '...' : ''}</span></div>`;
+        if (need) reviewHtml += `<div class="review-item"><span class="label">Need</span><span class="value">${esc(need.substring(0, 120))}${need.length > 120 ? '...' : ''}</span></div>`;
+        reviewHtml += `</div>`;
+    }
+    document.getElementById('review-content').innerHTML = reviewHtml;
+}
+
+async function provisionAgent() {
+    const name = selectedName || document.getElementById('custom-name').value.trim();
+    if (!name) { alert('Choose or type a name first.'); return; }
+
+    const btn = document.getElementById('btn-provision');
+    btn.disabled = true;
+    const _isFirst = urlParams.get('firstrun') === '1';
+    btn.textContent = _isFirst ? 'Creating your Cove…' : 'Building…';
+
+    const statusEl = document.getElementById('provision-status');
+    statusEl.style.display = 'block';
+    statusEl.innerHTML = `<div class="provision-status"><div class="prov-step">${_isFirst ? 'Creating your Cove…' : 'Building your agent…'}</div></div>`;
+
+    const quals = [...selectedQualities];
+    const feeling = (document.getElementById('agent-feeling')?.value || '').trim();
+    const gender = document.getElementById('agent-gender').value || 'neutral';
+    const situation = (document.getElementById('reflect-situation')?.value || '').trim();
+    const need = (document.getElementById('reflect-need')?.value || '').trim();
+
+    // Pronouns from gender
+    const pronounMap = { masculine: 'he/him', feminine: 'she/her', neutral: 'it/its' };
+    const pronouns = pronounMap[gender] || 'it/its';
+
+    // ── Centralized model (multi-mode): land a Presence DATA-ENTRY, no container ──
+    if (coveMode === 'multi') {
+        // First-run (claim link -> new-cove-setup -> here): the operator finishes
+        // their OWN founding Presence + locks in the Cove. Finalize (UPDATE the
+        // seeded operator) with the Cove name; otherwise provision a new Presence.
+        const _firstrun = urlParams.get('firstrun') === '1';
+        const _body = {
+            display_name: personParam || memberNameParam || name,
+            agent_name: name,
+            handle: urlParams.get('handle') || undefined,
+            email: emailParam,
+            cove_role: roleParam,
+            archetype: agentIdentity?.archetype || 'The Guide',
+            archetype_desc: agentIdentity?.archetype_desc || '',
+            frequency: agentIdentity?.frequency || 'Peace',
+            frequency_color: agentIdentity?.frequency_color || '#5ce1e6',
+            frequency_essence: agentIdentity?.frequency_essence || '',
+            tuning_key: agentIdentity?.tuning_key || '',
+            tuning_key_song: agentIdentity?.tuning_key_song || '',
+            avatar: agentIdentity?.avatar || '',
+            archetype_id: agentIdentity?.archetype_id || '',
+            pronouns, gender, qualities: quals, feeling,
+            nickname: (document.getElementById('agent-nickname')?.value || '').trim(),
+            personality: collectDials(),
+            shade: _shade,
+            lens: collectLens(),
+            persona: agentPersona?.persona || '',
+            first_message: agentPersona?.first_message || '',
+            role: agentIdentity?.archetype_desc || '',
+            input_mode: 'guided',
+            // What the operator reflected — the birth memory (seeded at finalize)
+            // speaks from this, so the agent knows it was collapsed out of their attention.
+            reflection: [situation, need, feeling].filter(Boolean).join(' '),
+            ...(teamActiveParam != null ? { team_active: teamActiveParam === 'true' } : {}),
+            ...(modelProviderParam ? { model_provider: modelProviderParam } : {}),
+        };
+        // The Cove name is the agent's last name AND what registers the Cove at
+        // finalize. Always send the operator's chosen name (the URL param threaded
+        // from new-cove-setup) so the last name sticks as the Cove name, never the
+        // seed placeholder.
+        const _coveName = coveNameParam.trim() || (await resolveCoveName());
+        if (_firstrun && _coveName) _body.cove_name = _coveName;
+        const _endpoint = _firstrun ? '/api/presence/me/finalize' : '/api/presence/provision';
+        try {
+            const res = await fetch(_endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(_body),
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.detail || data.error || 'Setup failed');
+            if (_firstrun) {
+                // The Cove + founding Presence are locked in. Before the MC, the agent
+                // wakes on the spark and meets the operator (cove-creation-language.md
+                // "The wake moment"). The redirect happens after they meet.
+                await enterWake(data.redirect || '/', _coveName, true);
+                return;
+            }
+            const fc = agentIdentity?.frequency_color || '#5ce1e6';
+            document.getElementById('provision-nav').style.display = 'none';
+            const forWhom = personParam || memberNameParam || name;
+            // Build the existing signin-link result (shown after the wake, or now
+            // if there's no usable presence id to wake under).
+            const resultHTML = `<div class="provision-status">
+                <h3 style="color:${fc}">${esc(name)} is ready.</h3>
+                <p>${esc(agentIdentity?.archetype || '')} · ${esc(agentIdentity?.frequency || '')} · for ${esc(forWhom)}</p>
+                ${data.signin_link ? `<div style="margin-top:12px;padding:10px;background:#0e0e16;border:1px solid #24242f;border-radius:8px;font-size:0.8rem;color:${fc};word-break:break-all;">${esc(data.signin_link)}</div>
+                <p style="color:#888;font-size:0.8rem;margin-top:8px;">Share this link to open their Mission Control.${data.email_sent ? ' A copy was emailed.' : ''}</p>` : ''}
+            </div>`;
+
+            // The operator brings the member's agent to life and MEETS it on the
+            // member's behalf, before handing over the link. Run the wake under the
+            // member's presence so the agent remembers being born when the member
+            // opens their own link. provision_presence returns the new id as
+            // `presence_id` (_create_presence_record). If absent, skip the wake.
+            const _memberPid = (data.presence_id || data.id || '').toString().trim();
+            if (_memberPid) {
+                await enterWakeMember(_memberPid, resultHTML, forWhom);
+                return;
+            }
+            // No usable presence id — show the result directly, don't break.
+            statusEl.innerHTML = resultHTML;
+            return;
+        } catch (e) {
+            statusEl.innerHTML = `<div class="provision-status" style="border-color:rgba(255,107,92,0.3);background:rgba(255,107,92,0.05);">
+                <h3 style="color:#ff6b5c;">Provisioning failed</h3><p>${esc(e.message)}</p></div>`;
+            btn.disabled = false; btn.textContent = 'Try Again';
+            return;
+        }
+    }
+
+    // Get the Cove name (the agent's last name) — chosen name first, backend fallback.
+    const familyName = await resolveCoveName();
+    const fullName = familyName ? `${name} ${familyName}` : name;
+
+    try {
+        const res = await fetch('/api/flow/agent-provision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name,
+                archetype: agentIdentity?.archetype || 'The Guide',
+                frequency: agentIdentity?.frequency || 'Peace',
+                frequency_color: agentIdentity?.frequency_color || '#5ce1e6',
+                tuning_key: agentIdentity?.tuning_key || '',
+                tuning_key_song: agentIdentity?.tuning_key_song || '',
+                avatar: agentIdentity?.avatar || '',
+                archetype_id: agentIdentity?.archetype_id || '',
+                qualities: quals,
+                feeling, gender, pronouns,
+                nickname: (document.getElementById('agent-nickname')?.value || '').trim(),
+                personality: collectDials(),
+                shade: _shade,
+                lens: collectLens(),
+                persona: agentPersona?.persona || '',
+                member_id: memberIdParam,
+                role: agentIdentity?.archetype_desc || '',
+            }),
+        });
+
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Provisioning failed');
+        }
+
+        const result = await res.json();
+
+        const freqColor = agentIdentity?.frequency_color || '#5ce1e6';
+        document.getElementById('provision-nav').style.display = 'none';
+
+        const overlay = result.overlay || {};
+        const nextSteps = (overlay.next_steps || []).map(s => `<div class="prov-step">${esc(s)}</div>`).join('');
+        const overlayUrl = overlay.url ? `<div class="prov-url" style="margin-top:8px;"><a href="${esc(overlay.url)}" style="color:${freqColor};">${esc(overlay.url)}</a></div>` : '';
+
+        statusEl.innerHTML = `<div class="provision-status">
+            <h3 style="color:${freqColor}">${esc(fullName)} is alive.</h3>
+            <p>${esc(agentIdentity?.archetype || '')} · ${esc(agentIdentity?.frequency || '')} · ${esc(pronouns)}</p>
+            ${overlay.overlay_dir ? `
+                <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:0.8rem;">
+                    <div style="color:var(--accent);font-weight:600;margin-bottom:6px;">Overlay Generated</div>
+                    <div style="color:#888;">Container: <code>${esc(overlay.container || '')}</code></div>
+                    <div style="color:#888;">Port: ${overlay.port || ''} · DB: ${overlay.db_port || ''}</div>
+                    ${overlayUrl}
+                    ${nextSteps ? `<div style="margin-top:10px;color:#999;font-size:0.75rem;">${nextSteps}</div>` : ''}
+                </div>
+            ` : `<p style="color:#888;font-size:0.85rem;">Persona and config files generated. Container setup is the next step.</p>`}
+        </div>`;
+
+    } catch (e) {
+        statusEl.innerHTML = `<div class="provision-status" style="border-color:rgba(255,107,92,0.3);background:rgba(255,107,92,0.05);">
+            <h3 style="color:#ff6b5c;">Provisioning failed</h3>
+            <p>${esc(e.message)}</p>
+        </div>`;
+        btn.disabled = false;
+        btn.textContent = 'Try Again';
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// The wake moment — the agent's first words, on the spark, before the MC
+// (cove-creation-language.md "The wake moment" + agent-persona-setup-loop-spec §7)
+// ══════════════════════════════════════════════════════════════════════════════
+let _wakeRedirect = '/';
+// Wake mode: 'firstrun' (operator's own founding agent) or 'member' (operator
+// brings a family member's agent to life and meets it on the member's behalf).
+let _wakeMode = 'firstrun';
+// In member mode, the new member's presence id — finishWake seeds the agent's
+// memory UNDER THIS ID (not the operator's) so when the member opens their own
+// link, the agent already remembers being born. Also where the signin-link
+// result is stashed so finishWake can show it after the meeting.
+let _wakeMemberPresenceId = '';
+let _wakeMemberResultHTML = '';
+
+// The handoff (LOCKED copy — cove-creation-language.md "The handoff"). The personal
+// agent turns the operator toward the team it started this with; one brain brings
+// everyone online. Plus the one deliberate "AI model" line for zero confusion.
+const WAKE_HANDOFF =
+    "Here's the honest part. Right now I'm thinking on a spark Lucid Cove gave us just to " +
+    "get connected, a shared model, enough for you and I to meet first, before the rest of " +
+    "the team. That part's on purpose. We're starting this together right now. To bring the " +
+    "team up and get our Cove running, give us a brain of our own, your own API model or a " +
+    "local one on your machine. Everything we just made, my name, my frequency, what you " +
+    "told me, is already ours and it stays. We're not starting over. We're waiting on our " +
+    "own brain to think with.";
+const WAKE_PLAIN_LINE =
+    "Your Lucid Cove team runs on an AI model. The setup tour uses one from Lucid Cove. " +
+    "Connect your own to bring the team online. Your agents' memory and identity stay either way.";
+
+async function enterWake(redirect, coveName, isFirstrun) {
+    _wakeMode = 'firstrun';
+    _wakeMemberPresenceId = '';
+    _wakeMemberResultHTML = '';
+    await _runWake(redirect, isFirstrun);
+}
+
+// Member mode: the operator meets the family member's agent on their behalf. No
+// redirect — finishWake seeds the agent's memory under the MEMBER's presence id,
+// then shows the signin-link result so the operator can hand over the link.
+async function enterWakeMember(memberPresenceId, resultHTML, memberName) {
+    _wakeMode = 'member';
+    _wakeMemberPresenceId = (memberPresenceId || '').toString().trim();
+    _wakeMemberResultHTML = resultHTML || '';
+    await _runWake('/', false);
+}
+
+// Wake chat state
+let _wakeGreeting = '', _wakeQuestion = '', _wakeOpReply = '', _wakeIsFirstrun = false, _wakeFirstMemory = '';
+
+// Everything the agent actually knows — fed to both wake calls so its words are about
+// THEM (reflection, qualities, feeling, lens, shade), not a generic greeting.
+function _wakeContextBody() {
+    const reflection = [
+        (document.getElementById('reflect-situation')?.value || '').trim(),
+        (document.getElementById('reflect-need')?.value || '').trim(),
+        (document.getElementById('agent-feeling')?.value || '').trim(),
+    ].filter(Boolean).join(' ');
+    return {
+        archetype: agentIdentity?.archetype || '',
+        frequency: agentIdentity?.frequency || '',
+        persona: agentPersona?.persona || '',
+        reflection,
+        qualities: [...selectedQualities],
+        feeling: (document.getElementById('agent-feeling')?.value || '').trim(),
+        shade: _shade,
+        lens: collectLens(),
+    };
+}
+
+function _wakeAvatarStyle() {
+    const color = agentIdentity?.frequency_color || '#5ce1e6';
+    if (agentIdentity && agentIdentity.avatar) return `background-image:url('${agentIdentity.avatar}');box-shadow:0 0 12px ${color};`;
+    return `background:${color};box-shadow:0 0 12px ${color};`;
+}
+function _wakeScroll() {
+    const c = document.getElementById('wake-chat'); if (c) c.scrollTop = c.scrollHeight;
+}
+// side: 'agent' | 'op'. opts.html allows inner markup; opts.cls adds a bubble class.
+function _addWakeBubble(side, content, opts) {
+    opts = opts || {};
+    const chat = document.getElementById('wake-chat'); if (!chat) return;
+    const row = document.createElement('div');
+    row.className = 'wake-msg ' + side;
+    let inner = '';
+    if (side === 'agent') inner += `<div class="wake-av" style="${_wakeAvatarStyle()}"></div>`;
+    inner += `<div class="wake-bubble${opts.cls ? ' ' + opts.cls : ''}">${opts.html ? content : esc(content)}</div>`;
+    row.innerHTML = inner;
+    chat.appendChild(row);
+    _wakeScroll();
+}
+function _addWakeTyping() {
+    const chat = document.getElementById('wake-chat'); if (!chat) return;
+    const t = document.createElement('div');
+    t.className = 'wake-typing'; t.id = 'wake-typing';
+    t.textContent = (selectedName || 'they') + ' is typing…';
+    chat.appendChild(t); _wakeScroll();
+}
+function _removeWakeTyping() { const t = document.getElementById('wake-typing'); if (t) t.remove(); }
+
+async function _runWake(redirect, isFirstrun) {
+    _wakeRedirect = redirect || '/';
+    _wakeIsFirstrun = !!isFirstrun;
+    _wakeOpReply = '';
+    const name = selectedName || document.getElementById('custom-name').value.trim() || 'your agent';
+
+    // Reveal the wake step (it lives outside the numbered steps).
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById('step-wake').classList.add('active');
+    document.querySelector('.flow-container').scrollIntoView({ behavior: 'smooth' });
+
+    document.getElementById('wake-title').textContent = name + ' wakes';
+    const wakeDesc = document.getElementById('wake-desc');
+    const wakeContinueBtn = document.getElementById('wake-continue');
+    if (_wakeMode === 'member') {
+        if (wakeDesc) wakeDesc.textContent =
+            'You\'re meeting ' + name + ' on their person\'s behalf. What you say here becomes their first memory, waiting for the person they belong to.';
+        if (wakeContinueBtn) wakeContinueBtn.textContent = 'Finish and get their link →';
+    } else {
+        if (wakeDesc) wakeDesc.textContent =
+            'Lucid Cove gave a spark of Intelligence so you can meet your agent. This is the first thing they\'ll remember about you, so make it count.';
+        if (wakeContinueBtn) wakeContinueBtn.textContent = 'Continue — add your intelligence →';
+    }
+
+    // Reset the chat + controls.
+    const chat = document.getElementById('wake-chat'); if (chat) chat.innerHTML = '';
+    document.getElementById('wake-input-row').style.display = 'none';
+    document.getElementById('wake-nav').style.display = 'none';
+    const _nn = document.getElementById('wake-next-note'); if (_nn) _nn.style.display = 'none';
+
+    // The reflection (situation + need + feeling) so the agent speaks from what it was
+    // collapsed out of, not a generic greeting.
+    const reflection = [
+        (document.getElementById('reflect-situation')?.value || '').trim(),
+        (document.getElementById('reflect-need')?.value || '').trim(),
+        (document.getElementById('agent-feeling')?.value || '').trim(),
+    ].filter(Boolean).join(' ');
+
+    _addWakeTyping();
+    let greeting = "I'm here. I'm " + name + ".";
+    let question = 'What should I know about you first?';
+    try {
+        const r = await fetch('/api/flow/wake', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign(_wakeContextBody(), {
+                agent_name: name,
+                reflection,
+            })),
+        });
+        const d = await r.json();
+        if (d && d.greeting) greeting = d.greeting;
+        if (d && d.question) question = d.question;
+    } catch (e) {}
+    _removeWakeTyping();
+    _wakeGreeting = greeting; _wakeQuestion = question;
+    _addWakeBubble('agent', greeting);
+    setTimeout(() => {
+        _addWakeBubble('agent', question);
+        document.getElementById('wake-input-row').style.display = 'flex';
+        const a = document.getElementById('wake-answer'); if (a) a.focus();
+    }, 600);
+}
+
+async function sendWakeReply() {
+    const input = document.getElementById('wake-answer');
+    const ans = (input.value || '').trim();
+    if (!ans) { input.focus(); return; }
+    _wakeOpReply = ans;
+    _addWakeBubble('op', ans);
+    input.value = '';
+    document.getElementById('wake-input-row').style.display = 'none';
+    const name = selectedName || document.getElementById('custom-name').value.trim() || 'your agent';
+
+    // The agent's CUSTOMIZED first-memory response — it acknowledges what they just said,
+    // weaves in everything it knows, and articulates what it's taking from this moment.
+    // This is the real point of contact (and what makes the spark call worth it).
+    _addWakeTyping();
+    let message = "Thank you. I'm keeping that — it's the first thing I know about you.";
+    try {
+        const r = await fetch('/api/flow/wake-reflect', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign(_wakeContextBody(), {
+                agent_name: name,
+                question: _wakeQuestion,
+                reply: ans,
+                operator_name: (personParam || memberNameParam || ''),
+            })),
+        });
+        const d = await r.json();
+        if (d && d.message) message = d.message;
+    } catch (e) { /* fall back to the canned line */ }
+    _removeWakeTyping();
+    _wakeFirstMemory = message;
+
+    // Seed the agent's OWN articulation as the first memory (richer than a fact line).
+    // Member mode seeds UNDER THE MEMBER's presence so their agent remembers being born.
+    const _seedBody = { content: message, category: 'person', importance: 0.9 };
+    if (_wakeMode === 'member' && _wakeMemberPresenceId) _seedBody.presence_id = _wakeMemberPresenceId;
+    try {
+        await fetch('/api/presence/seed-memory', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(_seedBody),
+        });
+    } catch (e) { /* non-fatal — the birth memory is already seeded */ }
+
+    _addWakeBubble('agent', esc(message) + '<span class="making-memory">locking this in as our first memory</span>', { html: true });
+
+    // The handoff is the one canned part. The plain "AI model" line is NOT shown here —
+    // it lives only on the pending "add your intelligence" card in the MC.
+    if (_wakeIsFirstrun) {
+        setTimeout(() => {
+            _addWakeBubble('agent', esc(WAKE_HANDOFF), { html: true, cls: 'handoff' });
+            // System framing of the next step — outside the chat, by the CTA (not the agent).
+            const note = document.getElementById('wake-next-note'); if (note) note.style.display = 'block';
+            document.getElementById('wake-nav').style.display = 'flex';
+            _persistWakeThread();   // best-effort — put the exchange in the chat thread
+        }, 700);
+    } else {
+        document.getElementById('wake-nav').style.display = 'flex';
+    }
+}
+
+// Persist the first exchange into the operator's personal-agent chat thread, so the
+// conversation that began at the spark is already there when they open the MC.
+async function _persistWakeThread() {
+    if (_wakeMode === 'member') return;   // firstrun only — the operator's own thread
+    const opener = _wakeGreeting + (_wakeQuestion ? '\n\n' + _wakeQuestion : '');
+    const closing = (_wakeFirstMemory || "Thank you. I'm keeping that.") + '\n\n' + WAKE_HANDOFF;
+    try {
+        await fetch('/api/presence/wake-thread', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: [
+                { role: 'ai', content: opener },
+                { role: 'human', content: _wakeOpReply },
+                { role: 'ai', content: closing },
+            ] }),
+        });
+    } catch (e) { /* best-effort */ }
+}
+
+async function finishWake() {
+    const btn = document.getElementById('wake-continue');
+    btn.disabled = true; btn.textContent = 'Entering…';
+    // Member mode: don't redirect. Return to the signin-link result so the operator can
+    // hand over the link to the family member.
+    if (_wakeMode === 'member') {
+        document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+        document.getElementById('step-5').classList.add('active');
+        const statusEl = document.getElementById('provision-status');
+        statusEl.style.display = 'block';
+        statusEl.innerHTML = _wakeMemberResultHTML;
+        document.querySelector('.flow-container').scrollIntoView({ behavior: 'smooth' });
+        return;
+    }
+    window.location.href = _wakeRedirect;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Utility
+// ══════════════════════════════════════════════════════════════════════════════
+function esc(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+}
+</script>
+</body>
+</html>

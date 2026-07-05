@@ -1,0 +1,74 @@
+# ─── Lucid Cove Shared Container — Agent Config ─────────────────────────────
+# This config is for the multi-Presence shared container (app.lucidcove.org).
+# It serves all tiers: Free, Operator, Presence. Tab visibility is controlled
+# by permissions.py tier filtering — this list is the superset in display order.
+#
+# Deploy: SCP to VPS /docker/lucidcove-shared/config/agent.yaml then rebuild.
+
+# ─── Instance Identity ────────────────────────────────────────────────────────
+instance:
+  name: "Lucid Cove"
+  operator: "Operator"
+  accent_color: "#7c5cff"
+
+# ─── Dashboard Tabs ───────────────────────────────────────────────────────────
+# Order matters — this is display order after tier filtering removes non-qualifying tabs.
+# Free (Tuner): Home, Tune, Playlists, Go Deeper, Affiliates, Settings
+# Operator:     Home, Projects, Calendar, Reports, Affiliates, Files, Settings
+# Presence:     Home, Chat, Projects, Calendar, Memory, Reports, Affiliates, Files, Settings
+tabs:
+  - id: home
+    label: Home
+    scripts: [home, overview, tuning-panel, tune-flow]
+  - id: tune
+    label: Tune
+    scripts: [tune-flow, tuning-panel]
+  - id: playlists
+    label: Playlists
+    script: playlists
+  - id: go-deeper
+    label: Go Deeper
+  - id: chat
+    label: Chat
+    scripts: [chat, voice, manager-chat]
+  - id: projects
+    label: Projects
+    script: projects
+  - id: calendar
+    label: Calendar
+    script: calendar
+  - id: memory
+    label: Memory
+  - id: reports
+    label: Reports
+    scripts: [tuning, joulework]
+  - id: affiliates
+    label: Affiliates
+    script: affiliates
+  - id: files
+    label: Files
+    script: files
+  - id: settings
+    label: Settings
+
+# ─── Channels ────────────────────────────────────────────────────────────────
+channels:
+  - name: day
+    label: Day
+    thread_prefix: "day"
+    rotation_threshold: 50
+
+# ─── Tools ────────────────────────────────────────────────────────────────────
+tools:
+  modules: []
+
+# ─── Routes ───────────────────────────────────────────────────────────────────
+routes: []
+
+# ─── Model Defaults ──────────────────────────────────────────────────────────
+defaults:
+  provider: openrouter
+  timeout_seconds: 60
+  model:
+    primary: "kimi-ai/kimi-k2-instruct"
+    fallback: "qwen2.5:32b"

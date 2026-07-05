@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set Up Your Cove</title>
+<style>
+:root { --accent: #5ce1e6; --accent-border: rgba(92,225,230,0.28); }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.flow-container { max-width: 680px; margin: 0 auto; padding: 24px; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.header h1 { font-size: 18px; font-weight: 600; color: var(--accent); }
+.flow-subtitle { color: #777; font-size: 13px; margin-bottom: 28px; line-height: 1.6; }
+
+.panel { display: none; animation: fadeIn .3s ease; }
+.panel.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+.section-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.section-desc { font-size: 13.5px; color: #999; line-height: 1.65; margin-bottom: 24px; }
+
+.door-grid { display: grid; gap: 14px; }
+.door { background: #14141c; border: 1px solid #24242f; border-radius: 12px; padding: 20px; cursor: pointer; transition: transform .15s, border-color .2s; display: flex; gap: 16px; align-items: flex-start; }
+.door:hover { transform: translateY(-2px); border-color: var(--accent-border); }
+.door .d-ico { font-size: 26px; line-height: 1; }
+.door .d-name { font-size: 16px; font-weight: 700; color: #f0f0f5; margin-bottom: 5px; }
+.door .d-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); font-weight: 700; margin-left: 8px; }
+.door .d-desc { font-size: 12.5px; color: #9a9aa8; line-height: 1.55; }
+
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 13px; font-weight: 500; color: #bbb; margin-bottom: 8px; }
+.field input { width: 100%; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 6px; padding: 11px 14px; color: #e1e4ea; font-size: 15px; font-family: inherit; }
+.field input:focus { outline: none; border-color: var(--accent-border); }
+.status { min-height: 16px; margin-top: 6px; font-size: 12.5px; }
+
+.team-note { margin-top: 16px; padding: 14px; background: #14141c; border: 1px solid #24242f; border-radius: 10px; font-size: 12.5px; color: #9a9aa8; line-height: 1.55; }
+.team-note strong { color: #d8d8e0; }
+
+.btn { background: var(--accent); color: #06121a; border: none; border-radius: 8px; padding: 12px 22px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn-ghost { background: none; color: #999; border: 1px solid #2a2d3a; }
+.nav-row { display: flex; justify-content: space-between; margin-top: 22px; }
+</style>
+</head>
+<body>
+<div class="flow-container">
+  <div class="header"><h1>Set Up Your Cove</h1></div>
+  <div class="flow-subtitle">Your private family intelligence haven. Name your Cove, then bring your own personal agent into being. The team comes standard.</div>
+
+  <!-- PANEL 0: operator identity (first step — create or confirm who you are) -->
+  <div class="panel active" id="panel-operator">
+    <div class="section-label">Your Presence</div>
+    <div class="section-title">Who's setting up this Cove?</div>
+    <div class="section-desc">This is you, the operator. Your @handle is your identity across the network &mdash; pick something that's yours, you can't change it later.</div>
+    <div class="field">
+      <label>Your name</label>
+      <input id="op-name" type="text" placeholder="e.g. Dennis" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>@handle</label>
+      <input id="op-handle" type="text" placeholder="e.g. dennis" autocomplete="off" spellcheck="false">
+      <div class="status" id="op-handle-status"></div>
+    </div>
+    <div class="field" id="op-email-field">
+      <label>Email <span style="opacity:.55;font-weight:normal">(optional)</span></label>
+      <input id="op-email" type="email" placeholder="you@example.com" autocomplete="off" spellcheck="false">
+      <div class="status" id="op-email-status"></div>
+      <div style="font-size:12px;opacity:.6;margin-top:4px">Optional — used only for recovery and notices. You can add it anytime. Skipping it? Your account comes with an operator key — you'll find it in Settings after setup. Store it with your passwords; it's how you get back in if email isn't set up.</div>
+    </div>
+    <div class="field" id="op-connect" style="display:none">
+      <div style="font-size:13px;opacity:.9;margin-bottom:6px">This is your account? Paste your connect key to bring it onto this Cove.<br><span style="opacity:.6;font-size:12px">Sign in at app.lucidcove.org → Settings → “Self-host a Cove” → <strong>Get my connect key</strong>, and copy it. (Pasting the whole .env or config block works too.)</span></div>
+      <input id="op-connect-key" type="text" placeholder="paste your connect key" autocomplete="off" spellcheck="false">
+      <button id="op-connect-btn" class="btn" type="button" style="margin-top:8px">Connect &amp; claim @<span id="op-connect-handle"></span></button>
+      <div class="status" id="op-connect-status"></div>
+    </div>
+    <div class="nav-row">
+      <span></span>
+      <button class="btn" id="op-continue" onclick="opContinue()" disabled>Continue &rarr;</button>
+    </div>
+  </div>
+
+  <!-- PANEL 1.5: connect a model (PARKED — unreachable now the door is gone; kept for flip-back) -->
+  <div class="panel" id="panel-model">
+    <div class="section-label">Connect intelligence</div>
+    <div class="section-title">Add your model</div>
+    <div class="section-desc">Guided setup uses a model to walk you through designing your agent. Bring your own key (OpenRouter covers Claude, GPT &amp; more), or run a local Ollama. This switches your Agent on — it'll already show as done in your Cove.</div>
+    <div class="field">
+      <label>Provider</label>
+      <select id="m-provider" style="width:100%;background:#1a1d27;border:1px solid #2a2d3a;border-radius:6px;padding:11px 14px;color:#e1e4ea;font-size:15px;">
+        <option value="">Choose a provider…</option>
+        <option value="openrouter">OpenRouter (recommended — Claude, GPT &amp; more)</option>
+        <option value="openai">OpenAI</option>
+        <option value="google">Google</option>
+        <option value="groq">Groq</option>
+        <option value="ollama">Ollama (local — no key)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>API key</label>
+      <input id="m-key" type="text" placeholder="Paste your key (leave blank for Ollama)" autocomplete="off">
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" onclick="show('panel-style')">&larr; Back</button>
+      <button class="btn" id="m-continue" onclick="saveModelThenName()">Continue &rarr;</button>
+    </div>
+  </div>
+
+  <!-- PANEL 2: name the cove -->
+  <div class="panel" id="panel-name">
+    <div class="section-label">Your Cove</div>
+    <div class="section-title">Name your Cove</div>
+    <div class="section-desc">This is your family's identity in the Lucid Cove Haven &mdash; it has to be unique. Pick something that's yours; you can't change it later.</div>
+    <div id="cove-discover" style="display:block;margin-bottom:16px;">
+      <label style="display:block;font-size:13px;color:#9a9aa8;margin-bottom:6px;">Start with a reflection. What is this space for? Who is it for?</label>
+      <textarea id="cove-reflection" rows="2" placeholder="A line or two in your own words." style="width:100%;background:#1a1d27;border:1px solid #2a2d3a;border-radius:6px;padding:10px 12px;color:#e1e4ea;font-size:14px;box-sizing:border-box;font-family:inherit;"></textarea>
+      <button class="btn btn-ghost" id="suggest-btn" onclick="suggestCoveNames()" style="margin-top:8px;">Suggest names &rarr;</button>
+      <div id="cove-suggestions" style="margin-top:12px;"></div>
+    </div>
+    <div class="field">
+      <label>Cove name</label>
+      <input id="cove-name" type="text" placeholder="e.g. Clearfield, Riverside, The Workshop" autocomplete="off" spellcheck="false">
+      <div class="status" id="name-status"></div>
+    </div>
+    <div class="team-note">Every Cove comes with <strong>Stuart</strong>, your steward, and a standard team of 9 specialized agents. Next you'll bring your own Presence into being &mdash; you, and your personal agent.</div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" onclick="show('panel-operator')">&larr; Back</button>
+      <button class="btn" id="name-continue" onclick="toBio()" disabled>Continue &rarr;</button>
+    </div>
+  </div>
+
+  <!-- PANEL 3: introduce yourself (D1, batch-10 #6) — optional, before the agent wakes -->
+  <div class="panel" id="panel-bio">
+    <div class="section-label">You</div>
+    <div class="section-title">Introduce yourself</div>
+    <!-- PLACEHOLDER COPY — Chords to finalize the operator-facing wording (D1). -->
+    <div class="section-desc">Optional. A line or two about who you are &mdash; your agent reads this as it wakes, so its very first words are genuinely about you. You can change it anytime in Settings.</div>
+    <div class="field">
+      <label>About you <span style="opacity:.55;font-weight:normal">(optional)</span></label>
+      <textarea id="op-bio" rows="4" placeholder="e.g. I'm a teacher and a parent of two, setting this up for my family." style="width:100%;background:#1a1d27;border:1px solid #2a2d3a;border-radius:6px;padding:10px 12px;color:#e1e4ea;font-size:14px;box-sizing:border-box;font-family:inherit;"></textarea>
+    </div>
+    <div class="field">
+      <label>A photo <span style="opacity:.55;font-weight:normal">(optional)</span></label>
+      <input id="op-photo" type="file" accept="image/*" style="color:#c8c8d4;font-size:13px;">
+      <div class="status" id="op-bio-status"></div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" onclick="show('panel-name')">&larr; Back</button>
+      <span style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="skipBio()">Skip</button>
+        <button class="btn" id="bio-continue" onclick="saveBioThenPresence()">Continue &rarr;</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<script>
+let style = 'quick';
+let _nameOk = false;
+
+function show(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function pickStyle(s) {
+  style = s;
+  // Guided opens the AI-assisted cove-naming reflection (the first collapse of the Fork);
+  // Quick keeps the fast plain field. The BYOK model step (panel-model + saveModelThenName)
+  // stays PARKED — to re-enable BYOK-at-setup, route 'guided' back to show('panel-model').
+  const disc = document.getElementById('cove-discover');
+  if (disc) disc.style.display = (s === 'guided') ? 'block' : 'none';
+  show('panel-name');
+  if (s === 'guided') {
+    const r = document.getElementById('cove-reflection'); if (r) r.focus();
+  } else {
+    document.getElementById('cove-name').focus();
+  }
+}
+function _escCove(s){ const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+async function suggestCoveNames() {
+  const refl = (document.getElementById('cove-reflection').value || '').trim();
+  const btn = document.getElementById('suggest-btn');
+  const out = document.getElementById('cove-suggestions');
+  btn.disabled = true; btn.textContent = 'Listening…';
+  out.innerHTML = '';
+  try {
+    const r = await fetch('/api/flow/cove-names', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reflection: refl }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error || !Array.isArray(d.names)) throw new Error(d.error || 'No suggestions');
+    out.innerHTML = d.names.map(n =>
+      `<div onclick="useCoveName('${String(n.name||'').replace(/'/g,"\\'")}')" style="cursor:pointer;border:1px solid #2a2d3a;border-radius:8px;padding:9px 12px;margin-bottom:6px;">
+        <strong style="color:#e1e4ea;">${_escCove(n.name)}</strong>
+        <span style="color:#9a9aa8;font-size:12.5px;"> &nbsp;${_escCove(n.why)}</span>
+      </div>`).join('');
+  } catch (e) {
+    out.innerHTML = '<div class="status" style="color:#ff6b6b;">Could not suggest right now. You can still type a name below.</div>';
+  }
+  btn.disabled = false; btn.textContent = 'Suggest names →';
+}
+function useCoveName(n) {
+  const el = document.getElementById('cove-name');
+  el.value = n;
+  el.dispatchEvent(new Event('input'));
+  el.focus();
+}
+async function saveModelThenName() {
+  const provider = (document.getElementById('m-provider').value || '');
+  const api_key = (document.getElementById('m-key').value || '');
+  if (!provider) { alert('Choose a provider.'); return; }
+  if (provider !== 'ollama' && !api_key.trim()) { alert('Enter your API key (or pick Ollama for local — no key).'); return; }
+  const btn = document.getElementById('m-continue');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    await fetch('/api/settings/model-key', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, api_key }),
+    });
+  } catch (e) { /* non-fatal — they can also set it in the MC */ }
+  if (btn) { btn.disabled = false; btn.textContent = 'Continue →'; }
+  show('panel-name'); document.getElementById('cove-name').focus();
+}
+
+// ── Step 0: operator identity. Open for a from-scratch install (create + mint on
+//    Continue); prefilled + locked for an upgrader who already has an account. ──
+let _opLocked = false, _opHandleOk = false;
+const opName = document.getElementById('op-name');
+const opHandle = document.getElementById('op-handle');
+const opEmail = document.getElementById('op-email');
+const opHandleStatus = document.getElementById('op-handle-status');
+const opBtn = document.getElementById('op-continue');
+function _opValidate() {
+  if (_opLocked) { opBtn.disabled = false; return; }
+  const emailVal = (opEmail.value || '').trim();
+  const okEmail = !emailVal || /.+@.+\..+/.test(emailVal);  // optional; only validated if entered
+  opBtn.disabled = !(_opHandleOk && (opName.value || '').trim() && okEmail);
+}
+let opTimer = null, _handleTouched = false;
+function setOpHandle(t, ok) { opHandleStatus.textContent = t; opHandleStatus.style.color = ok ? 'var(--accent)' : '#ff6b6b'; }
+function _checkHandle() {
+  if (_opLocked) return;
+  clearTimeout(opTimer);
+  // Changing the handle invalidates any stale email-collision prompt — they belong to one
+  // moment. (This was the cluttered overlap: the email buttons lingered after the handle changed.)
+  const _es = document.getElementById('op-email-status'); if (_es) _es.innerHTML = '';
+  const h = (opHandle.value || '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  if (opHandle.value !== h) opHandle.value = h;
+  _opHandleOk = false; _opValidate();
+  if (!h) { opHandleStatus.textContent = ''; return; }
+  setOpHandle('Checking…', true);
+  opTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/presence/handle-available?handle=' + encodeURIComponent(h));
+      const d = await r.json();
+      _opHandleOk = !!d.available;
+      if (d.claimable) {
+        document.getElementById('op-connect-handle').textContent = d.handle;
+        document.getElementById('op-connect').style.display = 'block';
+        setOpHandle('@' + d.handle + " is already an account — connect it below if it's yours.", false);
+        // Connecting the account IS the action here — the optional email is moot, so don't
+        // also fire the email-collision prompt (that was the redundant double-message).
+        if (_es) _es.innerHTML = '';
+      } else {
+        document.getElementById('op-connect').style.display = 'none';
+        setOpHandle(d.available ? '@' + d.handle + ' is available' : (d.reason || 'Not available'), !!d.available);
+      }
+    } catch (e) { setOpHandle('Could not check — try again', false); }
+    _opValidate();
+  }, 350);
+}
+// Auto-suggest the @handle from the name (like the upgrade flow) until the operator
+// edits the handle field themselves. Programmatic .value sets don't fire 'input', so
+// typing in the handle box is what marks it "touched".
+opName.addEventListener('input', () => {
+  if (!_opLocked && !_handleTouched) {
+    const slug = (opName.value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 30);
+    if (slug) { opHandle.value = slug; _checkHandle(); }
+  }
+  _opValidate();
+});
+opEmail.addEventListener('input', _opValidate);
+opHandle.addEventListener('input', () => { _handleTouched = true; _checkHandle(); });
+// Path B (#4): connect an existing Lucid Principles handle to this Cove with a connect key.
+let _opConnected = false;
+// Accept the connect key in ANY form the hub panel shows it — the bare key, the
+// .env lines (LP_OPERATOR_TOKEN=…), or the cove.config yaml (token: …). Users copy
+// whichever block they saw first; all of them contain the same key.
+function parseConnectKey(raw) {
+  const s = (raw || '').trim();
+  if (!s) return '';
+  let m = s.match(/LP_OPERATOR_TOKEN\s*=\s*(\S+)/);
+  if (m) return m[1];
+  m = s.match(/token\s*:\s*(\S+)/);
+  if (m) return m[1];
+  return s.split(/\s+/)[0];   // bare key (ignore stray whitespace/newlines)
+}
+document.getElementById('op-connect-btn').addEventListener('click', async () => {
+  const cstatus = document.getElementById('op-connect-status');
+  const key = parseConnectKey(document.getElementById('op-connect-key').value);
+  const h = (opHandle.value || '').trim();
+  const btn = document.getElementById('op-connect-btn');
+  if (!key) { cstatus.textContent = 'Paste your connect key.'; cstatus.style.color = '#ff6b6b'; return; }
+  btn.disabled = true; const _t = btn.textContent; btn.textContent = 'Connecting…';
+  try {
+    const r = await fetch('/api/onboarding/connect-operator', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle: h, connect_key: key, name: (opName.value || '').trim() }),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) { cstatus.textContent = d.error || "That key didn't match this handle."; cstatus.style.color = '#ff6b6b'; btn.disabled = false; btn.textContent = _t; return; }
+    _opConnected = true; _opHandleOk = true;
+    document.getElementById('op-connect').style.display = 'none';
+    setOpHandle('@' + h + ' — connected & claimed', true);
+    _opValidate();
+    _watchCarry(h);
+  } catch (e) { cstatus.textContent = 'Could not connect — try again.'; cstatus.style.color = '#ff6b6b'; btn.disabled = false; btn.textContent = _t; }
+});
+// CF-65 seamless carry: connecting kicked a background import of this operator's
+// tuning history/streak/preferences from the hub. Quiet progress on the handle
+// status line — informational only, never blocks or gates the wizard.
+async function _watchCarry(h) {
+  // Show intent IMMEDIATELY (run-2 2.4: the step used to complete with no carry
+  // message at all when anything went sideways) — the poll refines it from there.
+  setOpHandle('@' + h + ' — connected & claimed · bringing your tuning history over…', true);
+  for (let i = 0; i < 30; i++) {
+    await new Promise(res => setTimeout(res, 2000));
+    let d = null;
+    try { d = await (await fetch('/api/onboarding/carry-status')).json(); } catch (e) { return; }
+    if (!d || !d.ok) return;
+    if (d.state === 'running') {
+      setOpHandle('@' + h + ' — connected & claimed · bringing your tuning history over…'
+        + (d.sessions ? ' ' + d.sessions + ' so far' : ''), true);
+    } else if (d.state === 'done') {
+      const n = (d.sessions || 0) + (d.skipped || 0);
+      // From here on, new practice lives on THIS Cove — the hub copy stays as of now.
+      if (n) setOpHandle('@' + h + ' — connected & claimed · ✓ ' + n + ' tunings brought here'
+        + (d.streak ? ', ' + d.streak + '-day streak' : '') + ' — practice lives here now', true);
+      else setOpHandle('@' + h + ' — connected & claimed · no past tunings to bring — practice lives here now', true);
+      return;
+    } else if (d.state === 'error') {
+      // Run-2 2.4: silence here read as "carry never happened". Name it — and the
+      // retry is real: the Cove re-runs the carry at boot until history lands.
+      setOpHandle('@' + h + ' — connected & claimed · couldn’t bring your history over yet — your Cove will retry it after setup', true);
+      return;
+    } else { return; } // idle: stay quiet — carry is best-effort
+  }
+}
+// On load: prefill + lock if the operator already has an identity (upgrader).
+(async () => {
+  try {
+    const r = await fetch('/api/presence/me');
+    const d = await r.json();
+    const p = d && d.presence;
+    if (p && p.username && !p.needs_username) {
+      _opLocked = true;
+      opName.value = p.display_name || '';
+      opHandle.value = p.username;
+      opName.readOnly = opHandle.readOnly = true;
+      opName.style.opacity = opHandle.style.opacity = '0.75';
+      if (opEmail && p.email) { opEmail.value = p.email; opEmail.readOnly = true; opEmail.style.opacity = '0.75'; }
+      setOpHandle('@' + p.username + ' — your handle (locked)', true);
+      _opValidate();
+    }
+  } catch (e) { /* open fields by default */ }
+})();
+async function opContinue() {
+  if (opBtn.disabled) return;
+  opBtn.disabled = true; opBtn.textContent = '…';
+  try {
+    if (!_opLocked && !_opConnected) {
+      const r = await fetch('/api/onboarding/claim-operator', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: (opName.value || '').trim(), handle: (opHandle.value || '').trim(), email: (opEmail.value || '').trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) {
+        opBtn.disabled = false; opBtn.textContent = 'Continue →';
+        if (d.code === 'email_exists') {
+          // Offer BOTH, no dead-end (they may not know the email is already theirs). Privacy-safe:
+          // we never reveal the handle for an email — the "use my account" path is a sign-in, which
+          // only the real owner can complete. (1) Use existing account → sign in, grab the connect
+          // key, paste it under their real @handle (the handle field's connect panel). (2) Start
+          // fresh → clear the optional email, continue as the chosen @handle. (#211)
+          const es = document.getElementById('op-email-status');
+          const _h = (opHandle.value || '').trim();
+          if (es) {
+            es.style.color = '#ff8c00';
+            es.innerHTML =
+              "That email already has a Lucid Principles account — and it might be yours."
+              + '<div style="display:flex;gap:8px;margin-top:7px;flex-wrap:wrap;">'
+              +   '<button type="button" id="op-use-existing" style="background:none;border:1px solid #ff8c00;color:#ff8c00;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;">Use my existing account</button>'
+              +   '<button type="button" id="op-start-fresh" style="background:none;border:1px solid #ff8c00;color:#ff8c00;border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;">Start fresh' + (_h ? ' as @' + _escCove(_h) : '') + ' →</button>'
+              + '</div>'
+              + '<div id="op-existing-help" style="display:none;margin-top:8px;color:#cfcfe0;font-size:12px;line-height:1.6;">'
+              +   '1. <a href="https://app.lucidcove.org" target="_blank" style="color:var(--accent);">Sign in at app.lucidcove.org</a> with that email.<br>'
+              +   '2. Go to <strong>Settings → “Self-host a Cove” → Get my connect key</strong> and copy it (it shows your @handle too).<br>'
+              +   '3. Come back here, type <strong>that @handle</strong> above, and paste the key in the panel that appears.'
+              + '</div>';
+            const fresh = document.getElementById('op-start-fresh');
+            if (fresh) fresh.onclick = () => { opEmail.value = ''; es.innerHTML = ''; opContinue(); };
+            const useEx = document.getElementById('op-use-existing');
+            if (useEx) useEx.onclick = () => { const h = document.getElementById('op-existing-help'); if (h) h.style.display = 'block'; };
+          }
+          return;
+        }
+        alert(d.error || 'Could not create your identity — try a different handle.');
+        return;
+      }
+    }
+    // One path now (no Quick/Guided door): straight to naming the Cove, reflection ready.
+    show('panel-name');
+    const _r = document.getElementById('cove-reflection'); if (_r) _r.focus();
+  } catch (e) {
+    alert('Could not continue: ' + e.message); opBtn.disabled = false; opBtn.textContent = 'Continue →';
+  }
+}
+
+// Cove-name availability (Haven registry — TODO #133; local validation now).
+const nameEl = document.getElementById('cove-name');
+const nameStatus = document.getElementById('name-status');
+const nameBtn = document.getElementById('name-continue');
+let nameTimer = null;
+function setNameStatus(t, ok) { nameStatus.textContent = t; nameStatus.style.color = ok ? 'var(--accent)' : '#ff6b6b'; }
+nameEl.addEventListener('input', () => {
+  clearTimeout(nameTimer);
+  const n = nameEl.value.trim();
+  _nameOk = false; nameBtn.disabled = true;
+  if (!n) { nameStatus.textContent = ''; return; }
+  setNameStatus('Checking…', true);
+  nameTimer = setTimeout(async () => {
+    try {
+      const r = await fetch('/api/cove/name-available?name=' + encodeURIComponent(n));
+      const d = await r.json();
+      _nameOk = !!d.available; nameBtn.disabled = !d.available;
+      setNameStatus(d.available ? '✓ ' + (d.name || n) + ' is available' : (d.reason || 'Not available'), !!d.available);
+    } catch (e) { setNameStatus('Could not check — try again', false); }
+  }, 350);
+});
+nameEl.addEventListener('keydown', e => { if (e.key === 'Enter' && _nameOk) toBio(); });
+
+// ── D1 (batch-10 #6): optional "introduce yourself" step between naming the Cove and
+//    waking the agent. Bio saves to the operator's profile (presence_profiles.bio) + an
+//    optional photo; the bio also rides toPresence as operator_bio, and the wake reads it
+//    from the profile as a server-side fallback (flow_cove), so the agent's first words are
+//    genuinely about the person regardless of how the setup chain threads params. ──
+function toBio() {
+  if (!_nameOk) return;
+  show('panel-bio');
+  const b = document.getElementById('op-bio'); if (b) b.focus();
+}
+function skipBio() { toPresence(''); }
+async function saveBioThenPresence() {
+  const btn = document.getElementById('bio-continue');
+  const status = document.getElementById('op-bio-status');
+  const bio = (document.getElementById('op-bio').value || '').trim();
+  const photo = document.getElementById('op-photo').files[0];
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    if (bio) {
+      await fetch('/api/profile/me', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bio }),
+      });
+    }
+    if (photo) {
+      const fd = new FormData();
+      fd.append('file', photo);
+      // Photo is optional — never let an upload hiccup block finishing setup.
+      try { await fetch('/api/profile/avatar?kind=operator', { method: 'POST', body: fd }); }
+      catch (e) { /* ignore */ }
+    }
+  } catch (e) {
+    if (status) { status.style.color = '#ff8c00'; status.textContent = 'Saved what we could — you can finish this in Settings.'; }
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Continue →'; }
+  toPresence(bio);
+}
+
+// Hand off to the shared Add-a-Presence template. It collects the operator
+// (person + level=Operator) and, for Guided, the model step + discovery; Quick
+// uses chips + fields. The Cove name rides along and locks in at finalize.
+function toPresence(operatorBio) {
+  if (!_nameOk) return;
+  // One unified flow — always the creation journey (no door). door=guided keeps the
+  // downstream route explicit; agent-setup.html now sends every path to new-agent-setup.
+  const qs = new URLSearchParams({ firstrun: '1', cove_name: nameEl.value.trim(), door: 'guided', role: 'operator' });
+  const _bio = (operatorBio || '').trim();
+  if (_bio) qs.set('operator_bio', _bio);   // best-effort passthrough; the durable path is the profile
+  window.location.href = '/static/action-board/agent-setup.html?' + qs.toString();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,859 @@
+/* Tune Flow — personal tuning wizard, echo history, onboarding */
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   TUNE FLOW — Personal Tuning (Tuner Tier)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+.tune-flow {
+  padding: 1.5rem 1rem;
+  max-width: 480px;
+  width: 100%;
+  margin: 0 auto;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  box-sizing: border-box;
+}
+.tune-flow::-webkit-scrollbar { display: none; }
+.panel-scroll:has(.tune-flow) {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.panel-scroll:has(.tune-flow)::-webkit-scrollbar { display: none; }
+
+/* Step layout */
+.tf-step { animation: tfFadeIn 0.3s ease; }
+@keyframes tfFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.tf-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 1.25rem;
+}
+.tf-step-num {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--daily-freq, var(--accent));
+  color: #0f1117;
+  font-size: 0.7rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.tf-question {
+  font-size: 1.05rem;
+  color: var(--text);
+  font-weight: 500;
+  margin: 0;
+}
+.tf-back {
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.tf-back:hover { color: var(--text); }
+
+/* Context label (shown in step 2) */
+.tf-context-label {
+  font-size: 0.8rem;
+  color: var(--dim);
+  margin: -0.75rem 0 1rem 34px;
+}
+
+/* Chips grid */
+.tf-chips {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.tf-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--card-bg, rgba(255,255,255,0.04));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, transform 0.1s;
+  text-align: left;
+}
+@media (hover: hover) { .tf-chip:hover { border-color: var(--daily-freq, var(--accent)); background: rgba(255,255,255,0.06); } }
+.tf-chip:active { transform: scale(0.97); }
+.tf-chip.selected { border-color: var(--daily-freq, var(--accent)); background: rgba(92, 225, 230, 0.1); }
+.tf-chip-icon { font-size: 1.1rem; flex-shrink: 0; }
+.tf-chip-label { line-height: 1.2; }
+
+/* Step 3: Selection animation */
+.tf-selection {
+  text-align: center;
+  padding: 4rem 1rem;
+}
+.tf-scan-icon {
+  font-size: 2.5rem;
+  animation: tfSpin 1.5s linear infinite;
+  margin-bottom: 1rem;
+}
+@keyframes tfSpin { to { transform: rotate(360deg); } }
+.tf-scan-text {
+  font-size: 1rem;
+  color: var(--text);
+  margin-bottom: 0.5rem;
+}
+.tf-scan-sub {
+  font-size: 0.8rem;
+  color: var(--dim);
+}
+
+/* Step 4: Coaching */
+.tf-frequency {
+  font-size: 1.1rem;
+  color: var(--daily-freq, var(--accent));
+  font-weight: 600;
+  margin: 0;
+}
+.tf-coaching {
+  margin-bottom: 1.5rem;
+}
+.tf-coaching-text {
+  font-size: 0.88rem;
+  line-height: 1.8;
+  color: var(--text);
+  opacity: 0.92;
+}
+.tf-principle {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 1rem;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+.tf-principle-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--dim);
+}
+.tf-principle-name {
+  font-size: 0.95rem;
+  color: var(--daily-freq, var(--accent));
+  font-weight: 500;
+}
+
+/* Step 5: Practice */
+.tf-practice {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 1.5rem;
+}
+.tf-practice-step {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  transition: border-color 0.3s;
+}
+@media (hover: hover) { .tf-practice-step:hover { border-color: var(--daily-freq, var(--accent)); } }
+.tf-practice-num {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--daily-freq, var(--border));
+  color: var(--bg, #111);
+  font-size: 0.72rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.tf-practice-step strong {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.tf-practice-step p {
+  font-size: 0.82rem;
+  color: var(--text);
+  opacity: 0.85;
+  line-height: 1.5;
+  margin: 0;
+}
+.tf-practice-compact .tf-practice-step {
+  gap: 12px;
+  padding: 0.85rem 1rem;
+}
+.tf-practice-compact .tf-practice-step div {
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* Step 6: Tuning Key */
+.tf-key {
+  margin-bottom: 1.5rem;
+}
+.tf-key-instruction {
+  font-size: 0.82rem;
+  color: var(--dim);
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+.tf-key-quote {
+  font-size: 1.05rem;
+  color: var(--daily-freq, var(--accent));
+  font-style: italic;
+  line-height: 1.6;
+  padding: 1rem 1.25rem;
+  margin: 0;
+  border-left: 3px solid var(--daily-freq, var(--accent));
+  background: rgba(255,255,255,0.02);
+  border-radius: 0 8px 8px 0;
+}
+
+/* Step 7: Echo / Player */
+.tf-echo {
+  margin-bottom: 1.5rem;
+}
+.tf-echo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 1rem;
+}
+.tf-echo-freq {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--daily-freq, var(--accent));
+}
+.tf-echo-name {
+  font-size: 0.9rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.tf-echo-album {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.tf-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--card-bg, rgba(255,255,255,0.04));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.tf-play-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--daily-freq, var(--accent));
+  color: #0f1117;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.tf-play-btn:hover { opacity: 0.85; }
+.tf-progress-wrap {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+}
+.tf-progress-bar {
+  height: 100%;
+  background: var(--daily-freq, var(--accent));
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.2s linear;
+}
+.tf-time {
+  font-size: 0.7rem;
+  color: var(--dim);
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Step 8: Feedback */
+.tf-feedback {
+  margin-bottom: 1.5rem;
+}
+.tf-feedback-options {
+  display: flex;
+  gap: 8px;
+}
+.tf-feedback-btn {
+  flex: 1;
+  padding: 12px 8px;
+  background: var(--card-bg, rgba(255,255,255,0.04));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.tf-feedback-btn:hover { border-color: var(--daily-freq, var(--accent)); }
+.tf-feedback-btn.selected { border-color: var(--daily-freq, var(--accent)); background: rgba(92, 225, 230, 0.1); }
+
+/* Buttons */
+.tf-btn {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.tf-btn:hover { opacity: 0.85; }
+.tf-btn-next {
+  background: var(--daily-freq, var(--accent));
+  color: #0f1117;
+}
+.tf-btn-finish {
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.tf-btn-retry {
+  background: rgba(255,107,92,0.15);
+  color: var(--warn, #ff6b5c);
+  border: 1px solid rgba(255,107,92,0.3);
+  margin-top: 1rem;
+  width: auto;
+  padding: 10px 20px;
+}
+.tf-btn-upgrade {
+  background: transparent;
+  color: var(--daily-freq, var(--accent));
+  border: 1px solid var(--daily-freq, var(--accent));
+  margin-top: 0.75rem;
+  padding: 10px 20px;
+  font-size: 0.8rem;
+  opacity: 0.85;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+.tf-btn-upgrade:hover { opacity: 1; background: rgba(255,255,255,0.05); }
+
+/* Step 3: Field Intention + E Declaration */
+.tf-field-intention {
+  padding: 1rem;
+  background: rgba(92, 225, 230, 0.08);
+  border-radius: 12px;
+  border: 1px solid rgba(92, 225, 230, 0.2);
+  margin-bottom: 1.2rem;
+}
+.tf-intention-text {
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: var(--daily-freq, var(--accent));
+  font-weight: 500;
+  white-space: pre-line;
+  text-align: center;
+  margin: 0;
+}
+.tf-e-declaration {
+  text-align: center;
+  margin-bottom: 1.2rem;
+}
+.tf-e-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.6rem;
+  font-style: italic;
+}
+.tf-e-options {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+.tf-e-btn {
+  padding: 10px 22px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+@media (hover: hover) { .tf-e-btn:hover { border-color: var(--daily-freq, var(--accent)); } }
+.tf-e-btn.selected {
+  border-color: var(--daily-freq, var(--accent));
+  background: rgba(92, 225, 230, 0.12);
+  color: var(--daily-freq, var(--accent));
+  font-weight: 600;
+}
+.tf-e-default { border-color: rgba(255,255,255,0.15); }
+.tf-quantum-msg {
+  text-align: center;
+  margin-top: 0.5rem;
+}
+.tf-quantum-text {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  animation: pulse 1.8s ease-in-out infinite;
+  margin-bottom: 0.5rem;
+}
+.tf-quantum-dots {
+  font-size: 1.3rem;
+  color: var(--daily-freq, var(--accent));
+  animation: pulse 1.8s ease-in-out infinite;
+  letter-spacing: 0.3em;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Step 3: Receive Tuning Button */
+.tf-receive-wrap {
+  text-align: center;
+  margin-top: 1.5rem;
+  animation: tfFadeIn 0.3s ease;
+}
+.tf-btn-receive {
+  display: block;
+  max-width: 280px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: 2px solid var(--daily-freq, var(--accent));
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+.tf-receive-waiting {
+  background: transparent;
+  color: var(--dim);
+  border-color: rgba(255,255,255,0.15);
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.tf-receive-ready {
+  background: var(--daily-freq, var(--accent));
+  color: var(--bg, #0a0a0f);
+  border-color: var(--daily-freq, var(--accent));
+  animation: none;
+  opacity: 1;
+}
+.tf-receive-ready:hover {
+  filter: brightness(1.1);
+}
+.tf-receive-nudge {
+  color: var(--daily-freq, var(--accent));
+  border-color: var(--daily-freq, var(--accent));
+}
+
+/* Step 7: Focused Echo Card */
+.tf-echo-focused { text-align: center; padding-bottom: 80px; }
+.tf-echo-card {
+  max-width: 300px;
+  margin: 0 auto 1.5rem;
+  text-align: center;
+}
+.tf-echo-art {
+  width: 200px;
+  height: 200px;
+  border-radius: 12px;
+  object-fit: cover;
+  margin-bottom: 0.8rem;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.tf-echo-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.25rem;
+}
+.tf-echo-subtitle {
+  font-size: 0.82rem;
+  color: var(--daily-freq, var(--accent));
+  margin-bottom: 0.8rem;
+}
+
+/* Step 8: Landing feedback */
+.tf-landing-options {
+  justify-content: center;
+}
+.tf-land-yes.selected { border-color: #4ade80; background: rgba(74, 222, 128, 0.1); color: #4ade80; }
+.tf-land-somewhat.selected { border-color: var(--daily-freq, var(--accent)); background: rgba(92, 225, 230, 0.1); }
+.tf-land-no.selected { border-color: var(--warn, #ff6b5c); background: rgba(255, 107, 92, 0.1); color: var(--warn, #ff6b5c); }
+
+/* Completed tuning view — full-panel with natural scroll, no scrollbar */
+/* Tune tab logo */
+.tf-logo {
+  text-align: center;
+  margin: 0.75rem 0 0.5rem;
+}
+.tf-logo-img {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  opacity: 0.9;
+}
+
+.tune-complete {
+  max-width: 600px;
+  padding-bottom: 100px; /* room for fixed player bar */
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.tune-complete::-webkit-scrollbar { display: none; /* Chrome/Safari */ }
+.tune-complete .tf-complete-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.tf-complete-title {
+  display: block;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+.tf-complete-freq {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--daily-freq, var(--accent));
+  margin-bottom: 4px;
+}
+.tf-complete-principle {
+  display: block;
+  font-size: 1.1rem;
+  color: var(--text);
+  font-weight: 500;
+}
+.tf-complete-context {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--dim);
+  margin-top: 4px;
+}
+.tf-complete-section {
+  background: var(--card);
+  border: 1px solid var(--daily-signal-border, var(--border));
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 8px var(--daily-signal-subtle, rgba(0,0,0,0.1));
+}
+.tf-complete-section.tf-complete-key {
+  border: 2px solid var(--daily-freq-border, var(--border));
+  border-left: 4px solid var(--daily-freq, var(--accent));
+  background: var(--daily-freq-subtle, rgba(255,255,255,0.02));
+}
+.tf-section-label {
+  display: block;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--dim);
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+.tf-tune-now-top {
+  text-align: center;
+  margin-bottom: 1rem;
+}
+.tf-btn-tune-now {
+  opacity: 0.85;
+  font-size: 0.85rem;
+  padding: 0.5rem 1.5rem;
+}
+.tf-btn-tune-now:hover { opacity: 1; }
+.tf-tune-again {
+  text-align: center;
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+.tf-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.tf-countdown-label {
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+.tf-countdown-time {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--daily-freq, var(--accent));
+  font-variant-numeric: tabular-nums;
+}
+
+/* tf-stream-section: no bottom border on stream section card */
+.tf-stream-section { border-bottom: none; }
+
+/* ── Echo History (Previous Tunings) ──────────────────────────────────────── */
+.tf-history {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+.tf-history-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+.tf-history-date {
+  font-size: 0.7rem;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0.75rem 0 0.35rem;
+  opacity: 0.7;
+}
+.tf-hist-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.tf-hist-row:hover { background: rgba(255,255,255,0.02); }
+.tf-hist-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.tf-hist-principle {
+  font-size: 0.82rem;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tf-hist-date-time {
+  font-size: 0.7rem;
+  color: var(--dim);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.tf-hist-see-all {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 0.8rem;
+  color: var(--daily-freq, var(--accent));
+  cursor: pointer;
+  margin-top: 6px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.tf-hist-see-all:hover {
+  background: rgba(255,255,255,0.03);
+  border-color: var(--daily-freq, var(--accent));
+}
+
+/* ── Tuning Detail Modal ─────────────────────────────────────────────────── */
+.tf-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(4px);
+}
+.tf-modal {
+  background: var(--card, #111118);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 440px;
+  max-height: 85vh;
+  overflow-y: auto;
+  position: relative;
+}
+.tf-modal-full { max-height: 90vh; }
+.tf-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 1.4rem;
+  cursor: pointer;
+  z-index: 1;
+  padding: 4px 8px;
+}
+.tf-modal-close:hover { color: var(--text); }
+.tf-modal-header {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+.tf-modal-freq {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-top: 0.4rem;
+}
+.tf-modal-principle {
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-top: 0.15rem;
+}
+.tf-modal-meta {
+  font-size: 0.72rem;
+  color: var(--dim);
+  margin-top: 0.4rem;
+}
+.tf-modal-section {
+  margin-bottom: 1rem;
+}
+.tf-modal-label {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.4rem;
+}
+.tf-modal-key {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--text);
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  background: rgba(255,255,255,0.02);
+  border-radius: 0 8px 8px 0;
+  line-height: 1.5;
+}
+.tf-modal-value {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.tf-modal-coaching {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text);
+  font-style: italic;
+  margin: 0;
+}
+.tf-modal-practice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tf-fullhist-list {
+  margin-top: 0.5rem;
+}
+
+/* ── Onboarding walkthrough ─────────────────────────────────────────────── */
+.onboarding-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,0.5);
+  animation: obFadeIn 0.2s ease;
+}
+@keyframes obFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.onboarding-highlight {
+  position: fixed; z-index: 10000;
+  border: 2px solid var(--accent, #5ce1e6);
+  border-radius: 8px;
+  box-shadow: 0 0 0 4px rgba(92,225,230,0.2), 0 0 20px rgba(92,225,230,0.15);
+  pointer-events: none;
+  animation: obPulse 2s ease-in-out infinite;
+}
+@keyframes obPulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(92,225,230,0.2), 0 0 20px rgba(92,225,230,0.15); }
+  50% { box-shadow: 0 0 0 6px rgba(92,225,230,0.3), 0 0 30px rgba(92,225,230,0.25); }
+}
+
+.onboarding-tooltip {
+  position: fixed; z-index: 10001;
+  background: var(--bg, #0a0a0f);
+  border: 1px solid var(--border, #2a2a35);
+  border-radius: 12px;
+  padding: 20px 24px;
+  max-width: 340px; width: 90vw;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.onboarding-title {
+  font-size: 1rem; font-weight: 600;
+  color: var(--text, #d8d8e0);
+  margin-bottom: 8px;
+}
+.onboarding-body {
+  font-size: 0.85rem; line-height: 1.5;
+  color: var(--dim, #888);
+  margin-bottom: 16px;
+}
+.onboarding-footer {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.onboarding-dots {
+  font-size: 0.7rem; color: var(--dim, #888); letter-spacing: 0.05em;
+}
+.onboarding-btns { display: flex; gap: 8px; }
+.onboarding-btn {
+  padding: 6px 16px; border-radius: 6px; border: none;
+  font-family: inherit; font-size: 0.82rem; cursor: pointer;
+}
+.onboarding-back {
+  background: transparent; color: var(--dim); border: 1px solid var(--border);
+}
+.onboarding-next {
+  background: var(--accent, #5ce1e6); color: #0a0a0f; font-weight: 600;
+}

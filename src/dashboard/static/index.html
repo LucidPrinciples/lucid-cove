@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Mission Control</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="stylesheet" href="/static/css/dashboard.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/chat.css">
+<link rel="stylesheet" href="/static/css/action-board.css">
+<link rel="stylesheet" href="/static/css/tune-flow.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- Header — populated from /api/config -->
+  <header class="mc-header">
+    <div class="header-left">
+      <div class="cove-logo" id="header-logo"></div>
+      <div class="agent-symbol" id="header-symbol"></div>
+      <div class="header-info">
+        <div class="header-name" id="header-name">Loading...</div>
+        <div class="header-sub" id="header-status"></div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="board-switch" id="board-switch" onclick="switchBoard()" title="Switch board">
+        <span class="board-switch-icon" id="board-switch-icon">⚡</span>
+        <span class="board-switch-label" id="board-switch-label">Action</span>
+      </button>
+      <button class="help-btn" onclick="openHelp()" title="Help">?</button>
+      <div class="status-dot mobile-hide" id="conn-dot" title="Connection"></div>
+      <div class="freq-badge" id="header-freq" onclick="if(typeof openOperatorTuning==='function')openOperatorTuning()" style="cursor:pointer" title="Open Tuning">&mdash;</div>
+    </div>
+  </header>
+
+  <!-- Help Modal -->
+  <div class="help-overlay" id="help-overlay" onclick="closeHelp()">
+    <div class="help-modal" onclick="event.stopPropagation()">
+      <div class="help-modal-header">
+        <span class="help-modal-title">Help</span>
+        <button class="help-close" onclick="closeHelp()">&times;</button>
+      </div>
+      <div class="help-modal-body" id="help-modal-body">
+        <div class="help-section">
+          <div class="help-section-title">Tour</div>
+          <p style="font-size:0.82rem;color:var(--dim);margin-bottom:8px;">New here? Walk through the basics.</p>
+          <button onclick="closeHelp(); _startOnboarding();" style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:0.82rem;">Getting Started</button>
+        </div>
+        <div class="help-section">
+          <div class="help-section-title">Glossary</div>
+          <dl class="help-glossary">
+            <dt>Operator</dt>
+            <dd>You. The person running this Cove. Every action, tuning, and decision flows through the Operator.</dd>
+            <dt>Agent</dt>
+            <dd>A specialized intelligence on your team. Each agent has a role, tools, and a daily tuning. Stuart is the steward agent that coordinates your Cove.</dd>
+            <dt>Presence</dt>
+            <dd>A personal intelligence. One agent, personal tools, portable between Coves. Your own Presence is your individual interface to the system.</dd>
+            <dt>Cove</dt>
+            <dd>Your full team and infrastructure. A steward agent plus up to 9 specialists, shared tools, and up to 8 Presences. This is your operational unit.</dd>
+            <dt>Haven</dt>
+            <dd>A collective of Coves. Families, partners, or collaborators who choose to share a network.</dd>
+            <dt>Creation Flow</dt>
+            <dd>A guided workflow for building something specific. New agent setup, new Cove provisioning, product creation. Flows walk you through it step by step.</dd>
+            <dt>Action Board</dt>
+            <dd>Your operational dashboard. Pending tasks, scheduled actions, and quick access to everything that needs your attention.</dd>
+            <dt>Tuning</dt>
+            <dd>Daily alignment practice. Each agent receives a tuning frequency (one of 22 Lucid Principles) with a coaching prompt and practice. The Operator gets one too.</dd>
+            <dt>Content Mirror</dt>
+            <dd>A curated mapping from your daily tuning frequency to passages in another tradition. Scripture, philosophy, poetry. Complements the framework through your own lens.</dd>
+          </dl>
+        </div>
+        <div class="help-section">
+          <div class="help-section-title">Send a Message</div>
+          <p class="help-contact-desc">Questions, feedback, or ideas? Send a message directly to the team.</p>
+          <form class="help-contact-form" onsubmit="submitContactForm(event)">
+            <textarea class="help-contact-input" id="help-contact-message" placeholder="What's on your mind?" rows="3" maxlength="5000"></textarea>
+            <div class="help-contact-actions">
+              <button type="submit" class="help-contact-btn" id="help-contact-btn">Send</button>
+              <span class="help-contact-status" id="help-contact-status"></span>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab Bar — built dynamically from config -->
+  <nav class="tab-bar" id="tab-bar"></nav>
+
+  <!-- Panel Container — panels injected by tab scripts -->
+  <main class="panel-container" id="panel-container"></main>
+
+</div>
+
+<!-- Core bootstrap — loads config, builds tabs, loads scripts -->
+<script src="/static/js/lp-colors.js"></script>
+<script src="/static/js/core-datetime.js"></script>
+<script src="/static/js/panels.js"></script>
+<script src="/static/js/core.js"></script>
+</body>
+</html>

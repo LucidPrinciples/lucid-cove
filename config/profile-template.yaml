@@ -1,0 +1,39 @@
+# =============================================================================
+# profile.yaml — Presence Identity Document (TEMPLATE)
+# =============================================================================
+# This file lives in your Nextcloud vault at: Vault/profile.yaml
+# Your agent loads it on every conversation. Edit it anytime.
+# Fields are all optional — use what matters to you.
+# =============================================================================
+
+# --- Who you are ---
+name: ""                    # Full name
+preferred_name: ""          # What the agent calls you
+pronouns: ""                # e.g. he/him, she/her, they/them
+
+# --- Your role in this Cove ---
+role: ""                    # e.g. Operator, Family Member, Friend
+focus: ""                   # What you're working on right now
+
+# --- About you (free text) ---
+about: |
+  A short description of who you are, what matters to you,
+  and what the agent should know to serve you well.
+
+# --- Current goals ---
+goals:
+  - ""
+
+# --- How you like to work ---
+preferences:
+  communication: ""         # e.g. "Direct, no filler"
+  formatting: ""            # e.g. "Plain language, short paragraphs"
+
+# --- People the agent should know about ---
+relationships:
+  - name: ""
+    relation: ""            # e.g. spouse, parent, sibling, friend
+
+# --- Anything else ---
+notes: |
+  Freeform notes. Anything the agent should always keep in mind.

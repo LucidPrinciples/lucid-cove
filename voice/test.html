@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voice Test — Lucid Cove</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0a0a0f;color:#e0e0e0;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+h1{font-size:1.4rem;margin-bottom:8px;color:#7eb8da}
+.status{font-size:0.85rem;color:#888;margin-bottom:30px;text-align:center;min-height:2.5em;padding:0 20px}
+.btn{width:160px;height:160px;border-radius:50%;border:3px solid #333;background:#1a1a2e;color:#ccc;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none;transition:all 0.2s}
+.btn.recording{border-color:#e74c3c;background:#2a1a1e;color:#e74c3c;box-shadow:0 0 30px rgba(231,76,60,0.3);animation:pulse 1.5s infinite}
+.btn.processing{border-color:#f39c12;background:#2a2a1e;color:#f39c12}
+.btn.speaking{border-color:#2ecc71;background:#1a2a1e;color:#2ecc71;box-shadow:0 0 30px rgba(46,204,113,0.3)}
+@keyframes pulse{0%,100%{box-shadow:0 0 30px rgba(231,76,60,0.3)}50%{box-shadow:0 0 50px rgba(231,76,60,0.5)}}
+#log{margin-top:30px;width:100%;max-width:400px;max-height:200px;overflow-y:auto;font-size:0.75rem;color:#666;padding:10px;border:1px solid #222;border-radius:8px}
+#log div{padding:2px 0;border-bottom:1px solid #111}
+</style>
+</head>
+<body>
+<h1>Lucid Cove Voice</h1>
+<div class="status" id="status">Connecting...</div>
+<button class="btn" id="talkBtn">Tap to Talk</button>
+<div id="log"></div>
+<script>
+const btn=document.getElementById("talkBtn");
+const statusEl=document.getElementById("status");
+const logEl=document.getElementById("log");
+let ws,mediaStream,audioCtx,processor,recording=false;
+
+function log(msg){const d=document.createElement("div");d.textContent=new Date().toLocaleTimeString()+" "+msg;logEl.prepend(d)}
+function setStatus(s){statusEl.textContent=s}
+
+function connect(){
+  const proto=location.protocol==="https:"?"wss:":"ws:";
+  ws=new WebSocket(proto+"//"+location.host+"/ws");
+  ws.binaryType="arraybuffer";
+  ws.onopen=()=>{setStatus("Ready. Tap the button to start talking.");log("Connected");};
+  ws.onclose=()=>{setStatus("Disconnected. Reconnecting...");log("Disconnected");setTimeout(connect,2000);};
+  ws.onerror=()=>{log("WS error");};
+  ws.onmessage=(e)=>{
+    if(e.data instanceof ArrayBuffer){
+      log("Got audio "+e.data.byteLength+" bytes");
+      playAudio(e.data);
+    }else{
+      try{const j=JSON.parse(e.data);log("MSG: "+j.type+(j.text?" - "+j.text:""));
+        if(j.type==="transcript")setStatus("You said: "+j.text);
+        if(j.type==="response_text")setStatus("Atlas: "+j.text);
+        if(j.type==="processing"){btn.className="btn processing";btn.textContent="Thinking...";}
+        if(j.type==="speaking"){btn.className="btn speaking";btn.textContent="Speaking...";}
+        if(j.type==="done"){btn.className="btn";btn.textContent="Tap to Talk";setStatus("Ready. Tap to talk again.");}
+      }catch(ex){}
+    }
+  };
+}
+
+async function startRecording(){
+  recording=true;
+  btn.className="btn recording";btn.textContent="Tap to Stop";
+  setStatus("Listening...");
+  log("Recording started");
+  try{
+    mediaStream=await navigator.mediaDevices.getUserMedia({audio:{sampleRate:16000,channelCount:1,echoCancellation:true,noiseSuppression:true}});
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)({sampleRate:16000});
+    const src=audioCtx.createMediaStreamSource(mediaStream);
+    processor=audioCtx.createScriptProcessor(4096,1,1);
+    processor.onaudioprocess=(e)=>{
+      if(!recording||!ws||ws.readyState!==1)return;
+      const f32=e.inputBuffer.getChannelData(0);
+      const i16=new Int16Array(f32.length);
+      for(let i=0;i<f32.length;i++){let s=Math.max(-1,Math.min(1,f32[i]));i16[i]=s<0?s*0x8000:s*0x7FFF;}
+      ws.send(i16.buffer);
+    };
+    src.connect(processor);processor.connect(audioCtx.destination);
+  }catch(err){log("Mic error: "+err.message);stopRecording();}
+}
+
+function stopRecording(){
+  recording=false;
+  btn.className="btn processing";btn.textContent="Thinking...";
+  setStatus("Processing your audio...");
+  log("Recording stopped");
+  if(processor){processor.disconnect();processor=null;}
+  if(audioCtx){audioCtx.close();audioCtx=null;}
+  if(mediaStream){mediaStream.getTracks().forEach(t=>t.stop());mediaStream=null;}
+  if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:"end_audio"}));
+}
+
+function toggleRecording(){
+  if(btn.className.indexOf("processing")!==-1||btn.className.indexOf("speaking")!==-1)return;
+  if(recording){stopRecording();}else{startRecording();}
+}
+
+function playAudio(buf){
+  try{
+    const blob=new Blob([buf],{type:"audio/wav"});
+    const url=URL.createObjectURL(blob);
+    const a=new Audio(url);
+    a.onended=()=>URL.revokeObjectURL(url);
+    a.play().catch(e=>log("Play error: "+e.message));
+  }catch(e){log("Audio error: "+e.message);}
+}
+
+btn.addEventListener("click",(e)=>{e.preventDefault();toggleRecording();});
+connect();
+</script>
+</body>
+</html>

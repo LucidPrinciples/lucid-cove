@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set Crop Template — Video Pipeline</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; }
+
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #222; }
+.header h1 { font-size: 18px; font-weight: 600; color: #5ce1e6; }
+.header a { color: #5ce1e6; text-decoration: none; font-size: 13px; }
+
+.instructions { color: #888; font-size: 13px; line-height: 1.6; margin-bottom: 20px; max-width: 640px; }
+
+.crop-workspace { display: flex; gap: 28px; flex-wrap: wrap; }
+
+/* 9:16 output frame */
+.crop-frame-outer {
+    position: relative;
+    width: 270px;
+    height: 480px;
+    background: #000;
+    border: 2px solid #333;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+/* Video window — area between top and bottom bars */
+.video-window {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+.video-window:active { cursor: grabbing; }
+.video-window img {
+    position: absolute;
+    transform-origin: 0 0;
+    pointer-events: none;
+}
+
+/* Black bars */
+.bar-top { position: absolute; top: 0; left: 0; width: 100%; background: #000; z-index: 5; }
+.bar-bottom { position: absolute; bottom: 0; left: 0; width: 100%; background: #000; z-index: 5; display: flex; align-items: flex-start; justify-content: center; padding-top: 16px; }
+
+/* Caption preview in bottom bar */
+.caption-preview-word {
+    font-weight: 900;
+    text-transform: uppercase;
+    text-align: center;
+    line-height: 1.1;
+    z-index: 6;
+}
+
+.crop-frame-label {
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    color: rgba(255,255,255,0.25);
+    pointer-events: none;
+    z-index: 7;
+}
+
+/* Controls */
+.controls { flex: 1; min-width: 260px; max-width: 400px; }
+.control-section { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #1a1a24; }
+.control-section:last-child { border-bottom: none; }
+.section-title { font-size: 13px; font-weight: 600; color: #e0e0e8; margin-bottom: 10px; }
+
+.control-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.control-row label { font-size: 12px; color: #888; width: 90px; flex-shrink: 0; }
+.control-row input[type="range"] {
+    flex: 1; -webkit-appearance: none; height: 4px;
+    background: #2a2a3a; border-radius: 2px; outline: none;
+}
+.control-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px;
+    border-radius: 50%; background: #5ce1e6; cursor: pointer;
+}
+.control-value { font-size: 12px; color: #aaa; font-family: monospace; width: 44px; text-align: right; }
+.frame-slider input[type="range"]::-webkit-slider-thumb { background: #e6b43c; }
+
+/* Frequency color swatches */
+.color-row { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+.color-swatch {
+    width: 24px; height: 24px; border-radius: 5px; cursor: pointer;
+    border: 2px solid transparent; transition: border-color 0.15s;
+    position: relative;
+}
+.color-swatch.active { border-color: #fff; }
+.color-swatch:hover { border-color: #888; }
+.color-swatch[title]:hover::after {
+    content: attr(title);
+    position: absolute; bottom: -20px; left: 50%; transform: translateX(-50%);
+    font-size: 9px; color: #888; white-space: nowrap;
+}
+
+/* Style chips */
+.style-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.style-chip {
+    font-size: 11px; padding: 4px 10px; background: #1a1a24;
+    border: 1px solid #2a2a3a; border-radius: 4px; color: #888;
+    cursor: pointer; transition: all 0.15s;
+}
+.style-chip.active { border-color: #5ce1e6; color: #5ce1e6; background: rgba(92,225,230,0.1); }
+
+/* Clips */
+.clips-summary h3 { font-size: 13px; color: #e0e0e8; margin-bottom: 8px; }
+.clip-item { display: flex; justify-content: space-between; padding: 6px 10px; background: #111118; border: 1px solid #1e1e2a; border-radius: 5px; margin-bottom: 4px; font-size: 11px; }
+.clip-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; vertical-align: middle; }
+.clip-dot.quote { background: #5ce1e6; }
+.clip-dot.thought { background: #e6b43c; }
+.clip-dot.story { background: #a064e6; }
+
+.btn-process { background: #5ce1e6; color: #0a0a0f; border: none; border-radius: 8px; padding: 12px 28px; font-size: 15px; font-weight: 700; cursor: pointer; transition: all 0.15s; margin-top: 16px; width: 100%; }
+.btn-process:hover { background: #7aeaee; }
+.btn-process:disabled { background: #333; color: #666; cursor: not-allowed; }
+.processing-status { margin-top: 10px; font-size: 12px; color: #888; text-align: center; }
+.loading { text-align: center; padding: 60px; color: #666; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Set Crop Template</h1>
+    <a id="back-link" href="#">← Back to Moments</a>
+</div>
+<div class="instructions">
+    Drag to position your video. Adjust the bottom bar size for caption space.
+    One square crop plus the caption bar is the composition; the platforms you pick decide the output shapes.
+</div>
+
+<div id="main-content" class="loading">Loading video frame...</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const stem = params.get('stem') || '';
+
+const FRAME_W = 270, FRAME_H = 480;
+
+let videoInfo = null;
+let cropState = { x: 0, y: 0, zoom: 1.0 };
+// Locked frame layout — thin top strip, 1:1 square, large caption bar
+// Preview: 270x480 → top 25, square 270, bottom 185
+// Output 4K: 2160x3840 → top 200, square 2160, bottom 1480
+const SQUARE_SIZE = FRAME_W;                        // 270px — perfect 1:1
+const BAR_TOP = 75;                                 // nudged 5px from 70
+const BAR_BOT = FRAME_H - SQUARE_SIZE - BAR_TOP;   // 135px caption area
+let dragStart = null;
+let clips = [];
+
+// Caption style
+let cap = {
+    fontSize: 72,
+    fontFamily: 'Arial',
+    color: '#5ce1e6',
+    strokeColor: '#ffffff',  // stroke/outline color — visible on black
+    stroke: 'clean',         // clean, outlined, pop
+    font: 'black',           // regular, bold, black
+    style: 'word',           // word, line
+};
+
+// Video filter presets
+let videoFilter = 'rich';
+const VIDEO_FILTER_PRESETS = [
+    { id: 'natural', label: 'Natural', desc: 'Minimal — true to source' },
+    { id: 'rich', label: 'Rich', desc: 'Deeper darks, more contrast' },
+    { id: 'cinematic', label: 'Cinematic', desc: 'Film look — dark, saturated' },
+];
+
+// Platforms for distribution — operator selects where clips get posted
+// Each platform maps to a preferred output format
+const PLATFORMS = [
+    { id: 'youtube', label: 'YouTube', icon: '📺', selected: true, format: '9:16' },
+    { id: 'tiktok', label: 'TikTok', icon: '🎵', selected: true, format: '9:16' },
+    { id: 'x', label: 'X', icon: '𝕏', selected: true, format: '16:9' },
+    { id: 'instagram', label: 'Instagram', icon: '📸', selected: false, format: '9:16' },
+    { id: 'facebook', label: 'Facebook', icon: '📘', selected: false, format: '9:16' },
+];
+
+const FONT_FAMILIES = [
+    { id: 'Arial', label: 'Arial' },
+    { id: 'Impact', label: 'Impact' },
+    { id: 'Georgia', label: 'Georgia' },
+    { id: 'Courier New', label: 'Mono' },
+    { id: 'Verdana', label: 'Verdana' },
+];
+
+const STROKE_COLORS = [
+    { name: 'White', hex: '#ffffff' },
+    { name: 'Light Gray', hex: '#cccccc' },
+    { name: 'Dark Gray', hex: '#555555' },
+    { name: 'Black', hex: '#000000' },
+];
+
+// Stroke presets — each defines outline color, width, and optional effects
+const STROKE_PRESETS = {
+    clean:    { label: 'Clean',    outlineWidth: 0, useStrokeColor: false, shadow: '' },
+    outlined: { label: 'Outlined', outlineWidth: 2, useStrokeColor: true,  shadow: '' },
+    pop:      { label: 'Pop',      outlineWidth: 3, useStrokeColor: true,  shadow: '2px 2px 4px rgba(0,0,0,0.8)' },
+};
+
+// Framework frequency colors
+const FREQ_COLORS = [
+    { name: 'Clarity',     hex: '#5ce1e6' },
+    { name: 'Peace',       hex: '#7ec8e3' },
+    { name: 'Trust',       hex: '#8bc48a' },
+    { name: 'Joy',         hex: '#ffd166' },
+    { name: 'Momentum',    hex: '#f7a135' },
+    { name: 'Gratitude',   hex: '#e8b830' },
+    { name: 'Connection',  hex: '#e88db6' },
+    { name: 'Courage',     hex: '#e57373' },
+    { name: 'Boundary',    hex: '#ff8a65' },
+    { name: 'Resilience',  hex: '#d4a843' },
+    { name: 'Release',     hex: '#90a4ae' },
+    { name: 'Presence',    hex: '#7b7394' },
+    { name: 'Integration', hex: '#a1887f' },
+    { name: 'White',       hex: '#ffffff' },
+];
+
+// Load moments: try sessionStorage first (from moments review flow),
+// fall back to loading ALL moments from API (from Action Board card)
+try { clips = JSON.parse(sessionStorage.getItem('approved_moments') || '[]'); } catch(e) { clips = []; }
+
+// Set back link to moments review
+document.getElementById('back-link').href =
+    `/static/action-board/video-moments-review.html?stem=${stem}` +
+    (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
+
+function videoWindowHeight() {
+    return SQUARE_SIZE;
+}
+
+async function init() {
+    const container = document.getElementById('main-content');
+    if (!stem) { container.innerHTML = '<div class="loading">No video stem.</div>'; return; }
+
+    // If no approved moments, redirect to moments review to make selections
+    if (clips.length === 0 && stem) {
+        const momentsUrl = `/static/action-board/video-moments-review.html?stem=${stem}` +
+            (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
+        window.location.href = momentsUrl;
+        return;
+    }
+
+    const infoResp = await fetch(`/api/video/proxy/info?filename=${stem}.MOV`);
+    if (!infoResp.ok) {
+        for (const ext of ['.mp4', '.mov', '.mkv']) {
+            const r = await fetch(`/api/video/proxy/info?filename=${stem}${ext}`);
+            if (r.ok) { videoInfo = await r.json(); break; }
+        }
+        if (!videoInfo) { container.innerHTML = '<div class="loading">Video not found.</div>'; return; }
+    } else {
+        videoInfo = await infoResp.json();
+    }
+
+    // Initial zoom: fill video window width
+    const vwH = videoWindowHeight();
+    const scaleH = vwH / videoInfo.height;
+    const scaleW = FRAME_W / videoInfo.width;
+    cropState.zoom = Math.max(scaleH, scaleW);
+    const scaledW = videoInfo.width * cropState.zoom;
+    const scaledH = videoInfo.height * cropState.zoom;
+    cropState.x = (FRAME_W - scaledW) / 2;
+    cropState.y = (vwH - scaledH) / 2;
+
+    const frameUrl = `/api/video/proxy/frame?filename=${videoInfo.filename}&t=${videoInfo.duration / 2}`;
+
+    container.className = '';
+    container.innerHTML = buildUI(frameUrl);
+    setupDrag();
+
+    // Check if captioned full-length already exists for this stem — hide checkbox if so
+    try {
+        const cfResp = await fetch(`/api/video/caption-full-status?stem=${stem}`);
+        if (cfResp.ok) {
+            const cfData = await cfResp.json();
+            if (cfData.exists) {
+                const chk = document.getElementById('chk-caption-full');
+                if (chk) {
+                    chk.checked = false;
+                    chk.closest('label').style.display = 'none';
+                }
+            }
+        }
+    } catch(e) { /* ignore — checkbox stays visible as fallback */ }
+}
+
+function buildUI(frameUrl) {
+    const topH = BAR_TOP;
+    const botH = BAR_BOT;
+    const vwH = SQUARE_SIZE;
+
+    return `
+    <div class="crop-workspace">
+        <div>
+            <div class="crop-frame-outer" id="crop-frame-outer">
+                <div class="bar-top" id="bar-top" style="height:${topH}px"></div>
+                <div class="video-window" id="video-window" style="top:${topH}px;height:${vwH}px">
+                    <img id="frame-img" src="${frameUrl}" onload="updatePos()" />
+                </div>
+                <div class="bar-bottom" id="bar-bottom" style="height:${botH}px">
+                    <div class="caption-preview-word" id="cap-word" style="${capCSS()}">STARTING</div>
+                </div>
+                <div class="crop-frame-label">9:16 Vertical</div>
+            </div>
+            <div style="text-align:center;margin-top:8px;font-size:11px;color:#555">
+                Video: ${videoInfo.width}×${videoInfo.height} · ${fmtTime(videoInfo.duration)}
+            </div>
+        </div>
+
+        <div class="controls">
+            <div class="control-section">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+                    <div style="position:relative;width:40px;height:22px;cursor:pointer" onclick="toggleBorder()">
+                        <input type="checkbox" id="border-check" checked style="opacity:0;width:0;height:0" />
+                        <div id="border-track" style="position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(92,225,230,0.4);border-radius:11px;transition:background 0.2s"></div>
+                        <div id="border-knob" style="position:absolute;top:2px;left:20px;width:18px;height:18px;background:#5ce1e6;border-radius:50%;transition:all 0.2s"></div>
+                    </div>
+                    <label style="font-size:13px;color:#aaa;cursor:pointer" onclick="toggleBorder()">Black border template</label>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Video Position</div>
+                <div class="control-row">
+                    <label>Zoom</label>
+                    <input type="range" min="0.1" max="3" step="0.01" value="${cropState.zoom}" id="zoom-slider" oninput="onZoom(this.value)" />
+                    <span class="control-value" id="zoom-val">${Math.round(cropState.zoom*100)}%</span>
+                </div>
+                <div class="control-row frame-slider">
+                    <label>Preview frame</label>
+                    <input type="range" min="0" max="${Math.floor(videoInfo.duration)}" step="1" value="${Math.floor(videoInfo.duration/2)}" oninput="onSeek(this.value)" />
+                    <span class="control-value" id="seek-val">${fmtTime(videoInfo.duration/2)}</span>
+                </div>
+                <div class="control-row">
+                    <label>Look</label>
+                    <div class="style-chips" id="filter-chips">
+                        ${VIDEO_FILTER_PRESETS.map(f =>
+                            `<div class="style-chip ${videoFilter===f.id?'active':''}" onclick="onVideoFilter('${f.id}')" title="${f.desc}">${f.label}</div>`
+                        ).join('')}
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Caption Style</div>
+                <div class="control-row">
+                    <label>Font</label>
+                    <div class="style-chips" id="font-chips">
+                        ${FONT_FAMILIES.map(f =>
+                            `<div class="style-chip ${cap.fontFamily===f.id?'active':''}" onclick="onCapFamily('${f.id}')" style="font-family:'${f.id}'">${f.label}</div>`
+                        ).join('')}
+                    </div>
+                </div>
+                <div class="control-row">
+                    <label>Size</label>
+                    <input type="range" min="40" max="120" step="2" value="${cap.fontSize}" oninput="onCapSize(this.value)" />
+                    <span class="control-value" id="cap-size">${cap.fontSize}px</span>
+                </div>
+                <div class="control-row">
+                    <label>Color</label>
+                    <div class="color-row" id="color-row">
+                        ${FREQ_COLORS.map(c =>
+                            `<div class="color-swatch ${c.hex===cap.color?'active':''}" style="background:${c.hex}" data-color="${c.hex}" title="${c.name}" onclick="onCapColor('${c.hex}')"></div>`
+                        ).join('')}
+                    </div>
+                </div>
+                <div class="control-row">
+                    <label>Stroke</label>
+                    <div class="style-chips" id="stroke-chips">
+                        ${Object.entries(STROKE_PRESETS).map(([k,v]) =>
+                            `<div class="style-chip ${cap.stroke===k?'active':''}" onclick="onCapStroke('${k}')">${v.label}</div>`
+                        ).join('')}
+                    </div>
+                </div>
+                <div class="control-row" id="stroke-color-row">
+                    <label>Stroke color</label>
+                    <div class="color-row">
+                        ${STROKE_COLORS.map(c =>
+                            `<div class="color-swatch ${c.hex===cap.strokeColor?'active':''}" style="background:${c.hex};${c.hex==='#000000'?'border:1px solid #444':''}" data-scolor="${c.hex}" title="${c.name}" onclick="onStrokeColor('${c.hex}')"></div>`
+                        ).join('')}
+                    </div>
+                </div>
+                <div class="control-row">
+                    <label>Weight</label>
+                    <div class="style-chips" id="weight-chips">
+                        ${['regular','bold','black'].map(w =>
+                            `<div class="style-chip ${cap.font===w?'active':''}" onclick="onCapFont('${w}')">${w.charAt(0).toUpperCase()+w.slice(1)}</div>`
+                        ).join('')}
+                    </div>
+                </div>
+                <div class="control-row">
+                    <label>Display</label>
+                    <div class="style-chips" id="display-chips">
+                        <div class="style-chip ${cap.style==='word'?'active':''}" onclick="onCapDisplay('word')">Per Word</div>
+                        <div class="style-chip ${cap.style==='line'?'active':''}" onclick="onCapDisplay('line')">Full Line</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="section-title">Distribute To</div>
+                <div class="style-chips" id="platform-chips" style="margin-bottom:16px">
+                    ${PLATFORMS.map(p =>
+                        `<div class="style-chip ${p.selected?'active':''}" data-platform="${p.id}" onclick="togglePlatform('${p.id}')">${p.icon} ${p.label} <span style="font-size:9px;opacity:0.6;margin-left:3px">${p.format}</span></div>`
+                    ).join('')}
+                </div>
+            </div>
+
+            <div class="control-section">
+                <div class="clips-summary">
+                    <h3>Approved Moments (${clips.length})</h3>
+                    ${clips.map(c => `
+                        <div class="clip-item">
+                            <span><span class="clip-dot ${c.clip_type}"></span>${esc(c.clip_label)}</span>
+                            <span style="color:#666">${fmtDuration(c.duration_seconds)} · ${c.duration_seconds<=180?'9:16 + 16:9':'16:9'}</span>
+                        </div>
+                    `).join('')}
+                    ${clips.length===0?'<div style="color:#555;font-size:11px">No moments. Go back and approve moments first.</div>':''}
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:#aaa;cursor:pointer">
+                    <input type="checkbox" id="chk-caption-full" checked style="accent-color:#5ce1e6">
+                    Also generate captioned full-length video (YouTube related)
+                </label>
+                <button class="btn-process" id="btn-cut" onclick="startProcessing()" ${clips.length===0?'disabled':''}>
+                    Process ${clips.length} Moments
+                </button>
+                <div class="processing-status" id="status"></div>
+            </div>
+        </div>
+    </div>`;
+}
+
+// -- Position --
+function updatePos() {
+    const img = document.getElementById('frame-img');
+    if (!img || !videoInfo) return;
+    img.style.width = videoInfo.width + 'px';
+    img.style.height = videoInfo.height + 'px';
+    img.style.transform = `translate(${cropState.x}px,${cropState.y}px) scale(${cropState.zoom})`;
+}
+
+function onZoom(val) {
+    const old = cropState.zoom;
+    const nz = parseFloat(val);
+    const vwH = videoWindowHeight();
+    const cx = FRAME_W / 2, cy = vwH / 2;
+    cropState.x = cx - (cx - cropState.x) * (nz / old);
+    cropState.y = cy - (cy - cropState.y) * (nz / old);
+    cropState.zoom = nz;
+    document.getElementById('zoom-val').textContent = Math.round(nz * 100) + '%';
+    updatePos();
+}
+
+let seekTimer = null;
+function onSeek(val) {
+    document.getElementById('seek-val').textContent = fmtTime(parseFloat(val));
+    clearTimeout(seekTimer);
+    seekTimer = setTimeout(() => {
+        const img = document.getElementById('frame-img');
+        if (img) img.src = `/api/video/proxy/frame?filename=${videoInfo.filename}&t=${val}`;
+    }, 300);
+}
+
+// -- Border toggle --
+let borderEnabled = true;
+function toggleBorder() {
+    borderEnabled = !borderEnabled;
+    const check = document.getElementById('border-check');
+    const track = document.getElementById('border-track');
+    const knob = document.getElementById('border-knob');
+    const topBar = document.getElementById('bar-top');
+    const botBar = document.getElementById('bar-bottom');
+    const vw = document.getElementById('video-window');
+
+    check.checked = borderEnabled;
+    track.style.background = borderEnabled ? 'rgba(92,225,230,0.4)' : '#2a2a3a';
+    knob.style.left = borderEnabled ? '20px' : '2px';
+    knob.style.background = borderEnabled ? '#5ce1e6' : '#888';
+
+    if (borderEnabled) {
+        topBar.style.height = BAR_TOP + 'px';
+        botBar.style.height = BAR_BOT + 'px';
+        botBar.style.display = 'flex';
+        vw.style.top = BAR_TOP + 'px';
+        vw.style.height = SQUARE_SIZE + 'px';
+    } else {
+        topBar.style.height = '0';
+        botBar.style.height = '0';
+        botBar.style.display = 'none';
+        vw.style.top = '0';
+        vw.style.height = FRAME_H + 'px';
+    }
+}
+
+// -- Drag --
+function setupDrag() {
+    const vw = document.getElementById('video-window');
+    if (!vw) return;
+    vw.addEventListener('mousedown', e => { e.preventDefault(); dragStart = { x: e.clientX - cropState.x, y: e.clientY - cropState.y }; });
+    vw.addEventListener('mousemove', e => { if (!dragStart) return; cropState.x = e.clientX - dragStart.x; cropState.y = e.clientY - dragStart.y; updatePos(); });
+    vw.addEventListener('mouseup', () => { dragStart = null; });
+    vw.addEventListener('mouseleave', () => { dragStart = null; });
+    vw.addEventListener('touchstart', e => { e.preventDefault(); const t = e.touches[0]; dragStart = { x: t.clientX - cropState.x, y: t.clientY - cropState.y }; }, { passive: false });
+    vw.addEventListener('touchmove', e => { e.preventDefault(); if (!dragStart) return; const t = e.touches[0]; cropState.x = t.clientX - dragStart.x; cropState.y = t.clientY - dragStart.y; updatePos(); }, { passive: false });
+    vw.addEventListener('touchend', () => { dragStart = null; });
+}
+
+// -- Caption --
+function capCSS() {
+    const scale = FRAME_W / 1080;
+    const px = Math.round(cap.fontSize * scale);
+    const fw = cap.font === 'black' ? 900 : cap.font === 'bold' ? 700 : 400;
+    const preset = STROKE_PRESETS[cap.stroke] || STROKE_PRESETS.pop;
+    const ow = Math.round(preset.outlineWidth * scale);
+    // Stroke color: presets that use stroke color get cap.strokeColor
+    const oc = preset.useStrokeColor ? cap.strokeColor : cap.color;
+    let css = `font-family:'${cap.fontFamily}',sans-serif;font-size:${px}px;color:${cap.color};font-weight:${fw};paint-order:stroke fill;`;
+    if (ow > 0) css += `-webkit-text-stroke:${ow}px ${oc};`;
+    if (preset.shadow) css += `text-shadow:${preset.shadow};`;
+    return css;
+}
+
+function updateCapPreview() {
+    const el = document.getElementById('cap-word');
+    if (!el) return;
+    el.style.cssText = capCSS();
+    el.textContent = cap.style === 'word' ? 'STARTING' : 'This is a full caption line';
+}
+
+function togglePlatform(id) {
+    const p = PLATFORMS.find(x => x.id === id);
+    if (p) p.selected = !p.selected;
+    document.querySelectorAll('#platform-chips .style-chip').forEach(c =>
+        c.classList.toggle('active', PLATFORMS.find(x => x.id === c.dataset.platform)?.selected));
+}
+function getSelectedPlatforms() {
+    return PLATFORMS.filter(p => p.selected).map(p => p.id);
+}
+function onVideoFilter(id) {
+    videoFilter = id;
+    document.querySelectorAll('#filter-chips .style-chip').forEach(c =>
+        c.classList.toggle('active', c.textContent === VIDEO_FILTER_PRESETS.find(f => f.id === id)?.label));
+}
+function onCapFamily(id) {
+    cap.fontFamily = id;
+    document.querySelectorAll('#font-chips .style-chip').forEach(c =>
+        c.classList.toggle('active', c.textContent === FONT_FAMILIES.find(f => f.id === id)?.label));
+    updateCapPreview();
+}
+function onCapSize(v) { cap.fontSize = parseInt(v); document.getElementById('cap-size').textContent = v+'px'; updateCapPreview(); }
+function onCapColor(hex) {
+    cap.color = hex;
+    document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('active', s.dataset.color === hex));
+    updateCapPreview();
+}
+function onCapStroke(s) {
+    cap.stroke = s;
+    document.querySelectorAll('#stroke-chips .style-chip').forEach(c =>
+        c.classList.toggle('active', c.textContent === STROKE_PRESETS[s].label));
+    updateCapPreview();
+}
+function onStrokeColor(hex) {
+    cap.strokeColor = hex;
+    document.querySelectorAll('#stroke-color-row .color-swatch').forEach(s =>
+        s.classList.toggle('active', s.dataset.scolor === hex));
+    updateCapPreview();
+}
+function onCapFont(f) {
+    cap.font = f;
+    document.querySelectorAll('#weight-chips .style-chip').forEach((c,i) => c.classList.toggle('active', ['regular','bold','black'][i] === f));
+    updateCapPreview();
+}
+function onCapDisplay(s) {
+    cap.style = s;
+    document.querySelectorAll('#display-chips .style-chip').forEach((c,i) => c.classList.toggle('active', i === (s==='word'?0:1)));
+    updateCapPreview();
+}
+
+// -- Process --
+async function startProcessing() {
+    const btn = document.getElementById('btn-cut');
+    const status = document.getElementById('status');
+    btn.disabled = true;
+    btn.textContent = 'Processing...';
+
+    const z = cropState.zoom;
+    const vwH = videoWindowHeight();
+
+    const cropTemplate = {
+        // Source crop — what part of the video fills the video window
+        src_x: Math.max(0, Math.round(-cropState.x / z)),
+        src_y: Math.max(0, Math.round(-cropState.y / z)),
+        src_w: Math.round(FRAME_W / z),
+        src_h: Math.round(vwH / z),
+        // Frame template — 1:1 square in 9:16, 4K output
+        border_enabled: borderEnabled,
+        square_size: 2160,
+        out_w: 2160,
+        out_h: 3840,
+        bar_top_px: Math.round(BAR_TOP / FRAME_H * 3840),
+        bar_bottom_px: Math.round(BAR_BOT / FRAME_H * 3840),
+        video_w: videoInfo.width,
+        video_h: videoInfo.height,
+        // Caption template
+        caption: { ...cap },
+        // Video filter
+        video_filter: videoFilter,
+    };
+
+    try {
+        const resp = await fetch('/api/video/process-moments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stem, crop_template: cropTemplate, moments: clips, platforms: getSelectedPlatforms() }),
+        });
+        const result = await resp.json();
+        if (resp.ok) {
+            const count = (result.processed || []).length;
+            btn.textContent = `Done — ${count} clips rendered`;
+            status.textContent = 'Clips will appear in Actions when ready.';
+            // Tell the parent Action Board to refresh — the clips just enqueued
+            // social_queue drafts, but the board caches and won't re-fetch on its own.
+            try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
+
+            // Fire caption-full if checked
+            const captionFull = document.getElementById('chk-caption-full');
+            if (captionFull && captionFull.checked) {
+                status.textContent = 'Rendering captioned full-length video...';
+                try {
+                    const cfResp = await fetch('/api/video/caption-full', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            stem,
+                            caption: { ...cap },
+                            video_filter: videoFilter,
+                            crop_template: cropTemplate,
+                        }),
+                    });
+                    const cfResult = await cfResp.json();
+                    if (cfResp.ok) {
+                        status.textContent = `All done — ${count} clips + captioned full video (${cfResult.size_mb || '?'} MB)`;
+                        try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
+                    } else {
+                        status.textContent = `Clips done. Captioned full failed: ${cfResult.error || 'unknown'}`;
+                    }
+                } catch (cfErr) {
+                    status.textContent = `Clips done. Captioned full failed: ${cfErr.message}`;
+                }
+            }
+        } else {
+            btn.textContent = 'Error — try again';
+            btn.disabled = false;
+            status.textContent = result.error || 'Unknown error';
+        }
+    } catch(e) {
+        btn.textContent = 'Error — try again';
+        btn.disabled = false;
+        status.textContent = e.message;
+    }
+}
+
+function fmtTime(s) { if (s==null) return '?'; return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'); }
+function fmtDuration(s) { if (s<60) return Math.round(s)+'s'; const m=Math.floor(s/60),sec=Math.round(s%60); return sec>0?m+'m '+sec+'s':m+'m'; }
+function esc(s) { if (!s) return ''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+init();
+</script>
+</body>
+</html>

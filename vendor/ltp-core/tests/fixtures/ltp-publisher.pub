@@ -1,0 +1,10 @@
+# LTP Publisher Public Key (Ed25519)
+# Used to verify signatures on LTP drop JSON files.
+# The corresponding private key lives on the VPS only — never committed to git.
+#
+# To verify a drop signature, use this key with the Ed25519 algorithm
+# against the canonical JSON payload (sorted keys, no whitespace).
+#
+-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAMtpeQ7Gae3YUwzUVjh2fyToF/oGi2OBWUWipXia0BeM=
+-----END PUBLIC KEY-----

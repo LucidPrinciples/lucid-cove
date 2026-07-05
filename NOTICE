@@ -1,0 +1,28 @@
+cove-core
+Copyright 2026 Lucid Principles, LLC
+
+This product includes software developed by Lucid Principles, LLC
+(https://lucidprinciples.com).
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this software except in compliance with the License. A copy of the License
+is included in the LICENSE file in this repository.
+
+------------------------------------------------------------------------------
+Canon and framework content
+------------------------------------------------------------------------------
+Lucid Principles framework content — including the 22 Lucid Principles (the
+"Canon"), the Manifesto, and the Tuning Keys — is NOT covered by the Apache 2.0
+code license. That content is licensed under the Creative Commons Attribution
+4.0 International License (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+
+The Canon is quoted exactly and is never generated, paraphrased, rearranged, or
+extended by this software. If you redistribute or build upon the framework
+content, you must give appropriate credit to Lucid Principles, LLC.
+
+------------------------------------------------------------------------------
+Third-party software
+------------------------------------------------------------------------------
+This software depends on third-party open-source packages, each distributed
+under its own license. See pyproject.toml / requirements.lock for the
+dependency list and consult each project for its license terms.

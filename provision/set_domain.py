@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""
+set_domain.py — host-side reconciler: give an already-running, domainless Cove a
+real address (DNS + Caddy + HTTPS) AFTER the fact.
+
+WHY THIS IS A SEPARATE CLI (not done inside the app): the Cove app runs in a
+container and must not hold the docker socket or write the host Caddy dir (a
+container escape would become host-root). So the in-MC "Claim your address"
+endpoint (routes/domain.py) only writes the chosen domain to cove.yaml (the
+intent) and then hands the operator this one command to run on the Cove's HOST,
+where Caddy + docker + the compose actually live. Same privileged-step-is-explicit
+philosophy as provision_api.py.
+
+It reuses the exact functions the provisioner uses at build time:
+  - netconfig.build_cove_caddy_snippet  → the per-Cove Caddy block
+  - netconfig.install_caddy_snippet     → drop into conf.d + `caddy reload`
+  - netconfig.ensure_dns                → *.{domain} + apex A records → mesh IP
+so the late-bound result is identical to having provisioned with a domain.
+
+After Caddy reloads and the cert issues (~30-60s), https://{domain} is live and
+the browser will grant the mic in that secure context (voice "just works").
+
+Usage (on the Cove's host):
+  python3 /cove-core/provision/set_domain.py --domain smith.lucidcove.org \\
+      --cove-id smith --app-port 8204 --nextcloud-port 8081 --matrix-port 8018
+  # add --no-matrix if this Cove has no homeserver; --mesh-ip to pin the A record;
+  # --caddy-dir to point at a non-default Caddy directory.
+
+Needs CLOUDFLARE_API_TOKEN in the environment for the DNS step (the same token
+Caddy uses for the DNS-01 cert). Without it, DNS is skipped and you point records
+manually; Caddy still issues the cert once the records resolve.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+# netconfig is a sibling module in this provision/ dir (same as centralized.py).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import netconfig  # noqa: E402
+
+
+def _matrix_server_name(domain: str) -> str:
+    return f"matrix.{domain}" if domain else ""
+
+
+def _self_host_reconcile(args, domain: str, matrix_on: bool, result: dict) -> bool:
+    """Self-host (bundled Caddy) path: render the Cove's own docker/Caddyfile (acme-dns
+    DNS-01 for a lucidcove.org subdomain so no CF token is needed on this box; HTTP-01
+    for an own domain), then (re)start the bundled caddy service. The Cove ships its own
+    Caddy — we don't touch any host Caddy. Returns True on a successful caddy (re)start."""
+    import subprocess
+    from pathlib import Path
+    compose_dir = Path(args.compose_dir).expanduser().resolve()
+    if not (compose_dir / "docker-compose.yml").is_file():
+        result["caddy"] = {"ok": False, "reason": f"no docker-compose.yml in {compose_dir} (pass --compose-dir)"}
+        return False
+    # acme-dns for a lucidcove.org subdomain (scoped credential; our token stays on the hub).
+    acme = {}
+    if domain == "lucidcove.org" or domain.endswith(".lucidcove.org"):
+        try:
+            from acmedns import provision_subdomain_cert_delegation
+        except ImportError:
+            from provision.acmedns import provision_subdomain_cert_delegation
+        _ac = provision_subdomain_cert_delegation(domain)
+        result["acmedns"] = _ac
+        if isinstance(_ac, dict) and _ac.get("ok"):
+            acme = _ac.get("acmedns") or {}
+    caddyfile = netconfig.build_selfhost_caddyfile(
+        domain=domain, app_port=args.app_port,
+        matrix_server_name=_matrix_server_name(domain), matrix_on=matrix_on, acmedns=acme)
+    (compose_dir / "docker" / "Caddyfile").write_text(caddyfile)
+    try:
+        r = subprocess.run(["docker", "compose", "up", "-d", "--build", "caddy"],
+                           cwd=str(compose_dir), capture_output=True, text=True, timeout=600)
+        ok = r.returncode == 0
+        result["caddy"] = {"ok": ok, "reloaded": ok,
+                           "reason": "" if ok else (r.stderr or r.stdout).strip()[:300]}
+        return ok
+    except Exception as e:
+        result["caddy"] = {"ok": False, "reason": f"compose up caddy error: {e}"}
+        return False
+
+
+def _shared_reconcile(args, domain: str, matrix_on: bool, result: dict) -> bool:
+    """Shared-Caddy mode (multi-Cove box): write this Cove's haven snippet into the SHARED
+    Caddy's conf.d + reload it. Container-name routes over the bridge; per-site TLS (acme-dns
+    for a lucidcove.org subdomain, else default). The shared Caddy owns 80/443 for the whole
+    box. Returns True on a successful reload."""
+    acme = {}
+    if domain == "lucidcove.org" or domain.endswith(".lucidcove.org"):
+        try:
+            from acmedns import provision_subdomain_cert_delegation
+        except ImportError:
+            from provision.acmedns import provision_subdomain_cert_delegation
+        _ac = provision_subdomain_cert_delegation(domain)
+        result["acmedns"] = _ac
+        if isinstance(_ac, dict) and _ac.get("ok"):
+            acme = _ac.get("acmedns") or {}
+    snippet = netconfig.build_haven_cove_snippet(
+        cove_id=args.cove_id, domain=domain, app_port=args.app_port,
+        matrix_server_name=_matrix_server_name(domain), matrix_on=matrix_on,
+        voice_on=bool(args.voice_port), acmedns=acme)
+    install_kwargs = {}
+    if args.caddy_dir.strip():
+        install_kwargs["caddy_dir"] = args.caddy_dir.strip()
+    result["caddy"] = netconfig.install_haven_cove_snippet(snippet, args.cove_id, **install_kwargs)
+    return bool(result["caddy"].get("reloaded"))
+
+
+def _reconcile_nextcloud_https(args, domain: str, result: dict) -> None:
+    """Tell the already-running Nextcloud it lives behind Caddy's TLS termination, so the
+    desktop "Add account" Login Flow hands back an https:// callback instead of the http://
+    one the client rejects ("returned server URL does not start with HTTPS").
+
+    provision/centralized.py bakes OVERWRITEPROTOCOL/OVERWRITEHOST/OVERWRITECLIURL/TRUSTED_PROXIES
+    into the NC compose env, but ONLY when a domain is known at build time. A Cove that comes
+    up domainless and claims an address in-browser later never got them. The container is
+    already running here, and NC's image only reads those envs at create time — so we apply
+    the runtime equivalent with `occ config:system:set`. config.php lives in the nextcloud_data
+    volume, so these values survive future container recreates (durable, like the env path).
+
+    Gated to a domain being set (mirrors centralized's `if domain` gate). Best-effort: a
+    failure never fails the address claim — the reason is recorded under result["nextcloud_https"].
+    """
+    if not domain:
+        return
+    # The occ dispatch itself lives in netconfig.reconcile_nextcloud_https — SHARED with
+    # the in-browser claim path (dashboard/routes/domain.py), which used to reconcile
+    # DNS + Caddy but never NC (the CF-100 "claim reconciles nothing else" finding).
+    result["nextcloud_https"] = netconfig.reconcile_nextcloud_https(
+        cove_id=args.cove_id, domain=domain,
+        nextcloud_container=(getattr(args, "nextcloud_container", "") or ""),
+        trusted_proxies=(getattr(args, "trusted_proxies", "") or ""))
+
+
+def _restamp_matrix_env(cove_dir: str, domain: str) -> dict:
+    """After a real Matrix regen the app container's baked MATRIX_SERVER_NAME +
+    MATRIX_PUBLIC_URL still name the OLD matrix.{cove-id}.localhost identity, so agent
+    user-ids and the Connect client keep pointing at the wrong homeserver until the app
+    is recreated. Rewrite both in the instance `.env` and hand back the recreate command.
+
+    DESIGN CHOICE (env-restamp vs derive-user-ids-from-domain-at-runtime): we restamp the
+    env because it's a contained host-side edit set_domain.py already owns and it fixes
+    EVERY consumer of the two vars at once. Runtime derivation would touch the live Matrix
+    client path (the matrix_token self-heal item's territory) and leave the two env vars
+    lying about the identity for anything else that reads them. Restamp is the smaller,
+    more honest change here."""
+    server, public = f"matrix.{domain}", f"https://matrix.{domain}"
+    if not cove_dir:
+        return {"ok": False, "reason": (
+            f"no --cove-dir: set MATRIX_SERVER_NAME={server} and MATRIX_PUBLIC_URL={public} "
+            f"in the instance .env, then `docker compose up -d app`")}
+    env_path = Path(cove_dir).expanduser() / ".env"
+    updates = {"MATRIX_SERVER_NAME": server, "MATRIX_PUBLIC_URL": public}
+    try:
+        lines = env_path.read_text().splitlines() if env_path.is_file() else []
+        seen = set()
+        for i, ln in enumerate(lines):
+            for k, v in updates.items():
+                if re.match(rf"^\s*{re.escape(k)}\s*=", ln):
+                    lines[i] = f"{k}={v}"
+                    seen.add(k)
+        for k, v in updates.items():
+            if k not in seen:
+                lines.append(f"{k}={v}")
+        env_path.write_text("\n".join(lines) + "\n")
+        return {"ok": True, "path": str(env_path), "server_name": server, "public_url": public,
+                "recreate": f"(cd {cove_dir} && docker compose up -d app)  # pick up new Matrix identity"}
+    except Exception as e:
+        return {"ok": False, "reason": f"env restamp failed: {str(e)[:120]}"}
+
+
+def _reconcile_matrix_identity(args, domain: str, result: dict) -> None:
+    """Host-side Matrix server_name regen (virgin-only, gated). See the call site."""
+    agents = [a.strip() for a in (args.agents or "").split(",") if a.strip()]
+    agents += ["steward", "lt", "agent"]   # shared bot localparts (mirror domain.py)
+    cove_dir = (getattr(args, "cove_dir", "") or getattr(args, "compose_dir", "") or "").strip()
+    if cove_dir in (".", ""):
+        cove_dir = os.getcwd() if cove_dir == "." else cove_dir
+    mx = netconfig.reconcile_matrix_identity(
+        cove_id=args.cove_id, domain=domain, agent_localparts=agents,
+        postgres_container=(getattr(args, "postgres_container", "") or "").strip(),
+        dendrite_container=(getattr(args, "dendrite_container", "") or "").strip(),
+        cove_dir=cove_dir)
+    result["matrix_identity"] = mx
+    if mx.get("changed"):
+        result["matrix_env"] = _restamp_matrix_env(cove_dir, domain)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Attach a domain to a running Cove (DNS + Caddy + HTTPS).")
+    ap.add_argument("--domain", help="e.g. smith.lucidcove.org")
+    ap.add_argument("--cove-id", required=True, help="the Cove id (Caddy snippet filename)")
+    ap.add_argument("--app-port", type=int, help="published MC app port")
+    ap.add_argument("--nextcloud-port", type=int, default=8080, help="published Nextcloud port")
+    ap.add_argument("--matrix-port", type=int, default=8008, help="published Dendrite port")
+    ap.add_argument("--voice-port", type=int, default=0, help="published voice port (routes voice.{domain})")
+    ap.add_argument("--no-matrix", action="store_true", help="this Cove has no homeserver")
+    ap.add_argument("--mesh-ip", default="", help="mesh/public IP for the A records (auto if omitted)")
+    ap.add_argument("--caddy-dir", default="",
+                    help="override the Caddy dir (host-Caddy mode, or the SHARED Caddy conf.d "
+                         f"dir in --shared mode; defaults to {netconfig.SHARED_CADDY_DIR})")
+    ap.add_argument("--self-host", action="store_true",
+                    help="bundled-Caddy mode: render this Cove's own docker/Caddyfile (acme-dns) "
+                         "and restart its caddy service, instead of touching a host Caddy")
+    ap.add_argument("--shared", action="store_true",
+                    help="shared-Caddy mode: write this Cove's snippet into the ONE shared Caddy's "
+                         "conf.d (container-name routes over lucidcove-net) and reload it")
+    ap.add_argument("--compose-dir", default=".",
+                    help="the Cove's compose dir (where docker-compose.yml + docker/ live); --self-host")
+    ap.add_argument("--nextcloud-container", default="",
+                    help="NC container to reconfigure for HTTPS (default: {cove-id}-nextcloud)")
+    ap.add_argument("--trusted-proxies", default="",
+                    help="trusted_proxies CIDR for the NC HTTPS reconfigure (default: 172.16.0.0/12)")
+    ap.add_argument("--cove-dir", default="",
+                    help="the Cove's instance dir on the host (holds docker/dendrite.yaml + .env); "
+                         "used for the host-side Matrix server_name rewrite + env restamp. "
+                         "Defaults to --compose-dir.")
+    ap.add_argument("--agents", default="",
+                    help="comma-separated agent localparts — the virgin-check basis for the "
+                         "Matrix regen (any non-agent account present = NOT virgin, no regen)")
+    ap.add_argument("--dendrite-container", default="",
+                    help="override the Dendrite container name (default {cove-id}-dendrite)")
+    ap.add_argument("--postgres-container", default="",
+                    help="override the Postgres container name (default {cove-id}-postgres, "
+                         "which holds Dendrite's db on a fresh single-stack Cove)")
+    ap.add_argument("--remove-matrix-user", default="",
+                    help="MAINTENANCE (batch-10 #5): fully remove a Dendrite localpart from ALL "
+                         "userapi_* tables and EXIT (no DNS/Caddy). Fixes the register-200-ghost "
+                         "from a partial delete that makes a steward/agent un-healable in-app. "
+                         "Needs --cove-id (or --postgres-container). e.g. --remove-matrix-user steward")
+    args = ap.parse_args()
+
+    # Maintenance short-circuit: full-table Matrix user removal, then exit. Runs on the
+    # HOST (the app container has no docker socket) — this is the command ensure_steward's
+    # ghost error tells the operator to run.
+    if args.remove_matrix_user.strip():
+        res = netconfig.dendrite_remove_user(
+            localpart=args.remove_matrix_user.strip(),
+            postgres_container=args.postgres_container.strip(),
+            cove_id=args.cove_id.strip(),
+        )
+        print(json.dumps({"remove_matrix_user": res}, indent=2))
+        return 0 if res.get("ok") else 1
+
+    if not args.domain or args.app_port is None:
+        ap.error("--domain and --app-port are required (except with --remove-matrix-user)")
+
+    domain = args.domain.strip().lower().lstrip("*").lstrip(".").rstrip(".")
+    matrix_on = not args.no_matrix
+    _mode = "shared" if args.shared else ("self-host" if args.self_host else "host-caddy")
+    result = {"domain": domain, "cove_id": args.cove_id, "mode": _mode}
+
+    # DNS first so the cert can validate as soon as Caddy comes up.
+    try:
+        result["dns"] = netconfig.ensure_dns(domain, args.mesh_ip.strip())
+    except Exception as e:
+        result["dns"] = {"ok": False, "reason": f"DNS error: {e}"}
+
+    if args.shared:
+        # Shared-Caddy host fallback (multi-Cove box).
+        try:
+            reloaded = _shared_reconcile(args, domain, matrix_on, result)
+        except Exception as e:
+            result["caddy"] = {"installed": False, "reloaded": False, "reason": f"shared reconcile error: {e}"}
+            reloaded = False
+    elif args.self_host:
+        # Bundled-Caddy self-host path (the Cove ships its own Caddy).
+        reloaded = _self_host_reconcile(args, domain, matrix_on, result)
+    else:
+        # Host-Caddy path (co-located): drop the snippet into the host Caddy + reload.
+        try:
+            snippet = netconfig.build_cove_caddy_snippet(
+                cove_id=args.cove_id, domain=domain,
+                app_port=args.app_port, nextcloud_port=args.nextcloud_port,
+                matrix_port=args.matrix_port, voice_port=args.voice_port,
+                matrix_server_name=_matrix_server_name(domain), matrix_on=matrix_on,
+            )
+            install_kwargs = {}
+            if args.caddy_dir.strip():
+                install_kwargs["caddy_dir"] = args.caddy_dir.strip()
+            result["caddy"] = netconfig.install_caddy_snippet(snippet, args.cove_id, **install_kwargs)
+        except Exception as e:
+            result["caddy"] = {"installed": False, "reloaded": False, "reason": f"Caddy error: {e}"}
+        reloaded = bool(result.get("caddy", {}).get("reloaded"))
+
+    # In-browser-claimed domain → reconfigure the running NC for HTTPS too (same overwrite
+    # settings the provisioner bakes in when a domain is known at build time). Best-effort,
+    # gated to a domain being set; never fails the address claim.
+    try:
+        _reconcile_nextcloud_https(args, domain, result)
+    except Exception as e:
+        result["nextcloud_https"] = {"ok": False, "errors": [f"reconcile error: {e}"]}
+
+    # Matrix identity reconcile (CF-101 / B9): give a domainless Cove's Dendrite the real
+    # server_name = matrix.{domain} while it's still virgin. HOST-side is the ONLY place this
+    # actually works — the config file is read-only inside the container and the DB wipe +
+    # stop/start need the docker socket. The in-browser claim can't do it (docker-socket-in-app
+    # is a rejected escape surface); it hands the operator THIS command. Gated report-only by default
+    # (LP_MATRIX_REGEN_ENABLED); best-effort, never fails the address claim.
+    if matrix_on:
+        try:
+            _reconcile_matrix_identity(args, domain, result)
+        except Exception as e:
+            result["matrix_identity"] = {"ok": False, "reason": f"matrix reconcile error: {e}"}
+
+    result["ok"] = reloaded
+    result["message"] = (
+        f"Live: https://{domain} (cert issues in ~30-60s; mic/voice will work)."
+        if reloaded else
+        "Caddy did not come up — check the reason above (run on the Cove's host, with docker available)."
+    )
+    print(json.dumps(result, indent=2))
+    return 0 if reloaded else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

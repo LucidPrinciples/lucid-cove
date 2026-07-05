@@ -1,0 +1,33 @@
+{
+  "_meta": {
+    "currency": "USD",
+    "note": "POSTED marketplace rates — the display-only trust surface ('what your $12 buys'). NOT a billing ledger and NOT a balance gate: you pay for exactly what you booked at fixed price. Editable without code — these numbers drive the estimator table on listings and the per-use estimate on the active Tools card. Distinct from config/model-prices.json (the internal cost estimator).",
+    "updated": "2026-07-04"
+  },
+  "asr": {
+    "label": "Transcription (ASR)",
+    "unit": "per video-minute",
+    "rate": 0.02,
+    "note": "One video-minute of speech-to-text on a rented GPU."
+  },
+  "llm": {
+    "label": "Model inference",
+    "unit": "per 1K tokens",
+    "classes": {
+      "small": { "label": "Small / fast", "rate": 0.001, "example": "local-class + light cloud models" },
+      "standard": { "label": "Standard", "rate": 0.004, "example": "Kimi, Llama-class" },
+      "frontier": { "label": "Frontier", "rate": 0.015, "example": "Claude / GPT-class" }
+    }
+  },
+  "gpu": {
+    "label": "GPU compute",
+    "unit": "per GPU-minute",
+    "rate": 0.02,
+    "note": "Wall-clock minute of a shared GPU for a job (e.g. overnight transcription/sim)."
+  },
+  "what_12_buys": [
+    { "capability": "Transcription", "amount": "~600 video-minutes (10 hours)" },
+    { "capability": "Standard model inference", "amount": "~3M tokens" },
+    { "capability": "GPU compute", "amount": "~600 GPU-minutes (10 hours)" }
+  ]
+}

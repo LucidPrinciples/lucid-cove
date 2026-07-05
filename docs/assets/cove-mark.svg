@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 460" role="img" aria-label="Lucid Cove mark">
+  <path d="M 75,380 Q 75,130 250,55 Q 425,130 425,380" fill="none" stroke="#4682b4" stroke-width="12" stroke-linecap="butt"/>
+  <path d="M 150,380 Q 150,200 250,130 Q 350,200 350,380" fill="none" stroke="#5ce1e6" stroke-width="24" stroke-linecap="butt"/>
+  <line x1="69" y1="380" x2="431" y2="380" stroke="#4682b4" stroke-width="7" stroke-linecap="butt"/>
+  <circle cx="250" cy="282" r="15" fill="#5ce1e6"/>
+</svg>

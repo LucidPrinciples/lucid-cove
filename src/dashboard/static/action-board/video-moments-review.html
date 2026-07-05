@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moments Review — Video Pipeline</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; }
+
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #222; }
+.header h1 { font-size: 18px; font-weight: 600; color: #5ce1e6; }
+.header-actions { display: flex; gap: 10px; align-items: center; }
+.header a { color: #5ce1e6; text-decoration: none; font-size: 13px; }
+
+.video-meta { display: flex; gap: 20px; margin-bottom: 24px; font-size: 13px; color: #888; }
+.video-meta span { display: flex; align-items: center; gap: 5px; }
+.video-meta .label { color: #666; }
+.video-meta .value { color: #aaa; }
+.video-meta .video-link { color: #5ce1e6; text-decoration: none; font-weight: 600; }
+.video-meta .video-link:hover { text-decoration: underline; }
+
+/* Moment cards */
+.moment-card { background: #111118; border: 1px solid #1e1e2a; border-radius: 10px; margin-bottom: 16px; overflow: hidden; transition: border-color 0.2s; }
+.moment-card:hover { border-color: #2a2a3a; }
+.moment-card.rejected { opacity: 0.4; }
+
+.moment-header { padding: 16px 20px; cursor: pointer; display: flex; gap: 14px; align-items: flex-start; }
+.moment-number { width: 28px; height: 28px; border-radius: 50%; background: #1a1a2a; border: 2px solid #5ce1e6; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #5ce1e6; flex-shrink: 0; }
+.moment-info { flex: 1; }
+.moment-topic { font-size: 15px; font-weight: 600; color: #e0e0e8; margin-bottom: 4px; }
+.moment-hook { font-size: 13px; color: #999; line-height: 1.5; font-style: italic; }
+.moment-time { font-size: 12px; color: #666; margin-top: 4px; }
+.moment-toggle { font-size: 18px; color: #555; padding: 4px; transition: transform 0.2s; }
+.moment-card.expanded .moment-toggle { transform: rotate(90deg); }
+
+.moment-body { display: none; padding: 0 20px 20px; }
+.moment-card.expanded .moment-body { display: block; }
+
+.moment-reasoning { font-size: 12px; color: #777; line-height: 1.6; padding: 12px; background: #0d0d14; border-radius: 6px; margin-bottom: 16px; border-left: 3px solid #333; }
+
+/* Timeline */
+.timeline-container { margin-bottom: 16px; }
+.timeline-label { font-size: 11px; color: #666; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.timeline-track { position: relative; height: 40px; background: #1a1a24; border-radius: 6px; overflow: visible; margin-bottom: 4px; }
+.timeline-moment-range { position: absolute; top: 0; height: 100%; background: #1a1a2e; border-radius: 6px; }
+
+/* Clips on timeline */
+.clip-bar { position: absolute; height: 100%; border-radius: 4px; cursor: pointer; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; min-width: 8px; }
+.clip-bar:hover { opacity: 0.9 !important; }
+.clip-bar .clip-type-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: rgba(255,255,255,0.8); pointer-events: none; white-space: nowrap; overflow: hidden; }
+
+.clip-bar.type-quote { background: rgba(92, 225, 230, 0.5); border: 1px solid #5ce1e6; top: 4px; height: calc(100% - 8px); }
+.clip-bar.type-thought { background: rgba(230, 180, 60, 0.4); border: 1px solid #e6b43c; top: 2px; height: calc(100% - 4px); }
+.clip-bar.type-story { background: rgba(160, 100, 230, 0.3); border: 1px solid #a064e6; top: 0; height: 100%; }
+
+/* Drag handles */
+.clip-handle { position: absolute; top: 0; width: 8px; height: 100%; cursor: ew-resize; z-index: 10; }
+.clip-handle::after { content: ''; position: absolute; top: 25%; width: 2px; height: 50%; background: rgba(255,255,255,0.5); border-radius: 1px; }
+.clip-handle.left { left: -2px; }
+.clip-handle.left::after { left: 3px; }
+.clip-handle.right { right: -2px; }
+.clip-handle.right::after { right: 3px; }
+
+/* Clip detail cards */
+.clips-list { display: flex; flex-direction: column; gap: 10px; }
+
+/* Caption strip (#149A) — transcript words for fine-tuning cut points */
+.caption-strip { font-size: 12px; line-height: 1.9; color: #667; margin: 2px 0 14px; padding: 8px 10px; background: #0d0d14; border-radius: 6px; border-left: 3px solid #222; max-height: 100px; overflow-y: auto; }
+.cap-word { cursor: pointer; padding: 1px 2px; border-radius: 3px; transition: background 0.1s, color 0.1s; }
+.cap-word:hover { background: rgba(92,225,230,0.18); color: #aab; }
+.cap-word.in { color: #e0e0e8; background: rgba(92,225,230,0.24); }
+.cap-empty { color: #555; font-style: italic; }
+
+/* Virality score + content type (#149B) */
+.clip-virality { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 11px; }
+.vir-score { font-weight: 700; padding: 1px 7px; border-radius: 10px; font-size: 11px; }
+.vir-score.vir-hi { background: rgba(46,204,113,0.22); color: #2ecc71; }
+.vir-score.vir-mid { background: rgba(230,180,60,0.2); color: #e6b43c; }
+.vir-score.vir-lo { background: rgba(150,150,160,0.18); color: #999; }
+.vir-why { color: #888; font-style: italic; }
+.moment-ctype { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: #a064e6; background: rgba(160,100,230,0.15); padding: 1px 6px; border-radius: 3px; vertical-align: middle; }
+.clip-card { background: #0d0d16; border-radius: 8px; padding: 14px; border: 1px solid #1e1e2a; display: flex; gap: 14px; align-items: flex-start; }
+.clip-card.rejected { opacity: 0.35; }
+
+.clip-type-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 3px 8px; border-radius: 4px; flex-shrink: 0; }
+.clip-type-badge.quote { background: rgba(92, 225, 230, 0.2); color: #5ce1e6; }
+.clip-type-badge.thought { background: rgba(230, 180, 60, 0.2); color: #e6b43c; }
+.clip-type-badge.story { background: rgba(160, 100, 230, 0.2); color: #a064e6; }
+
+.clip-details { flex: 1; }
+.clip-label { font-size: 14px; font-weight: 600; color: #d8d8e0; margin-bottom: 4px; }
+.clip-hook { font-size: 12px; color: #888; line-height: 1.5; margin-bottom: 6px; font-style: italic; }
+.clip-time-row { display: flex; gap: 16px; align-items: center; font-size: 12px; color: #777; flex-wrap: wrap; }
+.clip-time-row input { background: #1a1a24; border: 1px solid #2a2a3a; color: #d8d8e0; border-radius: 4px; padding: 3px 6px; width: 70px; font-size: 12px; font-family: monospace; }
+.clip-time-row input:focus { border-color: #5ce1e6; outline: none; }
+.clip-duration { color: #5ce1e6; font-weight: 600; }
+.clip-platforms { display: flex; gap: 4px; margin-top: 6px; }
+.platform-chip { font-size: 10px; padding: 2px 6px; background: #1a1a24; border: 1px solid #2a2a3a; border-radius: 3px; color: #888; }
+
+.clip-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.btn-approve, .btn-reject { border: none; border-radius: 6px; padding: 6px 12px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.btn-approve { background: rgba(92, 225, 230, 0.15); color: #5ce1e6; border: 1px solid rgba(92, 225, 230, 0.3); }
+.btn-approve:hover { background: rgba(92, 225, 230, 0.25); }
+.btn-approve.active { background: rgba(92, 225, 230, 0.3); border-color: #5ce1e6; }
+.btn-reject { background: rgba(255, 80, 80, 0.1); color: #ff5050; border: 1px solid rgba(255, 80, 80, 0.2); }
+.btn-reject:hover { background: rgba(255, 80, 80, 0.2); }
+.btn-reject.active { background: rgba(255, 80, 80, 0.25); border-color: #ff5050; }
+.btn-approve:disabled { opacity: 0.3; cursor: default; }
+
+/* Bottom action bar */
+.action-bar { position: sticky; bottom: 0; background: #0a0a0f; border-top: 1px solid #222; padding: 16px 0; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
+.approved-count { font-size: 14px; color: #888; }
+.approved-count strong { color: #5ce1e6; }
+.btn-process { background: #5ce1e6; color: #0a0a0f; border: none; border-radius: 8px; padding: 10px 24px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
+.btn-process:hover { background: #7aeaee; }
+.btn-process:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+/* Re-analyze button */
+.btn-reanalyze { background: rgba(230, 180, 60, 0.15); color: #e6b43c; border: 1px solid rgba(230, 180, 60, 0.3); border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.btn-reanalyze:hover { background: rgba(230, 180, 60, 0.25); }
+.btn-reanalyze:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Loading */
+.loading { text-align: center; padding: 60px 20px; color: #666; font-size: 14px; }
+.error { text-align: center; padding: 60px 20px; color: #ff5050; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Moments Review</h1>
+    <div class="header-actions">
+        <button class="btn-reanalyze" id="btn-reanalyze" onclick="reAnalyze()">Re-analyze</button>
+        <a href="/static/action-board/full-video-pipeline.html?embedded=1" class="back-pipeline">← Pipeline</a>
+    </div>
+</div>
+<script>
+if (window.location.search.includes('embedded=1')) {
+    document.querySelector('.back-pipeline')?.remove();
+}
+</script>
+
+<div id="video-meta" class="video-meta"></div>
+<div id="moments-container" class="loading">Loading moments...</div>
+<div id="action-bar" class="action-bar" style="display:none">
+    <div class="approved-count"><strong id="approved-count">0</strong> moments approved</div>
+    <button class="btn-process" id="btn-process" disabled onclick="processApproved()">Process Approved Moments</button>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const stem = params.get('stem') || '';
+let momentsData = null;
+let clipStates = {}; // clipId → {approved: bool, skipped: bool, start: num, end: num}
+let transcriptWords = []; // word-level timings for the caption strip (#149A)
+let _focusedClipByMoment = {}; // momentId → focused clipId for caption highlight
+
+function fmtTime(s) {
+    if (s == null) return '?';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+function fmtDuration(s) {
+    if (s < 60) return `${Math.round(s)}s`;
+    const m = Math.floor(s / 60);
+    const sec = Math.round(s % 60);
+    return sec > 0 ? `${m}m ${sec}s` : `${m}m`;
+}
+
+function clipId(momentId, clipIdx) {
+    return `m${momentId}_c${clipIdx}`;
+}
+
+let hasAnyProcessed = false;
+
+async function loadMoments(retries = 3) {
+    const container = document.getElementById('moments-container');
+    if (!stem) {
+        container.innerHTML = '<div class="error">No video stem specified. Add ?stem=VIDEO_NAME to the URL.</div>';
+        return;
+    }
+    try {
+        // Check sessionStorage first — the transcript editor passes data
+        // through here to avoid the filesystem race condition on redirect
+        const storageKey = `moments_${stem}`;
+        let cached = null;
+        try { cached = sessionStorage.getItem(storageKey); } catch(e) {}
+        if (cached) {
+            try {
+                momentsData = JSON.parse(cached);
+                sessionStorage.removeItem(storageKey); // one-time use
+            } catch(e) { cached = null; }
+        }
+
+        if (!momentsData) {
+            let resp = await fetch(`/api/video/moments/${stem}`);
+            // Retry on 404 — file may not be visible yet
+            if (!resp.ok && resp.status === 404 && retries > 0) {
+                container.innerHTML = '<div class="loading">Waiting for moments data...</div>';
+                await new Promise(r => setTimeout(r, 2000));
+                return loadMoments(retries - 1);
+            }
+            if (!resp.ok) {
+                container.innerHTML = `<div class="error">No moments found for "${stem}". Run analysis first.</div>`;
+                return;
+            }
+            momentsData = await resp.json();
+        }
+
+        // Filter out processed clips from each moment
+        hasAnyProcessed = false;
+        for (const m of (momentsData.moments || [])) {
+            for (const clip of (m.clips || [])) {
+                if (clip.processed) hasAnyProcessed = true;
+            }
+            m.clips = (m.clips || []).filter(c => !c.processed && !c.skipped);
+        }
+        // Remove moments with no remaining clips
+        momentsData.moments = (momentsData.moments || []).filter(m => (m.clips || []).length > 0);
+
+        // Hide re-analyze if we've already processed some clips
+        const reBtn = document.getElementById('btn-reanalyze');
+        if (reBtn) reBtn.style.display = hasAnyProcessed ? 'none' : '';
+
+        if (momentsData.moments.length === 0) {
+            container.innerHTML = '<div class="loading" style="color:#4caf50">All moments processed. Nice work.</div>';
+            document.getElementById('action-bar').style.display = 'none';
+            return;
+        }
+
+        // Load word-level transcript for the caption strip (fine-tuning cut points).
+        try {
+            let tr = await fetch(`/api/video/transcript/${stem}?edited=1`);
+            if (!tr.ok) tr = await fetch(`/api/video/transcript/${stem}`);
+            if (tr.ok) {
+                const td = await tr.json();
+                transcriptWords = (td.segments || []).filter(s => s.start != null && (s.text || '').trim());
+            }
+        } catch (e) { /* captions optional */ }
+
+        renderMeta();
+        renderMoments();
+        document.getElementById('action-bar').style.display = 'flex';
+    } catch (e) {
+        container.innerHTML = `<div class="error">Failed to load moments: ${e.message}</div>`;
+    }
+}
+
+function renderMeta() {
+    const meta = document.getElementById('video-meta');
+    const dur = momentsData.audio_duration_seconds;
+    const momentCount = momentsData.moments?.length || 0;
+    let totalClips = 0;
+    (momentsData.moments || []).forEach(m => totalClips += (m.clips || []).length);
+
+    meta.innerHTML = `
+        <span><span class="label">Video:</span> <a href="/api/video/proxy/stream?filename=${encodeURIComponent((momentsData.source_file || '').split('/').pop() || (stem + '.MOV'))}" target="_blank" class="video-link">${stem} ↗</a></span>
+        <span><span class="label">Duration:</span> <span class="value">${fmtTime(dur)}</span></span>
+        <span><span class="label">Moments:</span> <span class="value">${momentCount}</span></span>
+        <span><span class="label">Clips:</span> <span class="value">${totalClips}</span></span>
+        <span><span class="label">Model:</span> <span class="value">${momentsData.analysis_model || '?'}</span></span>
+    `;
+}
+
+function renderMoments() {
+    const container = document.getElementById('moments-container');
+    const moments = momentsData.moments || [];
+    if (!moments.length) {
+        container.innerHTML = '<div class="error">No moments identified in this video.</div>';
+        return;
+    }
+
+    // Initialize clip states
+    moments.forEach(m => {
+        (m.clips || []).forEach((clip, ci) => {
+            const cid = clipId(m.id, ci);
+            if (!clipStates[cid]) {
+                clipStates[cid] = {
+                    approved: false,
+                    skipped: false,
+                    start: clip.start_seconds,
+                    end: clip.end_seconds,
+                };
+            }
+        });
+    });
+
+    container.innerHTML = moments.map(m => renderMoment(m)).join('');
+    _renderAllCaptionStrips();
+    updateApprovedCount();
+}
+
+function renderMoment(m) {
+    const clips = m.clips || [];
+    const momentDur = m.end_seconds - m.start_seconds;
+
+    return `
+    <div class="moment-card expanded" id="moment-${m.id}">
+        <div class="moment-header" onclick="toggleMoment(${m.id})">
+            <div class="moment-number">${m.id}</div>
+            <div class="moment-info">
+                <div class="moment-topic">${esc(m.topic)}${m.content_type ? ` <span class="moment-ctype">${esc(m.content_type)}</span>` : ''}</div>
+                <div class="moment-hook">"${esc(m.hook)}"</div>
+                <div class="moment-time">${fmtTime(m.start_seconds)} — ${fmtTime(m.end_seconds)} · ${fmtDuration(momentDur)} · ${clips.length} clip${clips.length !== 1 ? 's' : ''}</div>
+            </div>
+            <div class="moment-toggle">▸</div>
+        </div>
+        <div class="moment-body">
+            <div class="moment-reasoning">${esc(m.reasoning)}</div>
+            <div class="timeline-container">
+                <div class="timeline-label">
+                    <span>${fmtTime(m.start_seconds)}</span>
+                    <span>${fmtTime(m.end_seconds)}</span>
+                </div>
+                <div class="timeline-track" id="timeline-${m.id}" data-start="${m.start_seconds}" data-end="${m.end_seconds}">
+                    ${clips.map((clip, ci) => renderClipBar(m, clip, ci)).join('')}
+                </div>
+            </div>
+            <div class="caption-strip" id="cap-${m.id}"></div>
+            <div class="clips-list">
+                ${clips.map((clip, ci) => renderClipCard(m, clip, ci)).join('')}
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderClipBar(moment, clip, clipIdx) {
+    const cid = clipId(moment.id, clipIdx);
+    const state = clipStates[cid];
+    const mStart = moment.start_seconds;
+    const mEnd = moment.end_seconds;
+    const mDur = mEnd - mStart;
+    if (mDur <= 0) return '';
+
+    const left = ((state.start - mStart) / mDur) * 100;
+    const width = ((state.end - state.start) / mDur) * 100;
+
+    // Layer order: story behind, thought middle, quote front
+    const zMap = { story: 1, thought: 2, quote: 3 };
+    const z = zMap[clip.type] || 2;
+
+    return `<div class="clip-bar type-${clip.type}" id="bar-${cid}"
+        style="left:${left}%;width:${width}%;z-index:${z};opacity:${state.skipped ? 0.1 : (state.approved ? 0.8 : 0.25)}"
+        title="${clip.label} (${fmtDuration(state.end - state.start)})">
+        <div class="clip-handle left" onmousedown="startDrag(event,'${cid}','left',${moment.id})"></div>
+        <div class="clip-type-label">${clip.type}</div>
+        <div class="clip-handle right" onmousedown="startDrag(event,'${cid}','right',${moment.id})"></div>
+    </div>`;
+}
+
+function renderClipCard(moment, clip, clipIdx) {
+    const cid = clipId(moment.id, clipIdx);
+    const state = clipStates[cid];
+    const dur = state.end - state.start;
+    const platforms = (clip.platform_fit || []).map(p =>
+        `<span class="platform-chip">${p.replace('_', ' ')}</span>`
+    ).join('');
+
+    const dimmed = state.skipped || !state.approved;
+    return `
+    <div class="clip-card ${state.skipped ? 'rejected' : (state.approved ? '' : '')}" id="card-${cid}">
+        <span class="clip-type-badge ${clip.type}">${clip.type}</span>
+        <div class="clip-details">
+            <div class="clip-label">${esc(clip.label)}</div>
+            <div class="clip-hook">"${esc(clip.hook_line)}"</div>
+            ${clip.virality_score != null ? `<div class="clip-virality"><span class="vir-score vir-${clip.virality_score >= 85 ? 'hi' : (clip.virality_score >= 65 ? 'mid' : 'lo')}">${clip.virality_score}</span><span class="vir-why">${esc(clip.why || '')}</span></div>` : ''}
+            <div class="clip-time-row">
+                <span>Start: <input type="text" value="${fmtTime(state.start)}" onchange="updateTime('${cid}','start',this.value,${moment.id})" /></span>
+                <span>End: <input type="text" value="${fmtTime(state.end)}" onchange="updateTime('${cid}','end',this.value,${moment.id})" /></span>
+                <span class="clip-duration">${fmtDuration(dur)}</span>
+            </div>
+            <div class="clip-platforms">${platforms}</div>
+        </div>
+        <div class="clip-actions">
+            <button class="btn-approve ${state.approved ? 'active' : ''}" onclick="approveClip('${cid}',${moment.id})" ${state.skipped ? 'disabled' : ''}>
+                ${state.approved ? '✓ Approved' : 'Approve'}
+            </button>
+            <button class="btn-reject ${state.skipped ? 'active' : ''}" onclick="skipClip('${cid}',${moment.id})">
+                ${state.skipped ? '✗ Skipped' : 'Skip'}
+            </button>
+        </div>
+    </div>`;
+}
+
+function _focusedCidFor(moment) {
+    if (_focusedClipByMoment[moment.id]) return _focusedClipByMoment[moment.id];
+    const first = (moment.clips && moment.clips.length) ? clipId(moment.id, 0) : null;
+    _focusedClipByMoment[moment.id] = first;
+    return first;
+}
+
+// Caption strip (#149A): the transcript words inside this moment, with the focused
+// clip's selection highlighted. Click a word to snap the nearer cut point to it.
+function renderCaptionStrip(moment) {
+    const el = document.getElementById(`cap-${moment.id}`);
+    if (!el) return;
+    if (!transcriptWords.length) { el.innerHTML = '<span class="cap-empty">No transcript words available.</span>'; return; }
+    const mStart = moment.start_seconds, mEnd = moment.end_seconds;
+    const words = transcriptWords.filter(w => w.end > mStart && w.start < mEnd);
+    if (!words.length) { el.innerHTML = '<span class="cap-empty">(no words in range)</span>'; return; }
+    const cid = _focusedCidFor(moment);
+    const state = cid ? clipStates[cid] : null;
+    const cs = state ? state.start : mStart, ce = state ? state.end : mEnd;
+    el.innerHTML = words.map(w => {
+        const inClip = (w.end > cs && w.start < ce);
+        return `<span class="cap-word${inClip ? ' in' : ''}" title="${fmtTime(w.start)} — click to snap"
+            onclick="_snapToWord(${moment.id}, ${w.start}, ${w.end})">${esc(w.text)}</span>`;
+    }).join(' ');
+}
+
+function _snapToWord(momentId, ws, we) {
+    const cid = _focusedClipByMoment[momentId];
+    if (!cid) return;
+    const state = clipStates[cid];
+    const mid = (state.start + state.end) / 2;
+    if (ws < mid) state.start = Math.min(ws, state.end - 0.5);
+    else state.end = Math.max(we, state.start + 0.5);
+    const moment = momentsData.moments.find(m => m.id === momentId);
+    const card = document.getElementById(`moment-${momentId}`);
+    card.outerHTML = renderMoment(moment);
+    document.getElementById(`moment-${momentId}`).classList.add('expanded');
+    renderCaptionStrip(moment);
+}
+
+function _renderAllCaptionStrips() {
+    (momentsData.moments || []).forEach(m => renderCaptionStrip(m));
+}
+
+function toggleMoment(id) {
+    document.getElementById(`moment-${id}`).classList.toggle('expanded');
+}
+
+function approveClip(cid, momentId) {
+    const state = clipStates[cid];
+    if (state.skipped) return; // can't approve a skipped clip
+    state.approved = !state.approved;
+    reRenderMoment(momentId);
+    updateApprovedCount();
+}
+
+function skipClip(cid, momentId) {
+    const state = clipStates[cid];
+    state.skipped = !state.skipped;
+    if (state.skipped) state.approved = false; // skipping clears approval
+    reRenderMoment(momentId);
+    updateApprovedCount();
+}
+
+function reRenderMoment(momentId) {
+    const moment = momentsData.moments.find(m => m.id === momentId);
+    const card = document.getElementById(`moment-${momentId}`);
+    const wasExpanded = card.classList.contains('expanded');
+    card.outerHTML = renderMoment(moment);
+    if (wasExpanded) document.getElementById(`moment-${momentId}`).classList.add('expanded');
+    renderCaptionStrip(moment);
+}
+
+function updateApprovedCount() {
+    const count = Object.values(clipStates).filter(s => s.approved).length;
+    document.getElementById('approved-count').textContent = count;
+    document.getElementById('btn-process').disabled = count === 0;
+}
+
+function parseTime(str) {
+    // Accepts "M:SS" or "MM:SS" or raw seconds
+    const parts = str.trim().split(':');
+    if (parts.length === 2) return parseInt(parts[0]) * 60 + parseInt(parts[1]);
+    return parseFloat(str);
+}
+
+function updateTime(cid, which, val, momentId) {
+    const seconds = parseTime(val);
+    if (isNaN(seconds)) return;
+    clipStates[cid][which === 'start' ? 'start' : 'end'] = seconds;
+    _focusedClipByMoment[momentId] = cid;
+    // Re-render moment
+    const moment = momentsData.moments.find(m => m.id === momentId);
+    const card = document.getElementById(`moment-${momentId}`);
+    card.outerHTML = renderMoment(moment);
+    document.getElementById(`moment-${momentId}`).classList.add('expanded');
+    renderCaptionStrip(moment);
+}
+
+// Timeline drag
+let dragState = null;
+
+function startDrag(e, cid, side, momentId) {
+    e.preventDefault();
+    e.stopPropagation();
+    const track = document.getElementById(`timeline-${momentId}`);
+    const rect = track.getBoundingClientRect();
+    const mStart = parseFloat(track.dataset.start);
+    const mEnd = parseFloat(track.dataset.end);
+    dragState = { cid, side, momentId, rect, mStart, mEnd, mDur: mEnd - mStart };
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', endDrag);
+}
+
+function onDrag(e) {
+    if (!dragState) return;
+    const { cid, side, rect, mStart, mDur } = dragState;
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const seconds = mStart + pct * mDur;
+    const state = clipStates[cid];
+
+    if (side === 'left') {
+        state.start = Math.min(seconds, state.end - 1);
+    } else {
+        state.end = Math.max(seconds, state.start + 1);
+    }
+
+    // Update bar position live
+    const bar = document.getElementById(`bar-${cid}`);
+    if (bar) {
+        const left = ((state.start - mStart) / mDur) * 100;
+        const width = ((state.end - state.start) / mDur) * 100;
+        bar.style.left = left + '%';
+        bar.style.width = width + '%';
+    }
+}
+
+function endDrag() {
+    if (!dragState) return;
+    const { cid, momentId } = dragState;
+    dragState = null;
+    document.removeEventListener('mousemove', onDrag);
+    document.removeEventListener('mouseup', endDrag);
+    _focusedClipByMoment[momentId] = cid;  // caption highlights the clip just dragged
+    // Re-render to update time inputs
+    const moment = momentsData.moments.find(m => m.id === momentId);
+    const card = document.getElementById(`moment-${momentId}`);
+    card.outerHTML = renderMoment(moment);
+    document.getElementById(`moment-${momentId}`).classList.add('expanded');
+    renderCaptionStrip(moment);
+}
+
+async function processApproved() {
+    const approved = [];
+    const skipped = [];
+    momentsData.moments.forEach(m => {
+        (m.clips || []).forEach((clip, ci) => {
+            const cid = clipId(m.id, ci);
+            const state = clipStates[cid];
+            if (state.approved) {
+                approved.push({
+                    moment_id: m.id,
+                    moment_topic: m.topic,
+                    clip_type: clip.type,
+                    clip_label: clip.label,
+                    start_seconds: Math.round(state.start * 10) / 10,
+                    end_seconds: Math.round(state.end * 10) / 10,
+                    duration_seconds: Math.round((state.end - state.start) * 10) / 10,
+                    platform_fit: clip.platform_fit,
+                    hook_line: clip.hook_line,
+                });
+            } else if (state.skipped) {
+                skipped.push({
+                    moment_id: m.id,
+                    clip_type: clip.type,
+                });
+            }
+        });
+    });
+
+    if (approved.length === 0) return;
+
+    // Mark skipped clips as processed in the moments JSON so they don't reappear
+    if (skipped.length > 0) {
+        try {
+            await fetch(`/api/video/moments/mark-skipped`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stem, skipped }),
+            });
+        } catch (e) {
+            console.warn('Failed to mark skipped clips:', e);
+        }
+    }
+
+    // Store approved clips for the crop positioning page
+    sessionStorage.setItem('approved_moments', JSON.stringify(approved));
+
+    // Navigate to crop positioning
+    const embedded = window.location.search.includes('embedded=1') ? '&embedded=1' : '';
+    window.location.href = `/static/action-board/video-crop-position.html?stem=${stem}${embedded}`;
+}
+
+// generatePreview REMOVED (operator decision 2026-07-03): the full-video low-res
+// preview step is gone — transcript sliders are the cut-line reference; the Video
+// link above streams the ORIGINAL. Shorts scheduling previews are untouched.
+
+async function reAnalyze() {
+    if (!stem) return;
+    const btn = document.getElementById('btn-reanalyze');
+    const container = document.getElementById('moments-container');
+    btn.disabled = true;
+    btn.textContent = 'Analyzing...';
+    container.innerHTML = '<div class="loading">Re-analyzing transcript... this may take a minute.</div>';
+    document.getElementById('action-bar').style.display = 'none';
+
+    // Get presence from URL or default
+    const presence = params.get('presence') || 'operator';
+
+    try {
+        const resp = await fetch('/api/video/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stem, presence_name: presence }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error || `Analysis failed (${resp.status})`);
+        }
+        // Reset state and reload moments
+        momentsData = null;
+        clipStates = {};
+        btn.textContent = 'Re-analyze';
+        btn.disabled = false;
+        await loadMoments();
+    } catch (e) {
+        container.innerHTML = `<div class="error">Re-analysis failed: ${e.message}</div>`;
+        btn.textContent = 'Re-analyze';
+        btn.disabled = false;
+    }
+}
+
+function esc(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+loadMoments();
+</script>
+</body>
+</html>

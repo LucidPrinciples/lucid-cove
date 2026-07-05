@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dictate — Shape Your Agent</title>
+<style>
+:root { --accent: #5ce1e6; --accent-border: rgba(92,225,230,0.28); }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.flow-container { max-width: 680px; margin: 0 auto; padding: 24px; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.header h1 { font-size: 18px; font-weight: 600; color: var(--accent); transition: color .3s; }
+.header a { color: #888; text-decoration: none; font-size: 13px; }
+.flow-subtitle { color: #777; font-size: 13px; margin-bottom: 28px; line-height: 1.6; }
+
+.panel { display: none; animation: fadeIn .3s ease; }
+.panel.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 600; margin-bottom: 4px; transition: color .3s; }
+.section-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.section-desc { font-size: 13.5px; color: #999; line-height: 1.65; margin-bottom: 22px; }
+
+.questions { background: #12121a; border: 1px solid #20202b; border-radius: 10px; padding: 16px 18px; margin-bottom: 20px; }
+.questions .q-head { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: #888; margin-bottom: 10px; }
+.questions ol { margin: 0; padding-left: 18px; }
+.questions li { font-size: 13px; color: #c4c4d0; line-height: 1.7; margin-bottom: 6px; }
+
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 13px; font-weight: 500; color: #bbb; margin-bottom: 8px; }
+.field .hint { color: #777; font-weight: 400; }
+.field input, .field textarea { width: 100%; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 6px; padding: 11px 14px; color: #e1e4ea; font-size: 14px; font-family: inherit; }
+.field textarea { min-height: 200px; resize: vertical; line-height: 1.6; }
+.field input:focus, .field textarea:focus { outline: none; border-color: var(--accent-border); }
+
+.mic-row { display: flex; align-items: center; gap: 10px; margin: -6px 0 16px; }
+.mic-btn { background: #1a1d27; border: 1px solid #2a2d3a; color: #d8d8e0; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.mic-btn.rec { border-color: #ff6b5c; color: #ff6b5c; }
+.mic-hint { font-size: 12px; color: #777; }
+
+.btn { background: var(--accent); color: #06121a; border: none; border-radius: 8px; padding: 12px 22px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn-ghost { background: none; color: #999; border: 1px solid #2a2d3a; }
+.nav-row { display: flex; justify-content: space-between; margin-top: 22px; }
+
+.reveal { background: #14141c; border: 1px solid var(--accent-border); border-radius: 12px; padding: 22px; margin-bottom: 18px; }
+.reveal .r-dot { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 18px var(--accent); margin-bottom: 14px; }
+.reveal .r-arch { font-size: 15px; font-weight: 600; color: var(--accent); margin-bottom: 4px; }
+.reveal .r-freq { font-size: 12px; color: #888; margin: 2px 0 14px; }
+.reveal .r-persona { font-size: 13px; color: #c0c0cc; line-height: 1.7; white-space: pre-wrap; max-height: 220px; overflow-y: auto; margin-bottom: 14px; }
+.reveal .r-lens { font-size: 12.5px; color: #cfcfe0; line-height: 1.6; border-left: 3px solid var(--accent); padding: 6px 12px; background: rgba(255,255,255,0.02); margin-bottom: 14px; }
+
+.result { background: #14141c; border: 1px solid var(--accent-border); border-radius: 12px; padding: 22px; }
+.result h3 { color: var(--accent); font-size: 18px; margin-bottom: 8px; }
+.magic { background: #0e0e16; border: 1px solid #24242f; border-radius: 8px; padding: 12px 14px; font-size: 12.5px; color: var(--accent); word-break: break-all; }
+.r-note { font-size: 12px; color: #888; margin-top: 10px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="flow-container">
+  <div class="header"><h1>Dictate</h1><a href="/" id="close-link">Close</a></div>
+  <div class="flow-subtitle">Talk through who this agent should be &mdash; what they care about, the values and perspective you want them to hold. We listen and shape the agent from it.</div>
+
+  <!-- PANEL 1: dictate -->
+  <div class="panel active" id="panel-in">
+    <div class="section-label">In your own words</div>
+    <div class="section-title">Describe your agent</div>
+    <div class="section-desc">Answer these out loud or in writing &mdash; in any order, however much you want. The more you give, the truer it'll be.</div>
+
+    <div class="questions">
+      <div class="q-head">Things to talk through</div>
+      <ol id="q-list"><li>Loading prompts&hellip;</li></ol>
+    </div>
+
+    <div class="field"><label>What you said <span class="hint">(type, paste, or speak it)</span></label>
+      <textarea id="f-transcript" placeholder="Just talk. Who they're for, what they should care about, the values or worldview or lens you want them to hold, the qualities that matter, how it should feel…"></textarea>
+    </div>
+    <div class="mic-row" id="mic-row" style="display:none;">
+      <button type="button" class="mic-btn" id="mic-btn" onclick="toggleMic()">🎤 <span id="mic-label">Speak</span></button>
+      <span class="mic-hint">Speaks straight into the box. Edit anytime.</span>
+    </div>
+
+    <div class="nav-row"><span></span><button class="btn" id="analyze-btn" onclick="analyze()">Listen &amp; shape &rarr;</button></div>
+  </div>
+
+  <!-- PANEL 2: review / reveal -->
+  <div class="panel" id="panel-review">
+    <div class="section-label">What emerged</div>
+    <div class="section-title">Meet your agent</div>
+    <div class="section-desc">Shaped from what you said. Name them, then bring them to life. Everything's editable later in their Profile.</div>
+    <div class="reveal" id="reveal-box"></div>
+    <div class="field"><label>Agent name</label><input id="rv-agent" type="text" placeholder="Name your agent" autocomplete="off"></div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" onclick="show('panel-in')">&larr; Redo</button>
+      <button class="btn" id="create-btn" onclick="createPresence()">Bring to Life</button>
+    </div>
+  </div>
+
+  <!-- PANEL 3: result -->
+  <div class="panel" id="panel-result"></div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const _firstrun = params.get('firstrun') === '1';
+let identity = null, persona = null, derived = null;
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function show(id) { document.querySelectorAll('.panel').forEach(p => p.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function setAccent(c) { if (c) { document.documentElement.style.setProperty('--accent', c); document.documentElement.style.setProperty('--accent-border', c + '66'); } }
+
+if (_firstrun) { const cl = document.getElementById('close-link'); if (cl) cl.style.display = 'none'; }
+
+async function loadQuestions() {
+  try {
+    const r = await fetch('/api/flow/dictate-questions');
+    const d = await r.json();
+    if (d.questions && d.questions.length) {
+      document.getElementById('q-list').innerHTML = d.questions.map(q => `<li>${esc(q)}</li>`).join('');
+    }
+  } catch (e) { /* keep fallback */ }
+}
+
+// ── Speech-to-text (browser Web Speech API; graceful if unsupported) ──
+let _rec = null, _recOn = false;
+(function setupMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return;  // no STT in this browser — leave the mic hidden
+  document.getElementById('mic-row').style.display = 'flex';
+  _rec = new SR();
+  _rec.continuous = true; _rec.interimResults = false; _rec.lang = 'en-US';
+  _rec.onresult = (e) => {
+    const ta = document.getElementById('f-transcript');
+    let add = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) add += e.results[i][0].transcript;
+    if (add) ta.value = (ta.value ? ta.value.trim() + ' ' : '') + add.trim();
+  };
+  _rec.onend = () => { _recOn = false; setMicUI(); };
+  _rec.onerror = () => { _recOn = false; setMicUI(); };
+})();
+function setMicUI() {
+  const b = document.getElementById('mic-btn'), l = document.getElementById('mic-label');
+  if (!b) return;
+  b.classList.toggle('rec', _recOn);
+  if (l) l.textContent = _recOn ? 'Listening… tap to stop' : 'Speak';
+}
+function toggleMic() {
+  if (!_rec) return;
+  if (_recOn) { _rec.stop(); _recOn = false; }
+  else { try { _rec.start(); _recOn = true; } catch (e) {} }
+  setMicUI();
+}
+
+async function analyze() {
+  const transcript = document.getElementById('f-transcript').value.trim();
+  if (transcript.length < 20) { alert('Say a little more first so we have something to work with.'); document.getElementById('f-transcript').focus(); return; }
+  if (_recOn && _rec) { _rec.stop(); _recOn = false; setMicUI(); }
+
+  const btn = document.getElementById('analyze-btn');
+  btn.disabled = true; btn.textContent = 'Listening…';
+
+  try {
+    // 1) transcript -> discovery fields (+ perspective + suggested name)
+    let res = await fetch('/api/flow/agent-dictate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript }) });
+    derived = await res.json();
+    if (!res.ok || derived.error) throw new Error(derived.detail || derived.error || 'Could not analyze that.');
+
+    const suggestedName = derived.name || '';
+
+    btn.textContent = 'Finding the identity…';
+    res = await fetch('/api/flow/agent-identity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      situation: derived.situation, need: derived.need, qualities: derived.qualities,
+      feeling: derived.feeling, gender: derived.gender, perspective: derived.perspective,
+    }) });
+    identity = await res.json();
+    if (!res.ok || identity.error) throw new Error(identity.error || 'Could not derive the identity.');
+
+    btn.textContent = 'Writing the persona…';
+    res = await fetch('/api/flow/agent-persona', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      name: suggestedName || 'your agent', archetype: identity.archetype, frequency: identity.frequency,
+      tuning_key: identity.tuning_key, tuning_key_song: identity.tuning_key_song,
+      qualities: derived.qualities, feeling: derived.feeling, situation: derived.situation,
+      need: derived.need, gender: derived.gender, perspective: derived.perspective,
+    }) });
+    persona = await res.json();
+    if (!res.ok || persona.error) throw new Error(persona.error || 'Could not write the persona.');
+
+    setAccent(identity.frequency_color);
+    const lens = (derived.perspective || '').trim();
+    document.getElementById('reveal-box').innerHTML = `
+      <div class="r-dot"></div>
+      <div class="r-arch">${esc(identity.archetype)}</div>
+      <div class="r-freq">${esc(identity.frequency)} · ${esc(identity.tuning_key_song || identity.tuning_key || '')}</div>
+      ${lens ? `<div class="r-lens"><strong>Their lens:</strong> ${esc(lens)}</div>` : ''}
+      <div class="r-persona">${esc(persona.persona || '')}</div>`;
+    document.getElementById('rv-agent').value = suggestedName;
+    show('panel-review');
+    if (!suggestedName) document.getElementById('rv-agent').focus();
+  } catch (e) {
+    alert(e.message || 'Something went wrong.');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Listen & shape →';
+  }
+}
+
+async function createPresence() {
+  const agent = document.getElementById('rv-agent').value.trim();
+  if (!agent) { alert('Give your agent a name.'); document.getElementById('rv-agent').focus(); return; }
+  const btn = document.getElementById('create-btn');
+  btn.disabled = true; btn.textContent = 'Creating…';
+
+  const person = params.get('person') || '';
+  const role = params.get('role') || 'member';
+  const body = {
+    display_name: person, agent_name: agent, handle: params.get('handle') || undefined,
+    cove_role: role,
+    archetype: identity.archetype, archetype_desc: identity.archetype_desc,
+    frequency: identity.frequency, frequency_color: identity.frequency_color, frequency_essence: identity.frequency_essence,
+    tuning_key: identity.tuning_key, tuning_key_song: identity.tuning_key_song,
+    qualities: derived.qualities, feeling: derived.feeling, gender: derived.gender,
+    perspective: derived.perspective || '',
+    persona: persona.persona, first_message: persona.first_message,
+    role: identity.archetype_desc, input_mode: 'dictate',
+  };
+  if (params.get('team_active') != null) body.team_active = params.get('team_active') === 'true';
+  if (params.get('model_provider')) body.model_provider = params.get('model_provider');
+  if (_firstrun && params.get('cove_name')) body.cove_name = params.get('cove_name');
+
+  const endpoint = _firstrun ? '/api/presence/me/finalize' : '/api/presence/provision';
+  try {
+    const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.detail || data.error || 'Setup failed');
+
+    if (_firstrun) { window.location.href = data.redirect || '/'; return; }
+
+    document.getElementById('panel-result').innerHTML = `
+      <div class="result">
+        <h3>${esc(agent)} is ready.</h3>
+        <div class="r-note" style="margin-top:0;margin-bottom:12px;color:#aaa;">${esc(identity.archetype)} · ${esc(identity.frequency)}${person ? ' · for ' + esc(person) : ''}</div>
+        ${data.signin_link ? `<div class="magic">${esc(data.signin_link)}</div><div class="r-note">Share this link to open their Mission Control.</div>` : ''}
+        <div class="nav-row"><span></span><a class="btn" href="/" style="text-decoration:none;">Done</a></div>
+      </div>`;
+    show('panel-result');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Try again';
+    alert(e.message || 'Something went wrong.');
+  }
+}
+
+loadQuestions();
+</script>
+</body>
+</html>

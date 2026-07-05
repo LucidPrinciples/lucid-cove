@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lucid Cove</title>
+<meta name="theme-color" content="#0f1117">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --peace: #5ce1e6;
+    --dark: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e8e8ec;
+    --dim: #b0b0b4;
+    --muted: #888;
+    --error: #ff6b5c;
+    --success: #20b2aa;
+  }
+
+  body {
+    background: var(--dark);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+  }
+
+  .landing {
+    width: 100%;
+    max-width: 420px;
+    text-align: center;
+  }
+
+  .logo-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    margin-bottom: 0.85rem;
+  }
+
+  .family { margin-top: 1.6rem; text-align: center; border-top: 1px solid var(--border); padding-top: 1.4rem; }
+  .family .features-title { text-align: center; }
+  .fam-logos { display: flex; justify-content: space-around; gap: 0.4rem; margin-top: 1rem; }
+  .fam-logos a { display: flex; flex-direction: column; align-items: center; gap: 0.45rem; opacity: 0.82; transition: opacity 0.2s; text-decoration: none; color: inherit; }
+  .fam-logos a:hover { opacity: 1; }
+  .fam-logos .micon { height: 38px; display: flex; align-items: center; justify-content: center; }
+  .fam-logos img { width: 38px; height: 38px; }
+  .fam-logos svg { width: 40px; height: auto; }
+  .fam-logos span { font-size: 0.66rem; letter-spacing: 0.05em; color: var(--muted); text-transform: uppercase; }
+
+  .logo-mark {
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--peace);
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+  }
+
+  .tagline {
+    color: var(--dim);
+    font-size: 0.88rem;
+    margin-bottom: 2.5rem;
+    font-weight: 300;
+  }
+
+  /* ─── TABS ─── */
+  .auth-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .auth-tab {
+    flex: 1;
+    padding: 0.6rem 0;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    transition: color 0.2s;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+
+  .auth-tab.active {
+    color: var(--peace);
+    border-bottom-color: var(--peace);
+  }
+
+  .auth-tab:hover:not(.active) {
+    color: var(--dim);
+  }
+
+  /* ─── FORMS ─── */
+  .auth-form {
+    display: none;
+  }
+  .auth-form.active {
+    display: block;
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+    text-align: left;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--dim);
+    margin-bottom: 0.3rem;
+    letter-spacing: 0.03em;
+  }
+
+  .form-group input {
+    width: 100%;
+    padding: 0.65rem 0.8rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.88rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .form-group input:focus {
+    border-color: var(--peace);
+  }
+
+  .form-group input::placeholder {
+    color: var(--muted);
+  }
+
+  .form-hint {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-top: 0.25rem;
+  }
+
+  .submit-btn {
+    width: 100%;
+    padding: 0.7rem;
+    background: var(--peace);
+    color: var(--dark);
+    border: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 0.5rem;
+    transition: opacity 0.2s;
+  }
+
+  .submit-btn:hover { opacity: 0.9; }
+  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .form-message {
+    margin-top: 1rem;
+    font-size: 0.82rem;
+    padding: 0.6rem 0.8rem;
+    border-radius: 6px;
+    display: none;
+  }
+
+  .form-message.error {
+    display: block;
+    background: rgba(255,107,92,0.1);
+    border: 1px solid rgba(255,107,92,0.25);
+    color: var(--error);
+  }
+
+  .form-message.success {
+    display: block;
+    background: rgba(32,178,170,0.1);
+    border: 1px solid rgba(32,178,170,0.25);
+    color: var(--success);
+  }
+
+  /* ─── SIGN-IN VIEW ─── */
+  .signin-note {
+    color: var(--dim);
+    font-size: 0.82rem;
+    margin-top: 0.5rem;
+  }
+
+  /* ─── FEATURES ─── */
+  .features {
+    margin-top: 2.5rem;
+    text-align: left;
+    border-top: 1px solid var(--border);
+    padding-top: 1.5rem;
+  }
+
+  .features-title {
+    font-size: 0.72rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.8rem;
+  }
+
+  .feature-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0;
+    font-size: 0.82rem;
+    color: var(--dim);
+  }
+
+  .feature-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--peace);
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  .footer-link {
+    margin-top: 2rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .footer-link a {
+    color: var(--peace);
+    opacity: 0.7;
+  }
+
+  .footer-link a:hover {
+    opacity: 1;
+  }
+</style>
+</head>
+<body>
+
+<div class="landing">
+  <img src="/static/lp-mark.png" alt="Lucid Principles" class="logo-icon">
+  <div class="logo-mark">Lucid Principles</div>
+  <div class="tagline">One account for the whole system.<br>Start with the Tuner, grow into a Cove.</div>
+
+  <div class="auth-tabs">
+    <button class="auth-tab active" onclick="showTab('signup')">Create Account</button>
+    <button class="auth-tab" onclick="showTab('signin')">Sign In</button>
+  </div>
+
+  <!-- SIGNUP FORM -->
+  <form class="auth-form active" id="signup-form" onsubmit="handleSignup(event)">
+    <div class="form-group">
+      <label for="signup-email">Email</label>
+      <input type="email" id="signup-email" placeholder="you@example.com" required>
+    </div>
+    <div class="form-group">
+      <label for="signup-username">Username</label>
+      <input type="text" id="signup-username" placeholder="your-name" required
+             pattern="[a-z0-9][a-z0-9-]{1,28}[a-z0-9]" autocapitalize="none" autocorrect="off">
+      <div class="form-hint">Lowercase, 3-30 characters. This is also your referral code.</div>
+    </div>
+    <div class="form-group">
+      <label for="signup-display">Display Name <span style="color:var(--muted)">(optional)</span></label>
+      <input type="text" id="signup-display" placeholder="How you want to be called">
+    </div>
+    <input type="hidden" id="signup-ref" value="">
+    <button type="submit" class="submit-btn" id="signup-btn">Create Free Account</button>
+    <div class="form-message" id="signup-message"></div>
+  </form>
+
+  <!-- SIGNIN FORM -->
+  <form class="auth-form" id="signin-form" onsubmit="handleSignin(event)">
+    <div class="form-group">
+      <label for="signin-email">Email</label>
+      <input type="email" id="signin-email" placeholder="you@example.com" required>
+    </div>
+    <button type="submit" class="submit-btn" id="signin-btn">Send sign-in link</button>
+    <div class="form-message" id="signin-message"></div>
+    <div class="signin-note">We'll email you a sign-in link. No password needed.</div>
+  </form>
+
+  <div class="features">
+    <div class="features-title">Free with every Lucid Principles account</div>
+    <div class="feature-row"><span class="feature-dot"></span> Daily tuning from 22 Lucid Principles</div>
+    <div class="feature-row"><span class="feature-dot"></span> Music player — 20+ genres, 7 Signals</div>
+    <div class="feature-row"><span class="feature-dot"></span> The full Canon</div>
+    <div class="feature-row"><span class="feature-dot"></span> Action board and Quick Lists</div>
+    <div class="feature-row"><span class="feature-dot"></span> Tuning mirrors</div>
+    <div class="feature-row"><span class="feature-dot"></span> Earn with referrals</div>
+  </div>
+
+  <div class="family">
+    <div class="features-title">Part of the Lucid Principles family</div>
+    <div class="fam-logos">
+      <a href="https://lucidprinciples.com" title="Lucid Principles">
+        <span class="micon"><img src="/static/lp-mark.png" alt="Lucid Principles"></span>
+        <span>Principles</span>
+      </a>
+      <a href="https://lucidtuner.com" title="Lucid Tuner">
+        <span class="micon"><img src="/static/mark-tuner.png" alt="Lucid Tuner"></span>
+        <span>Tuner</span>
+      </a>
+      <a href="https://lucidcove.org" title="Lucid Cove">
+        <span class="micon"><svg viewBox="0 0 500 440" xmlns="http://www.w3.org/2000/svg"><path d="M 75,370 Q 75,120 250,45 Q 425,120 425,370" fill="none" stroke="#4682b4" stroke-width="12"/><path d="M 150,370 Q 150,190 250,120 Q 350,190 350,370" fill="none" stroke="#5ce1e6" stroke-width="24"/><line x1="69" y1="370" x2="431" y2="370" stroke="#4682b4" stroke-width="7"/><circle cx="250" cy="272" r="15" fill="#5ce1e6"/></svg></span>
+        <span>Cove</span>
+      </a>
+      <a href="https://lucidprinciples.com/open" title="Open Source &middot; LTP">
+        <span class="micon"><img src="/static/mark-ltp.png" alt="LTP"></span>
+        <span>Open Source</span>
+      </a>
+    </div>
+  </div>
+
+  <div class="footer-link">
+    <a href="https://lucidcove.org">Learn more at lucidcove.org</a> &middot; <a href="https://lucidprinciples.com/open">Open source</a>
+  </div>
+</div>
+
+<script>
+// Capture referral code and signup source from URL params
+const params = new URLSearchParams(location.search);
+const signupSource = params.get('source') || 'direct';
+const ref = params.get('ref') || '';
+if (ref) {
+  document.getElementById('signup-ref').value = ref;
+  document.cookie = 'lp_ref=' + encodeURIComponent(ref) + ';path=/;max-age=' + (90 * 86400) + ';SameSite=Lax';
+} else {
+  var saved = document.cookie.split('; ').find(c => c.startsWith('lp_ref='));
+  if (saved) document.getElementById('signup-ref').value = decodeURIComponent(saved.split('=')[1]);
+}
+
+function showTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+  if (tab === 'signup') {
+    document.querySelectorAll('.auth-tab')[0].classList.add('active');
+    document.getElementById('signup-form').classList.add('active');
+  } else {
+    document.querySelectorAll('.auth-tab')[1].classList.add('active');
+    document.getElementById('signin-form').classList.add('active');
+  }
+  // Clear messages
+  document.querySelectorAll('.form-message').forEach(m => {
+    m.className = 'form-message';
+    m.textContent = '';
+  });
+}
+
+function showMessage(id, html, type) {
+  const el = document.getElementById(id);
+  el.innerHTML = html;
+  el.className = 'form-message ' + type;
+}
+
+async function handleSignup(e) {
+  e.preventDefault();
+  const btn = document.getElementById('signup-btn');
+  const msg = document.getElementById('signup-message');
+  msg.className = 'form-message';
+
+  const email = document.getElementById('signup-email').value.trim();
+  const username = document.getElementById('signup-username').value.trim().toLowerCase();
+  const display_name = document.getElementById('signup-display').value.trim();
+  const referred_by = document.getElementById('signup-ref').value.trim();
+
+  if (!email || !username) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+
+  try {
+    const res = await fetch('/api/account/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        username,
+        display_name: display_name || undefined,
+        referred_by: referred_by || undefined,
+        source: signupSource,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      showMessage('signup-message', data.detail || data.error || 'Something went wrong', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Create Free Account';
+      return;
+    }
+
+    showMessage('signup-message', 'Account created! Check your email for a sign-in link.', 'success');
+    btn.textContent = 'Created';
+
+  } catch (err) {
+    showMessage('signup-message', 'Network error. Try again.', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Create Free Account';
+  }
+}
+
+async function handleSignin(e) {
+  e.preventDefault();
+  const btn = document.getElementById('signin-btn');
+  const email = document.getElementById('signin-email').value.trim();
+
+  if (!email) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+
+  try {
+    const res = await fetch('/api/account/signin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      showMessage('signin-message', data.detail || data.error || 'Account not found', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Send sign-in link';
+      return;
+    }
+
+    if (data.signin_link) {
+      // No-email self-host (Brevo not configured): the link came back in the response —
+      // surface it directly instead of telling the operator to check email that won't arrive.
+      const sm = document.getElementById('signin-message');
+      sm.className = 'form-message success';
+      sm.innerHTML = `Your sign-in link: <a href="${data.signin_link}">${data.signin_link}</a><br><span style="opacity:.7">Email isn't configured on this Cove — open this link to sign in.</span>`;
+      btn.disabled = false;
+      btn.textContent = 'Send sign-in link';
+    } else {
+      showMessage('signin-message', 'Sign-in link sent! Check your email.', 'success');
+      btn.textContent = 'Check your email';
+    }
+
+  } catch (err) {
+    showMessage('signin-message', 'Network error. Try again.', 'error');
+    btn.disabled = false;
+    btn.textContent = 'Send sign-in link';
+  }
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "id": "restart-cove",
+  "num": 2,
+  "title": "Restart your Cove",
+  "when": "The app is misbehaving and you want a clean restart without rebuilding.",
+  "category": "ops",
+  "audience": "steward",
+  "description": "Restart the running containers. No code changes are picked up (use 'Update your Cove' for that). Run from your Cove's folder.",
+  "steps": [
+    {
+      "label": "Restart all services",
+      "command": "docker compose restart"
+    },
+    {
+      "label": "Restart just the app",
+      "command": "docker compose restart app"
+    }
+  ]
+}

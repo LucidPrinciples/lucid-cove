@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create a Mirror — Creation Flow</title>
+<style>
+:root {
+  --daily-freq: #5ce1e6;
+  --daily-freq-glow: rgba(92, 225, 230, 0.4);
+  --daily-freq-subtle: rgba(92, 225, 230, 0.13);
+  --daily-freq-border: rgba(92, 225, 230, 0.21);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+.flow-container { max-width: 680px; margin: 0 auto; padding: 24px; }
+
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.header h1 { font-size: 18px; font-weight: 600; color: var(--daily-freq); }
+.header a { color: var(--daily-freq); text-decoration: none; font-size: 13px; }
+.header a:hover { text-decoration: underline; }
+
+.flow-subtitle { color: #777; font-size: 13px; margin-bottom: 28px; line-height: 1.5; }
+
+/* ── Progress bar ── */
+.progress-bar { display: flex; gap: 4px; margin-bottom: 32px; }
+.progress-segment {
+  flex: 1; height: 3px; border-radius: 2px;
+  background: #1a1a24; transition: background 0.3s;
+}
+.progress-segment.done { background: var(--daily-freq); }
+.progress-segment.active { background: var(--daily-freq); opacity: 0.5; }
+
+/* ── Step containers ── */
+.step { display: none; animation: fadeIn 0.3s ease; }
+.step.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.step-header { margin-bottom: 20px; }
+.step-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--daily-freq); font-weight: 600; margin-bottom: 4px; }
+.step-title { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.step-desc { font-size: 13px; color: #888; line-height: 1.5; }
+
+/* ── Tuning key (subtle resonance note) ── */
+.tuning-key {
+  margin-top: 16px; padding: 10px 14px;
+  border-left: 2px solid var(--daily-freq-border);
+  font-size: 12px; font-style: italic; color: #556; line-height: 1.5;
+}
+
+/* ── Form fields ── */
+.field { margin-bottom: 16px; }
+.field label {
+  display: block; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: #888; margin-bottom: 6px;
+}
+.field input, .field select, .field textarea {
+  width: 100%; background: #1a1d27; border: 1px solid #2a2d3a;
+  border-radius: 6px; padding: 10px 12px;
+  color: #e1e4ea; font-size: 14px; font-family: inherit;
+  outline: none; transition: border-color 0.15s;
+}
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--daily-freq); }
+.field textarea { resize: vertical; min-height: 60px; }
+.field .hint { font-size: 11px; color: #555; margin-top: 4px; }
+.field-row { display: flex; gap: 12px; }
+.field-row .field { flex: 1; }
+
+/* ── Spark prompts ── */
+.sparks-toggle {
+  background: none; border: none; color: var(--daily-freq); font-size: 12px;
+  cursor: pointer; padding: 0; margin-top: 8px; font-family: inherit;
+  opacity: 0.7; transition: opacity 0.15s;
+}
+.sparks-toggle:hover { opacity: 1; }
+.sparks-list { display: none; margin-top: 10px; padding: 12px; background: #12141c; border-radius: 6px; }
+.sparks-list.open { display: block; }
+.spark-item {
+  font-size: 12px; color: #888; padding: 6px 0;
+  border-bottom: 1px solid #1a1a24; cursor: pointer; transition: color 0.15s;
+}
+.spark-item:last-child { border-bottom: none; }
+.spark-item:hover { color: #d8d8e0; }
+
+/* ── Agent response ── */
+.agent-response {
+  margin: 20px 0; padding: 16px;
+  background: #12141c; border-radius: 8px;
+  border-left: 3px solid var(--daily-freq); display: none;
+}
+.agent-response.visible { display: block; animation: fadeIn 0.4s ease; }
+.agent-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--daily-freq); margin-bottom: 8px; }
+.agent-text { font-size: 13px; line-height: 1.6; color: #c0c0cc; }
+.agent-text p { margin-bottom: 10px; }
+.agent-text p:last-child { margin-bottom: 0; }
+
+/* ── Processing indicator ── */
+.processing { display: none; align-items: center; gap: 10px; padding: 16px; margin: 16px 0; }
+.processing.visible { display: flex; }
+.processing-dots { display: flex; gap: 4px; }
+.processing-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--daily-freq); opacity: 0.3; animation: pulse 1.2s infinite; }
+.processing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.processing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes pulse { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+.processing-text { font-size: 12px; color: #666; }
+
+/* ── Navigation buttons ── */
+.nav-buttons { display: flex; justify-content: space-between; margin-top: 32px; padding-top: 16px; border-top: 1px solid #1a1a24; }
+.btn { padding: 10px 24px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.btn-back { background: #1a1d27; color: #888; border: 1px solid #2a2d3a; }
+.btn-back:hover { color: #e1e4ea; border-color: var(--daily-freq); }
+.btn-next { background: var(--daily-freq); color: #0a0a0f; }
+.btn-next:hover { filter: brightness(1.1); }
+.btn-next:disabled { opacity: 0.4; cursor: default; filter: none; }
+.btn-generate { background: #20b2aa; color: #0a0a0f; font-size: 15px; padding: 12px 32px; }
+.btn-generate:hover { filter: brightness(1.1); }
+.btn-cancel { background: #1a1d27; color: #ff6b5c; border: 1px solid rgba(255,107,92,0.3); }
+.btn-cancel:hover { border-color: #ff6b5c; }
+
+/* ── Generation progress list ── */
+.gen-list { margin: 20px 0; }
+.gen-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-bottom: 1px solid #1a1a24;
+  font-size: 13px; transition: opacity 0.2s;
+}
+.gen-row.pending { opacity: 0.35; }
+.gen-row.generating { opacity: 1; }
+.gen-row.done { opacity: 1; }
+.gen-row .gen-status {
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; flex-shrink: 0;
+}
+.gen-row.pending .gen-status { color: #333; }
+.gen-row.generating .gen-status .gen-dots { display: flex; gap: 2px; }
+.gen-row.generating .gen-status .gen-dots span {
+  width: 4px; height: 4px; border-radius: 50%; background: var(--daily-freq);
+  opacity: 0.3; animation: pulse 1.2s infinite;
+}
+.gen-row.generating .gen-status .gen-dots span:nth-child(2) { animation-delay: 0.2s; }
+.gen-row.generating .gen-status .gen-dots span:nth-child(3) { animation-delay: 0.4s; }
+.gen-row.done .gen-status { color: #20b2aa; }
+.gen-row .gen-name { flex: 1; font-weight: 500; }
+.gen-row .gen-freq { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
+.gen-row .gen-sample { font-size: 11px; color: #555; font-style: italic; margin-left: 8px; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gen-counter { text-align: center; font-size: 12px; color: #666; margin-top: 12px; }
+
+/* ── Curation card ── */
+.curation-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.principle-dots {
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.principle-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: #1a1a24;
+  cursor: pointer; transition: all 0.15s; position: relative;
+}
+.principle-dot.complete { background: #20b2aa; }
+.principle-dot.partial { background: #b89040; }
+.principle-dot.current { box-shadow: 0 0 0 2px var(--daily-freq); }
+.principle-dot:hover::after {
+  content: attr(data-name); position: absolute; bottom: 14px; left: 50%;
+  transform: translateX(-50%); background: #1a1d27; border: 1px solid #2a2d3a;
+  padding: 2px 8px; border-radius: 4px; font-size: 10px; white-space: nowrap;
+  color: #d8d8e0; z-index: 10;
+}
+.curation-progress {
+  font-size: 12px; color: #666; margin-left: auto;
+}
+
+.curation-card {
+  background: #12141c; border: 1px solid #2a2d3a; border-radius: 10px;
+  padding: 20px; margin-bottom: 16px;
+}
+.curation-card .cc-principle { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.curation-card .cc-meta { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+.curation-card .cc-meta span { margin-right: 12px; }
+
+.passage-box {
+  background: #0f1117; border: 1px solid #1a1a24; border-radius: 8px;
+  padding: 14px; margin-bottom: 14px;
+}
+.passage-box .pb-ref { font-size: 11px; color: var(--daily-freq); font-weight: 600; margin-bottom: 6px; }
+.passage-box .pb-text { font-size: 13px; font-style: italic; color: #c0c0cc; line-height: 1.6; margin-bottom: 8px; }
+.passage-box .pb-thread { font-size: 12px; color: #888; line-height: 1.4; }
+.passage-box .pb-thread strong { color: #999; font-weight: 600; }
+
+.passage-box.editing .pb-ref,
+.passage-box.editing .pb-text,
+.passage-box.editing .pb-thread { display: none; }
+.passage-box .edit-fields { display: none; }
+.passage-box.editing .edit-fields { display: block; }
+.passage-box .edit-fields textarea {
+  width: 100%; background: #1a1d27; border: 1px solid #2a2d3a;
+  border-radius: 4px; padding: 8px 10px; color: #e1e4ea;
+  font-size: 13px; font-family: inherit; outline: none;
+  resize: vertical; margin-bottom: 8px;
+}
+.passage-box .edit-fields textarea:focus { border-color: var(--daily-freq); }
+.passage-box .edit-fields .edit-actions { display: flex; gap: 6px; }
+.passage-box .edit-fields .edit-actions button {
+  background: #1a1d27; border: 1px solid #2a2d3a; color: #888;
+  padding: 5px 12px; border-radius: 4px; font-size: 12px;
+  cursor: pointer; font-family: inherit;
+}
+.passage-box .edit-fields .edit-actions button:hover { color: #e1e4ea; border-color: var(--daily-freq); }
+.passage-box .edit-fields .edit-actions button.save-edit { color: var(--daily-freq); }
+
+.cc-actions {
+  display: flex; gap: 8px; margin-bottom: 16px;
+}
+.cc-actions button {
+  background: #1a1d27; border: 1px solid #2a2d3a; color: #888;
+  padding: 7px 16px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; font-family: inherit; transition: all 0.15s;
+}
+.cc-actions button:hover { color: #e1e4ea; border-color: var(--daily-freq); }
+.cc-actions button.accept-btn:hover { color: #20b2aa; border-color: #20b2aa; }
+.cc-actions button.accepted { background: rgba(32,178,170,0.1); border-color: #20b2aa; color: #20b2aa; }
+.cc-actions button.regen-btn:hover { color: var(--daily-freq); }
+
+.cc-nav {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.cc-nav button {
+  background: #1a1d27; border: 1px solid #2a2d3a; color: #888;
+  padding: 7px 16px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; font-family: inherit;
+}
+.cc-nav button:hover { color: #e1e4ea; border-color: var(--daily-freq); }
+.cc-nav .cc-counter { font-size: 13px; color: #666; }
+
+.accept-all-bar {
+  text-align: center; margin-top: 20px; padding-top: 16px;
+  border-top: 1px solid #1a1a24;
+}
+.accept-all-bar button {
+  background: #1a1d27; border: 1px solid #2a2d3a; color: #888;
+  padding: 8px 20px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; font-family: inherit;
+}
+.accept-all-bar button:hover { color: #20b2aa; border-color: #20b2aa; }
+
+/* ── Success / publish ── */
+.success-message { text-align: center; padding: 24px; margin-top: 16px; background: rgba(32,178,170,0.08); border: 1px solid rgba(32,178,170,0.2); border-radius: 8px; }
+.success-message h3 { color: #20b2aa; font-size: 16px; margin-bottom: 8px; }
+.success-message p { color: #888; font-size: 13px; line-height: 1.5; }
+.success-badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #20b2aa; background: rgba(32,178,170,0.1); padding: 2px 10px; border-radius: 10px; margin-top: 8px; }
+.next-steps { margin-top: 20px; }
+.next-step { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid #1a1a24; }
+.next-step-num { width: 22px; height: 22px; border-radius: 50%; background: #1a1d27; border: 1px solid #2a2d3a; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #888; flex-shrink: 0; }
+.next-step-text { font-size: 13px; color: #d8d8e0; line-height: 1.4; }
+.next-step-text .dim { color: #666; }
+
+@media (max-width: 600px) {
+  .field-row { flex-direction: column; gap: 0; }
+  .curation-header { flex-direction: column; align-items: flex-start; }
+  .curation-progress { margin-left: 0; }
+  .gen-row .gen-sample { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- Inherit tuning color from parent MC frame -->
+<script>
+(function() {
+  try {
+    var p = window.parent && window.parent.document.documentElement.style;
+    var c = p && p.getPropertyValue('--daily-freq');
+    if (c && c.trim()) {
+      var r = document.documentElement.style;
+      r.setProperty('--daily-freq', c.trim());
+      ['glow','subtle','border'].forEach(function(k) {
+        var v = p.getPropertyValue('--daily-freq-' + k);
+        if (v && v.trim()) r.setProperty('--daily-freq-' + k, v.trim());
+      });
+    }
+  } catch(e) {}
+})();
+</script>
+
+<div class="flow-container">
+    <div class="header">
+        <h1>Create a Mirror</h1>
+        <a href="/" class="back-mc" target="_top">&larr; Back to Mission Control</a>
+    </div>
+    <script>
+    if (window.location.search.includes('embedded=1')) {
+        document.querySelector('.back-mc')?.remove();
+    }
+    </script>
+    <p class="flow-subtitle">Build a mirror that maps passages from another canon to Lucid Principles tuning combinations. You choose the source text, describe your lens, and curate every entry.</p>
+
+    <div class="progress-bar" id="progress">
+        <div class="progress-segment active"></div>
+        <div class="progress-segment"></div>
+        <div class="progress-segment"></div>
+        <div class="progress-segment"></div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- STEP 1: Your Canon                                                 -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="step active" id="step-1">
+        <div class="step-header">
+            <div class="step-label">Step 1 of 4 &mdash; Setup</div>
+            <div class="step-title">Choose Your Canon</div>
+            <div class="step-desc">A mirror reflects another tradition's wisdom through the Lucid Principles lens. What source text will yours draw from?</div>
+        </div>
+
+        <div class="field">
+            <label>Mirror Name</label>
+            <input type="text" id="mirror-name" placeholder="Scripture Mirror &mdash; The Passion Translation" autocomplete="off">
+        </div>
+
+        <div class="field">
+            <label>Canon Source</label>
+            <input type="text" id="canon-source" placeholder="Bible (The Passion Translation)" autocomplete="off">
+        </div>
+
+        <div class="field">
+            <label>Curator Name</label>
+            <input type="text" id="curator-name" placeholder="Your name" autocomplete="off">
+        </div>
+
+        <div class="tuning-key">"Every worldview starts new / Then accumulates sketches of belief through contact" <span style="font-style:normal;opacity:0.7;">&mdash; Authenticity</span></div>
+
+        <div class="nav-buttons">
+            <div></div>
+            <button class="btn btn-next" onclick="goToStep(2)">Continue &rarr;</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- STEP 2: Your Lens                                                  -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="step" id="step-2">
+        <div class="step-header">
+            <div class="step-label">Step 2 of 4 &mdash; Your Lens</div>
+            <div class="step-title">Describe Your Lens</div>
+            <div class="step-desc">This is the soul of your mirror. How do you see this canon connecting to conscious living? What perspective do you bring? This shapes every passage the system suggests.</div>
+        </div>
+
+        <div class="field">
+            <label>Lens Description</label>
+            <textarea id="lens-desc" rows="6" placeholder="A translation emphasizing the emotional and relational heart of scripture. Values felt experience of God's presence, intimacy with the divine, and the somatic reality of faith."></textarea>
+            <div class="hint">Think of this as: through my eyes, this canon teaches...</div>
+        </div>
+
+        <button class="sparks-toggle" onclick="toggleSparks()">Need a spark? &#9662;</button>
+        <div class="sparks-list" id="sparks">
+            <div class="spark-item" onclick="useSpark(this)">What drew you to this tradition in the first place?</div>
+            <div class="spark-item" onclick="useSpark(this)">If you had to describe this canon's personality in a sentence...</div>
+            <div class="spark-item" onclick="useSpark(this)">What does this tradition understand that others miss?</div>
+            <div class="spark-item" onclick="useSpark(this)">How would you teach someone the heart of this canon?</div>
+        </div>
+
+        <div class="nav-buttons">
+            <button class="btn btn-back" onclick="goToStep(1)">&larr; Back</button>
+            <button class="btn btn-generate" onclick="beginGeneration()">Begin Generation &rarr;</button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- STEP 3: Generation                                                 -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="step" id="step-3">
+        <div class="step-header">
+            <div class="step-label">Step 3 of 4 &mdash; Generation</div>
+            <div class="step-title">Building Your Mirror</div>
+            <div class="step-desc">The system is reading each principle's teaching and finding passages from your canon that resonate through your lens. This takes a few minutes.</div>
+        </div>
+
+        <div class="gen-list" id="gen-list"></div>
+        <div class="gen-counter" id="gen-counter">0 / 22 principles</div>
+
+        <div class="nav-buttons">
+            <button class="btn btn-cancel" id="btn-cancel-gen" onclick="cancelGeneration()">Cancel</button>
+            <div></div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- STEP 4: Curation                                                   -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="step" id="step-4">
+        <div class="step-header">
+            <div class="step-label">Step 4 of 4 &mdash; Curation</div>
+            <div class="step-title">Curate Your Mirror</div>
+            <div class="step-desc">Walk through each passage the system found. Accept what resonates, edit what's close, regenerate what misses.</div>
+        </div>
+
+        <div class="curation-header">
+            <div class="principle-dots" id="principle-dots"></div>
+            <div class="curation-progress" id="curation-progress">0 / 66 reviewed</div>
+        </div>
+
+        <div id="curation-card-area"></div>
+
+        <div class="accept-all-bar" id="accept-all-bar">
+            <button onclick="acceptAllRemaining()">Accept All Remaining</button>
+        </div>
+
+        <div class="nav-buttons" id="nav-curation">
+            <div></div>
+            <button class="btn btn-next" id="btn-publish" onclick="publishMirror()" style="display:none;">Publish Mirror &rarr;</button>
+        </div>
+
+        <!-- Publish success (hidden until publish completes) -->
+        <div id="publish-success" style="display:none;">
+            <div class="success-message">
+                <h3 id="pub-mirror-name">Mirror Name</h3>
+                <div class="success-badge">Published</div>
+                <p id="pub-entry-count" style="margin-top:10px;">66 entries</p>
+            </div>
+            <div class="next-steps">
+                <h3 style="font-size: 13px; font-weight: 600; color: var(--daily-freq); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">What Happens Next</h3>
+                <div class="next-step"><div class="next-step-num">1</div><div class="next-step-text">Set as your active mirror in Settings</div></div>
+                <div class="next-step"><div class="next-step-num">2</div><div class="next-step-text">Share with your Haven</div></div>
+                <div class="next-step"><div class="next-step-num">3</div><div class="next-step-text">Tunings will now draw from your mirror's passages</div></div>
+            </div>
+
+            <div style="margin-top: 24px; text-align: center;">
+                <button onclick="returnToMC()" style="background: var(--daily-freq); color: #0a0a0f; border: none; padding: 11px 24px; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;">Back to Mission Control</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ═════════════════════════════════════════════════════════════════════════
+// Principles data
+// ═════════════════════════════════════════════════════════════════════════
+const PRINCIPLES = [
+  { name: "Pattern", key: "pattern", freq: "Clarity", freqKey: "clarity" },
+  { name: "Valley of Shadows", key: "valley_of_shadows", freq: "Courage", freqKey: "courage" },
+  { name: "What Life Is About", key: "what_life_is_about", freq: "Momentum", freqKey: "momentum" },
+  { name: "The Future", key: "the_future", freq: "Clarity", freqKey: "clarity" },
+  { name: "Authenticity", key: "authenticity", freq: "Clarity", freqKey: "clarity" },
+  { name: "Dreams", key: "dreams", freq: "Momentum", freqKey: "momentum" },
+  { name: "The Power to Be Alive", key: "the_power_to_be_alive", freq: "Courage", freqKey: "courage" },
+  { name: "Listen", key: "listen", freq: "Presence", freqKey: "presence" },
+  { name: "Training Ground", key: "training_ground", freq: "Resilience", freqKey: "resilience" },
+  { name: "Signs", key: "signs", freq: "Trust", freqKey: "trust" },
+  { name: "Triggers", key: "triggers", freq: "Boundary", freqKey: "boundary" },
+  { name: "A Good Time", key: "a_good_time", freq: "Joy", freqKey: "joy" },
+  { name: "Elevate", key: "elevate", freq: "Momentum", freqKey: "momentum" },
+  { name: "The Non-Conformist Bee", key: "the_non-conformist_bee", freq: "Courage", freqKey: "courage" },
+  { name: "The Magic", key: "the_magic", freq: "Trust", freqKey: "trust" },
+  { name: "Thinking Big", key: "thinking_big", freq: "Momentum", freqKey: "momentum" },
+  { name: "Mirror Mirror", key: "mirror_mirror", freq: "Clarity", freqKey: "clarity" },
+  { name: "Freedom Is", key: "freedom_is", freq: "Release", freqKey: "release" },
+  { name: "Closer to the Sun", key: "closer_to_the_sun", freq: "Connection", freqKey: "connection" },
+  { name: "The Observer", key: "the_observer", freq: "Presence", freqKey: "presence" },
+  { name: "Love Song", key: "love_song", freq: "Connection", freqKey: "connection" },
+  { name: "A New World", key: "a_new_world", freq: "Integration", freqKey: "integration" },
+];
+
+const SIGNAL_TYPES = ['clear', 'drive', 'bright'];
+
+const SIGNAL_DESCRIPTIONS = {
+  clear: "Direct insight. The principle's teaching stated plainly, cutting through noise.",
+  drive: "Momentum and motivation. The principle's teaching as fuel for action.",
+  bright: "Elevated perspective. The principle's teaching illuminated with wonder or awe.",
+};
+
+const FREQUENCY_DESCRIPTIONS = {
+  clarity: "Seeing what is true, without distortion.",
+  courage: "Moving forward despite resistance or fear.",
+  momentum: "Building energy and forward motion through aligned action.",
+  presence: "Full attention to what is, here and now.",
+  resilience: "Returning to center after disruption.",
+  trust: "Releasing the need to control the outcome.",
+  boundary: "Recognizing what is yours and what is not.",
+  joy: "Vibrating at the frequency of fulfillment.",
+  release: "Letting go of what no longer serves.",
+  connection: "Recognizing the shared field between beings.",
+  integration: "Bringing all parts into coherent wholeness.",
+};
+
+// ═════════════════════════════════════════════════════════════════════════
+// State
+// ═════════════════════════════════════════════════════════════════════════
+let currentStep = 1;
+let draftId = null;
+let generationCancelled = false;
+let selectedModelId = 'kimi-k2.5';
+
+// entries[principleKey] = { clear: {ref, text, thread, accepted}, drive: {...}, bright: {...} }
+let entries = {};
+let currentCurationIndex = 0; // 0..65 flat index across all 66 combos
+
+const urlParams = new URLSearchParams(window.location.search);
+const devMode = urlParams.get('dev') === '1';
+
+// ═════════════════════════════════════════════════════════════════════════
+// Dev Mode
+// ═════════════════════════════════════════════════════════════════════════
+async function initDevMode() {
+    if (!devMode) return;
+    const container = document.querySelector('.flow-container');
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:12px;padding:8px 12px;background:#1a1d27;border:1px solid #2a2d3a;border-radius:6px;font-size:12px;';
+    bar.innerHTML = `
+        <span style="color:var(--daily-freq);font-weight:600;">DEV</span>
+        <select id="model-select" style="flex:1;background:#12141c;border:1px solid #2a2d3a;color:#e1e4ea;padding:4px 8px;border-radius:4px;font-size:12px;font-family:inherit;"></select>
+        <span id="model-info" style="color:#666;font-size:11px;"></span>
+    `;
+    container.insertBefore(bar, container.firstChild);
+
+    try {
+        const res = await fetch('/api/flow/models');
+        const data = await res.json();
+        const sel = document.getElementById('model-select');
+        (data.models || []).forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = `${m.name} (${m.provider})${m.available ? '' : ' [no key]'}`;
+            opt.disabled = !m.available;
+            if (m.id === selectedModelId) opt.selected = true;
+            sel.appendChild(opt);
+        });
+        sel.addEventListener('change', () => { selectedModelId = sel.value; });
+    } catch (e) { console.warn('Could not load models:', e); }
+}
+initDevMode();
+
+// ═════════════════════════════════════════════════════════════════════════
+// Flow Chat API
+// ═════════════════════════════════════════════════════════════════════════
+async function callFlowChat(messages, systemPrompt) {
+    try {
+        const res = await fetch('/api/flow/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                system_prompt: systemPrompt,
+                messages: messages,
+                model_id: selectedModelId,
+                temperature: 0.7,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'API error');
+
+        if (devMode && data.model) {
+            const info = document.getElementById('model-info');
+            if (info) info.textContent = `${data.model} (${data.duration_ms}ms)`;
+        }
+        return data.response;
+    } catch (e) {
+        console.error('Flow chat error:', e);
+        return null;
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Navigation
+// ═════════════════════════════════════════════════════════════════════════
+function goToStep(n) {
+    if (n < 1 || n > 4) return;
+
+    // Validate step 1 fields before advancing
+    if (n === 2 && currentStep === 1) {
+        const name = document.getElementById('mirror-name').value.trim();
+        const canon = document.getElementById('canon-source').value.trim();
+        if (!name || !canon) {
+            if (!name) document.getElementById('mirror-name').style.borderColor = '#ff6b5c';
+            if (!canon) document.getElementById('canon-source').style.borderColor = '#ff6b5c';
+            setTimeout(() => {
+                document.getElementById('mirror-name').style.borderColor = '';
+                document.getElementById('canon-source').style.borderColor = '';
+            }, 2000);
+            return;
+        }
+    }
+
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById(`step-${n}`).classList.add('active');
+
+    document.querySelectorAll('.progress-segment').forEach((seg, i) => {
+        seg.classList.remove('done', 'active');
+        if (i < n - 1) seg.classList.add('done');
+        if (i === n - 1) seg.classList.add('active');
+    });
+
+    currentStep = n;
+    document.querySelector('.flow-container').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sparks
+// ═════════════════════════════════════════════════════════════════════════
+function toggleSparks() {
+    const list = document.getElementById('sparks');
+    list.classList.toggle('open');
+    document.querySelector('.sparks-toggle').textContent = list.classList.contains('open') ? 'Need a spark? ▴' : 'Need a spark? ▾';
+}
+function useSpark(el) {
+    const ta = document.getElementById('lens-desc');
+    if (ta.value && !ta.value.endsWith('\n')) ta.value += '\n';
+    ta.value += el.textContent + ' ';
+    ta.focus();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Step 3 — Generation
+// ═════════════════════════════════════════════════════════════════════════
+async function beginGeneration() {
+    const lensDesc = document.getElementById('lens-desc').value.trim();
+    if (!lensDesc) {
+        document.getElementById('lens-desc').style.borderColor = '#ff6b5c';
+        setTimeout(() => { document.getElementById('lens-desc').style.borderColor = ''; }, 2000);
+        return;
+    }
+
+    // Create the draft
+    const mirrorName = document.getElementById('mirror-name').value.trim();
+    const canonSource = document.getElementById('canon-source').value.trim();
+    const curatorName = document.getElementById('curator-name').value.trim();
+
+    try {
+        const res = await fetch('/api/mirrors/builder/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: mirrorName,
+                canon: canonSource,
+                curator: curatorName,
+                lens: lensDesc,
+            }),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            draftId = data.id || data.draft_id || null;
+        }
+    } catch (e) {
+        console.warn('Draft create failed (continuing without persistence):', e);
+    }
+
+    goToStep(3);
+    generationCancelled = false;
+    entries = {};
+
+    // Build generation list UI
+    const listEl = document.getElementById('gen-list');
+    listEl.innerHTML = PRINCIPLES.map((p, i) => `
+        <div class="gen-row pending" id="gen-row-${i}">
+            <div class="gen-status"><span style="color:#333;">&bull;</span></div>
+            <div class="gen-name">${esc(p.name)}</div>
+            <div class="gen-freq">${esc(p.freq)}</div>
+            <div class="gen-sample" id="gen-sample-${i}"></div>
+        </div>
+    `).join('');
+    document.getElementById('gen-counter').textContent = '0 / 22 principles';
+
+    // Generate sequentially
+    for (let i = 0; i < PRINCIPLES.length; i++) {
+        if (generationCancelled) break;
+
+        const row = document.getElementById(`gen-row-${i}`);
+        row.className = 'gen-row generating';
+        row.querySelector('.gen-status').innerHTML = '<div class="gen-dots"><span></span><span></span><span></span></div>';
+
+        const result = await generateForPrinciple(PRINCIPLES[i], canonSource, lensDesc);
+
+        if (generationCancelled) break;
+
+        if (result) {
+            entries[PRINCIPLES[i].key] = result;
+            row.className = 'gen-row done';
+            row.querySelector('.gen-status').innerHTML = '✓';
+            // Show a sample reference
+            const sampleRef = result.clear ? result.clear.ref : '';
+            document.getElementById(`gen-sample-${i}`).textContent = sampleRef;
+        } else {
+            // Failed, mark with X but continue
+            row.className = 'gen-row done';
+            row.querySelector('.gen-status').innerHTML = '<span style="color:#ff6b5c;">✗</span>';
+            entries[PRINCIPLES[i].key] = {
+                clear: { ref: '', text: '(Generation failed)', thread: '', accepted: false },
+                drive: { ref: '', text: '(Generation failed)', thread: '', accepted: false },
+                bright: { ref: '', text: '(Generation failed)', thread: '', accepted: false },
+            };
+        }
+
+        document.getElementById('gen-counter').textContent = `${i + 1} / 22 principles`;
+
+        // Save batch to server if we have a draft
+        if (draftId && result) {
+            saveDraftEntries(PRINCIPLES[i].key, result);
+        }
+    }
+
+    if (!generationCancelled) {
+        // Auto-advance to curation
+        setTimeout(() => {
+            initCuration();
+            goToStep(4);
+        }, 600);
+    }
+}
+
+async function generateForPrinciple(principle, canon, lens) {
+    const systemPrompt = `You are building a mirror — selecting passages from ${canon} that reflect Lucid Principles tuning combinations.
+
+THE CURATOR'S LENS:
+${lens}
+
+YOUR TASK: For the principle "${principle.name}", find passages from ${canon} for these combinations:
+
+FREQUENCY: ${principle.freq}
+${FREQUENCY_DESCRIPTIONS[principle.freqKey] || ''}
+
+Generate entries for these 3 signal types:
+- CLEAR: ${SIGNAL_DESCRIPTIONS.clear}
+- DRIVE: ${SIGNAL_DESCRIPTIONS.drive}
+- BRIGHT: ${SIGNAL_DESCRIPTIONS.bright}
+
+For each, provide a passage from ${canon} that carries the principle's teaching, resonates with the frequency state, and matches the signal's delivery character.
+
+IMPORTANT: The "thread" is what makes this a MIRROR, not just a quote. It's one sentence connecting the passage back to the Lucid Principles concept.
+
+Respond with ONLY valid JSON:
+{
+  "clear": { "ref": "Citation", "text": "Brief passage excerpt", "thread": "One sentence LP connection" },
+  "drive": { "ref": "Citation", "text": "Brief passage excerpt", "thread": "One sentence LP connection" },
+  "bright": { "ref": "Citation", "text": "Brief passage excerpt", "thread": "One sentence LP connection" }
+}`;
+
+    const messages = [{ role: 'user', content: `Generate mirror entries for the principle "${principle.name}" (frequency: ${principle.freq}).` }];
+    const raw = await callFlowChat(messages, systemPrompt);
+    if (!raw) return null;
+
+    try {
+        const cleaned = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+        const parsed = JSON.parse(cleaned);
+        // Normalize and add accepted flag
+        const result = {};
+        SIGNAL_TYPES.forEach(sig => {
+            if (parsed[sig]) {
+                result[sig] = {
+                    ref: parsed[sig].ref || '',
+                    text: parsed[sig].text || '',
+                    thread: parsed[sig].thread || '',
+                    accepted: false,
+                };
+            } else {
+                result[sig] = { ref: '', text: '(Not generated)', thread: '', accepted: false };
+            }
+        });
+        return result;
+    } catch (e) {
+        console.warn(`Failed to parse generation for ${principle.name}:`, e);
+        return null;
+    }
+}
+
+function cancelGeneration() {
+    generationCancelled = true;
+    document.getElementById('btn-cancel-gen').textContent = 'Cancelled';
+    document.getElementById('btn-cancel-gen').disabled = true;
+    // If we have any entries, allow curation of what we have
+    const count = Object.keys(entries).length;
+    if (count > 0) {
+        setTimeout(() => {
+            initCuration();
+            goToStep(4);
+        }, 600);
+    }
+}
+
+async function saveDraftEntries(principleKey, entryData) {
+    if (!draftId) return;
+    try {
+        await fetch(`/api/mirrors/builder/draft/${draftId}/entries`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ principle: principleKey, entries: entryData }),
+        });
+    } catch (e) {
+        console.warn('Failed to save draft entries:', e);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Step 4 — Curation
+// ═════════════════════════════════════════════════════════════════════════
+
+// Flat list of all combos: [{principleIdx, signalType}, ...]
+let curationFlat = [];
+
+function initCuration() {
+    curationFlat = [];
+    PRINCIPLES.forEach((p, pi) => {
+        if (entries[p.key]) {
+            SIGNAL_TYPES.forEach(sig => {
+                curationFlat.push({ principleIdx: pi, signalType: sig });
+            });
+        }
+    });
+    currentCurationIndex = 0;
+    renderPrincipleDots();
+    renderCurationCard();
+    updateCurationProgress();
+}
+
+function renderPrincipleDots() {
+    const dotsEl = document.getElementById('principle-dots');
+    dotsEl.innerHTML = PRINCIPLES.map((p, i) => {
+        const e = entries[p.key];
+        let cls = '';
+        if (e) {
+            const allAccepted = SIGNAL_TYPES.every(s => e[s] && e[s].accepted);
+            const someAccepted = SIGNAL_TYPES.some(s => e[s] && e[s].accepted);
+            if (allAccepted) cls = 'complete';
+            else if (someAccepted) cls = 'partial';
+        }
+        // Is this the principle for the current card?
+        const curCombo = curationFlat[currentCurationIndex];
+        if (curCombo && curCombo.principleIdx === i) cls += ' current';
+        return `<div class="principle-dot ${cls}" data-name="${esc(p.name)}" onclick="jumpToPrinciple(${i})"></div>`;
+    }).join('');
+}
+
+function jumpToPrinciple(principleIdx) {
+    const idx = curationFlat.findIndex(c => c.principleIdx === principleIdx);
+    if (idx >= 0) {
+        currentCurationIndex = idx;
+        renderCurationCard();
+        renderPrincipleDots();
+    }
+}
+
+function renderCurationCard() {
+    const area = document.getElementById('curation-card-area');
+    if (currentCurationIndex < 0 || currentCurationIndex >= curationFlat.length) {
+        area.innerHTML = '<p style="color:#888;text-align:center;padding:20px;">No entries to curate.</p>';
+        return;
+    }
+
+    const combo = curationFlat[currentCurationIndex];
+    const p = PRINCIPLES[combo.principleIdx];
+    const sig = combo.signalType;
+    const entry = entries[p.key][sig];
+
+    const isAccepted = entry.accepted;
+
+    area.innerHTML = `
+        <div class="curation-card">
+            <div class="cc-principle">${esc(p.name)}</div>
+            <div class="cc-meta">
+                <span>Frequency: ${esc(p.freq)}</span>
+                <span>Signal: ${esc(sig.toUpperCase())}</span>
+            </div>
+
+            <div class="passage-box" id="passage-box">
+                <div class="pb-ref">${esc(entry.ref)}</div>
+                <div class="pb-text">"${esc(entry.text)}"</div>
+                <div class="pb-thread"><strong>Thread:</strong> ${esc(entry.thread)}</div>
+
+                <div class="edit-fields">
+                    <label style="font-size:11px;color:#888;margin-bottom:4px;display:block;">Citation</label>
+                    <textarea id="edit-ref" rows="1">${esc(entry.ref)}</textarea>
+                    <label style="font-size:11px;color:#888;margin-bottom:4px;display:block;">Passage</label>
+                    <textarea id="edit-text" rows="3">${esc(entry.text)}</textarea>
+                    <label style="font-size:11px;color:#888;margin-bottom:4px;display:block;">Thread</label>
+                    <textarea id="edit-thread" rows="2">${esc(entry.thread)}</textarea>
+                    <div class="edit-actions">
+                        <button class="save-edit" onclick="saveEdit()">Save</button>
+                        <button onclick="cancelEdit()">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cc-actions">
+                <button class="accept-btn ${isAccepted ? 'accepted' : ''}" onclick="acceptEntry()">${isAccepted ? '✓ Accepted' : '✓ Accept'}</button>
+                <button onclick="startEdit()">✎ Edit</button>
+                <button class="regen-btn" onclick="regenEntry()">↻ New</button>
+            </div>
+
+            <div class="cc-nav">
+                <button onclick="prevCuration()" ${currentCurationIndex === 0 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>◀ Prev</button>
+                <span class="cc-counter">${currentCurationIndex + 1} / ${curationFlat.length}</span>
+                <button onclick="nextCuration()" ${currentCurationIndex === curationFlat.length - 1 ? 'disabled style="opacity:0.3;cursor:default;"' : ''}>Next ▶</button>
+            </div>
+        </div>
+    `;
+
+    updateCurationProgress();
+    renderPrincipleDots();
+    checkAllReviewed();
+}
+
+function prevCuration() {
+    if (currentCurationIndex > 0) {
+        currentCurationIndex--;
+        renderCurationCard();
+    }
+}
+
+function nextCuration() {
+    if (currentCurationIndex < curationFlat.length - 1) {
+        currentCurationIndex++;
+        renderCurationCard();
+    }
+}
+
+function acceptEntry() {
+    const combo = curationFlat[currentCurationIndex];
+    const p = PRINCIPLES[combo.principleIdx];
+    entries[p.key][combo.signalType].accepted = true;
+
+    // Save to server
+    if (draftId) saveDraftEntries(p.key, entries[p.key]);
+
+    // Auto-advance to next unreviewed, or re-render current
+    const nextUnreviewed = findNextUnreviewed(currentCurationIndex + 1);
+    if (nextUnreviewed >= 0) {
+        currentCurationIndex = nextUnreviewed;
+    }
+    renderCurationCard();
+}
+
+function findNextUnreviewed(startFrom) {
+    for (let i = startFrom; i < curationFlat.length; i++) {
+        const c = curationFlat[i];
+        const e = entries[PRINCIPLES[c.principleIdx].key][c.signalType];
+        if (!e.accepted) return i;
+    }
+    // Wrap around
+    for (let i = 0; i < startFrom; i++) {
+        const c = curationFlat[i];
+        const e = entries[PRINCIPLES[c.principleIdx].key][c.signalType];
+        if (!e.accepted) return i;
+    }
+    return -1;
+}
+
+function startEdit() {
+    document.getElementById('passage-box').classList.add('editing');
+}
+
+function cancelEdit() {
+    document.getElementById('passage-box').classList.remove('editing');
+}
+
+function saveEdit() {
+    const combo = curationFlat[currentCurationIndex];
+    const p = PRINCIPLES[combo.principleIdx];
+    const entry = entries[p.key][combo.signalType];
+
+    entry.ref = document.getElementById('edit-ref').value.trim();
+    entry.text = document.getElementById('edit-text').value.trim();
+    entry.thread = document.getElementById('edit-thread').value.trim();
+    entry.accepted = true;
+
+    if (draftId) saveDraftEntries(p.key, entries[p.key]);
+
+    renderCurationCard();
+}
+
+async function regenEntry() {
+    const combo = curationFlat[currentCurationIndex];
+    const p = PRINCIPLES[combo.principleIdx];
+    const sig = combo.signalType;
+    const entry = entries[p.key][sig];
+    const canon = document.getElementById('canon-source').value.trim();
+    const lens = document.getElementById('lens-desc').value.trim();
+
+    // Show processing state
+    const box = document.getElementById('passage-box');
+    box.innerHTML = '<div class="processing visible" style="display:flex;"><div class="processing-dots"><span></span><span></span><span></span></div><div class="processing-text">Finding a different passage...</div></div>';
+
+    const systemPrompt = `You are building a mirror — selecting passages from ${canon} that reflect Lucid Principles tuning combinations.
+
+THE CURATOR'S LENS:
+${lens}
+
+The curator rejected the current passage for the principle "${p.name}" (frequency: ${p.freq}, signal: ${sig.toUpperCase()}).
+The rejected passage was: "${entry.text}" (${entry.ref})
+
+Suggest a DIFFERENT passage. Do not repeat the same citation.
+
+Signal type ${sig.toUpperCase()}: ${SIGNAL_DESCRIPTIONS[sig]}
+
+Respond with ONLY valid JSON:
+{ "ref": "Citation", "text": "Brief passage excerpt", "thread": "One sentence LP connection" }`;
+
+    const messages = [{ role: 'user', content: `Suggest a different passage for "${p.name}" / ${sig.toUpperCase()}. The current one doesn't fit.` }];
+    const raw = await callFlowChat(messages, systemPrompt);
+
+    if (raw) {
+        try {
+            const cleaned = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            const parsed = JSON.parse(cleaned);
+            entries[p.key][sig] = {
+                ref: parsed.ref || '',
+                text: parsed.text || '',
+                thread: parsed.thread || '',
+                accepted: false,
+            };
+            if (draftId) saveDraftEntries(p.key, entries[p.key]);
+        } catch (e) {
+            console.warn('Failed to parse regen response:', e);
+        }
+    }
+
+    renderCurationCard();
+}
+
+function acceptAllRemaining() {
+    curationFlat.forEach(combo => {
+        const p = PRINCIPLES[combo.principleIdx];
+        const entry = entries[p.key][combo.signalType];
+        if (!entry.accepted) entry.accepted = true;
+    });
+
+    // Save all to server
+    if (draftId) {
+        PRINCIPLES.forEach(p => {
+            if (entries[p.key]) saveDraftEntries(p.key, entries[p.key]);
+        });
+    }
+
+    renderCurationCard();
+}
+
+function updateCurationProgress() {
+    let accepted = 0;
+    curationFlat.forEach(combo => {
+        const p = PRINCIPLES[combo.principleIdx];
+        if (entries[p.key][combo.signalType].accepted) accepted++;
+    });
+    document.getElementById('curation-progress').textContent = `${accepted} / ${curationFlat.length} reviewed`;
+}
+
+function checkAllReviewed() {
+    const allAccepted = curationFlat.every(combo => {
+        const p = PRINCIPLES[combo.principleIdx];
+        return entries[p.key][combo.signalType].accepted;
+    });
+    const btn = document.getElementById('btn-publish');
+    if (allAccepted) {
+        btn.style.display = '';
+        document.getElementById('accept-all-bar').style.display = 'none';
+    } else {
+        btn.style.display = 'none';
+        document.getElementById('accept-all-bar').style.display = '';
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Publish
+// ═════════════════════════════════════════════════════════════════════════
+async function publishMirror() {
+    const btn = document.getElementById('btn-publish');
+    btn.disabled = true;
+    btn.textContent = 'Publishing...';
+
+    if (draftId) {
+        try {
+            await fetch(`/api/mirrors/builder/publish/${draftId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+        } catch (e) {
+            console.warn('Publish API call failed:', e);
+        }
+    }
+
+    // Show success
+    const mirrorName = document.getElementById('mirror-name').value.trim();
+    document.getElementById('pub-mirror-name').textContent = mirrorName;
+    document.getElementById('pub-entry-count').textContent = `${curationFlat.length} entries`;
+
+    document.getElementById('nav-curation').style.display = 'none';
+    document.getElementById('accept-all-bar').style.display = 'none';
+    document.getElementById('curation-card-area').style.display = 'none';
+    document.querySelector('.curation-header').style.display = 'none';
+    document.getElementById('publish-success').style.display = 'block';
+    document.getElementById('publish-success').scrollIntoView({ behavior: 'smooth' });
+}
+
+function returnToMC() {
+    try {
+        if (window.parent && window.parent.closeFlowOverlay) {
+            window.parent.closeFlowOverlay();
+            return;
+        }
+    } catch(e) {}
+    window.location.href = '/';
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Utilities
+// ═════════════════════════════════════════════════════════════════════════
+function esc(str) { if (!str) return ''; const d = document.createElement('div'); d.textContent = str; return d.innerHTML; }
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+</script>
+</body>
+</html>

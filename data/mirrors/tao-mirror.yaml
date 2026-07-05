@@ -1,0 +1,237 @@
+# =============================================================================
+# Tao Te Ching Mirror
+# =============================================================================
+# Maps Lucid Principles to passages from the Tao Te Ching (Lao Tzu).
+# The Tao speaks to the same territory as the Canon: pattern recognition,
+# releasing conditioned thought, aligning with the flow of reality,
+# and the paradox of trying to name what cannot be named.
+#
+# Structure: principle -> primary frequency -> one entry (quick mapping).
+# Full build-out (multiple frequencies and signal types per principle)
+# will follow the same expansion path as scripture-tpt.yaml.
+#
+# Chapter numbers are the standard citation. Translations draw from
+# multiple public-domain renderings for clarity and resonance.
+# =============================================================================
+
+meta:
+  name: "Tao Te Ching"
+  canon: "Tao Te Ching (Lao Tzu)"
+  curator: "Lucid Tuner"
+  version: 1
+  lens: "Ancient Chinese wisdom on the nameless source behind all pattern. The Tao mirrors the Canon's recognition that reality is shaped by attention, that naming distorts seeing, and that alignment with the flow requires releasing the grip of conditioned thought."
+  description: "Passages from the Tao Te Ching mapped to Lucid Principles tuning combinations. Each passage selected for resonance with the principle's core teaching through the lens of Taoist insight."
+
+# =============================================================================
+# STAGE 1: THE MECHANISM
+# =============================================================================
+
+pattern:
+  # Primary frequency: Clarity
+  # Concept: You are running programs you didn't write. Recognition precedes change.
+  clarity:
+    clear:
+      ref: "Chapter 1"
+      text: "The Tao that can be told is not the eternal Tao. The name that can be named is not the eternal name."
+      thread: "The pattern you can identify is not the deepest pattern. Naming the program gives you a handle on it, but the mechanism itself runs beneath language. Recognition starts with seeing that your labels are already part of the conditioning."
+
+valley_of_shadows:
+  # Primary frequency: Courage
+  # Concept: Belief shapes perception. Fear distorts it. Courage and heart-guidance are the corrective.
+  courage:
+    clear:
+      ref: "Chapter 78"
+      text: "Nothing in the world is as soft and yielding as water. Yet for dissolving the hard and inflexible, nothing can surpass it."
+      thread: "The valley is hard terrain. Fear makes you rigid. The Tao says courage is not force but the willingness to remain soft when everything around you is breaking. Water doesn't fight the rock. It outlasts it."
+
+what_life_is_about:
+  # Primary frequency: Momentum
+  # Concept: Your unique perspective is the lens AND the tool. Purpose exists. Fear blocks it. Get moving.
+  momentum:
+    clear:
+      ref: "Chapter 22"
+      text: "If you want to become whole, let yourself be partial. If you want to become straight, let yourself be crooked. If you want to become full, let yourself be empty."
+      thread: "Your unique angle — partial, crooked, empty — is not a deficiency. It is the instrument. The secret the Canon names is the same one Lao Tzu teaches: stop correcting your perspective to match the world. Your specific view IS the mechanism."
+
+the_future:
+  # Primary frequency: Courage
+  # Concept: History loops. Programming perpetuates the loop. Waking up breaks it.
+  courage:
+    clear:
+      ref: "Chapter 16"
+      text: "Returning to the source is stillness, which is the way of nature. The way of nature is unchanging. Knowing constancy is insight. Not knowing constancy leads to disaster."
+      thread: "The loop runs because we mistake the cycle for progress. The Tao says the way back to source is stillness — not more movement within the loop but stopping long enough to see the loop itself. That seeing is the break."
+
+authenticity:
+  # Primary frequency: Boundary
+  # Concept: No one sees what you see. Fractured objectivity. True authenticity requires acknowledging this gap.
+  boundary:
+    clear:
+      ref: "Chapter 33"
+      text: "Knowing others is intelligence. Knowing yourself is true wisdom. Mastering others is strength. Mastering yourself is true power."
+      thread: "The boundary between what you see and what is actually there — that gap is where authenticity lives. You can study every other lens in the world but until you see your own, you are performing someone else's clarity."
+
+faith:
+  # Primary frequency: Trust
+  # Concept: Knowledge has limits. Faith fills the gap. What you place faith in determines what you can perceive.
+  trust:
+    clear:
+      ref: "Chapter 17"
+      text: "The best leaders are those the people hardly know exist. When the best leader's work is done, the people say, 'We did it ourselves.'"
+      thread: "Faith in the Tao is faith in what you cannot see working. The mechanism operates beneath your awareness. When it is working perfectly, you think you did it yourself. What you place faith in shapes what you can perceive — even when the source is invisible."
+
+truth_and_lies:
+  # Primary frequency: Boundary
+  # Concept: Truth is intent-dependent and perception-limited. Protect clarity by refusing to let lies persist.
+  boundary:
+    clear:
+      ref: "Chapter 81"
+      text: "True words are not beautiful. Beautiful words are not true. The wise are not learned. The learned are not wise."
+      thread: "The boundary between truth and performance. Eloquence is often the mask that lies wear. The Tao teaches discernment by inversion: if it sounds too polished, check the intent beneath the surface."
+
+darkness_and_light:
+  # Primary frequency: Release
+  # Concept: Duality is structural. Release attachment to fixed outcomes. Navigate by trusting the guides.
+  release:
+    clear:
+      ref: "Chapter 2"
+      text: "When people see some things as beautiful, other things become ugly. When people see some things as good, other things become bad. Being and non-being create each other."
+      thread: "Duality is not a problem to solve. It is the structure of perception itself. The Tao says release the fixation on one pole. Beautiful creates ugly. Good creates bad. They arise together. Navigate by holding both without clinging to either."
+
+# =============================================================================
+# STAGE 2: THE ACTION
+# =============================================================================
+
+tune_your_mind:
+  # Primary frequency: Clarity
+  # Concept: The tuning formula: Reflection, Attention with Intention, Imagination, Clarity.
+  clarity:
+    clear:
+      ref: "Chapter 16"
+      text: "Empty your mind of all thoughts. Let your heart be at peace. Watch the turmoil of beings, but contemplate their return."
+      thread: "The tuning instruction from the Tao is the same mechanism the Canon names: empty the mind, settle the heart, then observe. Attention with intention. The clarity comes not from adding more thought but from creating space for signal."
+
+dreams:
+  # Primary frequency: Momentum
+  # Concept: Beauty and potential are everywhere. Your conscious attention collapses them from possibility into experience.
+  momentum:
+    clear:
+      ref: "Chapter 64"
+      text: "A journey of a thousand miles begins with a single step. A tree that fills a man's embrace grows from a seedling. A tower of nine stories begins with a heap of earth."
+      thread: "Every potential exists before attention touches it. The seedling contains the tree. The first step contains the journey. Dreams are not fantasies — they are possibilities waiting for the specific attention that collapses them into form."
+
+the_power_to_be_alive:
+  # Primary frequency: Courage
+  # Concept: Agency is innate, not earned. Tune to your impressions, check with your heart, discover brilliance.
+  courage:
+    clear:
+      ref: "Chapter 76"
+      text: "A man is born gentle and weak. At his death he is hard and stiff. The living are soft and yielding. The dead are rigid and unbending."
+      thread: "The power to be alive is softness. Rigidity is death while you are still breathing. Agency is not force — it is the courage to remain responsive, impressionable, alive to what the moment is actually asking of you."
+
+training_ground:
+  # Primary frequency: Integration
+  # Concept: Consciousness is unbounded. Thoughts impact the quantum field. This life is the training ground.
+  integration:
+    clear:
+      ref: "Chapter 48"
+      text: "In the pursuit of learning, every day something is acquired. In the pursuit of Tao, every day something is dropped. Less and less do you need to force things, until finally you arrive at non-action."
+      thread: "The training ground works by subtraction, not addition. Every experience strips away a false layer. Integration is not building up knowledge but dropping what was never yours until you arrive at the action that arises without force."
+
+moments:
+  # Primary frequency: Presence
+  # Concept: Now is the only point of power. Each instant contains infinite possibilities and a choice.
+  presence:
+    clear:
+      ref: "Chapter 14"
+      text: "Stand before it and there is no beginning. Follow it and there is no end. Stay with the ancient Tao, move with the present."
+      thread: "The Tao has no beginning or end because it exists only in THIS. Each moment contains the full depth. The instruction is specific: stay with the ancient pattern, but move with what is here now. Presence is the only point of contact."
+
+listen:
+  # Primary frequency: Boundary
+  # Concept: Truth is actively obscured. Discernment means looking between the lines.
+  boundary:
+    clear:
+      ref: "Chapter 56"
+      text: "Those who know do not talk. Those who talk do not know."
+      thread: "The boundary the Canon draws — look between the lines — is the same one the Tao names here. The signal is not in the noise. Truth is actively obscured by those who perform understanding. Real discernment is hearing what isn't being said."
+
+wonder:
+  # Primary frequency: Connection
+  # Concept: Turn outward. Wonder about others without judgment. Take responsibility for helping others see.
+  connection:
+    clear:
+      ref: "Chapter 1"
+      text: "Ever desireless, one can see the mystery. Ever desiring, one can see the manifestations. These two spring from the same source but differ in name."
+      thread: "Wonder requires releasing the desire to categorize. When you stop wanting something from another person, you see the mystery of them. The two modes — seeing the mystery, seeing the form — are both available. Wonder is choosing the first."
+
+guiding_force:
+  # Primary frequency: Connection
+  # Concept: You are not alone. A unifying source connects, attracts, protects. It speaks through silence.
+  connection:
+    clear:
+      ref: "Chapter 25"
+      text: "There was something formless and perfect before the universe was born. It is serene. Empty. Solitary. Unchanging. Infinite. Eternally present. It is the mother of the universe. For lack of a better name, I call it the Tao."
+      thread: "The guiding force has no name that captures it. It was here before form. It is present in everything without being contained by anything. The Tao speaks through silence because it precedes language. Connection to it is not found — it is recognized."
+
+# =============================================================================
+# STAGE 3: THE FEEDBACK
+# =============================================================================
+
+signs:
+  # Primary frequency: Trust
+  # Concept: Reality gives feedback to conscious tuning. Signs appear by design. Observing transforms believing into knowing.
+  trust:
+    clear:
+      ref: "Chapter 21"
+      text: "The Tao is elusive and intangible. And yet within it is image. Within it is substance. Within it is essence. Its essence is very real. Within it is trust."
+      thread: "The signs are not random. Within the elusive and intangible, there is substance — image, essence, something real. The Tao says trust is built into the structure itself. The feedback loop between conscious tuning and reality is not imagined. It is designed."
+
+the_mirage:
+  # Primary frequency: Trust
+  # Concept: The gap between vision and embodiment is real and chemical. Not failure — detox. Persist.
+  trust:
+    clear:
+      ref: "Chapter 11"
+      text: "We shape clay into a pot, but it is the emptiness inside that holds whatever we want. We work with being, but non-being is what we use."
+      thread: "The Mirage is the gap between the pot you shaped and what it can hold. You built the form — the vision is clear — but the emptiness inside hasn't filled yet. That gap is not failure. It is the space that makes the vessel useful. Persist through the emptiness."
+
+# =============================================================================
+# STAGE 4: THE LIVED EXPERIENCE
+# =============================================================================
+
+a_good_time:
+  # Primary frequency: Joy
+  # Concept: Embodied alignment feels like flow, rhythm, and joy — not effort.
+  joy:
+    clear:
+      ref: "Chapter 15"
+      text: "Do you have the patience to wait till your mud settles and the water is clear? Can you remain unmoving till the right action arises by itself?"
+      thread: "A good time is not manufactured. It arrives when the mud settles and the water clears on its own. Joy is what you feel when you stop forcing and let alignment happen. The right action arises by itself — that IS the flow state."
+
+freedom_is:
+  # Primary frequency: Peace
+  # Concept: Freedom is a state of mind. Conscious choice within the structure, not escape from it.
+  peace:
+    clear:
+      ref: "Chapter 8"
+      text: "In dwelling, live close to the ground. In thinking, keep to the simple. In conflict, be fair and generous. In governing, do not try to control. In work, do what you enjoy. In family life, be completely present."
+      thread: "Freedom is not escape from structure. It is conscious choice within it. The Tao names six domains and says the same thing in each: stay simple, stay present, stay aligned. That IS freedom — not the absence of constraint but the presence of choice."
+
+the_passing_tide:
+  # Primary frequency: Resilience
+  # Concept: Life is finite. Outcomes are not yours to decide. What IS yours is whether you tried. Engage without grasping.
+  resilience:
+    clear:
+      ref: "Chapter 76"
+      text: "The hard and stiff will be broken. The soft and supple will prevail."
+      thread: "The passing tide takes everything rigid. What survives is what bends. Resilience is not strength in the way the pattern taught you — it is the willingness to be moved without breaking. Engage without grasping. The tide will come regardless."
+
+love_song:
+  # Primary frequency: Connection
+  # Concept: Love is what becomes possible when the observer's frequency is high enough to share. The destination.
+  connection:
+    clear:
+      ref: "Chapter 67"
+      text: "I have just three things to teach: simplicity, patience, compassion. These three are your greatest treasures."
+      thread: "The destination the Canon calls Love Song — the highest frequency of connection — the Tao distills to three words. Simplicity. Patience. Compassion. Not complex. Not earned through suffering. Just treasured. Love is what remains when everything else is released."

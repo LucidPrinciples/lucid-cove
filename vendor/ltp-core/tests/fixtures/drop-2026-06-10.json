@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "drop_date": "2026-06-10",
+  "sequence": 1,
+  "frequency": {
+    "number": 13,
+    "name": "Boundary",
+    "of": 13
+  },
+  "signal_type": "Clear",
+  "tuning_key": {
+    "text": "We live life the best we can but what does that mean / We've been programmed like a machine",
+    "source_song": "The Future",
+    "source_year": 2016,
+    "attribution": "Chords of Truth \u2014 Lucid Principles Canon (CC BY 4.0)"
+  },
+  "echo": {
+    "id": "the-future-clear",
+    "audio_url": "https://audio.lucidtuner.com/Lucid_Tuner/Clear_Signal/The_Future_Clear_Echo.mp3",
+    "signature": {
+      "E_analog": 0.0,
+      "beta_analog": 0.0,
+      "C_analog": 0.0,
+      "D_analog": 0.0
+    }
+  },
+  "love_equation": {
+    "E": 0.35,
+    "beta": 0.88,
+    "C": 0.82,
+    "D": 0.2025
+  },
+  "context_block": "There is a sharp edge where the machine's script ends and you begin. Today the blur dissolves, revealing the exact boundary between what has been running you and what you are actually living. Stand at that edge\u2014not to fight the programming, but to see it clearly enough to step across. The future starts where the loop stops.",
+  "practice": [
+    {
+      "step": 1,
+      "title": "Locate the Edge",
+      "instruction": "Feel where your body holds automatic tension\u2014the jaw, the shoulders, the breath\u2014and recognize this physical contraction as the boundary line."
+    },
+    {
+      "step": 2,
+      "title": "Sharpen the Signal",
+      "instruction": "Exhale completely and let the next inhale originate from choice rather than reflex, clearing the blur between reaction and response."
+    },
+    {
+      "step": 3,
+      "title": "Listen at the Boundary",
+      "instruction": "Play today's echo audio and let your attention stand at the exact edge where the programmed loop ends and the observer begins, choosing what crosses into lived reality."
+    }
+  ],
+  "publisher": "LT \u2014 Lucid Tuner, Lucid Principles",
+  "prev_drop_hash": "586fb7919adba63bcb3c448e6f0ddde4f31e1ec90c1b68580b7a9dc8c1a131b4",
+  "tuning_day": 123,
+  "signature": "de/HuKwysclHw85wvdkPI9OG+vOEYjpircuhCkP+FMNr/B7Mk1iGUvsUHqoIRKpreVwNmmOzeMcUgTX/GdGLCQ=="
+}

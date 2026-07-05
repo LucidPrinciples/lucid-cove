@@ -1,0 +1,109 @@
+# =============================================================================
+# models.yaml — Available model registry
+# =============================================================================
+# Defines all models available for agent assignment. This file is the single
+# source for what appears in model dropdowns across the UI.
+#
+# Edit via Settings tab (paste YAML) or directly in this file.
+# Changes require container restart to take effect in provider.py.
+# =============================================================================
+
+models:
+
+  # ── Cloud models ────────────────────────────────────────────────────────────
+
+  - id: kimi-k2.5
+    name: "Kimi K2.5 (Moonshot Direct)"
+    provider: moonshot
+    model_string: "kimi-k2.5"
+    type: cloud
+    context_window: 128000
+    notes: "Best reasoning. Direct Moonshot API — no OpenRouter relay. Use for orchestration, complex builds, auditing."
+
+  - id: kimi-k2.5-openrouter
+    name: "Kimi K2.5 (OpenRouter)"
+    provider: openrouter
+    model_string: "moonshotai/kimi-k2.5"
+    type: cloud
+    context_window: 128000
+    notes: "Legacy OpenRouter path. Use kimi-k2.5 (Moonshot direct) instead."
+
+  - id: gemini-flash
+    name: "Gemini 2.5 Flash"
+    provider: google
+    model_string: "gemini-2.5-flash"
+    type: cloud
+    context_window: 1000000
+    notes: "Fast, 1M context. Good for analysis, research, tool calling."
+
+  - id: groq-llama3
+    name: "Groq Llama 3"
+    provider: groq
+    model_string: "llama-3.3-70b-versatile"
+    type: cloud
+    context_window: 128000
+    notes: "Ultra-fast inference. Quick routing and classification."
+
+  - id: deepseek-v3.2
+    name: "DeepSeek V3.2 (OpenRouter)"
+    provider: openrouter
+    model_string: "deepseek/deepseek-v3.2"
+    type: cloud
+    context_window: 128000
+    notes: "Frontier quality, bargain price ($0.25/$0.38 per M). Best value candidate for production flows."
+
+  - id: glm-5.2
+    name: "GLM-5.2 (OpenRouter)"
+    provider: openrouter
+    model_string: "z-ai/glm-5.2"
+    type: cloud
+    context_window: 1000000
+    notes: "Z.ai reasoning model — does thinking AND structured tool calling together (unlike kimi, which can't). Reasoning is enabled in provider.py for glm models, so the thinking block renders. 1M context, MIT weights. ~$1.40/$4.40 per M; reasoning tokens bill as output."
+
+  - id: llama4-maverick
+    name: "Llama 4 Maverick (OpenRouter)"
+    provider: openrouter
+    model_string: "meta-llama/llama-4-maverick"
+    type: cloud
+    context_window: 128000
+    notes: "400B MoE, 17B active. Ultra-cheap ($0.15/$0.60 per M). Open-source frontier — future local candidate."
+
+  - id: claude-sonnet
+    name: "Claude Sonnet 4.6 (OpenRouter)"
+    provider: openrouter
+    model_string: "anthropic/claude-sonnet-4.6"
+    type: cloud
+    context_window: 200000
+    notes: "Quality ceiling benchmark ($3/$15 per M). Premium tier — test to set the bar, not for default production."
+
+  # ── Local models (Ollama on P620 RTX 3090) ──────────────────────────────────
+
+  - id: qwen3-30b-moe
+    name: "Qwen3 30B MoE"
+    provider: ollama
+    model_string: "qwen3:30b-a3b"
+    type: local
+    context_window: 32768
+    notes: "~3B active params per token. Near-32B quality, ~8-12GB VRAM."
+
+  - id: qwen3-8b
+    name: "Qwen3 8B"
+    provider: ollama
+    model_string: "qwen3:8b"
+    type: local
+    context_window: 32768
+    notes: "Simple agent tasks. Template-driven, structured output. ~6GB VRAM."
+
+  # qwen3:32b removed from registry — stays on disk but not available for
+  # agent assignment. Uses 22GB VRAM when loaded, choking everything else.
+  # MoE (qwen3:30b-a3b) replaces it at ~8-12GB with near-equivalent quality.
+
+  # ── Specialty models ────────────────────────────────────────────────────────
+
+  # - id: lp-tuning
+  #   name: "LP Tuning Model"
+  #   provider: ollama
+  #   model_string: "lp-tuning:latest"
+  #   type: local
+  #   context_window: 32768
+  #   notes: "Fine-tuned on Canon + Manifesto. Framework-native tuning generation."

@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rent GPU — Tools</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid #222; }
+.header h1 { font-size: 18px; font-weight: 600; color: #5ce1e6; }
+.header a { color: #5ce1e6; text-decoration: none; font-size: 13px; }
+.intro { color: #999; font-size: 13px; line-height: 1.6; margin-bottom: 22px; max-width: 640px; }
+.panel { background: #111118; border: 1px solid #1e1e2a; border-radius: 10px; padding: 18px; margin-bottom: 18px; max-width: 640px; }
+.panel h2 { font-size: 15px; color: #e0e0e8; margin-bottom: 6px; }
+.panel .sub { font-size: 12px; color: #777; line-height: 1.6; margin-bottom: 14px; }
+label { display: block; font-size: 12px; color: #aab; margin: 10px 0 5px; }
+input[type=text] { width: 100%; padding: 9px 11px; background: #0c0c12; border: 1px solid #2a2a38; border-radius: 6px; color: #e0e0e8; font-size: 13px; }
+input[type=text]:focus { outline: none; border-color: #5ce1e6; }
+.row { display: flex; gap: 8px; align-items: center; }
+.row input { flex: 1; }
+button { padding: 9px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; border: 1px solid rgba(92,225,230,0.3); background: rgba(92,225,230,0.10); color: #5ce1e6; cursor: pointer; white-space: nowrap; }
+button:hover { background: rgba(92,225,230,0.18); }
+button.secondary { color: #aab; border-color: #2a2a38; background: #14141c; }
+button.danger { color: #ff9a9a; border-color: rgba(255,120,120,0.3); background: rgba(255,120,120,0.08); }
+.endpoint { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #8be0c0; word-break: break-all; background: #0c0c12; border: 1px solid #2a2a38; border-radius: 6px; padding: 9px 11px; }
+.status { font-size: 12px; margin-top: 10px; min-height: 16px; }
+.status.ok { color: #8bc48a; }
+.status.err { color: #ff7a7a; }
+.note { font-size: 11px; color: #6a6a78; line-height: 1.6; margin-top: 10px; border-top: 1px dashed #23232e; padding-top: 10px; }
+.note strong { color: #ffd166; }
+.pill { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 10px; border: 1px solid #2a2a38; color: #888; margin-left: 8px; vertical-align: middle; }
+.cred { background: #0c1a16; border: 1px solid #1d4a3a; border-radius: 6px; padding: 11px; margin-top: 10px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #8be0c0; word-break: break-all; }
+.grant { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid #1a1a24; font-size: 12px; }
+.grant:first-of-type { border-top: none; }
+.grant .meta { color: #aab; }
+.grant .meta small { color: #6a6a78; display: block; margin-top: 2px; }
+.grant.revoked .meta { color: #6a6a78; text-decoration: line-through; }
+.empty { color: #6a6a78; font-size: 12px; font-style: italic; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Rent GPU</h1>
+    <a href="/" class="back-mc" target="_top">← Back to Mission Control</a>
+</div>
+<script>
+if (window.location.search.includes('embedded=1')) { document.querySelector('.back-mc')?.remove(); }
+</script>
+
+<div class="intro">
+    Coves can share GPU power. A Cove with a GPU <strong>offers</strong> a credential; a Cove without one <strong>uses</strong> it to run heavy work (video transcription) on that GPU. Runs over the <strong>external</strong> compute mode. You can also list your GPU on the marketplace at a <strong>fixed price</strong> ($12 minimum) — a sale opens access automatically via a grant.
+</div>
+
+<!-- USE — point this Cove at another Cove's GPU -->
+<div class="panel">
+    <h2>Use a friend's GPU</h2>
+    <!-- CF-96: connected-state read from the ONE compute resolver -->
+    <div id="rentedState" style="display:none; margin:0 0 12px; padding:10px 12px; border:1px solid #24402c; background:#0f1a12; border-radius:8px; font-size:13px;">
+        <div id="rentedLine" style="color:#8fdca0; font-weight:600;"></div>
+        <div class="row" style="margin-top:8px">
+            <button class="secondary" onclick="recheckRented()">Re-check</button>
+            <button class="danger" onclick="disconnectRented()">Disconnect</button>
+        </div>
+        <div class="status" id="rentedStatus"></div>
+    </div>
+    <div class="sub">Paste the endpoint and token a friend's Cove gave you. Your video transcription will run on their GPU.</div>
+    <label>GPU endpoint URL</label>
+    <input type="text" id="useUrl" placeholder="https://voice.their-cove.example">
+    <label>Access token</label>
+    <div class="row">
+        <input type="text" id="useToken" placeholder="gpugrant_…">
+        <button onclick="useGpu()">Connect</button>
+    </div>
+    <div class="status" id="useStatus"></div>
+    <div class="note">Current video transcription backend: <span id="curMode">…</span></div>
+</div>
+
+<!-- OFFER — mint credentials so a friend can use this Cove's GPU -->
+<div class="panel">
+    <h2>Offer my GPU <span class="pill" id="offerPill">checking…</span></h2>
+    <div class="sub">This Cove's GPU endpoint (hand this to a friend along with a token below):</div>
+    <div class="endpoint" id="myEndpoint">…</div>
+    <button class="secondary" style="margin-top:10px" onclick="copyEndpoint()">Copy endpoint</button>
+
+    <label style="margin-top:16px">Mint a credential for a friend</label>
+    <div class="row">
+        <input type="text" id="grantLabel" placeholder="who's this for? (e.g. Sam's Cove)">
+        <button onclick="mintGrant()">Mint</button>
+    </div>
+    <div class="status" id="mintStatus"></div>
+    <div id="mintedCred"></div>
+
+    <label style="margin-top:16px">Active credentials</label>
+    <div id="grantsList"><div class="empty">…</div></div>
+
+    <div class="note">
+        Only people you hand a token to can use your GPU; <strong>revoke</strong> any time to cut access. Keep tokens private — anyone with one can run jobs on your GPU.
+    </div>
+
+    <label style="margin-top:20px">List it on the marketplace <span class="pill" id="offerMktPill">…</span></label>
+    <div class="sub">Put this GPU in the Market catalog ("no GPU? use mine") at a <strong>fixed price</strong> ($12 minimum, or 0 = free/trusted). A sale opens access automatically by minting a grant for the buyer — you get notified, and can require your approval first (below).</div>
+    <div class="row">
+        <input type="text" id="mktTitle" placeholder="title (e.g. RTX 3090 — overnight video jobs)">
+    </div>
+    <div class="row" style="margin-top:8px">
+        <input type="text" id="mktDesc" placeholder="what you offer: capacity, hours (e.g. 24GB VRAM, 11pm–6am ET, video transcription)">
+    </div>
+    <div class="row" style="margin-top:8px">
+        <input type="number" id="mktPrice" min="0" step="1" placeholder="price in USD (0 = free, else $12+)" style="max-width:220px">
+        <input type="text" id="mktUnit" placeholder="unit (per job / per GPU-hour)" style="max-width:220px">
+    </div>
+    <div class="row" style="margin-top:8px">
+        <input type="text" id="mktBillingNote" placeholder="billing note (optional, e.g. $1/month, billed yearly)">
+        <button onclick="publishOffer()">List it</button>
+        <button class="secondary" onclick="withdrawOffer()">Withdraw</button>
+    </div>
+    <div class="status" id="mktStatus"></div>
+</div>
+
+<!-- MARKETPLACE GRANTS — approve/deny sales that need your OK (C2) -->
+<div class="panel" id="mktGrantsPanel" style="display:none">
+    <h2>Marketplace access requests</h2>
+    <div class="sub">Sales that opened (or want to open) your GPU. When "require my approval" is on, a purchase waits here until you approve it.</div>
+    <div id="mktGrantsList"><div class="empty">…</div></div>
+</div>
+
+<script>
+const embedded = window.location.search.includes('embedded=1');
+let MY_ENDPOINT = '';
+
+function setStatus(id, msg, ok) {
+    const el = document.getElementById(id);
+    el.textContent = msg || '';
+    el.className = 'status ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
+}
+
+function esc(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadMode() {
+    try {
+        const cfg = await fetch('/api/settings/compute').then(r => r.json());
+        const va = (cfg.compute && cfg.compute.video_asr) || {};
+        document.getElementById('curMode').textContent =
+            va.mode === 'external' ? ('external → ' + (va.url || '(no url)') + (va.has_token ? ' (token set)' : ' (no token)'))
+            : va.mode === 'local' ? 'local GPU'
+            : va.mode || 'cloud';
+    } catch (e) { document.getElementById('curMode').textContent = 'unknown'; }
+}
+
+// CF-96: connected-state banner from the ONE compute resolver. When video_asr is
+// external+ready the card shows "✓ Using a rented GPU: <host>" up top (before this,
+// a rented GPU showed nothing here), with Re-check + Disconnect.
+async function loadStatus() {
+    const box = document.getElementById('rentedState');
+    try {
+        const s = await fetch('/api/compute/status').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+        const va = (s && s.video_asr) || {};
+        if (va.path === 'gpu-rented' && va.ready) {
+            document.getElementById('rentedLine').textContent = '✓ Using a rented GPU' + (va.host ? ': ' + va.host : '');
+            box.style.display = '';
+        } else if (va.mode === 'external' && !va.ready) {
+            document.getElementById('rentedLine').textContent = '⚠ Rented GPU not connected — ' + (va.why || 'incomplete config');
+            box.style.display = '';
+        } else {
+            box.style.display = 'none';
+        }
+    } catch (e) { box.style.display = 'none'; }
+}
+async function recheckRented() {
+    setStatus('rentedStatus', 'Re-checking…');
+    await loadStatus();
+    setStatus('rentedStatus', 'Checked.', true);
+}
+async function disconnectRented() {
+    setStatus('rentedStatus', 'Disconnecting…');
+    try {
+        // Writes video_asr back to cloud (the one writer, set_compute) — surfaces follow.
+        const r = await fetch('/api/settings/compute/video_asr', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'cloud', url: '', token: '' }),
+        });
+        if (r.ok) {
+            setStatus('rentedStatus', 'Disconnected — transcription is back on the cloud/local path.', true);
+            loadStatus(); loadMode();
+        } else {
+            const e = await r.json().catch(() => ({}));
+            setStatus('rentedStatus', e.error || ('Failed (' + r.status + ') — admin only.'), false);
+        }
+    } catch (e) { setStatus('rentedStatus', 'Error: ' + e, false); }
+}
+
+async function loadGrants() {
+    try {
+        const d = await fetch('/api/gpu/grants').then(async r => {
+            if (r.status === 403) throw new Error('admin');
+            return r.json();
+        });
+        MY_ENDPOINT = d.endpoint || '';
+        document.getElementById('myEndpoint').textContent = MY_ENDPOINT || 'No public GPU endpoint detected on this Cove yet.';
+        document.getElementById('offerPill').textContent = MY_ENDPOINT ? 'endpoint ready' : 'no endpoint';
+        const list = document.getElementById('grantsList');
+        const grants = d.grants || [];
+        if (!grants.length) { list.innerHTML = '<div class="empty">None yet. Mint one above to share.</div>'; return; }
+        list.innerHTML = grants.map(g => `
+            <div class="grant ${g.revoked ? 'revoked' : ''}">
+                <div class="meta">${esc(g.label) || '(no label)'}
+                    <small>created ${(g.created_at || '').toString().slice(0,10)}${g.last_used_at ? ' · last used ' + g.last_used_at.toString().slice(0,10) : ' · never used'}${g.revoked ? ' · REVOKED' : ''}</small>
+                </div>
+                ${g.revoked ? '' : `<button class="danger" onclick="revokeGrant(${g.id})">Revoke</button>`}
+            </div>`).join('');
+    } catch (e) {
+        document.getElementById('offerPill').textContent = e.message === 'admin' ? 'admin only' : 'unavailable';
+        document.getElementById('myEndpoint').textContent = e.message === 'admin' ? 'Only the Cove admin can offer the GPU.' : 'Could not load.';
+        document.getElementById('grantsList').innerHTML = '';
+    }
+}
+
+// ── Marketplace offer (CF-87) ──────────────────────────────────────────
+function usd(cents) { return '$' + ((cents || 0) / 100).toFixed(2); }
+
+async function loadOffer() {
+    const pill = document.getElementById('offerMktPill');
+    try {
+        const d = await fetch('/api/gpu/offer').then(r => r.json());
+        const o = d && d.offer;
+        if (o && o.status === 'active') {
+            const priceLabel = (o.price_cents ? usd(o.price_cents) : 'free') + ' ' + (o.unit || '');
+            pill.textContent = 'listed — ' + priceLabel + (o.billing_note ? ' · ' + o.billing_note : '');
+            document.getElementById('mktTitle').value = o.title || '';
+            document.getElementById('mktDesc').value = o.description || '';
+            document.getElementById('mktPrice').value = o.price_cents ? (o.price_cents / 100) : 0;
+            document.getElementById('mktUnit').value = o.unit || '';
+            document.getElementById('mktBillingNote').value = o.billing_note || '';
+        } else if (o) {
+            pill.textContent = 'withdrawn';
+        } else {
+            pill.textContent = 'not listed';
+        }
+    } catch (e) { pill.textContent = 'market unreachable'; }
+}
+async function publishOffer() {
+    const dollars = parseFloat(document.getElementById('mktPrice').value || '0') || 0;
+    const cents = Math.round(dollars * 100);
+    if (cents > 0 && cents < 1200) { setStatus('mktStatus', 'A priced listing must be at least $12 (or 0 for free).', false); return; }
+    setStatus('mktStatus', 'Listing…');
+    try {
+        const r = await fetch('/api/gpu/offer/publish', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: document.getElementById('mktTitle').value.trim(),
+                description: document.getElementById('mktDesc').value.trim(),
+                price_cents: cents,
+                billing_note: document.getElementById('mktBillingNote').value.trim(),
+                unit: document.getElementById('mktUnit').value.trim() || 'per job',
+            }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) {
+            const priceLabel = (d.price_cents ? usd(d.price_cents) : 'free') + ' ' + (d.unit || '');
+            setStatus('mktStatus', 'Listed on the market as @' + (d.handle || 'you') + ' — ' + priceLabel + (d.billing_note ? ' · ' + d.billing_note : ''), true);
+            loadOffer();
+        } else {
+            setStatus('mktStatus', d.error || d.detail || ('Could not list (' + r.status + ').'), false);
+        }
+    } catch (e) { setStatus('mktStatus', 'Could not reach the market.', false); }
+}
+
+// ── Marketplace access requests (C2 pending-approval strip) ─────────────
+async function loadMarketplaceGrants() {
+    const panel = document.getElementById('mktGrantsPanel');
+    const list = document.getElementById('mktGrantsList');
+    try {
+        const d = await fetch('/api/gpu/marketplace-grants').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+        const grants = d.grants || [];
+        if (!grants.length) { panel.style.display = 'none'; return; }
+        panel.style.display = '';
+        list.innerHTML = grants.map(g => {
+            const pending = g.approval_status === 'pending';
+            const state = pending ? 'awaiting your approval' : (g.approval_status || (g.revoked ? 'revoked' : 'active'));
+            return `<div class="grant ${g.revoked && !pending ? 'revoked' : ''}">
+                <div class="meta">@${esc(g.buyer_handle) || '(buyer)'} · listing ${g.listing_id || '—'}
+                    <small>${esc(state)}${g.created_at ? ' · ' + g.created_at.toString().slice(0,10) : ''}</small>
+                </div>
+                <div>${pending
+                    ? `<button onclick="approveMktGrant(${g.id})">Approve</button> <button class="danger" onclick="denyMktGrant(${g.id})">Deny</button>`
+                    : ''}</div>
+            </div>`;
+        }).join('');
+    } catch (e) { panel.style.display = 'none'; }
+}
+async function approveMktGrant(id) {
+    try { const r = await fetch('/api/gpu/marketplace-grants/' + id + '/approve', { method: 'POST' }); if (r.ok) loadMarketplaceGrants(); } catch (e) {}
+}
+async function denyMktGrant(id) {
+    try { const r = await fetch('/api/gpu/marketplace-grants/' + id + '/deny', { method: 'POST' }); if (r.ok) loadMarketplaceGrants(); } catch (e) {}
+}
+async function withdrawOffer() {
+    setStatus('mktStatus', 'Withdrawing…');
+    try {
+        const r = await fetch('/api/gpu/offer/withdraw', { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) { setStatus('mktStatus', 'Offer withdrawn — it no longer shows in the catalog.', true); loadOffer(); }
+        else setStatus('mktStatus', d.reason || d.error || 'Nothing to withdraw.', false);
+    } catch (e) { setStatus('mktStatus', 'Could not reach the market.', false); }
+}
+
+async function useGpu() {
+    const url = document.getElementById('useUrl').value.trim();
+    const token = document.getElementById('useToken').value.trim();
+    if (!url) { setStatus('useStatus', 'Enter a GPU endpoint URL.', false); return; }
+    setStatus('useStatus', 'Connecting…');
+    try {
+        const r = await fetch('/api/settings/compute/video_asr', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'external', url, token }),
+        });
+        if (r.ok) {
+            setStatus('useStatus', 'Connected — transcription now runs on the rented GPU.', true);
+            loadMode(); loadStatus();
+        } else {
+            const e = await r.json().catch(() => ({}));
+            setStatus('useStatus', e.error || ('Failed (' + r.status + ') — admin only.'), false);
+        }
+    } catch (e) { setStatus('useStatus', 'Error: ' + e, false); }
+}
+
+async function mintGrant() {
+    const label = document.getElementById('grantLabel').value.trim();
+    setStatus('mintStatus', 'Minting…');
+    try {
+        const r = await fetch('/api/gpu/grants', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.token) {
+            setStatus('mintStatus', 'Minted. Copy this now — the token is shown only once.', true);
+            document.getElementById('mintedCred').innerHTML =
+                `<div class="cred">Endpoint: ${esc(d.endpoint) || '(set VOICE_PUBLIC_URL)'}\nToken: ${esc(d.token)}</div>
+                 <button class="secondary" style="margin-top:8px" onclick="copyCred('${esc(d.endpoint)}','${esc(d.token)}')">Copy credential</button>`;
+            document.getElementById('grantLabel').value = '';
+            loadGrants();
+        } else {
+            setStatus('mintStatus', d.error || ('Failed (' + r.status + ') — admin only.'), false);
+        }
+    } catch (e) { setStatus('mintStatus', 'Error: ' + e, false); }
+}
+
+async function revokeGrant(id) {
+    try {
+        const r = await fetch('/api/gpu/grants/' + id + '/revoke', { method: 'POST' });
+        if (r.ok) loadGrants();
+        else setStatus('mintStatus', 'Revoke failed (admin only).', false);
+    } catch (e) { setStatus('mintStatus', 'Error: ' + e, false); }
+}
+
+function copyEndpoint() { if (MY_ENDPOINT) navigator.clipboard?.writeText(MY_ENDPOINT); }
+function copyCred(ep, tok) { navigator.clipboard?.writeText('Endpoint: ' + ep + '\nToken: ' + tok); }
+
+loadMode();
+loadStatus();
+loadGrants();
+loadOffer();
+loadMarketplaceGrants();
+</script>
+</body>
+</html>

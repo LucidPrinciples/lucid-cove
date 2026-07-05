@@ -1,0 +1,43 @@
+{
+  "_meta": {
+    "currency": "USD",
+    "llm_unit": "per_million_tokens",
+    "media_unit": "per_minute",
+    "openrouter_refreshed_at": null,
+    "note": "Semi-live price map. A close in-the-moment estimate, not a billing ledger. LLM 'openrouter' entries are refreshed from the OpenRouter models API (see pricing.refresh_openrouter_prices); all other entries are static and hand-maintained. Local own-GPU work (ollama, local ASR, local-gpu) is $0 by design. Prices are USD."
+  },
+  "llm": {
+    "moonshot": {
+      "kimi-k2.5": { "in": 0.60, "out": 2.50 }
+    },
+    "google": {
+      "gemini-2.5-flash": { "in": 0.30, "out": 2.50 }
+    },
+    "groq": {
+      "llama-3.3-70b-versatile": { "in": 0.59, "out": 0.79 }
+    },
+    "openrouter": {
+      "moonshotai/kimi-k2.5": { "in": 0.60, "out": 2.50 },
+      "deepseek/deepseek-v3.2": { "in": 0.25, "out": 0.38 },
+      "meta-llama/llama-4-maverick": { "in": 0.15, "out": 0.60 },
+      "anthropic/claude-sonnet-4.6": { "in": 3.00, "out": 15.00 }
+    },
+    "ollama": {
+      "*": { "in": 0.0, "out": 0.0 }
+    },
+    "ollama-cloud": {
+      "*": { "in": 0.20, "out": 0.20 }
+    }
+  },
+  "asr": {
+    "default": { "per_minute": 0.006 },
+    "openai-whisper": { "per_minute": 0.006 },
+    "deepgram-nova": { "per_minute": 0.0043 },
+    "groq-whisper": { "per_minute": 0.0011 },
+    "local": { "per_minute": 0.0 }
+  },
+  "compute": {
+    "local-gpu": { "per_minute": 0.0 },
+    "rented-gpu": { "per_minute": 0.01 }
+  }
+}

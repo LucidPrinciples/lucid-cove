@@ -1,0 +1,21 @@
+{
+  "id": "backup-cove",
+  "num": 4,
+  "title": "Back up your Cove",
+  "when": "Before an update, or on a regular schedule. Backs up your database (tunings, accounts, memory).",
+  "category": "ops",
+  "audience": "steward",
+  "description": "Dump the Postgres database to a file. Your files live in Nextcloud (back those up via Nextcloud too). Run from your Cove's folder.",
+  "steps": [
+    {
+      "label": "Dump the database",
+      "command": "docker compose exec -T postgres pg_dump -U ${POSTGRES_USER:-cove} ${POSTGRES_DB:-cove} > cove-backup-$(date +%Y%m%d).sql",
+      "note": "Keep the .sql file somewhere safe (external drive / off-box)."
+    },
+    {
+      "label": "List Docker volumes",
+      "command": "docker volume ls",
+      "note": "postgres_data + nextcloud_data hold your persistent state."
+    }
+  ]
+}

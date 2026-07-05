@@ -1,0 +1,65 @@
+# GPU pipecat-voice — for Coves on a host with an NVIDIA GPU.
+# Same service as Dockerfile.cpu, but with CUDA PyTorch + Qwen3-ASR so batch video
+# transcription runs ON THIS COVE'S OWN repo container (not a hand-built host box).
+# The provisioner emits this image + GPU passthrough when it detects a GPU; the app
+# routes video here via VOICE_INTERNAL_URL. Models (Qwen3-ASR-1.7B + ForcedAligner-0.6B)
+# self-download from HuggingFace into /root/.cache on first use and persist in the
+# voice_cache volume — no host model mount, so it stays replicable.
+# Build:  docker build -f Dockerfile.gpu -t lucid-cove-voice:gpu .
+# Run needs: nvidia-container-toolkit on the host + `runtime: nvidia` (set in compose).
+FROM python:3.11-slim@sha256:6d85378d88a19cd4d76079817532d62232be95757cb45945a99fec8e8084b9c2
+
+WORKDIR /app
+
+# System deps for audio/video processing + fonts for ASS captions
+RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections \
+    && echo "deb http://deb.debian.org/debian trixie contrib" >> /etc/apt/sources.list.d/contrib.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libsndfile1 \
+    ffmpeg \
+    curl \
+    fonts-liberation \
+    fonts-dejavu-core \
+    fontconfig \
+    ttf-mscorefonts-installer \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f -v
+
+# PyTorch with CUDA support (heavy layer, cached). The CUDA runtime ships in the wheel;
+# the host provides the driver via nvidia-container-toolkit. cu124 matches the legacy box.
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cu124
+
+# Core service deps
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    httpx \
+    python-multipart \
+    numpy \
+    faster-whisper \
+    piper-tts \
+    onnxruntime
+
+# Qwen3-ASR for GPU batch video transcription
+RUN pip install --no-cache-dir qwen-asr
+
+# Default the batch ASR engine to GPU Qwen3-ASR on this image.
+# (cove-core still overrides per-request from compute.video_asr — cloud/external.)
+ENV ASR_ENGINE=qwen
+
+COPY src/ /app/src/
+COPY test.html /app/test.html
+COPY jules.html /app/jules.html
+COPY julian-icon.png /app/julian-icon.png
+COPY julian-icon-512.png /app/julian-icon-512.png
+COPY manifest.json /app/manifest.json
+# Piper self-downloads .onnx voices into /root/.cache on first use (no host mount).
+COPY voices/config.json /voices/config.json
+
+RUN touch /app/src/__init__.py
+
+EXPOSE 8300
+
+CMD ["python", "-m", "src.server"]

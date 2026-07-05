@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU Marketplace — Tools</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #222; }
+.header h1 { font-size: 18px; font-weight: 600; color: #5ce1e6; }
+.header a { color: #5ce1e6; text-decoration: none; font-size: 13px; }
+.intro { color: #999; font-size: 13px; line-height: 1.6; margin-bottom: 18px; max-width: 680px; }
+.buys { background: #0c1418; border: 1px solid #1d3a44; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #8fd4dc; margin-bottom: 20px; max-width: 680px; line-height: 1.7; }
+.buys strong { color: #bdeef4; }
+.section-title { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #6a6a78; margin: 22px 0 10px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; max-width: 900px; }
+.card { background: #111118; border: 1px solid #1e1e2a; border-radius: 10px; padding: 16px; display: flex; flex-direction: column; }
+.card.wanted { border-style: dashed; border-color: #33333f; background: #0e0e14; }
+.card h3 { font-size: 15px; color: #e0e0e8; margin-bottom: 6px; }
+.card p { font-size: 12px; color: #999; line-height: 1.6; flex: 1; margin-bottom: 12px; }
+.price { font-size: 13px; color: #8be0c0; font-weight: 600; margin-bottom: 4px; }
+.bnote { font-size: 11px; color: #ffd166; margin-bottom: 10px; }
+.tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #2a2a38; color: #888; margin-bottom: 10px; align-self: flex-start; }
+.tag.wanted { color: #c9a0ff; border-color: #3a2a52; }
+button, a.btn { padding: 9px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; border: 1px solid rgba(92,225,230,0.3); background: rgba(92,225,230,0.10); color: #5ce1e6; cursor: pointer; text-decoration: none; text-align: center; }
+button:hover, a.btn:hover { background: rgba(92,225,230,0.18); }
+a.btn.ghost { color: #c9a0ff; border-color: #3a2a52; background: rgba(150,100,255,0.08); }
+.access { background: #0c1a16; border: 1px solid #1d4a3a; border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; max-width: 900px; }
+.access h3 { font-size: 13px; color: #8fdca0; margin-bottom: 8px; }
+.access .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid #12281e; font-size: 13px; }
+.access .item:first-of-type { border-top: none; }
+.empty { color: #6a6a78; font-size: 12px; font-style: italic; }
+.status { font-size: 12px; margin: 10px 0; min-height: 16px; }
+.status.err { color: #ff7a7a; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>GPU Marketplace</h1>
+    <a href="/" class="back-mc" target="_top">← Back to Mission Control</a>
+</div>
+<script>
+if (window.location.search.includes('embedded=1')) { document.querySelector('.back-mc')?.remove(); }
+</script>
+
+<div class="intro">
+    Rent GPU time from a Cove in the network. Buy at a fixed price — a sale opens access automatically. Prefer to wire it by hand? Use the <a href="/static/action-board/rent-gpu.html?embedded=1" target="_top" style="color:#5ce1e6">direct Rent GPU path</a>.
+</div>
+
+<div class="buys" id="buys" style="display:none"></div>
+
+<!-- your access (owned entitlements → active Tools cards) -->
+<div class="access" id="accessBox" style="display:none">
+    <h3>Your access</h3>
+    <div id="accessList"></div>
+</div>
+
+<div class="status" id="status"></div>
+
+<div class="section-title">Available now</div>
+<div class="grid" id="forSale"><div class="empty">Loading…</div></div>
+
+<div class="section-title" id="wantedTitle" style="display:none">Not built yet — want to build it?</div>
+<div class="grid" id="wanted"></div>
+
+<script>
+const embedded = window.location.search.includes('embedded=1');
+function esc(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function usd(cents) { return '$' + ((cents || 0) / 100).toFixed(2); }
+function setStatus(msg, err) { const el = document.getElementById('status'); el.textContent = msg || ''; el.className = 'status ' + (err ? 'err' : ''); }
+
+function firstPricedTier(l) {
+    return (l.tiers || []).find(t => (t.price_cents || 0) > 0) || (l.tiers || [])[0] || null;
+}
+
+async function loadBuys() {
+    try {
+        const d = await fetch('/api/market/rates?usd=12').then(r => r.json());
+        const items = d.what_it_buys || [];
+        if (!items.length) return;
+        const box = document.getElementById('buys');
+        box.innerHTML = '<strong>What $12 buys:</strong> ' + items.map(i => esc(i.capability) + ' — ' + esc(i.amount)).join(' · ');
+        box.style.display = '';
+    } catch (e) {}
+}
+
+async function loadAccess() {
+    try {
+        const d = await fetch('/api/market/library').then(r => r.json());
+        const items = d.items || [];
+        if (!items.length) return;
+        const box = document.getElementById('accessBox');
+        document.getElementById('accessList').innerHTML = items.map(x => `
+            <div class="item">
+                <div>${esc(x.title)}<div style="color:#6a8a78;font-size:11px">${esc(x.product_type || '')}</div></div>
+                <a class="btn" target="_top" href="${x.product_type === 'gpu' ? '/static/action-board/rent-gpu.html?embedded=1#use' : (x.link_url || '/?tab=tools')}">Use it &rarr;</a>
+            </div>`).join('');
+        box.style.display = '';
+    } catch (e) {}
+}
+
+async function book(tierId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+    setStatus('');
+    try {
+        const r = await fetch('/api/market/buy', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tier_id: tierId }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { setStatus(d.detail || d.error || ('Could not start checkout (' + r.status + ').'), true); if (btn) { btn.disabled = false; btn.textContent = 'Book'; } return; }
+        if (d.checkout_url) { window.top.location.href = d.checkout_url; return; }
+        if (d.granted) { setStatus('Access granted — see "Your access" above.', false); loadAccess(); if (btn) btn.textContent = 'Owned'; return; }
+        setStatus('Done.', false);
+    } catch (e) { setStatus('Could not reach the marketplace.', true); if (btn) { btn.disabled = false; btn.textContent = 'Book'; } }
+}
+
+async function loadCatalog() {
+    let listings = [];
+    try {
+        const d = await fetch('/api/market/catalog').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+        listings = d.listings || [];
+    } catch (e) {
+        document.getElementById('forSale').innerHTML = '<div class="empty">Marketplace unavailable here.</div>';
+        return;
+    }
+    // GPU marketplace: focus on GPU listings, plus any wanted/placeholder cards.
+    const forSale = listings.filter(l => l.product_type === 'gpu' && l.buyable !== false && !l.wanted);
+    const wanted = listings.filter(l => l.wanted || l.status === 'wanted');
+
+    const fs = document.getElementById('forSale');
+    if (!forSale.length) {
+        fs.innerHTML = '<div class="empty">No GPU listings are live yet. Check back soon, or list your own from Rent GPU.</div>';
+    } else {
+        fs.innerHTML = forSale.map(l => {
+            const t = firstPricedTier(l);
+            const price = t && t.price_cents ? usd(t.price_cents) + ' ' + (t.name || '') : 'Free';
+            const bnote = t && t.billing_note ? `<div class="bnote">${esc(t.billing_note)}</div>` : '';
+            const bookBtn = t ? `<button onclick="book(${t.tier_id}, this)">Book</button>` : '';
+            return `<div class="card">
+                <span class="tag">${esc(l.seller_handle ? '@' + l.seller_handle : 'GPU')}</span>
+                <h3>${esc(l.title)}</h3>
+                <p>${esc(l.description || '')}</p>
+                <div class="price">${esc(price)}</div>${bnote}${bookBtn}
+            </div>`;
+        }).join('');
+    }
+
+    const wt = document.getElementById('wantedTitle');
+    const wc = document.getElementById('wanted');
+    if (wanted.length) {
+        wt.style.display = '';
+        wc.innerHTML = wanted.map(l => {
+            const link = l.issue_url
+                ? `<a class="btn ghost" target="_blank" rel="noopener" href="${esc(l.issue_url)}">Take it over &rarr;</a>`
+                : `<span class="empty">Issue link coming at export.</span>`;
+            return `<div class="card wanted">
+                <span class="tag wanted">Wanted</span>
+                <h3>${esc(l.title)}</h3>
+                <p>${esc(l.description || '')}${l.spec_ref ? '<br><span style="color:#6a6a78">spec: ' + esc(l.spec_ref) + '</span>' : ''}</p>
+                ${link}
+            </div>`;
+        }).join('');
+    }
+}
+
+loadBuys();
+loadAccess();
+loadCatalog();
+</script>
+</body>
+</html>

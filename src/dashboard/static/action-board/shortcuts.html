@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Keyboard Shortcuts — Quick Reference</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 12px; max-width: 800px; margin: 0 auto; }
+
+h1 { font-size: 16px; font-weight: 600; color: #5ce1e6; margin-bottom: 4px; }
+.subtitle { font-size: 12px; color: #888; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #222; }
+
+.section { margin-bottom: 20px; }
+.section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #4682b4; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid #1a1a24; }
+
+.shortcut-list { display: flex; flex-direction: column; gap: 2px; }
+.shortcut-row { display: flex; align-items: center; padding: 6px 10px; border-radius: 4px; gap: 12px; }
+.shortcut-row:hover { background: #111118; }
+.shortcut-row.highlight { background: #0d1520; border: 1px solid #1a2a3a; }
+
+.keys { display: flex; gap: 4px; align-items: center; min-width: 180px; flex-shrink: 0; }
+kbd { background: #1a1a24; border: 1px solid #333; border-bottom: 2px solid #444; border-radius: 4px; padding: 3px 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 12px; color: #d8d8e0; white-space: nowrap; display: inline-block; min-width: 24px; text-align: center; }
+.key-sep { color: #555; font-size: 11px; }
+
+.desc { font-size: 12px; color: #c8c8d0; flex: 1; }
+.desc .tip { color: #888; font-size: 11px; }
+
+.platform-toggle { display: flex; gap: 4px; margin-bottom: 16px; }
+.platform-btn { padding: 4px 14px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid #333; background: #111118; color: #888; transition: all 0.15s; }
+.platform-btn.active { border-color: #5ce1e6; color: #5ce1e6; background: #0a1a2a; }
+.platform-btn:hover { border-color: #5ce1e6; }
+
+.win-key { display: none; }
+body.show-win .mac-key { display: none; }
+body.show-win .win-key { display: inline-block; }
+
+.note { font-size: 11px; color: #666; padding: 8px 10px; background: #0d1117; border: 1px solid #1a1a24; border-radius: 4px; margin-top: 16px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<h1>Keyboard Shortcuts</h1>
+<div class="subtitle">The ones that save the most time. Mac + Windows/Linux.</div>
+
+<div class="platform-toggle">
+  <button class="platform-btn active" id="btn-mac" onclick="setPlatform('mac')">Mac</button>
+  <button class="platform-btn" id="btn-win" onclick="setPlatform('win')">Windows / Linux</button>
+</div>
+
+<!-- ESSENTIALS -->
+<div class="section">
+  <div class="section-title">Essentials — Copy, Paste, Undo</div>
+  <div class="shortcut-list">
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>C</kbd></div>
+      <div class="desc">Copy selected text or file</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>X</kbd></div>
+      <div class="desc">Cut (copy + delete original)</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>V</kbd></div>
+      <div class="desc">Paste</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>A</kbd></div>
+      <div class="desc">Select all</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>Z</kbd></div>
+      <div class="desc">Undo</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift</kbd><kbd class="win-key">Ctrl+Shift</kbd><span class="key-sep">+</span><kbd>Z</kbd></div>
+      <div class="desc">Redo (undo the undo)</div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREENSHOTS -->
+<div class="section">
+  <div class="section-title">Screenshots</div>
+  <div class="shortcut-list">
+    <div class="shortcut-row highlight">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift</kbd><kbd class="win-key">Win+Shift</kbd><span class="key-sep">+</span><kbd class="mac-key">5</kbd><kbd class="win-key">S</kbd></div>
+      <div class="desc">Screenshot toolbar <span class="tip">— THE ONE. Area select, window, screen, record. This is the good one.</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift</kbd><kbd class="win-key">Win</kbd><span class="key-sep">+</span><kbd class="mac-key">4</kbd><kbd class="win-key">PrtSc</kbd></div>
+      <div class="desc">Screenshot area select <span class="tip">— quick crosshair, drag to capture a region</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift</kbd><kbd class="win-key">Win+Shift</kbd><span class="key-sep">+</span><kbd class="mac-key">3</kbd><kbd class="win-key">S</kbd></div>
+      <div class="desc">Screenshot entire screen <span class="tip">Mac: saves to desktop</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift+4</kbd><kbd class="win-key">Alt+PrtSc</kbd> <kbd class="mac-key">Space</kbd></div>
+      <div class="desc">Screenshot a specific window <span class="tip">Mac: hit Space after Cmd+Shift+4, then click window</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TEXT EDITING -->
+<div class="section">
+  <div class="section-title">Text Editing — Faster Than You Think</div>
+  <div class="shortcut-list">
+    <div class="shortcut-row highlight">
+      <div class="keys"><kbd>Shift</kbd><span class="key-sep">+</span><kbd>Enter</kbd></div>
+      <div class="desc">New line without sending <span class="tip">— works in Claude, Slack, most chat apps</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Option</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>Left/Right</kbd></div>
+      <div class="desc">Jump one word at a time <span class="tip">— hold Shift to select word by word</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Home/End</kbd><span class="key-sep">+</span><kbd class="mac-key">Left/Right</kbd></div>
+      <div class="desc">Jump to start/end of line</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd class="mac-key">Up/Down</kbd><kbd class="win-key">Home/End</kbd></div>
+      <div class="desc">Jump to start/end of document</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd class="mac-key">Delete</kbd><kbd class="win-key">Backspace</kbd></div>
+      <div class="desc">Delete entire line (to left of cursor)</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Option</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>Delete</kbd></div>
+      <div class="desc">Delete one word at a time</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>F</kbd></div>
+      <div class="desc">Find on page <span class="tip">— works in browsers, docs, most apps</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- FINDER / FILE EXPLORER -->
+<div class="section">
+  <div class="section-title">Finder (Mac) / File Explorer (Windows)</div>
+  <div class="shortcut-list">
+    <div class="shortcut-row highlight">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift</kbd><kbd class="win-key">Win</kbd><span class="key-sep">+</span><kbd class="mac-key">G</kbd><kbd class="win-key">R</kbd></div>
+      <div class="desc">Go to folder by path <span class="tip">Mac: paste a file path, hit Enter. Win: type path in Run dialog.</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift</kbd><kbd class="win-key">Ctrl+Shift</kbd><span class="key-sep">+</span><kbd>N</kbd></div>
+      <div class="desc">New folder</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd>Space</kbd></div>
+      <div class="desc">Quick Look / Preview <span class="tip">Mac only — preview any file without opening it</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">F2</kbd><span class="key-sep">+</span><kbd class="mac-key">Enter</kbd></div>
+      <div class="desc">Rename selected file <span class="tip">Mac: select file, press Enter. Win: select file, press F2.</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Delete</kbd><kbd class="win-key">Delete</kbd></div>
+      <div class="desc">Move to Trash / Recycle Bin</div>
+    </div>
+  </div>
+</div>
+
+<!-- BROWSER -->
+<div class="section">
+  <div class="section-title">Browser</div>
+  <div class="shortcut-list">
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>T</kbd></div>
+      <div class="desc">New tab</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>W</kbd></div>
+      <div class="desc">Close current tab</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift</kbd><kbd class="win-key">Ctrl+Shift</kbd><span class="key-sep">+</span><kbd>T</kbd></div>
+      <div class="desc">Reopen last closed tab <span class="tip">— lifesaver when you accidentally close something</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>L</kbd></div>
+      <div class="desc">Jump to address bar <span class="tip">— start typing a URL or search immediately</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Option</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd class="mac-key">Left/Right</kbd><kbd class="win-key">Tab / Ctrl+Shift+Tab</kbd></div>
+      <div class="desc">Switch between tabs</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Ctrl</kbd><span class="key-sep">+</span><kbd>R</kbd></div>
+      <div class="desc">Refresh page</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Shift</kbd><kbd class="win-key">Ctrl+Shift</kbd><span class="key-sep">+</span><kbd>R</kbd></div>
+      <div class="desc">Hard refresh (bypass cache) <span class="tip">— when a page won't update after changes</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- WINDOW MANAGEMENT -->
+<div class="section">
+  <div class="section-title">Window Management</div>
+  <div class="shortcut-list">
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd</kbd><kbd class="win-key">Alt</kbd><span class="key-sep">+</span><kbd>Tab</kbd></div>
+      <div class="desc">Switch between apps</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+`</kbd><kbd class="win-key">Alt+Esc</kbd></div>
+      <div class="desc">Switch between windows of same app <span class="tip">Mac only with backtick. Huge for multiple Finder windows.</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Ctrl+Left/Right</kbd><kbd class="win-key">Win+Left/Right</kbd></div>
+      <div class="desc">Switch desktops (Mac) / Snap window (Win)</div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+H</kbd><kbd class="win-key">Win+Down</kbd></div>
+      <div class="desc">Hide / minimize current window</div>
+    </div>
+  </div>
+</div>
+
+<!-- SYSTEM -->
+<div class="section">
+  <div class="section-title">System</div>
+  <div class="shortcut-list">
+    <div class="shortcut-row highlight">
+      <div class="keys"><kbd class="mac-key">Cmd+Space</kbd><kbd class="win-key">Win</kbd></div>
+      <div class="desc">Spotlight / Start menu search <span class="tip">— fastest way to open any app, file, or setting</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+Option+Esc</kbd><kbd class="win-key">Ctrl+Shift+Esc</kbd></div>
+      <div class="desc">Force quit / Task manager <span class="tip">— when an app freezes</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd class="mac-key">Cmd+,</kbd></div>
+      <div class="desc">Open preferences for current app <span class="tip">Mac only — works in almost every app</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- TERMINAL -->
+<div class="section">
+  <div class="section-title">Terminal</div>
+  <div class="shortcut-list">
+    <div class="shortcut-row">
+      <div class="keys"><kbd>Ctrl</kbd><span class="key-sep">+</span><kbd>C</kbd></div>
+      <div class="desc">Cancel running command <span class="tip">— different from Cmd+C copy</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd>Up Arrow</kbd></div>
+      <div class="desc">Previous command <span class="tip">— scroll through command history</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd>Tab</kbd></div>
+      <div class="desc">Autocomplete file/folder names <span class="tip">— type first few letters, hit Tab</span></div>
+    </div>
+    <div class="shortcut-row">
+      <div class="keys"><kbd>Ctrl</kbd><span class="key-sep">+</span><kbd>L</kbd></div>
+      <div class="desc">Clear terminal screen</div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  Highlighted rows are the ones most people don't know but save the most time. This page is part of every Cove — help that's always one click away.
+</div>
+
+<script>
+function setPlatform(p) {
+  document.body.className = p === 'win' ? 'show-win' : '';
+  document.getElementById('btn-mac').className = 'platform-btn' + (p === 'mac' ? ' active' : '');
+  document.getElementById('btn-win').className = 'platform-btn' + (p === 'win' ? ' active' : '');
+  localStorage.setItem('shortcuts-platform', p);
+}
+// Restore
+const saved = localStorage.getItem('shortcuts-platform');
+if (saved) setPlatform(saved);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "id": "view-logs",
+  "num": 3,
+  "title": "View logs",
+  "when": "Something isn't working and you want to see what the app or a service is doing.",
+  "category": "ops",
+  "audience": "steward",
+  "description": "Tail container logs. Run from your Cove's folder. Ctrl-C to stop following.",
+  "steps": [
+    {
+      "label": "Follow the app log",
+      "command": "docker compose logs -f --tail=100 app"
+    },
+    {
+      "label": "Follow voice (jules)",
+      "command": "docker compose logs -f --tail=100 voice",
+      "note": "Only if voice runs locally (compute.voice = local)."
+    },
+    {
+      "label": "All services",
+      "command": "docker compose logs --tail=200"
+    }
+  ]
+}

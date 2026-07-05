@@ -1,0 +1,122 @@
+# =============================================================================
+# Cove Config — input for the CENTRALIZED provisioner (the primary model)
+# =============================================================================
+# A centralized Cove is ONE stack: a multi-presence app + Postgres + Nextcloud +
+# Redis. Operators/presences are added later from the admin UI (magic link) —
+# NOT as separate containers. This is the open-source / self-host shape.
+#
+# Copy this file, fill it in, and run:
+#   python3 provision/centralized.py provision/your-cove.yaml
+#
+# The provisioner generates a complete, deploy-ready Cove folder.
+# =============================================================================
+
+cove:
+  id: "smith"                      # slug — unique within your Haven; names containers/db/volumes
+  name: "Smith"                    # display name
+  domain: ""                       # wildcard domain for this Cove, e.g. "smith.example.org".
+                                   # Leave blank for a local-only test (subdomain routing off,
+                                   # everything served on localhost ports).
+
+operator:
+  name: "Alex"                     # first operator's display name
+  handle: "alex"                   # @handle — their login + subdomain label (unique in Cove)
+  email: ""                        # optional; only used if you wire email (in-Cove invites are copy-link)
+  token: ""                        # OPTIONAL — your app-account token (from your account on the hub).
+                                   #   Lets this Cove register itself on the network as YOU, without the
+                                   #   fleet secret. You can only claim your own @handle. Leave blank for
+                                   #   a fully-private self-host that doesn't join the network/Market.
+
+# Team on/off. on = steward + the build team (a full Cove). off = solo: just the
+# operator + their personal agent (what used to be a standalone "Presence").
+team: on
+
+# Which model providers to wire API-key slots for. Ollama (local) is always on.
+# Available: openrouter, google, groq, moonshot.
+model_providers:
+  - openrouter
+
+deploy:
+  target: "standalone"             # standalone (self-host: default bridge, ports published
+                                   #   on all interfaces, reach the app on localhost directly)
+                                   #   | p620 | vps  (CO-LOCATED: ports bound to 127.0.0.1,
+                                   #   reachable only via the host Caddy; the provisioner
+                                   #   preflights ports for collisions (#164), installs a
+                                   #   per-Cove Caddy snippet + reloads (#165), and creates
+                                   #   the Cloudflare wildcard DNS (#166) — no manual ops)
+  # cove-core source the app mounts at runtime. For a self-host clone this is the
+  # path to the cloned lucid-cove-core repo on the host.
+  cove_core_path: "../cove-core"
+  app_port: 8200                   # host port for the Cove app (auto-bumped if taken, co-located)
+  nextcloud_port: 8080             # host port for Nextcloud (auto-bumped if taken, co-located)
+  # matrix_port: 8008              # host port for this Cove's Dendrite (auto-bumped if taken)
+  # ── Co-located only (target p620|vps) ──
+  # caddy_dir: "/opt/caddy"               # host dir holding the Caddyfile + conf.d/ import dir
+                                          #   (default /opt/caddy, or the LP_CADDY_DIR env —
+                                          #   set this explicitly if your Caddy lives elsewhere)
+  # caddy_container: "caddy-proxy"        # the running Caddy container to reload
+  # mesh_ip: ""                            # override the auto-detected Tailscale/Headscale IP
+                                          #   (on a VPS target this is the VPS's OWN mesh IP, so
+                                          #   *.{domain} resolves to the box the Cove runs on)
+
+# Compute (#143). Where this Cove's model calls go. A standalone or P620 Cove has a
+# local GPU, so Ollama is on its own host. A VPS Cove is light by design (no GPU) —
+# it offloads model inference to the P620's Ollama over the mesh automatically. You
+# only need this block to override that default (e.g. point at a different GPU box,
+# or a hosted endpoint). Cloud providers (model_providers above) are unaffected.
+compute:
+  # ollama_url: ""                  # explicit Ollama endpoint (wins over everything).
+  #                                 #   default: standalone/p620 → http://host.docker.internal:11434
+  #                                 #            vps             → http://100.64.0.1:11434 (P620 over mesh)
+  # p620_ollama_url: ""             # override just the VPS→P620 mesh endpoint (if the P620 mesh IP differs)
+  # ltp_core_path: "../ltp-core"   # PRE-FLIP TESTING ONLY: mount ltp-core source so the
+                                   # public-Drop tuning works before lucid-tuner-protocol is
+                                   # on PyPI. Leave unset in production (uses the published package).
+  # voice (#205-voice). Where jules (voice dictation) runs. Default is a local CPU
+  # pipecat shipped in this Cove's stack — no GPU, works out of the box.
+  voice:
+    mode: local                    # local | external | off
+    # local    → a CPU pipecat-voice container built into this Cove's compose. The
+    #            browser reaches it on the same host (published voice port); a Cove
+    #            with a domain serves it at voice.{domain} via Caddy.
+    # external → point at another box's voice server (borrow a GPU), e.g.
+    #              mode: external
+    #              url: https://voice.your-gpu-host.example
+    # off      → no voice backend (jules hidden / disabled).
+    # url: ""                       # required only for mode: external
+  # video_asr (#181). Where the video pipeline transcribes (audio → transcript).
+  # LEAVE UNSET to let the provisioner detect the machine: a host with an NVIDIA GPU
+  # transcribes locally (free, on-box); a GPU-less host (hosted / light VPS Cove) uses
+  # cloud ASR. Set this only to override that.
+  # video_asr:
+  #   mode: local                  # local | cloud | external
+  #   # local    → transcribe on this host's own GPU (nvidia). Free.
+  #   # cloud    → a BYOK cloud ASR API (no GPU needed). On CPU-only Coves the video
+  #   #            pipeline degrades to schedule + posting (no on-box transcription).
+  #   # external → borrow another box's GPU; set url to its pipecat, e.g.
+  #   #              mode: external
+  #   #              url: https://voice.your-gpu-host.example
+  #   # url: ""
+
+# Affiliate (#169). If someone referred you to Lucid Cove, put their @handle here and
+# they're credited as your referrer in the Haven registry (set-once, validated). The
+# hosted (host-with-us) flow fills this automatically from the ?ref= link; a self-host
+# CLI install sets it here. Leave blank if no one referred you.
+affiliate:
+  referred_by: ""                  # the @handle that recruited you (e.g. "alex")
+
+# LTP (optional at first boot — leave dry-run until you intend to run tunings).
+ltp:
+  dry_run: true
+  kb_public_key: ""                # Ed25519 public key (base64) to verify the canonical KB from the Drop
+
+# Connect / Matrix. Each Cove runs its OWN homeserver (its own server_name), so a
+# family's chat identity is portable: moving the Cove to new hardware is just a DNS
+# re-point + a data-volume move, and @you:matrix.{cove}.{domain} never changes.
+# Co-located Coves and remote Coves federate the same way. The homeserver is a light
+# Dendrite using this Cove's Postgres (its own `dendrite` database) — no extra DB.
+matrix:
+  enabled: true                    # stand up this Cove's own Matrix homeserver (Connect). Recommended.
+  # external_homeserver: ""        # ADVANCED: point Connect at an existing homeserver instead
+                                   # of running one (set reg_secret too). Leave blank to run your own.
+  # reg_secret: ""                 # only for external_homeserver; own homeserver generates its own.

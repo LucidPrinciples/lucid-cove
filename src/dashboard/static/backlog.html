@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backlog Board</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --text-faint: #484f58;
+  --now: #f85149;
+  --soon: #d29922;
+  --later: #58a6ff;
+  --projects: #bc8cff;
+  --done: #3fb950;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 16px;
+  padding-bottom: 80px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+.subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+}
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-dim);
+}
+.error {
+  background: #f8514920;
+  border: 1px solid #f8514940;
+  border-radius: 8px;
+  padding: 12px;
+  color: var(--now);
+  font-size: 13px;
+}
+
+/* Stats */
+.stats-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-width: 64px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.stat-num { font-size: 22px; font-weight: 700; }
+.stat-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.stat.now { border-top: 3px solid var(--now); }
+.stat.now .stat-num { color: var(--now); }
+.stat.soon { border-top: 3px solid var(--soon); }
+.stat.soon .stat-num { color: var(--soon); }
+.stat.later { border-top: 3px solid var(--later); }
+.stat.later .stat-num { color: var(--later); }
+.stat.projects { border-top: 3px solid var(--projects); }
+.stat.projects .stat-num { color: var(--projects); }
+.stat.done { border-top: 3px solid var(--done); }
+.stat.done .stat-num { color: var(--done); }
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+.filter-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.filter-btn:hover, .filter-btn:active { background: #21262d; }
+.filter-btn.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+/* Lanes */
+.lane { margin-bottom: 20px; }
+.lane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.lane-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lane-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.lane-count { font-size: 12px; color: var(--text-faint); }
+.lane-toggle {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: auto;
+}
+.lane-desc {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-style: italic;
+  margin-left: 16px;
+  margin-bottom: 6px;
+}
+
+.lane.now .lane-dot { background: var(--now); }
+.lane.soon .lane-dot { background: var(--soon); }
+.lane.later .lane-dot { background: var(--later); }
+.lane.projects .lane-dot { background: var(--projects); }
+.lane.done .lane-dot { background: var(--done); }
+
+/* Cards */
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-left: 3px;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+.lane.now .cards { border-left-color: #f8514930; }
+.lane.soon .cards { border-left-color: #d2992230; }
+.lane.later .cards { border-left-color: #58a6ff30; }
+.lane.projects .cards { border-left-color: #bc8cff30; }
+.lane.done .cards { border-left-color: #3fb95030; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s;
+}
+.card:active { border-color: #555; }
+.card-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  opacity: 0.6;
+  margin-right: 2px;
+}
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  display: inline;
+}
+.card-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  display: none;
+  line-height: 1.6;
+}
+.card.expanded .card-desc { display: block; }
+.card-meta {
+  display: flex;
+  gap: 5px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.tag {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #21262d;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.source {
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-left: auto;
+}
+
+.card.done-card { opacity: 0.5; }
+.card.done-card .card-title {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+
+.project-trigger {
+  font-size: 11px;
+  color: var(--projects);
+  margin-top: 4px;
+  display: none;
+}
+.card.expanded .project-trigger { display: block; }
+
+.hidden { display: none !important; }
+.empty-state {
+  font-size: 12px;
+  color: var(--text-faint);
+  font-style: italic;
+  padding: 8px 0;
+}
+
+/* Refresh button */
+.refresh-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 10;
+}
+.refresh-btn:active { background: #21262d; }
+.refresh-btn.spinning { animation: spin 0.6s ease; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Process-jules button */
+.process-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 74px;
+  height: 44px;
+  border-radius: 22px;
+  padding: 0 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 10;
+}
+.process-btn:active { background: #21262d; }
+.process-btn:disabled { opacity: .55; cursor: default; }
+</style>
+</head>
+<body>
+
+<h1>Backlog Board</h1>
+<p class="subtitle">Everything that needs done — from jules-backlog.md</p>
+
+<div id="stats-bar" class="stats-bar"></div>
+<div id="filters" class="filters"></div>
+<div id="board"><div class="loading">Loading backlog...</div></div>
+<button class="refresh-btn" id="refresh-btn" title="Refresh">↻</button>
+<button class="process-btn" id="process-btn" title="Process new jules recordings into this board">🎙 Process jules</button>
+
+<script>
+let DATA = {};
+let allTags = new Set();
+let activeFilter = null;
+let collapsedLanes = new Set();
+
+const LANE_META = {
+  now:      { title: "Now", desc: "Active build — drives session priorities", color: "now" },
+  soon:     { title: "Soon", desc: "Important, raised recently — after Now clears", color: "soon" },
+  later:    { title: "Later", desc: "Defined work, not urgent", color: "later" },
+  projects: { title: "Projects — Not Started", desc: "Bodies of work needing their own spec", color: "projects" },
+  done:     { title: "Completed", desc: "", color: "done" },
+};
+const LANE_ORDER = ["now", "soon", "later", "projects", "done"];
+
+try {
+  const saved = localStorage.getItem("bl-collapsed");
+  if (saved) collapsedLanes = new Set(JSON.parse(saved));
+  activeFilter = localStorage.getItem("bl-filter") || null;
+} catch(e) {}
+
+function saveState() {
+  try {
+    localStorage.setItem("bl-collapsed", JSON.stringify([...collapsedLanes]));
+    localStorage.setItem("bl-filter", activeFilter || "");
+  } catch(e) {}
+}
+
+function countVisible(items) {
+  if (!items) return 0;
+  if (!activeFilter) return items.filter(i => !i.done).length;
+  return items.filter(i => !i.done && (i.tags || []).includes(activeFilter)).length;
+}
+
+function render() {
+  const statsBar = document.getElementById("stats-bar");
+  statsBar.innerHTML = LANE_ORDER.map(key => {
+    const items = DATA[key] || [];
+    const count = key === "done"
+      ? (activeFilter ? items.filter(i => (i.tags||[]).includes(activeFilter)).length : items.length)
+      : countVisible(items);
+    const meta = LANE_META[key];
+    return '<div class="stat ' + meta.color + '"><div class="stat-num">' + count + '</div><div class="stat-label">' + meta.title.split(" —")[0] + '</div></div>';
+  }).join("");
+
+  const filtersEl = document.getElementById("filters");
+  const sortedTags = [...allTags].sort();
+  filtersEl.innerHTML = '<button class="filter-btn ' + (!activeFilter ? "active" : "") + '" data-filter="">All</button>' +
+    sortedTags.map(t => '<button class="filter-btn ' + (activeFilter === t ? "active" : "") + '" data-filter="' + t + '">' + t + '</button>').join("");
+  filtersEl.querySelectorAll(".filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      activeFilter = btn.dataset.filter || null;
+      saveState();
+      render();
+    });
+  });
+
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+
+  LANE_ORDER.forEach(key => {
+    const meta = LANE_META[key];
+    let items = DATA[key] || [];
+    const isDone = key === "done";
+    const isProject = key === "projects";
+
+    if (activeFilter) {
+      items = items.filter(i => (i.tags || []).includes(activeFilter));
+    }
+    if (activeFilter && items.length === 0) return;
+
+    const collapsed = collapsedLanes.has(key);
+    const laneEl = document.createElement("div");
+    laneEl.className = "lane " + meta.color;
+
+    let cardsHtml = "";
+    if (items.length === 0) {
+      cardsHtml = '<div class="empty-state">No items</div>';
+    } else {
+      cardsHtml = items.map(item => {
+        const tagsHtml = (item.tags || []).map(t => '<span class="tag">' + t + '</span>').join("");
+        const sourceHtml = item.source ? '<span class="source">' + item.source + '</span>' : "";
+        const descHtml = item.desc ? '<div class="card-desc">' + item.desc + '</div>' : "";
+        const triggerHtml = item.trigger ? '<div class="project-trigger">Trigger: ' + item.trigger + '</div>' : "";
+        const cardClass = "card" + (isDone || item.done ? " done-card" : "") + (isProject ? " project-card" : "");
+        return '<div class="' + cardClass + '" onclick="this.classList.toggle(\'expanded\')">' +
+          (item.num ? '<span class="card-num">#' + item.num + '</span> ' : '') +
+          '<div class="card-title">' + item.title + '</div>' +
+          descHtml + triggerHtml +
+          '<div class="card-meta">' + tagsHtml + sourceHtml + '</div></div>';
+      }).join("");
+    }
+
+    laneEl.innerHTML =
+      '<div class="lane-header">' +
+        '<div class="lane-dot"></div>' +
+        '<span class="lane-title">' + meta.title + '</span>' +
+        '<span class="lane-count">(' + items.length + ')</span>' +
+        '<span class="lane-toggle">' + (collapsed ? "▸" : "▾") + '</span>' +
+      '</div>' +
+      (meta.desc && !collapsed ? '<div class="lane-desc">' + meta.desc + '</div>' : '') +
+      '<div class="cards ' + (collapsed ? "hidden" : "") + '">' + cardsHtml + '</div>';
+
+    laneEl.querySelector(".lane-header").addEventListener("click", () => {
+      if (collapsed) collapsedLanes.delete(key);
+      else collapsedLanes.add(key);
+      saveState();
+      render();
+    });
+
+    board.appendChild(laneEl);
+  });
+}
+
+async function loadBacklog() {
+  try {
+    const resp = await fetch("/api/backlog/items");
+    const data = await resp.json();
+    if (!data.ok) {
+      document.getElementById("board").innerHTML = '<div class="error">Could not load backlog: ' + (data.error || "unknown") + '</div>';
+      return;
+    }
+    if (data.empty) {
+      document.getElementById("board").innerHTML =
+        '<div class="loading">' + (data.note || "No backlog yet — record a jules and it lands here.") + '</div>';
+      return;
+    }
+    DATA = data.lanes;
+
+    // Collect tags
+    allTags = new Set();
+    Object.values(DATA).forEach(items => {
+      (items || []).forEach(item => {
+        (item.tags || []).forEach(t => allTags.add(t));
+      });
+    });
+
+    render();
+  } catch(e) {
+    document.getElementById("board").innerHTML = '<div class="error">Failed to fetch backlog: ' + e.message + '</div>';
+  }
+}
+
+document.getElementById("refresh-btn").addEventListener("click", function() {
+  this.classList.add("spinning");
+  loadBacklog().then(() => {
+    setTimeout(() => this.classList.remove("spinning"), 600);
+  });
+});
+
+document.getElementById("process-btn").addEventListener("click", async function() {
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = "Processing…";
+  try {
+    const resp = await fetch("/api/jules/process", { method: "POST" });
+    const data = await resp.json();
+    if (data.ok) {
+      const fails = (data.failed || []).length;
+      btn.textContent = data.processed
+        ? `✓ ${data.processed} jules → ${data.items_added} items` + (fails ? ` · ${fails} left in Inbox` : "")
+        : "Inbox empty";
+      if (data.items_added) loadBacklog();
+    } else {
+      btn.textContent = "Failed: " + (data.error || "unknown");
+    }
+  } catch (e) {
+    btn.textContent = "Failed: " + e.message;
+  }
+  setTimeout(() => { btn.textContent = "🎙 Process jules"; btn.disabled = false; }, 4000);
+});
+
+loadBacklog();
+</script>
+</body>
+</html>

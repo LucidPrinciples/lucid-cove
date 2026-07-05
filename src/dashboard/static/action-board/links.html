@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Links — Lucid Cove</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0f; color: #d8d8e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px; line-height: 1.5; padding: 16px;
+  }
+  a { color: #5ce1e6; text-decoration: none; }
+  a:hover { color: #8aeef2; text-decoration: underline; }
+
+  /* Role badge */
+  .role-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+  .role-badge.admin { background: #2a1a2e; color: #c084fc; border: 1px solid #3d2a44; }
+  .role-badge.presence { background: #1a2a1e; color: #4ade80; border: 1px solid #2a3d2e; }
+
+  /* Section divider between Presence and Admin */
+  .role-divider {
+    grid-column: 1 / -1; border-top: 2px solid #2a1a2e; margin: 8px 0 4px 0;
+    padding-top: 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .role-divider span {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+    color: #c084fc;
+  }
+  .role-divider::after {
+    content: ''; flex: 1; border-top: 1px solid #2a1a2e;
+  }
+
+  /* Jump bar */
+  .jump { background: #111118; border: 1px solid #1e1e2a; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .jump a { color: #4682b4; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .jump a:hover { color: #5ce1e6; text-decoration: none; }
+
+  /* Search */
+  .search-bar { margin-bottom: 12px; }
+  .search-bar input {
+    width: 100%; padding: 6px 10px; background: #111118; border: 1px solid #1e1e2a;
+    border-radius: 6px; color: #c8c8d0; font-size: 13px; outline: none;
+  }
+  .search-bar input:focus { border-color: #4682b4; }
+  .search-bar input::placeholder { color: #555; }
+
+  /* Card grid — 3 across on desktop, collapses down */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  @media (max-width: 1000px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+  /* Cards */
+  .section {
+    background: #111118; border: 1px solid #1e1e2a; border-radius: 6px;
+    padding: 8px 10px; overflow: hidden;
+  }
+  .section-header {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+    color: #4682b4; border-bottom: 1px solid #1e1e2a; padding-bottom: 4px; margin-bottom: 4px;
+    cursor: pointer; user-select: none;
+  }
+  .section-header:hover { color: #5ce1e6; }
+  .section-header .toggle { color: #555; margin-right: 4px; font-size: 9px; }
+
+  /* Presence cards get a subtle green accent */
+  .section[data-role="presence"] { border-color: #1a2a1e; }
+  .section[data-role="presence"] .section-header { color: #4ade80; border-bottom-color: #1a2a1e; }
+  .section[data-role="presence"] .section-header:hover { color: #86efac; }
+
+  /* Wide cards span 2 columns */
+  .wide { grid-column: span 2; }
+  @media (max-width: 640px) { .wide { grid-column: span 1; } }
+
+  /* Link rows — tight */
+  .links { display: flex; flex-direction: column; gap: 0; }
+  .link-row {
+    display: flex; align-items: baseline; gap: 6px; padding: 1px 0;
+    border-bottom: 1px solid #0c0c12;
+    flex-wrap: wrap;
+  }
+  .link-row:last-child { border-bottom: none; }
+  .link-label { color: #b0b0bc; font-size: 13px; min-width: 100px; white-space: nowrap; }
+  .link-url { font-size: 13px; }
+  .link-meta { color: #888; font-size: 12px; margin-left: auto; white-space: nowrap; }
+  .tag { display: inline-block; background: #1a1a24; color: #666; padding: 0 4px; border-radius: 2px; font-size: 10px; margin-left: 4px; }
+  .live { color: #4caf50; }
+  .note { color: #b8860b; font-style: italic; font-size: 12px; padding: 1px 0 1px 8px; }
+  code { background: #0a0a0f; padding: 1px 4px; border-radius: 3px; font-size: 12px; color: #5ce1e6; }
+
+  /* Sub-sections */
+  .subsection { margin: 4px 0 4px 0; }
+  .subsection-header { font-size: 11px; color: #7a7a8a; font-weight: 600; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Two-column within a card */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
+
+  /* Placeholder cards */
+  .placeholder .links { opacity: 0.5; }
+  .placeholder-label { color: #555; font-size: 11px; font-style: italic; padding: 4px 0; }
+
+  /* Dev/setup notes */
+  .claude-note {
+    background: #0d1117; border-left: 2px solid #4682b4; padding: 4px 8px;
+    margin: 4px 0 4px 0; font-size: 11px; color: #888;
+  }
+  .claude-note strong { color: #4682b4; }
+
+  /* Footer */
+  .footer { grid-column: 1 / -1; text-align: center; color: #333; font-size: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #1e1e2a; }
+</style>
+</head>
+<body>
+
+<div id="role-indicator"></div>
+
+<div class="jump" id="jump-bar">
+  <!-- Populated by JS based on role -->
+</div>
+
+<div class="search-bar">
+  <input type="text" id="search" placeholder="Filter links..." oninput="filterLinks(this.value)">
+</div>
+
+<div class="grid" id="link-grid">
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!--  PRESENCE SECTIONS — Every Presence sees these                     -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="section" data-role="presence" id="my-tools">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>MY TOOLS</div>
+  <div class="links" id="my-tools-links">
+    <div class="link-row"><span class="link-label">Backlog</span><a href="/backlog" target="_blank">My Backlog Board</a></div>
+    <div class="link-row"><span class="link-label">Jules</span><a href="/jules" target="_blank">Voice Notes</a></div>
+    <!-- Standard service links populated by JS from the Cove domain -->
+  </div>
+  <div class="claude-note"><strong>Standard tools.</strong> Service links are built from your Cove's domain (<code>cove.yaml → cove.domain</code>) using the standard subdomain convention (<code>cloud.</code>, <code>vault.</code>, <code>voice.</code>…). Set your domain to populate them; add or remove tools to fit your stack.</div>
+</div>
+
+<div class="section" data-role="presence" id="my-dashboard">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>MY DASHBOARD</div>
+  <div class="links" id="dashboard-links">
+    <!-- Populated by JS — shows this Presence's MC link -->
+  </div>
+</div>
+
+<div class="section" data-role="presence" id="my-content">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>MY CONTENT</div>
+
+  <div class="subsection">
+    <div class="subsection-header">YouTube</div>
+    <div class="links" id="my-youtube-links">
+      <!-- Populated per-Presence. Placeholder for now. -->
+      <div class="placeholder-label">Channels assigned to this Presence will appear here.</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="subsection-header">Social</div>
+    <div class="links">
+      <div class="placeholder-label">Social accounts managed by this Presence will appear here.</div>
+    </div>
+  </div>
+
+  <div class="claude-note"><strong>Per-Presence.</strong> This section pulls from Presence config — each Presence declares which YouTube/social channels they manage. Empty until channels are assigned.</div>
+</div>
+
+<div class="section placeholder" data-role="presence" id="my-mirrors">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>MY MIRRORS</div>
+  <div class="links">
+    <div class="placeholder-label">Active tuning mirrors and mirror management will appear here.</div>
+  </div>
+</div>
+
+<div class="section placeholder" data-role="presence" id="my-flows">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>MY FLOWS</div>
+  <div class="links">
+    <div class="placeholder-label">Automation flows and Creation Flow links will appear here.</div>
+  </div>
+</div>
+
+<div class="section placeholder" data-role="presence" id="my-team">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>MY TEAM</div>
+  <div class="links">
+    <div class="placeholder-label">Team agent status and tools will appear here.</div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!--  ADMIN SECTIONS — Only visible to Steward / Operator               -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="role-divider" data-role="admin"><span>Cove Admin</span></div>
+
+<div class="section" data-role="admin" id="cove">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>COVE INFRASTRUCTURE</div>
+  <div class="links" id="cove-mc-links">
+    <!-- Steward MC + hub link populated by JS from the Cove domain -->
+  </div>
+
+  <div class="subsection">
+    <div class="subsection-header">Services</div>
+    <div class="links" id="cove-services-links">
+      <!-- Standard service stack populated by JS from the Cove domain -->
+    </div>
+  </div>
+</div>
+
+<div class="section" data-role="admin" id="admin">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>COVE OPS</div>
+
+  <div class="subsection">
+    <div class="subsection-header">LTP Controls</div>
+    <div class="links">
+      <div class="link-row"><span class="link-label">LTP Manual Trigger</span><span class="link-url"><code>POST /api/system/ltp-trigger</code></span></div>
+      <div class="link-row"><span class="link-label">LTP Tuning Sweep</span><span class="link-url"><code>POST /api/system/tuning-sweep</code></span></div>
+      <div class="link-row"><span class="link-label">LTP Cache Bust</span><span class="link-url"><code>POST /api/system/cache-bust</code></span></div>
+    </div>
+    <div class="note">Run against the steward MC.</div>
+  </div>
+
+  <div class="subsection">
+    <div class="subsection-header">Presence Management</div>
+    <div class="links">
+      <div class="link-row"><span class="link-label">Add Presence</span><span class="link-meta">provisioner flow</span></div>
+      <div class="link-row"><span class="link-label">Manage Presences</span><span class="link-meta">placeholder — list all Presences on this Cove</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="section" data-role="admin" id="my-sites">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>COVE WEBSITES</div>
+
+  <div class="subsection">
+    <div class="subsection-header">Sites Managed by This Cove</div>
+    <div class="links">
+      <div class="placeholder-label">Sites in AgentSkills/Sites/ for the steward and Presences will appear here.</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="subsection-header">Commit Approval Queue</div>
+    <div class="links">
+      <div class="placeholder-label">Agent commits pending approval will appear here. Agent edits site -> git commit (pending) -> approve in MC -> push -> CF Pages auto-deploy.</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /grid -->
+
+<div class="footer">
+  Links — Lucid Cove<br>
+  <span id="footer-role"></span>
+</div>
+
+<script>
+// ── Role + domain detection via /api/config ─────────────────────────
+let instanceType = 'personal'; // default to Presence (safe fallback)
+let agentId = '';
+let coveDomain = '';
+
+// Standard self-hosted service stack — the conventional subdomain set every
+// Cove ships with. URLs are built as https://{key}.{coveDomain}. Trim or
+// extend this list to match your deployment.
+const STANDARD_SERVICES = [
+  { key: 'cloud',  label: 'Nextcloud',     meta: 'files, calendar, contacts' },
+  { key: 'vault',  label: 'Vaultwarden',   meta: 'passwords' },
+  { key: 'voice',  label: 'Voice / Jules', meta: 'voice' },
+  { key: 'sync',   label: 'Syncthing',     meta: 'file sync' },
+  { key: 'flow',   label: 'Activepieces',  meta: 'automation' },
+  { key: 'ollama', label: 'Ollama',        meta: 'local models' },
+  { key: 'matrix', label: 'Matrix',        meta: 'chat server' },
+  { key: 'chat',   label: 'Element',       meta: 'chat client' },
+  { key: 'ntfy',   label: 'ntfy',          meta: 'push notifications' },
+];
+
+async function init() {
+  try {
+    const resp = await fetch('/api/config');
+    const config = await resp.json();
+    instanceType = config.instance?.type || 'personal';
+    agentId = config.instance?.agent_id || '';
+    coveDomain = (config.domain || '').replace(/^\*?\.?/, ''); // strip wildcard prefix if present
+  } catch (e) {
+    console.warn('Could not fetch /api/config, defaulting to Presence view');
+  }
+  applyRole();
+  buildToolLinks();
+  buildDashboardLinks();
+  buildInfraLinks();
+  buildJumpBar();
+}
+
+// ── Service link helpers (domain-driven) ────────────────────────────
+function svcUrl(key) { return coveDomain ? 'https://' + key + '.' + coveDomain : ''; }
+
+function serviceRow(svc) {
+  const url = svcUrl(svc.key);
+  return '<div class="link-row"><span class="link-label">' + svc.label + '</span>'
+       + '<a href="' + url + '" target="_blank">' + url.replace('https://', '') + '</a>'
+       + '<span class="link-meta">' + svc.meta + '</span></div>';
+}
+
+function noDomainPlaceholder() {
+  return '<div class="placeholder-label">Set <code>cove.domain</code> in cove.yaml to populate service links.</div>';
+}
+
+function buildToolLinks() {
+  const container = document.getElementById('my-tools-links');
+  // Keep the static app tools (Backlog, Jules) already in the markup; append services.
+  if (!coveDomain) { container.insertAdjacentHTML('beforeend', noDomainPlaceholder()); return; }
+  const keys = ['cloud', 'vault', 'voice'];
+  const rows = STANDARD_SERVICES.filter(s => keys.includes(s.key)).map(serviceRow).join('');
+  container.insertAdjacentHTML('beforeend', rows);
+}
+
+function buildInfraLinks() {
+  const mc = document.getElementById('cove-mc-links');
+  const services = document.getElementById('cove-services-links');
+  if (!coveDomain) {
+    mc.innerHTML = noDomainPlaceholder();
+    services.innerHTML = noDomainPlaceholder();
+    return;
+  }
+  // Steward MC at stuart.{domain}; hub link is a placeholder (cross-Cove, set per network).
+  mc.innerHTML =
+    '<div class="link-row"><span class="link-label">Steward MC</span>'
+    + '<a href="https://stuart.' + coveDomain + '" target="_blank">stuart.' + coveDomain + '</a>'
+    + '<span class="link-meta">steward / admin</span></div>'
+    + '<div class="link-row"><span class="link-label">Hub MC</span>'
+    + '<span class="link-meta">placeholder — your Haven hub URL</span></div>';
+  services.innerHTML = STANDARD_SERVICES.map(serviceRow).join('');
+}
+
+function applyRole() {
+  const isAdmin = instanceType === 'admin';
+  const indicator = document.getElementById('role-indicator');
+  const footerRole = document.getElementById('footer-role');
+
+  // Role badge
+  if (isAdmin) {
+    indicator.innerHTML = '<span class="role-badge admin">Operator / Admin</span>';
+    footerRole.textContent = 'Viewing as: Admin (all sections visible)';
+  } else {
+    indicator.innerHTML = '<span class="role-badge presence">Presence</span>';
+    footerRole.textContent = 'Viewing as: Presence (personal sections only)';
+  }
+
+  // Show/hide admin sections
+  document.querySelectorAll('[data-role="admin"]').forEach(el => {
+    el.style.display = isAdmin ? '' : 'none';
+  });
+}
+
+function buildDashboardLinks() {
+  const container = document.getElementById('dashboard-links');
+  const origin = window.location.origin;
+  const name = agentId || 'My Agent';
+
+  let html = '<div class="link-row"><span class="link-label">' + name + '</span>';
+  html += '<a href="' + origin + '" target="_blank">' + origin.replace('https://', '') + '</a></div>';
+
+  // Tuning page
+  html += '<div class="link-row"><span class="link-label">Tune Now</span>';
+  html += '<a href="' + origin + '/tune" target="_blank">Tune Now</a></div>';
+
+  // Chat
+  html += '<div class="link-row"><span class="link-label">Chat</span>';
+  html += '<a href="' + origin + '/chat" target="_blank">Chat</a></div>';
+
+  // Settings
+  html += '<div class="link-row"><span class="link-label">Settings</span>';
+  html += '<a href="' + origin + '/settings" target="_blank">Settings</a></div>';
+
+  container.innerHTML = html;
+}
+
+function buildJumpBar() {
+  const isAdmin = instanceType === 'admin';
+  const bar = document.getElementById('jump-bar');
+
+  // Presence links always shown
+  let links = [
+    { href: '#my-tools', text: 'My Tools' },
+    { href: '#my-dashboard', text: 'Dashboard' },
+    { href: '#my-content', text: 'Content' },
+    { href: '#my-mirrors', text: 'Mirrors' },
+    { href: '#my-flows', text: 'Flows' },
+    { href: '#my-team', text: 'Team' },
+  ];
+
+  if (isAdmin) {
+    links.push(
+      { href: '#cove', text: 'Infrastructure' },
+      { href: '#admin', text: 'Cove Ops' },
+      { href: '#my-sites', text: 'Websites' },
+    );
+  }
+
+  bar.innerHTML = links.map(l => '<a href="' + l.href + '">' + l.text + '</a>').join('');
+}
+
+// ── Section toggle ──────────────────────────────────────────────────
+function toggleSection(header) {
+  const content = header.parentElement.querySelectorAll('.links, .subsection, .claude-note');
+  const toggle = header.querySelector('.toggle');
+  const collapsed = toggle.textContent === '▶';
+  content.forEach(el => el.style.display = collapsed ? '' : 'none');
+  toggle.textContent = collapsed ? '▼' : '▶';
+}
+
+// ── Search / filter ─────────────────────────────────────────────────
+function filterLinks(query) {
+  query = query.toLowerCase();
+  document.querySelectorAll('.link-row').forEach(row => {
+    const text = row.textContent.toLowerCase();
+    row.style.display = text.includes(query) ? '' : 'none';
+  });
+  if (query) {
+    document.querySelectorAll('.links, .subsection').forEach(el => el.style.display = '');
+  }
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────
+init();
+</script>
+
+</body>
+</html>

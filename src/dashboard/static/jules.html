@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="jules">
+<link rel="apple-touch-icon" href="/static/julian-icon.png">
+<link rel="icon" type="image/png" href="/static/julian-icon.png">
+<title>jules</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e0;min-height:100vh;min-height:100dvh;padding:0;margin:0;overflow:hidden;display:flex;flex-direction:column}
+
+/* ── Header: avatar + branding centered ── */
+header{padding:18px 20px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;border-bottom:1px solid #1a1a2e;flex-shrink:0;position:relative}
+.avatar{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#3a3a5c,#1a1a2e);border:2px solid #333;display:flex;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.brand{font-size:0.85rem;color:#666;font-weight:400;letter-spacing:0.5px}
+.brand em{font-style:normal;color:#7eb8da}
+.header-right{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:10px}
+header .status{font-size:0.7rem;color:#666}
+.queue-badge{background:#f39c12;color:#0a0a0f;font-size:0.7rem;font-weight:700;padding:2px 7px;border-radius:10px;cursor:pointer;display:none}
+.queue-badge:hover{background:#e67e22}
+
+/* ── Transcript area ── */
+.transcript-area{flex:1 1 0;min-height:0;overflow-y:auto;padding:16px 20px;-webkit-overflow-scrolling:touch}
+.transcript-area:empty::before{content:"tap the mic and start talking.";color:#444;font-style:italic;display:block;text-align:center;margin-top:40px;font-size:0.9rem}
+
+.segment{margin-bottom:12px;padding:10px 14px;background:#111118;border-radius:8px;border-left:3px solid #333;line-height:1.6;font-size:0.95rem}
+.segment .time{font-size:0.7rem;color:#555;margin-bottom:4px}
+.segment.pending{border-left-color:#f39c12;opacity:0.7}
+.segment .text{white-space:pre-wrap;word-wrap:break-word}
+.segment .text[contenteditable]{outline:none;cursor:text}
+.segment .text[contenteditable]:focus{background:rgba(126,184,218,0.05);border-radius:4px}
+
+.word-count{font-size:0.7rem;color:#555;text-align:center;padding:4px;flex-shrink:0}
+
+/* ── Mic controls ── */
+.controls{padding:16px 20px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+.dest-bar{flex-shrink:0;display:flex;gap:6px;flex-wrap:wrap;justify-content:center;padding:4px 12px}
+.dest-chip{border:1px solid #333;background:#1a1a2e;color:#888;border-radius:999px;padding:4px 12px;font-size:0.75rem;cursor:pointer;user-select:none;white-space:nowrap}
+.dest-chip.on{border-color:#2ecc71;color:#2ecc71;font-weight:600}
+.dest-chip.on.waits{border-color:#f39c12;color:#f39c12}
+.mic-btn{width:88px;height:88px;border-radius:50%;border:3px solid #333;background:#1a1a2e;color:#888;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0}
+.mic-btn svg{width:34px;height:34px;fill:currentColor}
+.mic-btn.recording{border-color:#e74c3c;background:#2a1a1e;color:#e74c3c;box-shadow:0 0 25px rgba(231,76,60,0.3);animation:pulse 1.5s infinite}
+.mic-btn.processing{border-color:#f39c12;background:#2a2a1e;color:#f39c12;pointer-events:none}
+@keyframes pulse{0%,100%{box-shadow:0 0 25px rgba(231,76,60,0.3)}50%{box-shadow:0 0 45px rgba(231,76,60,0.5)}}
+
+/* ── Status bar ── */
+.status-bar{flex-shrink:0;padding:6px 16px;padding-bottom:max(8px,env(safe-area-inset-bottom))}
+.save-status{font-size:0.8rem;color:#2ecc71;text-align:center;min-height:22px;padding:4px 0}
+
+/* Queue panel */
+.queue-panel{display:none;border-top:1px solid #1a1a2e;max-height:45vh;overflow-y:auto;flex-shrink:0}
+.queue-panel.show{display:block}
+.queue-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:#111118}
+.queue-header h2{font-size:0.85rem;color:#7eb8da}
+.queue-header .btn{padding:6px 14px;font-size:0.8rem;border:1px solid #333;border-radius:8px;cursor:pointer;background:#1a1a2e;color:#ccc}
+.queue-item{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #1a1a2e}
+.queue-item .qi-info{flex:1;min-width:0}
+.queue-item .qi-date{font-size:0.75rem;color:#555}
+.queue-item .qi-duration{font-size:0.8rem;color:#ccc}
+.queue-item .qi-status{font-size:0.75rem;color:#f39c12}
+.queue-item .qi-actions{display:flex;gap:6px;flex-shrink:0}
+.queue-item .qi-actions button{background:#1a1a2e;border:1px solid #333;border-radius:6px;padding:4px 10px;font-size:0.75rem;color:#ccc;cursor:pointer}
+.queue-item .qi-actions button:hover{background:#252540}
+.queue-item .qi-actions button.del{color:#e74c3c;border-color:#e74c3c}
+.queue-item.processing{opacity:0.6}
+.queue-empty{padding:20px;text-align:center;color:#444;font-size:0.85rem;font-style:italic}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="avatar" onclick="location.reload()" title="tap Julian to refresh">
+    <img src="/static/julian-icon.png" width="96" height="96" alt="Julian" style="border-radius:50%;object-fit:cover;">
+  </div>
+  <div class="brand"><em>jules</em> by Julian</div>
+  <div class="header-right">
+    <span class="queue-badge" id="queueBadge" onclick="toggleQueue()"></span>
+    <span class="status" id="connStatus">connecting...</span>
+  </div>
+</header>
+
+<div class="transcript-area" id="transcript"></div>
+<div class="word-count" id="wordCount"></div>
+
+<!-- Destination: plain = auto-processed into the backlog; addressed recordings
+     wait in the Inbox for their recipient (the Inbox is a shared drop-zone). -->
+<div class="dest-bar" id="destBar"></div>
+
+<div class="controls">
+  <button class="mic-btn" id="micBtn" onclick="toggleRecording()">
+    <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+  </button>
+</div>
+
+<div class="status-bar">
+  <div class="save-status" id="saveStatus"></div>
+</div>
+
+<!-- Queue panel (slides up from bottom) -->
+<div class="queue-panel" id="queuePanel">
+  <div class="queue-header">
+    <h2>Queued Recordings</h2>
+    <div>
+      <button class="btn save" id="processAllBtn" onclick="processQueue()">Process All</button>
+      <button class="btn" onclick="toggleQueue()">Close</button>
+    </div>
+  </div>
+  <div id="queueList"></div>
+</div>
+
+<script>
+const micBtn = document.getElementById("micBtn");
+const connStatus = document.getElementById("connStatus");
+const transcriptEl = document.getElementById("transcript");
+const wordCountEl = document.getElementById("wordCount");
+const saveStatus = document.getElementById("saveStatus");
+const queueBadge = document.getElementById("queueBadge");
+const queuePanel = document.getElementById("queuePanel");
+const queueList = document.getElementById("queueList");
+const processAllBtn = document.getElementById("processAllBtn");
+
+let ws, mediaStream, audioCtx, processor;
+let mediaRecorder = null;
+let audioChunks = [];
+let recording = false;
+let processing = false;
+let chunkTimer = null;  // periodic end_audio for live transcription chunks
+let pendingAutoSave = false;
+let autoSaveTimeout = null;
+let needsSave = false;
+let segments = [];
+let segmentCounter = 0;
+let connected = false;
+let recordingStartTime = null;
+let lastAudioBlob = null;
+let wakeLock = null;
+
+// ── Voice server URL (injected by MC route) ───────────────
+// WebSocket connects to pipecat-voice for real-time STT.
+// Saves go to same-origin MC endpoints (no CORS issues).
+const VOICE_SERVER = "__VOICE_SERVER_URL__";
+
+// ── IndexedDB for offline queue ────────────────────────────
+
+const DB_NAME = "jules-queue";
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains("recordings")) {
+        db.createObjectStore("recordings", { keyPath: "id", autoIncrement: true });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function queueRecording(blob, durationSec) {
+  const db = await openDB();
+  const tx = db.transaction("recordings", "readwrite");
+  tx.objectStore("recordings").add({
+    audio: blob,
+    duration: Math.round(durationSec),
+    timestamp: Date.now(),
+    status: "pending"
+  });
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  updateQueueBadge();
+  renderQueue();
+}
+
+async function getQueue() {
+  const db = await openDB();
+  const tx = db.transaction("recordings", "readonly");
+  const store = tx.objectStore("recordings");
+  return new Promise((resolve, reject) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function deleteQueueItem(id) {
+  const db = await openDB();
+  const tx = db.transaction("recordings", "readwrite");
+  tx.objectStore("recordings").delete(id);
+  await new Promise(r => { tx.oncomplete = r; });
+  updateQueueBadge();
+  renderQueue();
+}
+
+async function updateQueueBadge() {
+  const items = await getQueue();
+  const pending = items.filter(i => i.status === "pending").length;
+  queueBadge.style.display = pending > 0 ? "inline" : "none";
+  queueBadge.textContent = pending;
+}
+
+function toggleQueue() {
+  queuePanel.classList.toggle("show");
+  if (queuePanel.classList.contains("show")) renderQueue();
+}
+
+async function renderQueue() {
+  const items = await getQueue();
+  if (!items.length) {
+    queueList.innerHTML = '<div class="queue-empty">No queued recordings</div>';
+    return;
+  }
+  queueList.innerHTML = items.map(item => {
+    const date = new Date(item.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const dur = item.duration ? `${Math.floor(item.duration / 60)}:${String(item.duration % 60).padStart(2, "0")}` : "?";
+    const statusText = item.status === "pending" ? "Ready" : item.status;
+    return `<div class="queue-item${item.status === "processing" ? " processing" : ""}" data-id="${item.id}">
+      <div class="qi-info">
+        <div class="qi-date">${date}</div>
+        <div class="qi-duration">${dur}</div>
+        <div class="qi-status">${statusText}</div>
+      </div>
+      <div class="qi-actions">
+        <button onclick="processOne(${item.id})">Send</button>
+        <button class="del" onclick="deleteQueueItem(${item.id})">✕</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function processOne(id) {
+  const db = await openDB();
+  const tx = db.transaction("recordings", "readonly");
+  const item = await new Promise((resolve, reject) => {
+    const req = tx.objectStore("recordings").get(id);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  if (!item || item.status !== "pending") return;
+
+  const el = document.querySelector(`.queue-item[data-id="${id}"]`);
+  if (el) {
+    el.classList.add("processing");
+    const s = el.querySelector(".qi-status");
+    if (s) { s.textContent = "Sending..."; s.style.color = "#f39c12"; }
+  }
+
+  try {
+    const ts = new Date(item.timestamp).toISOString().slice(0,16).replace("T","_").replace(":","");
+    const formData = new FormData();
+    formData.append("audio", item.audio, "recording.webm");
+    // Queued items take the CURRENT destination selection at send time.
+    formData.append("filename", `jules-${destPrefix()}${ts}`);
+
+    const resp = await fetch("/api/jules/transcribe-and-save", { method: "POST", body: formData });
+    const data = await resp.json();
+
+    if (data.ok) {
+      await deleteQueueItem(id);
+    } else {
+      if (el) {
+        const s = el.querySelector(".qi-status");
+        if (s) { s.textContent = data.error || "Failed"; s.style.color = "#e74c3c"; }
+      }
+    }
+  } catch (e) {
+    if (el) {
+      const s = el.querySelector(".qi-status");
+      if (s) { s.textContent = "Network error"; s.style.color = "#e74c3c"; }
+    }
+  }
+  renderQueue();
+}
+
+async function processQueue() {
+  const items = await getQueue();
+  const pending = items.filter(i => i.status === "pending");
+  processAllBtn.disabled = true;
+  processAllBtn.textContent = `Processing (0/${pending.length})...`;
+
+  for (let i = 0; i < pending.length; i++) {
+    processAllBtn.textContent = `Processing (${i + 1}/${pending.length})...`;
+    await processOne(pending[i].id);
+  }
+
+  processAllBtn.textContent = "Process All";
+  processAllBtn.disabled = false;
+  updateQueueBadge();
+}
+
+// ── WebSocket ──────────────────────────────────────────────
+// Connects to pipecat-voice server (cross-origin OK for WebSockets)
+
+function connect() {
+  // Build WebSocket URL from the voice server URL
+  let wsUrl = VOICE_SERVER;
+  if (wsUrl.startsWith("http://")) wsUrl = "ws://" + wsUrl.slice(7);
+  else if (wsUrl.startsWith("https://")) wsUrl = "wss://" + wsUrl.slice(8);
+  // If already ws/wss, use as-is
+  if (!wsUrl.endsWith("/ws")) wsUrl = wsUrl.replace(/\/$/, "") + "/ws";
+
+  ws = new WebSocket(wsUrl);
+  ws.binaryType = "arraybuffer";
+
+  ws.onopen = () => {
+    connected = true;
+    connStatus.textContent = "ready";
+    connStatus.style.color = "#2ecc71";
+    if (recording && mediaStream) resumeStreaming();
+  };
+  ws.onclose = () => {
+    connected = false;
+    connStatus.textContent = "offline";
+    connStatus.style.color = "#e74c3c";
+    setTimeout(connect, 3000);
+  };
+  ws.onerror = () => {};
+
+  ws.onmessage = (e) => {
+    if (typeof e.data !== "string") return;
+    try {
+      const msg = JSON.parse(e.data);
+      handleMessage(msg);
+    } catch (ex) {}
+  };
+}
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case "connected":
+      break;
+    case "processing":
+      processing = true;
+      if (!recording) micBtn.classList.add("processing");
+      break;
+    case "transcript":
+      if (msg.text) addSegment(msg.text);
+      if (recording) addPending();  // re-show pending while still recording
+      break;
+    case "silence":
+      if (!recording) removePending();
+      break;
+    case "done":
+      processing = false;
+      if (!recording) micBtn.classList.remove("processing");
+      if (!recording) removePending();
+      if (autoSaveTimeout) { clearTimeout(autoSaveTimeout); autoSaveTimeout = null; }
+      if (pendingAutoSave) {
+        pendingAutoSave = false;
+        doSave();
+      }
+      break;
+    case "error":
+      processing = false;
+      micBtn.classList.remove("processing");
+      removePending();
+      if (autoSaveTimeout) { clearTimeout(autoSaveTimeout); autoSaveTimeout = null; }
+      connStatus.textContent = msg.message || "Error";
+      connStatus.style.color = "#e74c3c";
+      if (pendingAutoSave) {
+        pendingAutoSave = false;
+        doSave();
+      }
+      setTimeout(() => {
+        connStatus.textContent = connected ? "Ready" : "Offline";
+        connStatus.style.color = connected ? "#2ecc71" : "#e74c3c";
+      }, 3000);
+      break;
+  }
+}
+
+// ── Wake Lock (prevent screen dim during recording) ───────
+
+async function acquireWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch (e) {}
+}
+
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release(); wakeLock = null; }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && recording && !wakeLock) {
+    acquireWakeLock();
+  }
+});
+
+// ── Audio recording ────────────────────────────────────────
+
+async function startRecording() {
+  // Mic needs a secure context (HTTPS or localhost). On a plain-http self-host
+  // navigator.mediaDevices is undefined — show a clear message, not a crash (#209e).
+  if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    saveStatus.textContent = "Voice needs a secure connection (HTTPS). Set your Cove’s address in the setup checklist to turn it on, or open this Cove over https:// or localhost.";
+    return;
+  }
+  recording = true;
+  recordingStartTime = Date.now();
+  micBtn.classList.add("recording");
+  saveStatus.textContent = "";
+  if (connected) addPending();
+  acquireWakeLock();
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+    });
+
+    audioChunks = [];
+    try {
+      mediaRecorder = new MediaRecorder(mediaStream, { mimeType: "audio/webm;codecs=opus" });
+    } catch (e) {
+      mediaRecorder = new MediaRecorder(mediaStream);
+    }
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunks.push(e.data);
+    };
+    mediaRecorder.start(1000);
+
+    // PCM streaming to voice server for real-time STT
+    if (connected && ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "start_recording", mode: "transcribe" }));
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const src = audioCtx.createMediaStreamSource(mediaStream);
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = (e) => {
+        if (!recording || !ws || ws.readyState !== 1) return;
+        const f32 = e.inputBuffer.getChannelData(0);
+        const i16 = new Int16Array(f32.length);
+        for (let i = 0; i < f32.length; i++) {
+          let s = Math.max(-1, Math.min(1, f32[i]));
+          i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        ws.send(i16.buffer);
+      };
+      src.connect(processor);
+      processor.connect(audioCtx.destination);
+
+      // Start periodic chunking — send end_audio every 5s for live transcript feedback
+      chunkTimer = setInterval(() => {
+        if (recording && ws && ws.readyState === 1 && !processing) {
+          ws.send(JSON.stringify({ type: "end_audio", mode: "transcribe" }));
+        }
+      }, 5000);
+    }
+  } catch (err) {
+    // #17: never dump the raw "not allowed by the user agent…" string. Distinguish a
+    // permission DENIAL (a friendly, actionable hint) from other mic errors (neutral).
+    const _n = (err && err.name) || "";
+    const denied = _n === "NotAllowedError" || _n === "SecurityError"
+      || /denied|not allowed|permission/i.test((err && err.message) || "");
+    if (denied) {
+      saveStatus.textContent = "Microphone access is off for this site. On iPhone: tap aA (or ⋯) in the address bar → Website Settings → Microphone → Allow, then reload. On a computer: click the mic icon in the address bar → Allow.";
+    } else if (_n === "NotFoundError" || _n === "OverconstrainedError") {
+      saveStatus.textContent = "No microphone found on this device.";
+    } else {
+      saveStatus.textContent = "Couldn't start the microphone — it may be in use by another app. Close it and try again.";
+    }
+    saveStatus.style.color = "#f39c12";  // amber hint, not an alarming red
+    stopRecording();
+  }
+}
+
+function resumeStreaming() {
+  if (!ws || ws.readyState !== 1 || !mediaStream) return;
+  try {
+    ws.send(JSON.stringify({ type: "start_recording", mode: "transcribe" }));
+    if (processor) { processor.disconnect(); processor = null; }
+    if (audioCtx) { audioCtx.close().catch(()=>{}); audioCtx = null; }
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const src = audioCtx.createMediaStreamSource(mediaStream);
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (e) => {
+      if (!recording || !ws || ws.readyState !== 1) return;
+      const f32 = e.inputBuffer.getChannelData(0);
+      const i16 = new Int16Array(f32.length);
+      for (let i = 0; i < f32.length; i++) {
+        let s = Math.max(-1, Math.min(1, f32[i]));
+        i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      ws.send(i16.buffer);
+    };
+    src.connect(processor);
+    processor.connect(audioCtx.destination);
+    addPending();
+    connStatus.textContent = "reconnected";
+    connStatus.style.color = "#2ecc71";
+  } catch(e) { console.error("Resume streaming error:", e); }
+}
+
+function stopRecording() {
+  recording = false;
+  const durationSec = recordingStartTime ? (Date.now() - recordingStartTime) / 1000 : 0;
+  recordingStartTime = null;
+  // Instant feedback: the tap registered — show processing immediately so the user
+  // isn't left wondering if the button was pressed while transcription catches up.
+  micBtn.classList.remove("recording");
+  micBtn.classList.add("processing");
+  saveStatus.textContent = "Processing…";
+  saveStatus.style.color = "#f39c12";
+  releaseWakeLock();
+
+  // Stop chunk timer
+  if (chunkTimer) { clearInterval(chunkTimer); chunkTimer = null; }
+
+  if (processor) { processor.disconnect(); processor = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    const wasConnected = connected;
+    const mimeType = mediaRecorder.mimeType || "audio/webm";
+    if (audioChunks.length > 0) {
+      lastAudioBlob = new Blob(audioChunks, { type: mimeType });
+    }
+    mediaRecorder.onstop = async () => {
+      if (audioChunks.length > 0) {
+        const blob = new Blob(audioChunks, { type: mimeType });
+        lastAudioBlob = blob;
+        if (!wasConnected) {
+          await queueRecording(blob, durationSec);
+        }
+        audioChunks = [];
+      }
+      mediaRecorder = null;
+    };
+    mediaRecorder.stop();
+  }
+
+  if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+
+  needsSave = true;
+  if (connected && ws && ws.readyState === 1) {
+    micBtn.classList.add("processing");
+    pendingAutoSave = true;
+    ws.send(JSON.stringify({ type: "end_audio", mode: "transcribe" }));
+
+    // Safety fallback only. The reliable save is the WS "done" message (final
+    // transcript landed); this just covers "done" never arriving. Must be generous —
+    // CPU Whisper can take many seconds to transcribe the tail of a recording, and a
+    // short timer here saves BEFORE the last utterance lands (the cutoff bug).
+    autoSaveTimeout = setTimeout(() => {
+      if (pendingAutoSave) {
+        console.warn("Auto-save timeout — saving with what we have");
+        pendingAutoSave = false;
+        processing = false;
+        micBtn.classList.remove("processing");
+        removePending();
+        doSave();
+      }
+    }, 30000);
+  } else {
+    pendingAutoSave = false;
+    if (segments.length > 0 || lastAudioBlob) {
+      doSave();
+    }
+  }
+
+  setTimeout(() => {
+    if (needsSave && !recording && segments.length > 0) {
+      console.warn("Backup save — normal save path did not fire");
+      pendingAutoSave = false;
+      processing = false;
+      micBtn.classList.remove("processing");
+      doSave();
+    }
+  }, 45000);
+}
+
+function toggleRecording() {
+  if (recording) {
+    stopRecording();          // ALWAYS allow stop — even while a chunk is transcribing
+  } else {
+    if (processing) return;   // only block STARTING a new one mid-transcription
+    startRecording();
+  }
+}
+
+// ── Transcript management ──────────────────────────────────
+
+function addPending() {
+  const div = document.createElement("div");
+  div.className = "segment pending";
+  div.id = "pending-segment";
+  div.innerHTML = `<div class="time">${timeStr()}</div><div class="text">Listening...</div>`;
+  transcriptEl.appendChild(div);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+}
+
+function removePending() {
+  const el = document.getElementById("pending-segment");
+  if (el) el.remove();
+}
+
+function addSegment(text) {
+  removePending();
+  // B13: collapse consecutive duplicates live. The 5s live re-transcription of the growing
+  // audio buffer sent the same sentence ~18× in run-3. If this chunk repeats the previous
+  // segment verbatim, drop it; if it's that same sentence grown longer (prev is a prefix),
+  // replace the previous segment in place instead of stacking a near-copy.
+  const _norm = s => (s || "").trim().replace(/\s+/g, " ").toLowerCase();
+  const _incoming = (text || "").trim();
+  if (!_incoming) return;
+  if (segments.length) {
+    const _last = segments[segments.length - 1];
+    const a = _norm(_last.text), b = _norm(_incoming);
+    if (a && a === b) { if (recording) addPending(); return; }   // exact dup → drop
+    if (a && b.startsWith(a) && a.length >= 8) {                 // grew → replace in place
+      _last.text = _incoming;
+      const _el = transcriptEl.querySelector(`.segment[data-id="${_last.id}"] .text`);
+      if (_el) _el.textContent = _incoming;
+      updateWordCount(); saveDraft();
+      if (recording) addPending();
+      return;
+    }
+  }
+  const id = ++segmentCounter;
+  const ts = timeStr();
+  segments.push({ text, timestamp: ts, id });
+
+  const div = document.createElement("div");
+  div.className = "segment";
+  div.dataset.id = id;
+  div.innerHTML = `<div class="time">${ts}</div><div class="text" contenteditable="true">${escHtml(text)}</div>`;
+
+  const textEl = div.querySelector(".text");
+  textEl.addEventListener("blur", () => {
+    const seg = segments.find(s => s.id === id);
+    if (seg) seg.text = textEl.textContent;
+    updateWordCount();
+    saveDraft();
+  });
+
+  transcriptEl.appendChild(div);
+  transcriptEl.scrollTop = transcriptEl.scrollHeight;
+
+  updateWordCount();
+  saveDraft();
+}
+
+function resetPage() {
+  segments = [];
+  segmentCounter = 0;
+  transcriptEl.innerHTML = "";
+  saveStatus.textContent = "";
+  lastAudioBlob = null;
+  updateWordCount();
+  clearDraft();
+}
+
+function updateWordCount() {
+  const total = segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
+  wordCountEl.textContent = total > 0 ? `${total} words` : "";
+}
+
+function getFullTranscript() {
+  return segments.map(s => s.text).join("\n\n");
+}
+
+// ── Save — all saves go to same-origin MC endpoints ───────
+
+// ── Destination chips ────────────────────────────────────────────────────────
+// Plain jules-{ts} auto-processes into the backlog. jules-hold-{ts} waits in the
+// Inbox for the operator. jules-for-{name}-{ts} waits for that recipient — the
+// Inbox is the shared drop-zone between the operator and every agent. The choice
+// is applied at save/send time; the last pick is remembered on this device.
+let DEST = "";
+function destPrefix() { return DEST ? DEST + "-" : ""; }
+
+function renderDestChips(names) {
+  const bar = document.getElementById("destBar");
+  if (!bar) return;
+  const chips = [
+    { v: "", l: "→ Backlog (auto)", w: false },
+    { v: "hold", l: "→ Hold in Inbox", w: true },
+  ].concat(names.map(n => ({ v: "for-" + n, l: "→ " + n, w: true })));
+  bar.innerHTML = chips.map(c =>
+    '<span class="dest-chip' + (DEST === c.v ? " on" : "") + (c.w ? " waits" : "") +
+    '" data-v="' + c.v + '">' + c.l + "</span>").join("");
+  bar.querySelectorAll(".dest-chip").forEach(el => {
+    el.onclick = () => {
+      DEST = el.dataset.v;
+      try { localStorage.setItem("jules-dest", DEST); } catch (e) {}
+      renderDestChips(names);
+    };
+  });
+}
+
+async function initDest() {
+  try { DEST = localStorage.getItem("jules-dest") || ""; } catch (e) {}
+  let names = [];
+  try {
+    const r = await fetch("/api/config");
+    const d = await r.json();
+    const ag = d.agents || (d.config && d.config.agents) || [];
+    names = ag.map(a => String(a.id || a.name || a.handle || "").split(".")[0]
+                         .toLowerCase().replace(/[^a-z0-9]/g, ""))
+             .filter(Boolean);
+  } catch (e) { /* no agent list — Backlog/Hold chips still work */ }
+  renderDestChips(Array.from(new Set(names)).slice(0, 8));
+}
+initDest();
+
+async function doSave() {
+  needsSave = false;
+  saveStatus.textContent = "Saving...";
+  saveStatus.style.color = "#f39c12";
+
+  const text = getFullTranscript();
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const ts = new Date().toISOString().slice(0,16).replace("T","_").replace(":","");
+  const baseName = `jules-${destPrefix()}${ts}`;
+
+  // Save from the COMPLETE audio whenever we have a real recording. The live
+  // WebSocket transcript is for on-screen feedback only — it races the save and can
+  // drop the final utterance (the cutoff bug), while the full webm is always intact.
+  // Re-transcribing the whole file server-side makes the saved note complete + saves
+  // the audio too. Only fall back to the live transcript when there's no real audio.
+  const blobSizeKB = lastAudioBlob ? lastAudioBlob.size / 1024 : 0;
+  const useFileFallback = lastAudioBlob && blobSizeKB > 20;
+
+  try {
+    if (useFileFallback) {
+      saveStatus.textContent = "Re-transcribing...";
+      const formData = new FormData();
+      formData.append("audio", lastAudioBlob, "recording.webm");
+      formData.append("filename", baseName);
+      const resp = await fetch("/api/jules/transcribe-and-save", { method: "POST", body: formData });
+      const data = await resp.json();
+      lastAudioBlob = null;
+
+      if (data.ok) {
+        saveStatus.textContent = "saved (re-transcribed)";
+        saveStatus.style.color = "#2ecc71";
+        clearDraft();
+        return;
+      } else {
+        // #17: an empty/no-speech result is normal (silence, a mis-tap) — neutral copy,
+        // not an alarming red "Empty transcript" error.
+        const _err = (data.error || "").toString();
+        if (/empty|no speech|no audio|silence/i.test(_err) || !_err) {
+          saveStatus.textContent = "Didn't catch any speech — tap the mic and try again.";
+          saveStatus.style.color = "#f39c12";
+        } else {
+          saveStatus.textContent = _err;
+          saveStatus.style.color = "#e74c3c";
+        }
+      }
+    } else {
+      // Normal path — save transcript + audio via MC endpoints
+      const saveBody = { text, filename: baseName };
+      const resp = await fetch("/api/jules/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(saveBody)
+      });
+      const data = await resp.json();
+
+      // Save audio alongside transcript
+      if (lastAudioBlob) {
+        const formData = new FormData();
+        formData.append("audio", lastAudioBlob, "recording.webm");
+        formData.append("filename", baseName.replace(/\.md$/, "") + ".webm");
+        await fetch("/api/jules/save-audio", { method: "POST", body: formData });
+        lastAudioBlob = null;
+      }
+
+      if (data.ok) {
+        saveStatus.textContent = "saved";
+        saveStatus.style.color = "#2ecc71";
+        clearDraft();
+        return;
+      } else {
+        saveStatus.textContent = data.error || "Error";
+        saveStatus.style.color = "#e74c3c";
+      }
+    }
+  } catch (e) {
+    console.error("doSave error:", e);
+    saveStatus.textContent = "Save error: " + (e.message || "network");
+    saveStatus.style.color = "#e74c3c";
+  }
+}
+
+function resetAfterSave() {
+  segments = [];
+  segmentCounter = 0;
+  transcriptEl.innerHTML = "";
+  updateWordCount();
+  setTimeout(() => {
+    saveStatus.textContent = "";
+  }, 3000);
+}
+
+// ── Helpers ─────────────────────────────────────────────────
+
+function timeStr() {
+  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+function escHtml(s) {
+  const d = document.createElement("div"); d.textContent = s; return d.innerHTML;
+}
+
+// ── Draft system (disabled — offline backup not reliable) ───
+
+function saveDraft() {}  // no-op
+function clearDraft() {
+  try { localStorage.removeItem("jules-draft"); } catch(e) {}
+}
+
+function checkDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    if (!draft.segments || draft.segments.length === 0) return;
+    const age = Date.now() - (draft.saved || 0);
+    if (age > 24 * 60 * 60 * 1000) { clearDraft(); return; }
+    const wordCount = draft.segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
+    const when = new Date(draft.saved).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (confirm(`Recovered unsaved draft (${wordCount} words from ${when}). Restore it?`)) {
+      draft.segments.forEach(s => {
+        const id = ++segmentCounter;
+        segments.push({ text: s.text, timestamp: s.timestamp, id });
+        const div = document.createElement("div");
+        div.className = "segment";
+        div.dataset.id = id;
+        div.innerHTML = `<div class="time">${escHtml(s.timestamp)}</div><div class="text" contenteditable="true">${escHtml(s.text)}</div>`;
+        const textEl = div.querySelector(".text");
+        textEl.addEventListener("blur", () => {
+          const seg = segments.find(x => x.id === id);
+          if (seg) seg.text = textEl.textContent;
+          updateWordCount(); saveDraft();
+        });
+        transcriptEl.appendChild(div);
+      });
+      updateWordCount();
+    } else {
+      clearDraft();
+    }
+  } catch(e) { clearDraft(); }
+}
+
+// ── Init ────────────────────────────────────────────────────
+
+connect();
+updateQueueBadge();
+clearDraft();  // clear any stale draft on load
+</script>
+</body>
+</html>

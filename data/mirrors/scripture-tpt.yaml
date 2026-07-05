@@ -1,0 +1,403 @@
+# =============================================================================
+# Scripture Mirror — The Passion Translation
+# =============================================================================
+# Maps Lucid Principles to Bible passages using the full combination formula:
+#   Principle (teaching) × Frequency (state) × Signal Type (delivery)
+#
+# Structure: principle → frequency → signal_type → { ref, text, thread }
+#
+# Currently covers: all 22 principles at their primary frequency,
+# 3 signal types per frequency. ~66 entries.
+#
+# Expansion: secondary frequencies can be added per principle as needed.
+# Full coverage would be ~700-900 entries across all valid combinations.
+#
+# The Passion Translation by Brian Simmons. All passages excerpted briefly
+# with citation. Passages selected for resonance with the LP principle
+# concept, frequency terrain, and signal delivery character.
+#
+# This is a DRAFT for review by the mirror creator. Entries marked with
+# [REVIEW] need verification against the published TPT text.
+# =============================================================================
+
+meta:
+  name: "Scripture Mirror — The Passion Translation"
+  canon: "Bible (The Passion Translation)"
+  curator: "Jeff Garriotte"
+  version: 1
+  lens: "Christian perspective through the Passion Translation — a translation emphasizing the emotional and relational heart of scripture. The lens values felt experience of God's presence, intimacy with the divine, and the somatic reality of faith."
+  description: "Biblical passages from The Passion Translation mapped to Lucid Principles tuning combinations. Each passage selected for resonance with the principle's teaching, the frequency being tuned, and the signal type's delivery character."
+
+# =============================================================================
+# STAGE 1: THE MECHANISM
+# =============================================================================
+
+pattern:
+  # Primary frequency: Clarity
+  # Concept: You are running programs you didn't write. Recognition precedes change.
+  clarity:
+    clear:
+      ref: "Proverbs 23:7"
+      text: "Be careful how you think; your life is shaped by your thoughts."
+      thread: "The pattern IS the thought — Clear signal cuts to the mechanism without softening it. Your thoughts shape your life. See it."
+    drive:
+      ref: "Romans 12:2"
+      text: "Stop imitating the ideals and opinions of the culture around you, but be inwardly transformed by the Holy Spirit through a total reformation of how you think."
+      thread: "Drive signal commands the break from pattern — stop imitating, be transformed. The reformation of thought is not gentle; it's total."
+    raw:
+      ref: "Jeremiah 17:9"
+      text: "The heart is the most cunning of all and is desperately frail and feeble — who can fully know it?"
+      thread: "Raw signal holds the uncomfortable truth — the heart itself is cunning. Pattern recognition means seeing that even your self-knowledge is patterned. No comfort, just honesty."
+
+valley_of_shadows:
+  # Primary frequency: Courage
+  # Concept: Belief shapes perception. Fear distorts it. Courage and heart-guidance are the corrective.
+  courage:
+    drive:
+      ref: "Isaiah 41:10"
+      text: "Do not yield to fear, for I am always near. Never turn your gaze from me, for I am your faithful God. I will infuse you with my strength and help you in every situation."
+      thread: "Drive signal delivers courage as a command — do not yield. The strength is infused, not earned. The instruction is to face forward and move."
+    bright:
+      ref: "2 Timothy 1:7"
+      text: "For God will never give you the spirit of cowardly fear, but the Holy Spirit who gives you mighty power, love, and sound judgment."
+      thread: "Bright signal delivers courage with elevation — fear is NOT the original frequency. What you were given is power, love, sound judgment. The lightness comes from recognizing fear as the imposter."
+    rise:
+      ref: "Psalm 27:1"
+      text: "The Lord is my revelation-light and the source of my salvation. I fear no one! I'm not afraid of anything!"
+      thread: "Rise signal builds from revelation-light to fearlessness. The crescendo: light → salvation → no fear → not afraid of anything. Each claim bolder than the last. Courage building."
+
+what_life_is_about:
+  # Primary frequency: Momentum
+  # Concept: Your unique perspective is the lens AND the tool. Purpose exists. Fear blocks it. Get moving.
+  momentum:
+    clear:
+      ref: "Ephesians 2:10"
+      text: "We have become his poetry, a re-created people that will fulfill the destiny he has given each of us."
+      thread: "Clear signal delivers purpose with precision — you are poetry, re-created, with a destiny. The mechanism is named cleanly: you have become something for a reason."
+    drive:
+      ref: "Philippians 3:14"
+      text: "I run straight for the divine invitation of reaching the heavenly goal and gaining the victory-Loss never has the final word."
+      thread: "Drive signal is the sprint — run straight, reach, gain. Momentum as full-speed pursuit of the goal. No hesitation."
+    rise:
+      ref: "Jeremiah 1:5"
+      text: "I knew you before I formed you in your mother's womb. Before you were born I set you apart and appointed you."
+      thread: "Rise signal builds from before birth to appointment — the crescendo is your entire existence arc. Purpose existed before you did. Momentum comes from knowing the trajectory was set early."
+
+the_future:
+  # Primary frequency: Courage
+  # Concept: History loops. Programming perpetuates the loop. Waking up breaks it.
+  courage:
+    drive:
+      ref: "Isaiah 43:18-19"
+      text: "Stop dwelling on the past. Don't even remember these former things. I am doing something brand new, something unheard of. Even now it sprouts and grows and matures. Don't you perceive it?"
+      thread: "Drive signal commands the break — STOP dwelling, don't even remember. The new thing is already growing. Courage means perceiving what's emerging instead of repeating what's been."
+    bright:
+      ref: "Revelation 21:5"
+      text: "Behold, I am making all things an entirely new beginning!"
+      thread: "Bright signal delivers the future as celebration — all things, entirely new, a beginning. The lightness is in the completeness of the renewal. No partial fix. Everything."
+    rise:
+      ref: "Jeremiah 29:11"
+      text: "For I know the plans and thoughts that I have for you — plans for peace and well-being and not for disaster, to give you a future and a hope."
+      thread: "Rise signal builds from plans to peace to future to hope — each word expanding the horizon. Courage to face the future comes from knowing the intended signal is constructive."
+
+authenticity:
+  # Primary frequency: Boundary
+  # Concept: No one sees what you see. Fractured objectivity. True authenticity requires acknowledging this gap.
+  boundary:
+    ground:
+      ref: "1 Corinthians 13:12"
+      text: "For now we see but a faint reflection of riddles and mysteries as though reflected in a mirror, but one day we will see face-to-face."
+      thread: "Ground signal settles into the truth — we see faintly, through riddles. The boundary is between what we perceive and what actually is. No urgency to fix it, just the ground truth of limited sight."
+    clear:
+      ref: "Matthew 7:3"
+      text: "Why do you focus on the flaw in someone else's eye while you conveniently ignore the massive beam in your own?"
+      thread: "Clear signal cuts directly to the fractured objectivity — you're projecting. The question is a precision blade. See your own lens before judging another's."
+
+faith:
+  # Primary frequency: Trust
+  # Concept: Knowledge has limits. Faith fills the gap. What you place faith in determines what you can perceive.
+  trust:
+    ground:
+      ref: "Hebrews 11:1"
+      text: "Now faith brings our hopes into reality and becomes the foundation we need to be certain of the things we cannot see."
+      thread: "Ground signal settles faith as foundation — not a leap but a base. Hopes become reality through faith. The settling quality: this IS the ground you stand on."
+    open:
+      ref: "Mark 11:24"
+      text: "Listen to the truth I speak: Whatever you ask for in prayer — believe that you have received it before you ever see it — then it will be yours!"
+      thread: "Open signal receives before seeing — the heart opens to what hasn't appeared yet. Trust as receptive state. Believe you have received it. The Open signal breathes into that gap."
+    raw:
+      ref: "Mark 9:24"
+      text: "I do believe, Lord; help my lack of faith!"
+      thread: "Raw signal holds the honest tension — belief and doubt coexisting. No performance of perfect faith. D is acknowledged. The cry for help IS the faith in action."
+
+truth_and_lies:
+  # Primary frequency: Boundary
+  # Concept: Truth is intent-dependent and perception-limited. Protect clarity by refusing to let lies persist.
+  boundary:
+    ground:
+      ref: "John 8:32"
+      text: "And you will know the truth, and the truth will free you!"
+      thread: "Ground signal delivers truth as liberation — settled, certain, structural. The knowing leads to freedom. No argument, just the mechanism stated plainly."
+    clear:
+      ref: "John 18:38"
+      text: "Pilate looked at Jesus and said, 'What is truth?'"
+      thread: "Clear signal poses the sharpest question without answering it. The precision is in the question itself — truth requires discernment, not automatic acceptance. The boundary is in knowing the question must be asked."
+
+darkness_and_light:
+  # Primary frequency: Release
+  # Concept: Duality is structural. Release attachment to fixed outcomes. Navigate by trusting the guides.
+  release:
+    ground:
+      ref: "Genesis 1:3-4"
+      text: "God spoke and said, 'Let there be light,' and light burst forth! And God was pleased — delighted — with what he saw. Then he separated the light from the darkness."
+      thread: "Ground signal settles into the original separation — duality is design. Light burst forth and was separated from darkness. The structure of reality, stated as ground truth."
+    open:
+      ref: "John 1:5"
+      text: "And this Living Expression is the Light that bursts through the darkness — and the darkness has never been able to put out that light."
+      thread: "Open signal breathes warmth into the duality — the light bursts through and cannot be extinguished. Release from fear of darkness comes through opening to the light that persists regardless."
+    raw:
+      ref: "Isaiah 45:7"
+      text: "I make light and create darkness. I am the one who brings peace and creates adversity. I am the Lord, the one who does these things."
+      thread: "Raw signal holds the full duality without softening — peace AND adversity, light AND darkness, from the same source. D is acknowledged as part of the design. No pretense that only one pole exists."
+
+# =============================================================================
+# STAGE 2: THE ACTION
+# =============================================================================
+
+tune_your_mind:
+  # Primary frequency: Clarity
+  # Concept: The tuning formula: Reflection, Attention with Intention, Imagination, Clarity.
+  clarity:
+    clear:
+      ref: "Philippians 4:8"
+      text: "Keep your thoughts continually fixed on all that is authentic and real, honorable and admirable, beautiful and respectful, pure and holy, merciful and kind."
+      thread: "Clear signal delivers the tuning instruction with precision — fix your thoughts on THESE frequencies. The list is the formula: authentic, real, honorable, admirable, beautiful. Each word a tuning target."
+    drive:
+      ref: "Colossians 3:2"
+      text: "Yes, feast on all the treasures of the heavenly realm and fill your thoughts with heavenly realities, and not with the distractions of the natural realm."
+      thread: "Drive signal propels — feast, fill, not the distractions. The instruction is urgent: redirect NOW. Your thoughts create your world. Point them somewhere."
+    raw:
+      ref: "Romans 8:6"
+      text: "But the mindset controlled by the Spirit finds full life and complete peace."
+      thread: "Raw signal strips the formula to its essential: the mindset matters. Full life and complete peace — or not. No embellishment. The mechanism stated honestly."
+
+dreams:
+  # Primary frequency: Momentum
+  # Concept: Beauty and potential are everywhere. Your conscious attention collapses them from possibility into experience.
+  momentum:
+    clear:
+      ref: "Habakkuk 2:2-3"
+      text: "Write down the vision, the revelation as you receive it. Make it legible upon tablets, so that a courier may run with it. For the vision awaits an appointed time."
+      thread: "Clear signal sharpens the instruction — write it down, make it legible, the vision has a time. Attention made concrete. Dreams require you to articulate them clearly enough that they can move."
+    drive:
+      ref: "Proverbs 29:18"
+      text: "When there is no clear prophetic vision, people quickly wander astray."
+      thread: "Drive signal makes the urgency plain — without vision, people wander. The momentum dies. Dreams aren't optional; they're the mechanism that prevents dissipation."
+    bright:
+      ref: "Joel 2:28"
+      text: "Then I will pour out my Spirit on everybody and cause your sons and daughters to prophesy, and your young men will see visions, and your old men will dream dreams."
+      thread: "Bright signal celebrates the universality — everybody, sons and daughters, young and old. The pouring out is generous and expansive. Dreams are not elite; they're the birthright."
+
+the_power_to_be_alive:
+  # Primary frequency: Courage
+  # Concept: Agency is innate, not earned. Tune to your impressions, check with your heart, discover brilliance.
+  courage:
+    drive:
+      ref: "Deuteronomy 30:19"
+      text: "I have set before you life and death, blessings and curses. Choose life, so that you and your descendants may flourish!"
+      thread: "Drive signal makes the choice urgent — life or death, blessing or curse. Choose. The power to be alive is exercised by choosing. Courage IS the choosing."
+    bright:
+      ref: "John 10:10"
+      text: "I have come to give you everything in abundance, more than you expect — life in its fullness until you overflow!"
+      thread: "Bright signal delivers abundance with delight — everything, more than expected, overflowing. The power to be alive isn't survival; it's overflow. Courage to receive the fullness."
+    rise:
+      ref: "Acts 17:28"
+      text: "It is through him that we live and function and have our identity."
+      thread: "Rise signal builds from live to function to identity — each word expanding what 'alive' means. Not just breathing but functioning with purpose and knowing who you are. The crescendo of agency."
+
+training_ground:
+  # Primary frequency: Integration
+  # Concept: Consciousness is unbounded. Thoughts impact the quantum field. This life is the training ground.
+  integration:
+    ground:
+      ref: "Romans 8:28"
+      text: "So we are convinced that every detail of our lives is continually woven together to fit into God's perfect plan of bringing good into our lives."
+      thread: "Ground signal settles into integration — every detail, continually woven, all fits. The training ground works because nothing is wasted. The ground truth: it all integrates."
+    clear:
+      ref: "Proverbs 4:23"
+      text: "So above all, guard the affections of your heart, for they affect all that you are."
+      thread: "Clear signal names the mechanism precisely — guard the heart because it affects ALL that you are. Training ground: what you let into the source shapes everything downstream."
+    raw:
+      ref: "2 Corinthians 4:16-17"
+      text: "Even though our outer person gradually wears out, our inner being is renewed every single day. We view our slight, short-lived troubles in the light of eternity."
+      thread: "Raw signal acknowledges the wear — outer person wears out. But holds the integration: inner being renewed daily. The training ground is honest about the cost while pointing to what persists."
+
+moments:
+  # Primary frequency: Presence
+  # Concept: Now is the only point of power. Each instant contains infinite possibilities and a choice.
+  presence:
+    ground:
+      ref: "Psalm 118:24"
+      text: "This is the very day of the Lord that brings gladness and joy — filling our hearts with delight!"
+      thread: "Ground signal settles into THIS day — not tomorrow, not the plan, but the moment at hand. Presence as the ground state: the day you're in IS the day of delight."
+    clear:
+      ref: "Matthew 6:34"
+      text: "Refuse to worry about tomorrow, but deal with each challenge that comes your way, one day at a time. Tomorrow will take care of itself."
+      thread: "Clear signal cuts: refuse to worry, deal with now, one day at a time. The precision is in the boundaries — this moment only, nothing else. Tomorrow is not your jurisdiction."
+    drive:
+      ref: "Hebrews 3:15"
+      text: "Today, when you hear his voice, don't harden your hearts."
+      thread: "Drive signal makes presence urgent — TODAY, not eventually. The voice is speaking NOW. Hardening the heart is the refusal of the present moment. Drive says: respond."
+
+listen:
+  # Primary frequency: Boundary
+  # Concept: Truth is actively obscured. Discernment means looking between the lines.
+  boundary:
+    ground:
+      ref: "1 Kings 19:12"
+      text: "After the earthquake there was a raging fire, but the Lord was not in the fire either. After the fire there was a soft, gentle voice."
+      thread: "Ground signal reveals the true signal through settling — not in the wind, earthquake, or fire but in the soft gentle voice. Boundary: learn to distinguish the loud noise from the actual signal. Settle to hear it."
+    clear:
+      ref: "Proverbs 4:20-22"
+      text: "Listen carefully, my dear child, to everything that I teach you, and pay attention to all that I have to say. Fill your thoughts with my words until they penetrate deep into your spirit."
+      thread: "Clear signal sharpens listening to instruction — listen carefully, pay attention, fill your thoughts. The boundary is between what's worth hearing and what's noise. Clear signal knows the difference immediately."
+
+wonder:
+  # Primary frequency: Connection
+  # Concept: Turn outward. Wonder about others without judgment. Take responsibility for helping others see.
+  connection:
+    bright:
+      ref: "Psalm 8:3-4"
+      text: "I look up into your skies and see all that you have made — the moon and all the stars you have set in place. Lord, what are mere mortals that you think of them? Humans — who are they that you care for them?"
+      thread: "Bright signal makes wonder celebratory — looking UP, seeing EVERYTHING, then the delighted question: what are we that you care? Connection through shared smallness. The joy of being cared for despite insignificance."
+    open:
+      ref: "Romans 11:33"
+      text: "Who could ever wrap their minds around the riches of God, the depth of his wisdom, and the marvel of his perfect knowledge?"
+      thread: "Open signal receives the unsearchable — who could wrap their minds around it? The heart opens to what the mind can't contain. Connection through shared awe. The reader exhales into the mystery."
+    raw:
+      ref: "Job 37:14"
+      text: "Stop and be still before me. Open your eyes to the wonderful works of God!"
+      thread: "Raw signal strips wonder to its command — stop, be still, open your eyes. No flourish. The wonderful works are there but you have to actually LOOK. Raw honesty: have you stopped long enough to see?"
+
+guiding_force:
+  # Primary frequency: Connection
+  # Concept: You are not alone. A unifying source connects, attracts, protects. It speaks through silence.
+  connection:
+    bright:
+      ref: "Psalm 32:8"
+      text: "I hear the Lord saying, 'I will stay close to you, instructing and guiding you along the pathway for your life. I will advise you along the way and lead you forth with my eyes as your guide.'"
+      thread: "Bright signal makes guidance feel personal and warm — close, instructing, leading with eyes. The connection is intimate and active. The guiding force isn't distant; it's delighted to be near."
+    open:
+      ref: "Proverbs 3:5-6"
+      text: "Trust in the Lord completely, and do not rely on your own opinions. With all your heart rely on him to guide you, and he will lead you in every decision you make."
+      thread: "Open signal receives guidance by releasing control — don't rely on your own opinions, rely on him. The heart opens to be led. Connection through surrender. The reader exhales into trust."
+    raw:
+      ref: "Isaiah 30:21"
+      text: "And if you should turn to the right or to the left, your ears will hear a voice behind you saying, 'This is the way, walk in it.'"
+      thread: "Raw signal gives the guidance plain and unadorned — a voice behind you, saying the way. No mystical embellishment. You turn wrong, you hear correction. That's the guiding force, stripped bare."
+
+# =============================================================================
+# STAGE 3: THE FEEDBACK
+# =============================================================================
+
+signs:
+  # Primary frequency: Trust
+  # Concept: Reality gives feedback to conscious tuning. Signs appear by design. Observing transforms believing into knowing.
+  trust:
+    ground:
+      ref: "Psalm 46:10"
+      text: "Surrender your anxiety! Be still and realize that I am God."
+      thread: "Ground signal settles into the knowing — be still, realize. The signs become visible when you stop straining to find them. Trust as stillness. The ground beneath the seeking."
+    open:
+      ref: "Psalm 19:1-2"
+      text: "God's splendor is a sacred tapestry, high above your head, a canopy of light. Each day the skies pour out their breathtaking beauty."
+      thread: "Open signal receives the signs as they pour — each day, breathtaking, a tapestry. The feedback is continuous and beautiful. Trust comes from opening the heart to what's already being broadcast."
+    raw:
+      ref: "Matthew 16:3"
+      text: "You know how to read the signs of the weather appearing in the sky, but you don't know how to read the signs of the times."
+      thread: "Raw signal confronts with honest observation — you CAN read signs, you just DON'T. The capacity is there. The failure is chosen. Raw truth: the signs are by design and you're ignoring them."
+
+the_mirage:
+  # Primary frequency: Trust
+  # Concept: The gap between vision and embodiment is real and chemical. Not failure — detox. Persist.
+  trust:
+    ground:
+      ref: "Hebrews 10:35-36"
+      text: "So don't lose your bold, courageous faith, for you are destined for a great reward! You need to be patient, for after you have done the will of God you will receive what has been promised."
+      thread: "Ground signal settles into patience — don't lose faith, you're destined, be patient. The Mirage is the gap between doing the will and receiving the promise. Ground says: the ground hasn't moved. Hold."
+    open:
+      ref: "2 Corinthians 5:7"
+      text: "We are not focus on what is seen, but on what is not seen. For what is seen is temporary, but the unseen realm is eternal."
+      thread: "Open signal receives what can't be seen yet — the unseen realm is eternal. The Mirage shows phantoms of what could be; the Open signal trusts what's behind the phantoms. Heart open to the eternal while the temporary still stings."
+    raw:
+      ref: "2 Corinthians 4:8-9"
+      text: "Though we experience every kind of pressure, we're not crushed. At times we don't know what to do, but quitting is not an option. We are persecuted by others, but God has not forsaken us. We may be knocked down, but not out."
+      thread: "Raw signal holds The Mirage without flinching — pressured, confused, persecuted, knocked down. Every admission honest. But each paired with survival: not crushed, not quitting, not forsaken, not out. D acknowledged and held."
+
+# =============================================================================
+# STAGE 4: THE LIVED EXPERIENCE
+# =============================================================================
+
+a_good_time:
+  # Primary frequency: Joy
+  # Concept: Embodied alignment feels like flow, rhythm, and joy — not effort.
+  joy:
+    bright:
+      ref: "Psalm 16:11"
+      text: "For you bring me a continual revelation of resurrection life, the path to the bliss that brings me face-to-face with you."
+      thread: "Bright signal celebrates the arrival — continual revelation, bliss, face-to-face. Joy as the native frequency of embodied alignment. The lightness of a good time, lived, not forced."
+    open:
+      ref: "Nehemiah 8:10"
+      text: "The joy of the Lord is the source of your strength!"
+      thread: "Open signal receives joy as power source — not the reward after effort but the strength DURING effort. The heart opens to joy as fuel. A Good Time says harmony overflows; this names the overflow as strength."
+    rise:
+      ref: "Psalm 30:11-12"
+      text: "Then he broke through and transformed my mourning into the whirling dance of joy. He has stripped me of my dark garments of sadness and clothed me with a garment of joy."
+      thread: "Rise signal builds from mourning to dance — the transformation arc IS the rise. Stripped of sadness, clothed in joy. The crescendo from heaviness to whirling dance mirrors A Good Time's progression from static to flow."
+
+freedom_is:
+  # Primary frequency: Peace
+  # Concept: Freedom is a state of mind. Conscious choice within the structure, not escape from it.
+  peace:
+    ground:
+      ref: "John 8:36"
+      text: "So if the Son sets you free from sin, you will be absolutely free!"
+      thread: "Ground signal settles freedom as absolute and already done — not becoming free but BEING free. Peace as the resting state of someone who knows they're liberated. The ground beneath freedom: it's already happened."
+    open:
+      ref: "2 Corinthians 3:17"
+      text: "For the Lord God is the Spirit who gives us liberty. And where the Spirit of the Lord is, there is freedom."
+      thread: "Open signal breathes freedom in — where the Spirit is, freedom already exists. Not something to achieve but something to receive. The heart opens to liberty as present-tense reality."
+
+the_passing_tide:
+  # Primary frequency: Resilience
+  # Concept: Life is finite. Outcomes are not yours to decide. What IS yours is whether you tried. Engage without grasping.
+  resilience:
+    drive:
+      ref: "Philippians 3:14"
+      text: "I run straight for the divine invitation of reaching the heavenly goal and gaining the victory-prize."
+      thread: "Drive signal propels through the passing tide — run straight, reach the goal. Resilience here is not endurance but full-speed engagement. You don't get to decide the other side but you run anyway."
+    rise:
+      ref: "James 1:2-4"
+      text: "My fellow believers, when it seems as though you are facing nothing but difficulties, see it as an invaluable opportunity to experience the greatest joy that you can! For you know that testing reveals what is genuine."
+      thread: "Rise signal builds from difficulties to joy to genuineness — the arc is the teaching. Testing reveals. The passing tide's trials rise toward something worth having. Resilience as crescendo, not just survival."
+    raw:
+      ref: "2 Corinthians 4:16"
+      text: "Even though our outer person gradually wears out, our inner being is renewed every single day."
+      thread: "Raw signal holds both truths: wearing out AND being renewed. The passing tide takes the body but the inner being grows daily. No pretense that the passing is painless. Honest resilience."
+
+love_song:
+  # Primary frequency: Connection
+  # Concept: Love is what becomes possible when the observer's frequency is high enough to share. The destination.
+  connection:
+    bright:
+      ref: "Zephaniah 3:17"
+      text: "He will be so happy with you that he will renew you by his love. He will sing his joy over you!"
+      thread: "Bright signal makes love joyful and active — singing, renewing, happy. Connection as celebration. Love Song's deep love made audible: someone singing their joy over you."
+    open:
+      ref: "Song of Songs 8:6-7"
+      text: "Fasten me upon your heart as a seal of fire forevermore. This love is as strong as death, and nothing can destroy it. Flooding waters can never extinguish this love."
+      thread: "Open signal opens the heart to indestructible love — sealed, fire, stronger than death. The vulnerability is in 'fasten me' — a request, not a command. Heart expanding to receive love that cannot be quenched."
+    raw:
+      ref: "1 John 4:18"
+      text: "Love never brings fear, for fear is always related to punishment. Love expels fear, for the one who fears has not been made perfect in love."
+      thread: "Raw signal strips love to its mechanism — love and fear cannot coexist. If there's fear, the love isn't complete. Honest about the gap. No performance of perfect love — just the truth about what it does when it arrives."

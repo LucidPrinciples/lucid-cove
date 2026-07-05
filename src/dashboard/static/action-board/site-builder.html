@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Site Builder — Archimedes</title>
+<style>
+:root { --accent: #5b9bd5; --accent-glow: rgba(91,155,213,0.4); --accent-subtle: rgba(91,155,213,0.1); }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.tool-container { max-width: 680px; margin: 0 auto; padding: 24px; }
+.tool-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.tool-header h1 { font-size: 18px; font-weight: 600; color: var(--accent); }
+.agent-tag { font-size: 11px; color: var(--accent); opacity: 0.7; font-weight: 600; letter-spacing: 0.05em; }
+.tool-subtitle { color: #666; font-size: 13px; margin-bottom: 24px; }
+
+/* ── Site list ── */
+.site-card {
+    background: #12141c; border: 1px solid #2a2d3a; border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.site-card:hover { border-color: var(--accent); }
+.site-domain { font-size: 14px; font-weight: 600; }
+.site-meta { font-size: 11px; color: #666; margin-top: 2px; }
+.site-status { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 4px; }
+.site-status.setup { color: #e6a23c; background: rgba(230,162,60,0.1); }
+.site-status.building { color: var(--accent); background: var(--accent-subtle); }
+.site-status.live { color: #4caf50; background: rgba(76,175,80,0.1); }
+
+/* ── Views ── */
+.view { display: none; animation: fadeIn 0.3s ease; }
+.view.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ── Profile card ── */
+.profile-card { background: #12141c; border: 1px solid #1e2030; border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+.profile-domain { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.profile-type { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 16px; }
+.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.profile-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+.profile-value { font-size: 13px; color: #ccc; }
+.profile-value.empty { color: #444; font-style: italic; }
+.profile-value.done { color: #4caf50; }
+
+/* ── Shared ── */
+.btn { display: inline-block; padding: 10px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: inherit; border: none; }
+.btn-primary { background: var(--accent); color: #0a0a0f; }
+.btn-primary:hover { opacity: 0.85; }
+.btn-secondary { background: transparent; border: 1px solid #2a2d3a; color: #aaa; }
+.btn-secondary:hover { border-color: var(--accent); color: #d8d8e0; }
+.btn-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+@keyframes wzPulse { 0%,80%,100% { opacity:0.3; } 40% { opacity:1; } }
+
+/* ── Chip styles (inherits from wizard-engine.js, tool-specific overrides only) ── */
+.sb-font-chip { text-align: center; min-width: 100px; line-height: 1.4; }
+
+/* ── Logo mode cards ── */
+.sb-logo-modes { display: flex; gap: 8px; margin-bottom: 16px; }
+.sb-logo-mode {
+    flex: 1; padding: 12px; border-radius: 8px; text-align: center;
+    background: #12141c; border: 1px solid #2a2d3a; color: #aaa;
+    cursor: pointer; transition: all 0.15s; font-size: 12px;
+}
+.sb-logo-mode:hover { border-color: var(--accent); color: #d8d8e0; }
+.sb-logo-mode.active { background: rgba(91,155,213,0.1); border-color: var(--accent); color: var(--accent); }
+.sb-logo-mode-icon { display: block; font-size: 20px; margin-bottom: 4px; }
+
+/* ── Instructions panel (GitHub, Cloudflare) ── */
+.sb-instructions {
+    background: #12141c; border: 1px solid #1e2030; border-radius: 8px;
+    padding: 14px 18px; margin-bottom: 16px; font-size: 12px; color: #bbb; line-height: 1.6;
+}
+.sb-instructions-title { font-weight: 600; color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+.sb-instructions ol { padding-left: 20px; margin: 0; }
+.sb-instructions li { margin-bottom: 4px; }
+.sb-instructions code { background: #0a0a0f; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+.sb-instructions p { margin: 0 0 6px; }
+.sb-gh-section { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid #1e2030; }
+.sb-gh-section:last-of-type { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class="tool-container">
+
+    <div class="tool-header">
+        <h1>Site Builder</h1>
+        <span class="agent-tag">ARCHIMEDES</span>
+    </div>
+    <p class="tool-subtitle">Build and manage sites for your Presence.</p>
+
+    <!-- ═══ Loading ════════════════════════════════════════════════ -->
+    <div class="view active" id="v-loading">
+        <div style="display:flex;align-items:center;gap:10px;justify-content:center;padding:40px 0;">
+            <div class="wz-dots" style="display:flex;gap:4px;">
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:.3;animation:wzPulse 1.2s infinite;"></span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:.3;animation:wzPulse 1.2s infinite .2s;"></span>
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:.3;animation:wzPulse 1.2s infinite .4s;"></span>
+            </div>
+            <span style="font-size:12px;color:var(--accent);">Loading sites...</span>
+        </div>
+    </div>
+
+    <!-- ═══ Site list ══════════════════════════════════════════════ -->
+    <div class="view" id="v-home">
+        <div id="sites-list"></div>
+        <div class="btn-row" style="margin-top:20px;">
+            <button class="btn btn-primary" onclick="startNewSiteWizard()">+ New Site</button>
+            <button class="btn btn-secondary" onclick="startImportWizard()">Import Existing</button>
+        </div>
+    </div>
+
+    <!-- ═══ Wizard (steps render here) ═════════════════════════════ -->
+    <div class="view" id="v-wizard"></div>
+
+    <!-- ═══ Site profile ═══════════════════════════════════════════ -->
+    <div class="view" id="v-profile">
+        <div class="profile-card">
+            <div class="profile-domain" id="prof-domain"></div>
+            <div class="profile-type" id="prof-type"></div>
+            <div class="profile-grid">
+                <div><div class="profile-label">Status</div><div class="profile-value" id="prof-status"></div></div>
+                <div><div class="profile-label">Created</div><div class="profile-value" id="prof-created"></div></div>
+            </div>
+            <div style="margin-top:16px;">
+                <div class="profile-label">GitHub Repository <a id="prof-github-link" href="#" target="_blank" rel="noopener" style="font-weight:normal;font-size:10px;margin-left:6px;color:var(--accent, #4682b4);display:none;">↗ open repo</a></div>
+                <div style="display:flex;gap:6px;margin-top:4px;">
+                    <input type="text" id="prof-github" placeholder="owner/repo" style="flex:1;background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:11px;" onclick="saveProfileField('github')">Save</button>
+                </div>
+            </div>
+            <div style="margin-top:12px;">
+                <div class="profile-label">Cloudflare Project</div>
+                <div style="display:flex;gap:6px;margin-top:4px;">
+                    <input type="text" id="prof-cloudflare" placeholder="project-name" style="flex:1;background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:11px;" onclick="saveProfileField('cloudflare')">Save</button>
+                </div>
+            </div>
+            <div style="margin-top:12px;">
+                <div class="profile-label">GitHub Access Token <span id="prof-gh-token-state" style="font-weight:normal;font-size:10px;margin-left:6px;"></span></div>
+                <div style="display:flex;gap:6px;margin-top:4px;">
+                    <input type="password" id="prof-gh-token" placeholder="ghp_… / github_pat_… / gho_…" autocomplete="off" style="flex:1;background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
+                    <button class="btn btn-secondary" style="padding:6px 12px;font-size:11px;" onclick="saveProfileToken()">Save</button>
+                </div>
+                <div style="font-size:10px;color:#777;margin-top:3px;">Used for all site deploys (push to GitHub). Stored in your agent config, never displayed. Leave blank to keep the current token.</div>
+            </div>
+            <div id="prof-last-deploy" style="font-size:11px;color:#888;margin-top:14px;padding-top:10px;border-top:1px solid #1c1f29;"></div>
+            <div id="prof-save-status" style="font-size:11px;margin-top:8px;"></div>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-secondary" onclick="showView('v-home'); loadSites();">← All Sites</button>
+            <button class="btn btn-primary" onclick="deploySite(_profileDomain, this)">Deploy Now</button>
+            <button class="btn btn-secondary" style="color:#e74c3c;border-color:#e74c3c;" onclick="deleteSite(document.getElementById('prof-domain').textContent)">Delete Site</button>
+        </div>
+    </div>
+
+</div>
+
+<script src="/static/action-board/wizard-engine.js"></script>
+<script>
+// ═════════════════════════════════════════════════════════════════════
+// State
+// ═════════════════════════════════════════════════════════════════════
+let sites = [];
+let wizard = null;
+
+const params = new URLSearchParams(window.location.search);
+const openDomain = params.get('domain') || '';
+const openStep = params.get('step') || '';  // jump to a specific wizard step
+
+// ═════════════════════════════════════════════════════════════════════
+// Init
+// ═════════════════════════════════════════════════════════════════════
+(async function init() {
+    await loadSites();
+    // Direct link with domain param — resume that specific site (from Actions)
+    if (openDomain) {
+        const match = sites.find(s => s.domain === openDomain);
+        if (match) {
+            if (match.status === 'setup') { resumeWizard(match); return; }
+            openProfile(match); return;
+        }
+    }
+    // Always show the site list. In-progress sites belong in Actions.
+    showView(sites.length ? 'v-home' : 'v-home');
+})();
+
+// ═════════════════════════════════════════════════════════════════════
+// Views
+// ═════════════════════════════════════════════════════════════════════
+function showView(id) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById(id)?.classList.add('active');
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Site list
+// ═════════════════════════════════════════════════════════════════════
+async function loadSites() {
+    try {
+        const res = await fetch('/api/sites');
+        const data = await res.json();
+        sites = data.sites || [];
+    } catch (e) { sites = []; }
+    renderSiteList();
+}
+
+function renderSiteList() {
+    const el = document.getElementById('sites-list');
+    if (!sites.length) {
+        el.innerHTML = '<div style="text-align:center;padding:40px 0;color:#555;">No sites yet. Create your first one.</div>';
+        return;
+    }
+    el.innerHTML = sites.map((s, i) => {
+        const isSetup = s.status === 'setup';
+        const click = isSetup
+            ? `onclick="resumeWizard(sites[${i}])"`
+            : `onclick="openProfile(sites[${i}])"`;
+        const label = isSetup ? 'Continue Setup →' : _esc(s.status || 'setup');
+        const deployBtn = isSetup ? '' :
+            `<button class="btn btn-secondary" style="padding:5px 12px;font-size:11px;" onclick="event.stopPropagation(); deploySite('${_esc(s.domain || '')}', this)">Deploy</button>`;
+        return `
+            <div class="site-card" ${click}>
+                <div>
+                    <div class="site-domain">${_esc(s.domain || 'Unknown')}</div>
+                    <div class="site-meta">${_esc(s.site_type || '')} · ${_esc(s.owner_agent || '')}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span class="site-status ${s.status || 'setup'}">${label}</span>
+                    ${deployBtn}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Deploy — direct, no agent in the loop. Stages the approval card.
+// ═════════════════════════════════════════════════════════════════════
+async function deploySite(domain, btn) {
+    if (!domain) return;
+    const orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Deploying…'; }
+    try {
+        const res = await fetch(`/api/sites/${encodeURIComponent(domain)}/deploy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description: 'Manual deploy from Site Builder' })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Deploy failed');
+        if (data.no_changes) {
+            sbToast(`${domain}: nothing changed since the last deploy.`, 'muted');
+        } else {
+            const n = (data.changed != null) ? `${data.changed} file(s) changed — ` : '';
+            sbToast(`${domain}: ${n}deploy staged. Approve it in Attention → Pending Approvals.`, 'ok');
+        }
+    } catch (e) {
+        sbToast(`${domain}: ${e.message}`, 'err');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = orig || 'Deploy'; }
+    }
+}
+
+function sbToast(msg, kind) {
+    let t = document.getElementById('sb-toast');
+    if (!t) { t = document.createElement('div'); t.id = 'sb-toast'; document.body.appendChild(t); }
+    const color = kind === 'err' ? '#e74c3c' : kind === 'muted' ? '#888' : '#2ecc71';
+    t.style.cssText = `position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#14141c;border:1px solid ${color};color:#ddd;padding:12px 18px;border-radius:6px;font-size:13px;z-index:9999;max-width:80%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.4);`;
+    t.textContent = msg;
+    clearTimeout(t._timer); t._timer = setTimeout(() => { t.remove(); }, 7000);
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Profile
+// ═════════════════════════════════════════════════════════════════════
+let _profileDomain = '';
+
+function openProfile(config) {
+    _profileDomain = config.domain || '';
+    document.getElementById('prof-domain').textContent = config.domain || '';
+    document.getElementById('prof-type').textContent = config.site_type || '';
+    document.getElementById('prof-status').textContent = config.status || 'setup';
+    document.getElementById('prof-created').textContent = config.created_at ? new Date(config.created_at).toLocaleDateString() : '—';
+    document.getElementById('prof-github').value = config.github?.repo || '';
+    document.getElementById('prof-cloudflare').value = config.cloudflare?.project || '';
+    document.getElementById('prof-save-status').innerHTML = '';
+    const ghTokenInput = document.getElementById('prof-gh-token');
+    if (ghTokenInput) ghTokenInput.value = '';
+    // Show whether a GitHub token is already saved (the value itself is never displayed).
+    const ghState = document.getElementById('prof-gh-token-state');
+    if (ghState) {
+        ghState.textContent = '';
+        fetch('/api/settings/features').then(r => r.ok ? r.json() : {}).then(f => {
+            if (f && (f.github_pat_set || f.github_pat)) { ghState.textContent = '✓ saved'; ghState.style.color = 'var(--green, #2ecc71)'; }
+            else { ghState.textContent = 'not set — required to deploy'; ghState.style.color = '#e67e22'; }
+        }).catch(() => {});
+    }
+    // GitHub repo "open" link (straight from the saved repo — no fetch needed).
+    const repo = config.github?.repo || '';
+    const ghLink = document.getElementById('prof-github-link');
+    if (ghLink) {
+        if (repo) { ghLink.href = `https://github.com/${repo}`; ghLink.style.display = ''; }
+        else { ghLink.style.display = 'none'; }
+    }
+    // Last-deploy reference (commit + timestamp), fetched from the site detail.
+    const ld = document.getElementById('prof-last-deploy');
+    if (ld) {
+        ld.innerHTML = '<span style="color:#666;">Loading deploy history…</span>';
+        fetch(`/api/sites/${encodeURIComponent(_profileDomain)}`).then(r => r.ok ? r.json() : {}).then(d => {
+            const info = d && d.last_deploy;
+            if (info && info.commit) {
+                const sha = info.commit.slice(0, 7);
+                const when = info.at ? new Date(info.at).toLocaleString() : 'time not recorded';
+                const commitLink = repo ? `https://github.com/${repo}/commit/${info.commit}` : '';
+                ld.innerHTML = `<span style="color:#888;">Last deployed:</span> ${_esc(when)} · ` +
+                    (commitLink ? `<a href="${commitLink}" target="_blank" rel="noopener" style="color:var(--accent, #4682b4);">${_esc(sha)} ↗</a>` : _esc(sha));
+            } else {
+                ld.innerHTML = '<span style="color:#777;">No deploy recorded yet — hit Deploy Now to push the current files.</span>';
+            }
+        }).catch(() => { ld.innerHTML = ''; });
+    }
+    showView('v-profile');
+}
+
+async function saveProfileToken() {
+    const input = document.getElementById('prof-gh-token');
+    const token = (input?.value || '').trim();
+    const status = document.getElementById('prof-save-status');
+    if (!token) { status.innerHTML = '<span style="color:var(--red);">Paste a token first.</span>'; return; }
+    // Accept classic (ghp_), fine-grained (github_pat_), and OAuth (gho_) tokens.
+    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_') && !token.startsWith('gho_')) {
+        status.innerHTML = '<span style="color:var(--red);">Not a recognized GitHub token (expected ghp_, github_pat_, or gho_).</span>';
+        return;
+    }
+    status.innerHTML = '<span style="color:var(--accent);">Saving token…</span>';
+    try {
+        const res = await fetch('/api/settings/features', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ github_pat: token }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            status.innerHTML = '<span style="color:var(--green);">✓ Token saved — you can deploy now.</span>';
+            if (input) input.value = '';
+            const st = document.getElementById('prof-gh-token-state');
+            if (st) { st.textContent = '✓ saved'; st.style.color = 'var(--green, #2ecc71)'; }
+            setTimeout(() => { status.innerHTML = ''; }, 3000);
+        } else {
+            status.innerHTML = `<span style="color:var(--red);">${data.error || 'Failed'}</span>`;
+        }
+    } catch (e) {
+        status.innerHTML = `<span style="color:var(--red);">${e.message}</span>`;
+    }
+}
+
+async function saveProfileField(field) {
+    if (!_profileDomain) return;
+    const status = document.getElementById('prof-save-status');
+    const updates = {};
+
+    if (field === 'github') {
+        const repo = document.getElementById('prof-github').value.trim();
+        updates.github = { repo, branch: 'main', connected: !!repo };
+    } else if (field === 'cloudflare') {
+        const project = document.getElementById('prof-cloudflare').value.trim();
+        updates.cloudflare = { project, connected: !!project };
+    }
+
+    status.innerHTML = '<span style="color:var(--accent);">Saving...</span>';
+    try {
+        const res = await fetch(`/api/sites/${encodeURIComponent(_profileDomain)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            status.innerHTML = '<span style="color:var(--green);">✓ Saved</span>';
+            setTimeout(() => { status.innerHTML = ''; }, 2000);
+        } else {
+            status.innerHTML = `<span style="color:var(--red);">${data.error || 'Failed'}</span>`;
+        }
+    } catch (e) {
+        status.innerHTML = `<span style="color:var(--red);">${e.message}</span>`;
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Wizard — Step Definitions
+// ═════════════════════════════════════════════════════════════════════
+
+const SITE_STEPS = [
+    {
+        id: 'domain',
+        title: 'Domain',
+        description: 'Every site needs a home address. Do you have a domain, or need to find one?',
+        type: 'custom',
+        depends_on: [],
+        deferrable: true,
+    },
+    {
+        id: 'site-type',
+        title: 'Site Type',
+        description: 'This shapes the structure and what Archimedes builds.',
+        type: 'choice',
+        depends_on: [],
+        deferrable: false,
+        dataKey: 'site_type',
+        options: [
+            { value: 'business', label: 'Business', icon: '🏢', desc: 'Company or brand' },
+            { value: 'portfolio', label: 'Portfolio', icon: '🎨', desc: 'Show your work' },
+            { value: 'landing',  label: 'Landing Page', icon: '🚀', desc: 'Single page, one goal' },
+            { value: 'personal', label: 'Personal', icon: '👤', desc: 'Blog, journal, about me' },
+        ],
+    },
+    {
+        id: 'create-site',
+        title: 'Create Site',
+        description: 'Setting up the site folder and configuration.',
+        type: 'auto',
+        depends_on: ['domain', 'site-type'],
+        deferrable: false,
+        processingText: 'Creating site...',
+        doneText: 'Site created',
+        action: async (data, engine) => {
+            const res = await fetch('/api/sites/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    domain: data.domain,
+                    site_type: data.site_type,
+                    title: data.domain,
+                }),
+            });
+            const result = await res.json();
+            if (!result.ok) throw new Error(result.error || 'Creation failed');
+            // Enable auto-save now that the site exists
+            engine.saveUrl = `/api/sites/${encodeURIComponent(data.domain)}`;
+            return { site_config: result.config };
+        },
+    },
+    {
+        id: 'site-structure',
+        title: 'Site Structure',
+        description: 'What pages does this site need? Select common pages or add your own.',
+        type: 'chips',
+        depends_on: [],
+        dataKey: 'pages',
+        multiSelect: true,
+        chips: ['Home','About','Services','Products','Portfolio','Gallery','Blog','Contact','Pricing','Testimonials','FAQ','Team','Press','Careers','Events'],
+        defaultsFrom: 'site_type',
+        defaultsMap: {
+            business:  ['Home','About','Services','Products','Contact','Pricing','Testimonials'],
+            portfolio: ['Home','About','Portfolio','Gallery','Contact'],
+            landing:   ['Home','Contact','Testimonials','FAQ'],
+            personal:  ['Home','About','Blog','Contact'],
+        },
+        customInput: { key: 'custom_pages', label: 'Custom pages', placeholder: 'Add more (comma separated)' },
+        fields: [
+            { key: 'style_notes', label: 'Style direction', type: 'textarea', rows: 2, placeholder: 'Dark and minimal? Warm and inviting? Reference a site you like.' },
+            { key: 'color_prefs', label: 'Color preferences', type: 'text', placeholder: 'Navy and gold, earth tones, etc.' },
+        ],
+    },
+    {
+        id: 'logo',
+        title: 'Logo',
+        description: 'A brand mark for the site. Upload an image, describe what you want, or paste a URL.',
+        type: 'custom',
+        depends_on: [],
+        benefits_from: ['site-structure'],
+    },
+    {
+        id: 'visual-design',
+        title: 'Visual Design',
+        description: 'Colors, typography, and overall look.',
+        type: 'custom',
+        depends_on: [],
+        benefits_from: ['site-structure', 'logo'],
+    },
+    {
+        id: 'connect-github',
+        title: 'Connect GitHub',
+        description: 'Link a GitHub repository to store and version the site files.',
+        type: 'custom',
+        depends_on: ['domain'],
+    },
+    {
+        id: 'connect-cloudflare',
+        title: 'Connect Cloudflare',
+        description: 'Set up auto-deploy so changes push live automatically.',
+        type: 'custom',
+        depends_on: ['connect-github'],
+    },
+];
+
+// ═════════════════════════════════════════════════════════════════════
+// Wizard — Custom Renderers
+// ═════════════════════════════════════════════════════════════════════
+
+const SITE_RENDERERS = {
+
+    // ── Domain: have / need / defer ──────────────────────────────
+    'domain': (step, data, engine) => {
+        return `
+            <div class="wz-choices" id="domain-mode-cards">
+                <div class="wz-choice-card" onclick="domainMode('have')">
+                    <div class="wz-choice-icon">🔗</div>
+                    <div class="wz-choice-label">I have one</div>
+                    <div class="wz-choice-desc">Enter your domain</div>
+                </div>
+                <div class="wz-choice-card" onclick="domainMode('need')">
+                    <div class="wz-choice-icon">🔍</div>
+                    <div class="wz-choice-label">Find one</div>
+                    <div class="wz-choice-desc">Help me pick a name</div>
+                </div>
+            </div>
+
+            <div id="domain-have" style="display:none;">
+                <div class="wz-field">
+                    <label>Your domain</label>
+                    <input type="text" id="domain-input" placeholder="example.com" oninput="validateDomain()">
+                    <div class="wz-hint">Just the domain — no https://</div>
+                </div>
+            </div>
+
+            <div id="domain-need" style="display:none;">
+                <div class="wz-field">
+                    <label>What's this site for?</label>
+                    <textarea id="domain-context" rows="3" placeholder="Describe the site so Archimedes can suggest names."></textarea>
+                </div>
+                <div class="wz-actions" style="margin-bottom:12px;">
+                    <button class="wz-btn wz-btn-ghost wz-btn-sm" onclick="suggestDomains()">Get suggestions</button>
+                </div>
+                <div id="domain-suggestions" style="display:none;" class="wz-agent">
+                    <div class="wz-agent-label">Archimedes</div>
+                    <div class="wz-agent-text" id="domain-suggestions-text"></div>
+                </div>
+                <div id="domain-pick-wrap" style="display:none;">
+                    <div class="wz-field">
+                        <label>Your choice</label>
+                        <input type="text" id="domain-pick" placeholder="Type or paste the domain" oninput="validateDomain()">
+                    </div>
+                </div>
+            </div>
+
+            <div class="wz-actions">
+                <button class="wz-btn wz-btn-primary" id="domain-next" disabled onclick="domainNext()">Next →</button>
+                <button class="wz-btn wz-btn-ghost" onclick="_wz.skip('domain')">Not now</button>
+            </div>
+        `;
+    },
+
+    // (site-structure uses built-in 'chips' type — no custom renderer needed)
+
+    // ── Logo: upload / describe / URL ────────────────────────────
+    'logo': (step, data, engine) => {
+        let contextHint = '';
+        const sd = engine.getStepData('site-structure');
+        if (sd && (sd.style_notes || sd.color_prefs)) {
+            const bits = [sd.style_notes, sd.color_prefs].filter(Boolean);
+            contextHint = `<div class="wz-context-note" style="margin-bottom:12px;">Style context: ${_esc(bits.join(' · '))}</div>`;
+        }
+
+        return `
+            ${contextHint}
+            <div class="sb-logo-modes">
+                <div class="sb-logo-mode${data._logo_mode === 'upload' ? ' active' : ''}" onclick="logoMode('upload')">
+                    <span class="sb-logo-mode-icon">📁</span>
+                    <span>Upload file</span>
+                </div>
+                <div class="sb-logo-mode${data._logo_mode === 'describe' ? ' active' : ''}" onclick="logoMode('describe')">
+                    <span class="sb-logo-mode-icon">✏️</span>
+                    <span>Describe it</span>
+                </div>
+                <div class="sb-logo-mode${data._logo_mode === 'url' ? ' active' : ''}" onclick="logoMode('url')">
+                    <span class="sb-logo-mode-icon">🔗</span>
+                    <span>Paste URL</span>
+                </div>
+            </div>
+
+            <div id="logo-upload" style="display:none;">
+                <div class="wz-field">
+                    <label>Choose an image</label>
+                    <input type="file" id="logo-file" accept=".png,.svg,.jpg,.jpeg,.webp" onchange="logoFilePreview()">
+                    <div class="wz-hint">PNG, SVG, or JPG. Will be stored in the site's assets folder.</div>
+                </div>
+                <div id="logo-preview" style="display:none; margin:10px 0;">
+                    <img id="logo-preview-img" style="max-width:200px;max-height:120px;border-radius:8px;border:1px solid #333;">
+                </div>
+            </div>
+
+            <div id="logo-describe" style="display:none;">
+                <div class="wz-field">
+                    <label>Describe your logo</label>
+                    <textarea id="logo-desc" rows="3" placeholder="What should it look like? Colors, style, symbols, text?">${_esc(data.logo_description || '')}</textarea>
+                    <div class="wz-hint">This becomes a brief for creating or commissioning the logo.</div>
+                </div>
+            </div>
+
+            <div id="logo-url" style="display:none;">
+                <div class="wz-field">
+                    <label>Logo URL</label>
+                    <input type="text" id="logo-url-input" placeholder="https://example.com/logo.png" value="${_esc(data.logo_url || '')}">
+                    <div class="wz-hint">Direct link to an existing logo image.</div>
+                </div>
+            </div>
+
+            <div class="wz-actions">
+                <button class="wz-btn wz-btn-primary" onclick="logoNext()">Next →</button>
+                <button class="wz-btn wz-btn-ghost" onclick="_wz.skip('logo')">Not now</button>
+            </div>
+        `;
+    },
+
+    // ── Visual Design: colors + font chips ───────────────────────
+    'visual-design': (step, data, engine) => {
+        const fonts = [
+            { value: 'modern-sans', label: 'Modern Sans', sample: 'Inter, Helvetica' },
+            { value: 'classic-serif', label: 'Classic Serif', sample: 'Georgia, Merriweather' },
+            { value: 'monospace', label: 'Monospace', sample: 'Fira Code, JetBrains' },
+            { value: 'handwritten', label: 'Handwritten', sample: 'Caveat, Dancing Script' },
+        ];
+        const currentFont = data.font_style || '';
+        const fontChips = fonts.map(f => {
+            const sel = currentFont === f.value ? ' selected' : '';
+            return `<span class="wz-chip sb-font-chip${sel}" onclick="selectFontChip(this, '${f.value}')">
+                <strong>${_esc(f.label)}</strong><br><span style="font-size:10px;opacity:0.6;">${_esc(f.sample)}</span>
+            </span>`;
+        }).join('');
+
+        return `
+            <div class="wz-field">
+                <label>Primary color</label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="color" id="color-primary" value="${_esc(data.primary_color || '#4682b4')}" style="width:40px;height:34px;border:1px solid #333;border-radius:4px;background:#0a0a0f;cursor:pointer;">
+                    <input type="text" id="color-primary-text" value="${_esc(data.primary_color || '')}" placeholder="#4682b4 or ocean blue" style="flex:1;" oninput="syncColor('primary')">
+                </div>
+            </div>
+            <div class="wz-field">
+                <label>Secondary color</label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="color" id="color-secondary" value="${_esc(data.secondary_color || '#1a1a2e')}" style="width:40px;height:34px;border:1px solid #333;border-radius:4px;background:#0a0a0f;cursor:pointer;">
+                    <input type="text" id="color-secondary-text" value="${_esc(data.secondary_color || '')}" placeholder="#1a1a2e or dark navy" style="flex:1;" oninput="syncColor('secondary')">
+                </div>
+            </div>
+            <div class="wz-chip-label">Font style</div>
+            <div class="wz-chip-grid" id="font-chips">${fontChips}</div>
+            <div class="wz-field" style="margin-top:8px;">
+                <input type="text" id="custom-font" placeholder="Or type a custom font preference" value="${_esc(currentFont && !fonts.find(f=>f.value===currentFont) ? currentFont : '')}">
+            </div>
+            <div class="wz-field">
+                <label>Design notes</label>
+                <textarea id="design-notes" rows="2" placeholder="Anything else about the look and feel.">${_esc(data.design_notes || '')}</textarea>
+            </div>
+            <div class="wz-actions">
+                <button class="wz-btn wz-btn-primary" onclick="designNext()">Next →</button>
+                <button class="wz-btn wz-btn-ghost" onclick="_wz.skip('visual-design')">Not now</button>
+            </div>
+        `;
+    },
+
+    // ── GitHub: full guided connection flow ─────────────────────
+    'connect-github': (step, data, engine) => {
+        const domain = data.domain || 'your-site';
+        const hasToken = data._github_token_saved || false;
+
+        return `
+            <!-- Step A: GitHub Token -->
+            <div class="sb-gh-section" id="gh-token-section">
+                <div class="sb-instructions">
+                    <div class="sb-instructions-title">Step 1 — GitHub Access Token</div>
+                    <p style="margin-bottom:8px;">Your agent needs a Personal Access Token (PAT) to manage site repos.</p>
+                    <ol>
+                        <li>Go to <a href="https://github.com/settings/tokens?type=beta" target="_blank" style="color:var(--accent);">GitHub → Settings → Developer → Fine-grained tokens</a></li>
+                        <li>Click <strong>Generate new token</strong></li>
+                        <li>Name it <strong>Lucid Cove Sites</strong></li>
+                        <li>Expiration: 90 days (or custom)</li>
+                        <li>Repository access: <strong>All repositories</strong> (or select specific ones)</li>
+                        <li>Permissions → Repository permissions → <strong>Contents: Read and write</strong></li>
+                        <li>Click <strong>Generate token</strong> and copy it</li>
+                    </ol>
+                </div>
+                <div class="wz-field">
+                    <label>Personal Access Token</label>
+                    <input type="password" id="gh-token" placeholder="ghp_... or gho_..." value="" autocomplete="off">
+                    <div class="wz-hint">Your GitHub token — stored securely in your agent config, never shared.</div>
+                </div>
+                <div id="gh-token-status" style="font-size:12px;margin:4px 0;"></div>
+                <div class="wz-actions" style="margin-bottom:20px;">
+                    <button class="wz-btn wz-btn-primary wz-btn-sm" onclick="saveGithubToken()">Save Token</button>
+                    ${hasToken ? '<span style="color:var(--green);font-size:12px;margin-left:8px;">✓ Token saved</span>' : ''}
+                </div>
+            </div>
+
+            <!-- Step B: Repository -->
+            <div class="sb-gh-section" id="gh-repo-section">
+                <div class="sb-instructions">
+                    <div class="sb-instructions-title">Step 2 — Repository</div>
+                    <p>Link an existing repo or create a new one for <strong>${_esc(domain)}</strong>.</p>
+                </div>
+                <div class="wz-field">
+                    <label>Repository (owner/name)</label>
+                    <input type="text" id="gh-repo" placeholder="username/${_esc(domain)}" value="${_esc(data.github_repo || '')}" oninput="validateGithub()">
+                </div>
+                <div class="wz-field">
+                    <label>Branch</label>
+                    <input type="text" id="gh-branch" placeholder="main" value="${_esc(data.github_branch || 'main')}">
+                </div>
+                <div class="wz-actions" style="margin-bottom:20px;">
+                    <button class="wz-btn wz-btn-ghost wz-btn-sm" onclick="createGithubRepo()">Create repo for me</button>
+                    <button class="wz-btn wz-btn-ghost wz-btn-sm" onclick="testGithubConnection()">Test connection</button>
+                </div>
+                <div id="gh-status" style="font-size:12px;margin:4px 0;"></div>
+            </div>
+
+            <div class="wz-actions">
+                <button class="wz-btn wz-btn-primary" onclick="githubNext()">Next →</button>
+                <button class="wz-btn wz-btn-ghost" onclick="_wz.skip('connect-github')">Not now</button>
+            </div>
+        `;
+    },
+
+    // ── Cloudflare: instructions + form ───────────────────────────
+    'connect-cloudflare': (step, data, engine) => {
+        const repo = data.github_repo || 'your-repo';
+        return `
+            <div class="sb-instructions">
+                <div class="sb-instructions-title">How to connect</div>
+                <ol>
+                    <li>Go to <a href="https://dash.cloudflare.com/?to=/:account/pages" target="_blank" style="color:var(--accent);">Cloudflare Pages</a></li>
+                    <li>Click "Create a project" → "Connect to Git"</li>
+                    <li>Select the <strong>${_esc(repo)}</strong> repository</li>
+                    <li>Build settings: Framework = None, Output directory = <code>/</code> (root)</li>
+                    <li>Deploy, then paste the project name below</li>
+                </ol>
+            </div>
+            <div class="wz-field">
+                <label>Cloudflare Pages project name</label>
+                <input type="text" id="cf-project" placeholder="${_esc(data.domain || 'my-site').replace(/\./g,'-')}" value="${_esc(data.cloudflare_project || '')}">
+                <div class="wz-hint">The project name from Cloudflare — usually your-domain-com</div>
+            </div>
+            <div class="wz-actions">
+                <button class="wz-btn wz-btn-primary" onclick="cloudflareNext()">Next →</button>
+                <button class="wz-btn wz-btn-ghost" onclick="_wz.skip('connect-cloudflare')">Not now</button>
+            </div>
+        `;
+    },
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Wizard — Start
+// ═════════════════════════════════════════════════════════════════════
+function resumeWizard(site) {
+    showView('v-wizard');
+    wizard = new WizardEngine({
+        container: document.getElementById('v-wizard'),
+        toolName: 'Site Builder',
+        agentTag: 'ARCHIMEDES',
+        contextLabel: site.domain,
+        steps: SITE_STEPS,
+        renderers: SITE_RENDERERS,
+        saveUrl: `/api/sites/${encodeURIComponent(site.domain)}`,
+        initialData: { domain: site.domain, site_type: site.site_type },
+        onFinish: _wizardFinish,
+    });
+    // Restore saved state from site.yaml
+    if (site.wizard_state) {
+        wizard.restore(site.wizard_state);
+    }
+    // Start at specific step if requested via URL param, otherwise first incomplete
+    wizard.start(openStep || undefined);
+}
+
+function startNewSiteWizard() {
+    showView('v-wizard');
+    wizard = new WizardEngine({
+        container: document.getElementById('v-wizard'),
+        toolName: 'Site Builder',
+        agentTag: 'ARCHIMEDES',
+        steps: SITE_STEPS,
+        renderers: SITE_RENDERERS,
+        onFinish: _wizardFinish,
+    });
+    wizard.start();
+}
+
+function startImportWizard() {
+    // Import path: you already have the site files.
+    // Skip Structure, Logo, Visual Design — go Domain → Type → Create → GitHub → Cloudflare.
+    showView('v-wizard');
+    wizard = new WizardEngine({
+        container: document.getElementById('v-wizard'),
+        toolName: 'Site Builder',
+        agentTag: 'ARCHIMEDES',
+        contextLabel: 'Import existing site',
+        steps: SITE_STEPS,
+        renderers: SITE_RENDERERS,
+        onFinish: _wizardFinish,
+    });
+    // Pre-complete the design steps — user already has files
+    wizard.completed.add('site-structure');
+    wizard.completed.add('logo');
+    wizard.completed.add('visual-design');
+    wizard.data._imported = true;
+    wizard.start();
+}
+
+async function _wizardFinish(summary) {
+    // Save design data to site.yaml if site was created
+    if (summary.data.domain) {
+        const design = {};
+        if (summary.data.logo_path) design.logo = summary.data.logo_path;
+        if (summary.data.logo_description) design.logo_brief = summary.data.logo_description;
+        if (summary.data.logo_url) design.logo_url = summary.data.logo_url;
+        if (summary.data.style_notes) design.brief = summary.data.style_notes;
+        if (summary.data.primary_color) design.colors = [summary.data.primary_color, summary.data.secondary_color].filter(Boolean);
+        if (summary.data.font_style) design.style = summary.data.font_style;
+        if (summary.data.design_notes) design.notes = summary.data.design_notes;
+
+        const rawPages = summary.data.pages || [];
+        const pages = Array.isArray(rawPages)
+            ? rawPages.filter(Boolean)
+            : typeof rawPages === 'string' ? rawPages.split(/[,\n]/).map(p => p.trim()).filter(Boolean) : [];
+
+        const hasPending = summary.deferred && summary.deferred.length > 0;
+
+        const updates = {};
+        if (Object.keys(design).length) updates.design = design;
+        if (pages.length) updates.pages = pages;
+        if (summary.data.github_repo) updates.github = { repo: summary.data.github_repo, branch: summary.data.github_branch || 'main', connected: true };
+        if (summary.data.cloudflare_project) updates.cloudflare = { project: summary.data.cloudflare_project, connected: true };
+
+        if (hasPending) {
+            // Still has pending steps — keep in setup, wizard_state stays for resume
+            updates.status = 'setup';
+        } else {
+            // All done — clear wizard state, advance status
+            const hasGithub = summary.completed.includes('connect-github');
+            const hasCloudflare = summary.completed.includes('connect-cloudflare');
+            updates.status = (hasGithub && hasCloudflare) ? 'live' : 'building';
+            updates.wizard_state = null;
+        }
+
+        try {
+            await fetch(`/api/sites/${encodeURIComponent(summary.data.domain)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates),
+            });
+        } catch (e) { console.error('Failed to save site config:', e); }
+    }
+
+    // Refresh and show list or profile
+    await loadSites();
+    if (summary.data.domain) {
+        const match = sites.find(s => s.domain === summary.data.domain);
+        if (match) { openProfile(match); return; }
+    }
+    showView('v-home');
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Domain step handlers
+// ═════════════════════════════════════════════════════════════════════
+let _domainMode = null;
+
+function domainMode(mode) {
+    _domainMode = mode;
+    document.querySelectorAll('#domain-mode-cards .wz-choice-card').forEach(c => c.classList.remove('selected'));
+    event.currentTarget.classList.add('selected');
+    document.getElementById('domain-have').style.display = mode === 'have' ? 'block' : 'none';
+    document.getElementById('domain-need').style.display = mode === 'need' ? 'block' : 'none';
+    validateDomain();
+}
+
+function validateDomain() {
+    let val = '';
+    if (_domainMode === 'have') val = (document.getElementById('domain-input')?.value || '').trim();
+    else val = (document.getElementById('domain-pick')?.value || '').trim();
+    val = val.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    const valid = /^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$/.test(val);
+    const btn = document.getElementById('domain-next');
+    if (btn) btn.disabled = !valid;
+}
+
+function domainNext() {
+    let val = '';
+    if (_domainMode === 'have') val = (document.getElementById('domain-input')?.value || '').trim();
+    else val = (document.getElementById('domain-pick')?.value || '').trim();
+    val = val.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
+    if (!val) return;
+    _wz.complete('domain', { domain: val });
+}
+
+async function suggestDomains() {
+    const ctx = (document.getElementById('domain-context')?.value || '').trim();
+    if (!ctx) return;
+
+    const sugEl = document.getElementById('domain-suggestions');
+    const textEl = document.getElementById('domain-suggestions-text');
+    sugEl.style.display = 'block';
+    textEl.innerHTML = '<em style="color:#666;">Thinking...</em>';
+
+    try {
+        const res = await fetch('/api/flow/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                system_prompt: 'You are Archimedes, a technical architect. Suggest 5-7 domain name options. For each, give the domain (with TLD) and one-line rationale. Prefer .com, .org, .io, .co. Short, memorable, brandable. Respond in HTML paragraphs. Use <strong> for domains.',
+                messages: [{ role: 'user', content: ctx }],
+                model_id: 'kimi-k2.5',
+                temperature: 0.7,
+            }),
+        });
+        if (res.ok) {
+            const data = await res.json();
+            textEl.innerHTML = data.response || 'No suggestions.';
+            document.getElementById('domain-pick-wrap').style.display = 'block';
+        } else {
+            textEl.innerHTML = '<em style="color:#ef5350;">Failed to get suggestions.</em>';
+        }
+    } catch (e) {
+        textEl.innerHTML = '<em style="color:#ef5350;">Network error.</em>';
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Logo step handlers
+// ═════════════════════════════════════════════════════════════════════
+let _logoMode = null;
+
+function logoMode(mode) {
+    _logoMode = mode;
+    document.querySelectorAll('.sb-logo-mode').forEach(m => m.classList.toggle('active', m.textContent.toLowerCase().includes(mode)));
+    document.getElementById('logo-upload').style.display = mode === 'upload' ? 'block' : 'none';
+    document.getElementById('logo-describe').style.display = mode === 'describe' ? 'block' : 'none';
+    document.getElementById('logo-url').style.display = mode === 'url' ? 'block' : 'none';
+}
+
+function logoFilePreview() {
+    const input = document.getElementById('logo-file');
+    const preview = document.getElementById('logo-preview');
+    const img = document.getElementById('logo-preview-img');
+    if (input.files && input.files[0]) {
+        img.src = URL.createObjectURL(input.files[0]);
+        preview.style.display = 'block';
+    }
+}
+
+async function logoNext() {
+    const data = { _logo_mode: _logoMode };
+
+    if (_logoMode === 'describe') {
+        data.logo_description = (document.getElementById('logo-desc')?.value || '').trim();
+    } else if (_logoMode === 'url') {
+        data.logo_url = (document.getElementById('logo-url-input')?.value || '').trim();
+    } else if (_logoMode === 'upload') {
+        const input = document.getElementById('logo-file');
+        if (input.files && input.files[0]) {
+            const domain = _wz.data.domain;
+            if (!domain) {
+                alert('Domain must be set before uploading files.');
+                return;
+            }
+
+            // Show uploading state
+            const btn = document.querySelector('.wz-btn-primary');
+            if (btn) { btn.textContent = 'Uploading...'; btn.disabled = true; }
+
+            try {
+                const formData = new FormData();
+                formData.append('file', input.files[0]);
+                formData.append('folder', 'assets');
+
+                const res = await fetch(`/api/sites/${encodeURIComponent(domain)}/upload`, {
+                    method: 'POST',
+                    body: formData,
+                });
+                const result = await res.json();
+
+                if (!res.ok || !result.ok) {
+                    if (btn) { btn.textContent = 'Next →'; btn.disabled = false; }
+                    alert('Upload failed: ' + (result.error || 'Unknown error'));
+                    return;
+                }
+
+                data.logo_path = result.path;
+                data.logo_filename = result.filename;
+            } catch (e) {
+                if (btn) { btn.textContent = 'Next →'; btn.disabled = false; }
+                alert('Upload error: ' + e.message);
+                return;
+            }
+        }
+    }
+
+    _wz.complete('logo', data);
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Visual Design step handlers
+// ═════════════════════════════════════════════════════════════════════
+let _selectedFont = '';
+
+function selectFontChip(el, value) {
+    document.querySelectorAll('#font-chips .wz-chip').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    _selectedFont = value;
+    document.getElementById('custom-font').value = '';
+}
+
+function syncColor(which) {
+    const text = document.getElementById(`color-${which}-text`);
+    const picker = document.getElementById(`color-${which}`);
+    if (text && picker && text.value.match(/^#[0-9a-fA-F]{6}$/)) {
+        picker.value = text.value;
+    }
+}
+
+function designNext() {
+    const primary = document.getElementById('color-primary-text')?.value || document.getElementById('color-primary')?.value || '';
+    const secondary = document.getElementById('color-secondary-text')?.value || document.getElementById('color-secondary')?.value || '';
+    const customFont = (document.getElementById('custom-font')?.value || '').trim();
+    const font = customFont || _selectedFont || '';
+    const notes = (document.getElementById('design-notes')?.value || '').trim();
+
+    _wz.complete('visual-design', {
+        primary_color: primary,
+        secondary_color: secondary,
+        font_style: font,
+        design_notes: notes,
+    });
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// GitHub step handlers
+// ═════════════════════════════════════════════════════════════════════
+function validateGithub() {
+    const val = (document.getElementById('gh-repo')?.value || '').trim();
+    const valid = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(val);
+    const status = document.getElementById('gh-status');
+    if (val && valid) {
+        status.innerHTML = `<span style="color:var(--green);">✓ ${_esc(val)}</span>`;
+    } else if (val) {
+        status.innerHTML = `<span style="color:var(--red);">Format: owner/repo-name</span>`;
+    } else {
+        status.innerHTML = '';
+    }
+}
+
+async function saveGithubToken() {
+    const token = (document.getElementById('gh-token')?.value || '').trim();
+    const status = document.getElementById('gh-token-status');
+    if (!token) {
+        status.innerHTML = '<span style="color:var(--red);">Paste your token first.</span>';
+        return;
+    }
+    // Accept any GitHub token format: ghp_ (classic PAT), github_pat_ (fine-grained), gho_ (OAuth)
+    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_') && !token.startsWith('gho_')) {
+        status.innerHTML = '<span style="color:var(--red);">Not a recognized GitHub token (expected ghp_, github_pat_, or gho_ prefix)</span>';
+        return;
+    }
+
+    status.innerHTML = '<span style="color:var(--accent);">Saving...</span>';
+    try {
+        const res = await fetch('/api/settings/features', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ github_pat: token }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            status.innerHTML = '<span style="color:var(--green);">✓ Token saved securely</span>';
+            _wz.data._github_token_saved = true;
+            document.getElementById('gh-token').value = '';
+            document.getElementById('gh-token').placeholder = '••••••••••••• (saved)';
+        } else {
+            status.innerHTML = `<span style="color:var(--red);">Error: ${data.error || 'Unknown'}</span>`;
+        }
+    } catch (e) {
+        status.innerHTML = `<span style="color:var(--red);">Error: ${e.message}</span>`;
+    }
+}
+
+async function createGithubRepo() {
+    const repo = (document.getElementById('gh-repo')?.value || '').trim();
+    const status = document.getElementById('gh-status');
+
+    if (!repo || !repo.includes('/')) {
+        status.innerHTML = '<span style="color:var(--red);">Enter owner/repo-name first.</span>';
+        return;
+    }
+
+    const repoName = repo.split('/')[1];
+    status.innerHTML = '<span style="color:var(--accent);">Creating repo...</span>';
+
+    try {
+        const res = await fetch('/api/sites/github/create-repo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: repoName }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            status.innerHTML = `<span style="color:var(--green);">✓ Created ${_esc(data.full_name)}</span>`;
+            document.getElementById('gh-repo').value = data.full_name;
+        } else {
+            status.innerHTML = `<span style="color:var(--red);">${data.error || 'Failed'}</span>`;
+        }
+    } catch (e) {
+        status.innerHTML = `<span style="color:var(--red);">Error: ${e.message}</span>`;
+    }
+}
+
+async function testGithubConnection() {
+    const repo = (document.getElementById('gh-repo')?.value || '').trim();
+    const status = document.getElementById('gh-status');
+
+    if (!repo) {
+        status.innerHTML = '<span style="color:var(--red);">Enter a repo first.</span>';
+        return;
+    }
+
+    status.innerHTML = '<span style="color:var(--accent);">Testing...</span>';
+    try {
+        const res = await fetch(`/api/sites/github/test?repo=${encodeURIComponent(repo)}`);
+        const data = await res.json();
+        if (data.ok) {
+            status.innerHTML = `<span style="color:var(--green);">✓ Connected — ${_esc(data.description || 'repo accessible')}</span>`;
+        } else {
+            status.innerHTML = `<span style="color:var(--red);">✗ ${data.error || 'Cannot access repo'}</span>`;
+        }
+    } catch (e) {
+        status.innerHTML = `<span style="color:var(--red);">Error: ${e.message}</span>`;
+    }
+}
+
+function githubNext() {
+    const repo = (document.getElementById('gh-repo')?.value || '').trim();
+    const branch = (document.getElementById('gh-branch')?.value || 'main').trim();
+    _wz.complete('connect-github', { github_repo: repo || null, github_branch: branch });
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Cloudflare step handler
+// ═════════════════════════════════════════════════════════════════════
+function cloudflareNext() {
+    const project = (document.getElementById('cf-project')?.value || '').trim();
+    _wz.complete('connect-cloudflare', { cloudflare_project: project || null });
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Delete site
+// ═════════════════════════════════════════════════════════════════════
+async function deleteSite(domain) {
+    if (!domain) return;
+    if (!confirm(`Delete ${domain}? This removes the site config from the system. Your GitHub repo and Cloudflare project are NOT affected.`)) return;
+
+    try {
+        const res = await fetch(`/api/sites/${encodeURIComponent(domain)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.ok) {
+            await loadSites();
+            showView('v-home');
+        } else {
+            alert('Delete failed: ' + (data.error || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Error: ' + e.message);
+    }
+}
+
+</script>
+</body>
+</html>

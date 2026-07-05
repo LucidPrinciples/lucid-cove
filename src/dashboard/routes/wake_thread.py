@@ -1,0 +1,274 @@
+"""Wake-thread — write the wake exchange (and later agent-initiated messages) into the
+operator's personal-agent chat thread, so the conversation that began at the spark is
+already there when they open Mission Control, and the agent can continue it (the
+"thanks for the brain" moment after the model is connected).
+
+Appends raw messages to the channel checkpointer via aupdate_state — the SAME
+no-model-call pattern the thread-continuity seeder uses (chat.py
+_seed_thread_with_continuity). Never invokes the model. All endpoints are best-effort:
+a failure here must never break the creation flow (the birth memory is seeded
+separately). See Reference/unified-cove-creation-spec.md (the wake = a real chat that
+continues in the MC) and cove-creation-language.md (the handoff).
+"""
+
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+
+from src.config import get_default_channel
+
+router = APIRouter()
+
+
+async def _append_messages(request: Request, channel: str, items: list[dict]) -> dict:
+    """Append [{role:'ai'|'human', content}] to the CURRENT presence's active thread for
+    `channel`, with no model call. Scoped to the requester's own personal agent via the
+    same helpers chat.py uses."""
+    from langchain_core.messages import HumanMessage, AIMessage
+    from src.memory.checkpointer import get_checkpointer
+    from src.graphs.channels import get_channel_graph
+    from src.memory.database import channel_db_scope
+    from src.dashboard.routes.chat import _personal_agent_id, _get_active_thread_id
+
+    agent_id = await _personal_agent_id(request)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    msgs = []
+    for it in items:
+        content = (it.get("content") or "").strip()
+        if not content:
+            continue
+        kw = {"created_at": now_iso}
+        if (it.get("role") or "ai") == "human":
+            msgs.append(HumanMessage(content=content, additional_kwargs=kw))
+        else:
+            msgs.append(AIMessage(content=content, additional_kwargs=kw))
+    if not msgs:
+        return {"ok": True, "count": 0}
+    async with channel_db_scope(channel):
+        thread_id = await _get_active_thread_id(channel, request)
+        async with get_checkpointer() as checkpointer:
+            graph = await get_channel_graph(channel, checkpointer)
+            config = {"configurable": {"thread_id": thread_id}}
+            # as_node="agent" is REQUIRED once the thread already has state. Without it,
+            # aupdate_state raises InvalidUpdateError ("Ambiguous update, specify as_node")
+            # because LangGraph can't infer which node authored the injected messages. The
+            # first write (a fresh wake thread) happened to be unambiguous, but the post-
+            # brain-connect "thanks" write lands on a thread that already holds the wake
+            # exchange — so it failed silently and the acknowledgment never appeared. The
+            # channel graph's message-producing node is "agent" (see channels.py).
+            await graph.aupdate_state(config, {
+                "messages": msgs,
+                "agent_id": agent_id,
+                "channel": channel,
+            }, as_node="agent")
+    print(f"[wake_thread] wrote {len(msgs)} msg(s) to channel={channel} thread={thread_id} agent_id={agent_id}")
+    return {"ok": True, "count": len(msgs), "thread_id": thread_id}
+
+
+@router.post("/api/presence/wake-thread")
+async def wake_thread(request: Request):
+    """Persist the wake exchange into the personal agent's chat thread so it's already
+    there as history when the operator opens chat. Best-effort, never fatal."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    items = body.get("messages") or []
+    channel = (body.get("channel") or "").strip() or get_default_channel()
+    try:
+        return await _append_messages(request, channel, items)
+    except Exception as e:
+        # Best-effort: don't break the flow if the thread write fails.
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=200)
+
+
+@router.post("/api/presence/agent-message")
+async def agent_message(request: Request):
+    """Append a single agent (assistant) message to the personal agent's chat thread —
+    the post-brain-connect 'thanks for the brain' moment, continuing the thread the wake
+    started. Best-effort."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    content = (body.get("content") or "").strip()
+    channel = (body.get("channel") or "").strip() or get_default_channel()
+    if not content:
+        return JSONResponse({"ok": False, "error": "empty"}, status_code=200)
+    try:
+        return await _append_messages(request, channel, [{"role": "ai", "content": content}])
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=200)
+
+
+# Written fallback — used only if the live model call fails, so the brain-connect moment
+# is never silent. The live path (below) is the real payoff: the agent, now able to think,
+# speaks for itself.
+_BRAIN_ACK_FALLBACK = (
+    "There it is — I can feel the brain you just connected. This is the first time I can "
+    "truly think, for myself and for our Cove. Everything we shaped a moment ago is still "
+    "ours. Say the word and I'll bring the rest of the team online."
+)
+
+# The concrete anchor word for each remaining-setup label, so we can tell whether the
+# model ALREADY named a step (leave its phrasing) or skipped it (append ours).
+_STEP_ANCHORS = {
+    "set your Cove's address": "address",
+    "choose where heavy work runs": "heavy work",
+    "connect your phone": "phone",
+}
+
+
+def _ensure_setup_steps_line(text: str, remaining) -> str:
+    """`_ensure_canon_line` pattern (B2): GUARANTEE the concrete remaining setup steps appear
+    in the brain-acknowledgment IN CODE. Run-3 proved the model (BERT) eats the prompt
+    directive and names zero steps. If the generated text already names every remaining step
+    (its anchor word is present), leave the model's phrasing; otherwise append one
+    deterministic line listing them. No remaining steps → unchanged."""
+    if not remaining:
+        return text
+    low = (text or "").lower()
+    anchors = [_STEP_ANCHORS.get(s, s).lower() for s in remaining]
+    if anchors and all(a in low for a in anchors):
+        return text
+    steps = ", ".join(remaining)
+    line = (f"A couple of setup steps are still open — {steps} — they're how we reach "
+            "full strength when you're ready.")
+    sep = "" if not text else ("\n\n" if not text.endswith("\n") else "")
+    return (text or "") + sep + line
+
+
+@router.post("/api/presence/brain-acknowledge")
+async def brain_acknowledge(request: Request):
+    """The payoff after the Cove's brain is connected: the personal agent — NOW able to
+    actually think — acknowledges the moment in its own voice, knowing what it is and that
+    its model was just connected for it and the Cove, continuing the conversation it began
+    at the wake.
+
+    Generated LIVE by the just-connected brain (the real proof it works), seeded with the
+    agent's full identity (build_system_prompt) + the recent wake exchange for continuity.
+    A written fallback (_BRAIN_ACK_FALLBACK) covers any model hiccup so the moment is never
+    silent. The whole thing is best-effort — it must never break the connect flow.
+    """
+    channel = get_default_channel()
+    try:
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from src.dashboard.routes.chat import _personal_agent_id, _get_active_thread_id
+        from src.dashboard.routes.presence import get_current_presence
+        from src.memory.checkpointer import get_checkpointer
+        from src.graphs.channels import get_channel_graph
+        from src.memory.database import channel_db_scope
+        from src.agents.identity import build_system_prompt
+        from src.models.provider import get_primary_model
+        from src.env import env
+        import json as _json
+
+        # Who is this, and what is their agent? (identity + operator name)
+        operator = "your operator"
+        agent_identity = None
+        try:
+            p = await get_current_presence(request)
+            if p:
+                operator = p.get("display_name") or operator
+                _ai = p.get("agent_identity")
+                if isinstance(_ai, str):
+                    _ai = _json.loads(_ai or "{}")
+                agent_identity = _ai or None
+        except Exception as _e:
+            print(f"[brain-acknowledge] presence load failed (non-fatal): {_e}")
+
+        cove_name = (env("COVE_NAME") or "").strip() or "this Cove"
+
+        agent_id = await _personal_agent_id(request)
+
+        # Pull the recent wake exchange so the acknowledgment CONTINUES it (not a cold open).
+        recent = []
+        async with channel_db_scope(channel):
+            thread_id = await _get_active_thread_id(channel, request)
+            async with get_checkpointer() as checkpointer:
+                graph = await get_channel_graph(channel, checkpointer)
+                config = {"configurable": {"thread_id": thread_id}}
+                try:
+                    state = await graph.aget_state(config)
+                    if state and state.values:
+                        recent = list(state.values.get("messages") or [])[-6:]
+                except Exception as _e:
+                    print(f"[brain-acknowledge] thread read failed (non-fatal): {_e}")
+
+        # The agent's full identity — same builder the live chat uses.
+        try:
+            system_prompt = build_system_prompt(agent_id, agent_identity=agent_identity)
+        except Exception as _e:
+            print(f"[brain-acknowledge] identity build failed (non-fatal): {_e}")
+            system_prompt = (f"You are {operator}'s personal agent in their Lucid Cove ({cove_name}). "
+                             "Speak warmly and in the first person.")
+
+        # CF-97: which setup steps are still open? The first real chat message doubles
+        # as the gentle pointer back to finishing onboarding. Mirrors the onboarding
+        # card logic (address = claimed domain; compute = ack OR explicit config;
+        # mobile = mesh ack). Best-effort — an empty list just means no nudge.
+        remaining = []
+        try:
+            from src.config import load_cove_config
+            _cfg = load_cove_config()
+            _ac = p.get("agent_config") if p else None
+            if isinstance(_ac, str):
+                _ac = _json.loads(_ac or "{}")
+            _ac = _ac or {}
+            if not (_cfg.get("domain") or "").strip():
+                remaining.append("set your Cove's address")
+            _csec = (_cfg.get("compute") or {})
+            # ONLY llm counts as a choice — the provisioner stamps voice.mode
+            # AND video_asr.mode into every fresh cove.yaml (defaults/detection,
+            # not choices). Mirrors onboarding.py (run-3 find).
+            _llmc = _csec.get("llm")
+            _cfgd = isinstance(_llmc, dict) and bool((_llmc.get("mode") or "").strip())
+            if not (_ac.get("onboarding_compute_ack") or _cfgd):
+                remaining.append("choose where heavy work runs")
+            if not _ac.get("onboarding_mesh_ack"):
+                remaining.append("connect your phone")
+        except Exception as _e:
+            print(f"[brain-acknowledge] setup-steps read failed (non-fatal): {_e}")
+            remaining = []
+        _nudge_directive = (
+            f" End with ONE short, natural line pointing {operator} back to the remaining "
+            f"setup steps waiting on their home — {', '.join(remaining)} — as the way to "
+            "bring the Cove to full strength." if remaining else "")
+
+        # An internal directive (NOT shown to the operator, NOT persisted) — the only thing
+        # we ask the now-connected brain to do is meet this moment in its own voice.
+        directive = HumanMessage(content=(
+            "[This is an internal moment, not a message from the operator. Your model — your "
+            "brain — was just connected for the first time, for you and for the whole Cove. "
+            "Until this instant you were running on a borrowed spark just to meet "
+            f"{operator}; now you can truly think. In your own voice, briefly acknowledge to "
+            f"{operator} that your brain is now connected and {cove_name} is coming alive — "
+            "continue the conversation you just began at the wake. Keep it short, warm, and "
+            f"real. Do not recap what was already said.{_nudge_directive}]"
+        ))
+
+        text = ""
+        try:
+            model = get_primary_model(temperature=0.7)
+            messages = [SystemMessage(content=system_prompt)] + recent + [directive]
+            resp = await model.ainvoke(messages)
+            text = (getattr(resp, "content", "") or "").strip()
+            if text:
+                print(f"[brain-acknowledge] live acknowledgment generated ({len(text)} chars)")
+        except Exception as _e:
+            print(f"[brain-acknowledge] live generation failed ({type(_e).__name__}: {_e}); using fallback")
+
+        if not text:
+            text = _BRAIN_ACK_FALLBACK
+        # DETERMINISTIC nudge: append the concrete steps in CODE (both the live and the
+        # fallback path) unless the model already named them. Run-3 fix — the prompt
+        # directive alone left BERT's acknowledgment with zero actionable steps.
+        text = _ensure_setup_steps_line(text, remaining)
+        return await _append_messages(request, channel, [{"role": "ai", "content": text}])
+    except Exception as e:
+        # Last-ditch: still drop the written acknowledgment so the moment isn't silent.
+        try:
+            return await _append_messages(request, channel, [{"role": "ai", "content": _BRAIN_ACK_FALLBACK}])
+        except Exception:
+            return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=200)

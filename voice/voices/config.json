@@ -1,0 +1,21 @@
+{
+  "default": "en_US-lessac-medium",
+  "agents": {
+    "stuart": "en_GB-alan-medium",
+    "atlas": "en_US-ryan-high",
+    "mercer": "en_GB-cori-high"
+  },
+  "available": [
+    {"id": "en_US-ryan-high", "label": "Ryan (American, high)", "gender": "male"},
+    {"id": "en_US-lessac-high", "label": "Lessac (American, high)", "gender": "female"},
+    {"id": "en_GB-alan-medium", "label": "Alan (British male)", "gender": "male"},
+    {"id": "en_US-amy-medium", "label": "Amy (American female)", "gender": "female"},
+    {"id": "en_US-kristin-medium", "label": "Kristin (American female)", "gender": "female"},
+    {"id": "en_US-joe-medium", "label": "Joe (American male)", "gender": "male"},
+    {"id": "en_US-bryce-medium", "label": "Bryce (American male)", "gender": "male"},
+    {"id": "en_US-norman-medium", "label": "Norman (American male)", "gender": "male"},
+    {"id": "en_GB-cori-high", "label": "Cori (British female, high)", "gender": "female"},
+    {"id": "en_GB-northern_english_male-medium", "label": "Northern (British male)", "gender": "male"},
+    {"id": "en_GB-jenny_dioco-medium", "label": "Jenny (British female)", "gender": "female"}
+  ]
+}

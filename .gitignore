@@ -1,0 +1,29 @@
+data/mirrors/music-mirror-outputs/.DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Deploy cache-bust timestamp (generated each deploy)
+.build-version
+
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Instance config — keep the .example files, ignore the real ones
+config/cove.yaml
+config/agent.yaml
+docker/docker-compose.yml
+
+# Local data / runtime
+data/logs/
+data/scratch/
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store

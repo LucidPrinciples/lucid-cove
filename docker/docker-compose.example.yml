@@ -1,0 +1,109 @@
+# =============================================================================
+# cove-core — Base Docker Compose (EXAMPLE)
+# =============================================================================
+# A single-stack Cove: the cove-core app + Postgres (pgvector) + Nextcloud + Redis.
+# This is the self-host starting point — no founder infrastructure, no external
+# networks, no host-specific mounts. Single-agent by default; set COVE_MODE=multi
+# for a multi-Presence family Cove.
+#
+# Quick start (see QUICKSTART.md for detail):
+#   1. cp ../.env.example ../.env         # then fill in passwords + a model provider
+#   2. cp ../config/cove.yaml.example ../config/cove.yaml
+#      cp ../config/agent.yaml.example ../config/agent.yaml
+#   3. cp docker-compose.example.yml docker-compose.yml
+#   4. docker compose up -d --build
+#
+# Then open http://localhost:8200 (the app) and http://localhost:8081 (Nextcloud).
+# =============================================================================
+
+name: cove
+
+services:
+  # ── Postgres (pgvector) — the Cove's memory + state ──────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16@sha256:7d400e340efb42f4d8c9c12c6427adb253f726881a9985d2a471bf0eed824dff
+    container_name: cove-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cove}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-cove}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Base schema — shipped in the repo. Runs once on first init.
+      - ./init-base.sql:/docker-entrypoint-initdb.d/00-base.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"   # bound to localhost only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cove}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Nextcloud — the Cove's files / calendar / contacts ───────────────────
+  # Uses SQLite by default (simple, fine for a single family). To scale, point
+  # it at the postgres service with its own database/user instead.
+  nextcloud:
+    image: nextcloud:29-apache@sha256:a7fbfcd4759bdd19b8fb8b1044b47ee3a9471d2e2c8bc68d56a2e671f86cebd2
+    container_name: cove-nextcloud
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_started
+    environment:
+      SQLITE_DATABASE: nextcloud
+      NEXTCLOUD_ADMIN_USER: ${NC_ADMIN_USER:-admin}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NC_ADMIN_PASSWORD:?set NC_ADMIN_PASSWORD in .env}
+      NEXTCLOUD_TRUSTED_DOMAINS: "cove-nextcloud localhost ${NEXTCLOUD_TRUSTED_DOMAIN:-}"
+      REDIS_HOST: redis
+      PHP_MEMORY_LIMIT: 512M
+      PHP_UPLOAD_LIMIT: 512M
+    volumes:
+      - nextcloud_data:/var/www/html
+    ports:
+      - "8081:80"
+
+  redis:
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    container_name: cove-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  # ── cove-core app — Mission Control + agents + scheduler ─────────────────
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: cove-core:latest
+    container_name: cove-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    user: "1000:1000"
+    # All secrets + optional feature config come from .env (see .env.example).
+    env_file:
+      - ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # lets the container reach a host Ollama
+    environment:
+      # Internal service wiring (compose hostnames) — override .env where needed.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cove}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cove}
+      NEXTCLOUD_URL: http://nextcloud:80
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      PORT: ${PORT:-8200}
+      COVE_MODE: ${COVE_MODE:-single}
+    volumes:
+      - ..:/cove-core:ro            # the repo IS cove-core (mounted read-only)
+      - ../config:/app/config:ro    # your cove.yaml + agent.yaml live here
+      - app_data:/app/data          # persistent data (logs, projects, runbooks)
+    ports:
+      - "${PORT:-8200}:${PORT:-8200}"
+
+# Plain named volumes — no external/founder-specific names.
+volumes:
+  postgres_data:
+  nextcloud_data:
+  redis_data:
+  app_data:

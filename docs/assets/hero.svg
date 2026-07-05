@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" role="img" aria-label="Lucid Cove — a private, self-hosted home for your family and its intelligence">
+  <defs>
+    <style>
+      .wordmark { font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 52px; font-weight: 300; letter-spacing: 14px; fill: #e8e8ec; }
+      .tagline  { font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 19px; font-weight: 300; letter-spacing: 1.5px; fill: #b8b8c0; }
+      .sub      { font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; font-size: 12px; font-weight: 400; letter-spacing: 4px; fill: #6a6a78; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="340" rx="14" fill="#0a0a0f"/>
+
+  <!-- arch mark -->
+  <g transform="translate(120,62) scale(0.48)">
+    <path d="M 75,380 Q 75,130 250,55 Q 425,130 425,380" fill="none" stroke="#4682b4" stroke-width="12" stroke-linecap="butt"/>
+    <path d="M 150,380 Q 150,200 250,130 Q 350,200 350,380" fill="none" stroke="#5ce1e6" stroke-width="24" stroke-linecap="butt"/>
+    <line x1="69" y1="380" x2="431" y2="380" stroke="#4682b4" stroke-width="7" stroke-linecap="butt"/>
+    <circle cx="250" cy="282" r="15" fill="#5ce1e6"/>
+  </g>
+
+  <!-- wordmark + tagline -->
+  <text class="sub" x="420" y="118">LUCID PRINCIPLES</text>
+  <text class="wordmark" x="416" y="182">LUCID COVE</text>
+  <line x1="420" y1="212" x2="480" y2="212" stroke="#7c5cff" stroke-width="1" opacity="0.5"/>
+  <text class="tagline" x="420" y="248">A private, self-hosted home for your family</text>
+  <text class="tagline" x="420" y="280">and its intelligence. Where everyone is tuning.</text>
+</svg>

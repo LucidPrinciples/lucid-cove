@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quick Setup — Create a Presence</title>
+<style>
+:root {
+  --accent: #5ce1e6;
+  --accent-glow: rgba(92, 225, 230, 0.4);
+  --accent-subtle: rgba(92, 225, 230, 0.13);
+  --accent-border: rgba(92, 225, 230, 0.28);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.flow-container { max-width: 720px; margin: 0 auto; padding: 24px; }
+
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.header h1 { font-size: 18px; font-weight: 600; color: var(--accent); transition: color .3s; }
+.header a { color: #888; text-decoration: none; font-size: 13px; }
+.flow-subtitle { color: #777; font-size: 13px; margin-bottom: 28px; line-height: 1.6; }
+
+.panel { display: none; animation: fadeIn .3s ease; }
+.panel.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 600; margin-bottom: 4px; transition: color .3s; }
+.section-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; line-height: 1.2; }
+.section-desc { font-size: 13.5px; color: #999; line-height: 1.65; margin-bottom: 24px; }
+
+/* -- Preset gallery -- */
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+.preset-card {
+  background: #14141c; border: 1px solid #24242f; border-radius: 12px;
+  padding: 18px; cursor: pointer; transition: transform .15s, border-color .2s, box-shadow .2s;
+  position: relative; overflow: hidden;
+}
+.preset-card:hover { transform: translateY(-2px); border-color: var(--pc); box-shadow: 0 6px 22px rgba(0,0,0,0.35); }
+.preset-card .pc-dot { width: 30px; height: 30px; border-radius: 50%; background: var(--pc); box-shadow: 0 0 16px var(--pc); margin-bottom: 12px; opacity: .9; }
+.preset-card .pc-arch { font-size: 16px; font-weight: 700; color: #f0f0f5; margin-bottom: 6px; }
+.preset-card .pc-freq { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--pc); font-weight: 600; margin-bottom: 10px; }
+.preset-card .pc-blurb { font-size: 12.5px; color: #9a9aa8; line-height: 1.55; }
+.preset-card .pc-key { font-size: 11px; color: #6a6a78; font-style: italic; margin-top: 10px; }
+
+/* -- Form -- */
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 13px; font-weight: 500; color: #bbb; margin-bottom: 8px; }
+.field .hint { color: #777; font-weight: 400; }
+.field input, .field select {
+  width: 100%; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 6px;
+  padding: 11px 14px; color: #e1e4ea; font-size: 14px; font-family: inherit;
+}
+.field input:focus, .field select:focus { outline: none; border-color: var(--accent-border); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+.chosen { display: flex; align-items: center; gap: 12px; background: #14141c; border: 1px solid var(--accent-border); border-radius: 10px; padding: 14px 16px; margin-bottom: 22px; }
+.chosen .c-dot { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--accent); flex-shrink: 0; }
+.chosen .c-arch { font-weight: 700; color: #f0f0f5; }
+.chosen .c-sub { font-size: 12px; color: #999; }
+.chosen .c-change { margin-left: auto; font-size: 12px; color: var(--accent); cursor: pointer; background: none; border: none; }
+
+/* -- Dials -- */
+.dials { margin: 8px 0 22px; }
+.dials-toggle { font-size: 12.5px; color: var(--accent); cursor: pointer; user-select: none; margin-bottom: 6px; display: inline-block; }
+.dials-body { display: none; padding: 14px 0 2px; }
+.dials-body.open { display: block; }
+.dial { margin-bottom: 14px; }
+.dial .d-row { display: flex; justify-content: space-between; font-size: 12.5px; color: #bbb; margin-bottom: 5px; }
+.dial .d-val { color: var(--accent); font-weight: 600; }
+.dial input[type=range] { width: 100%; accent-color: var(--accent); }
+
+/* -- Buttons -- */
+.btn { background: var(--accent); color: #06121a; border: none; border-radius: 8px; padding: 12px 22px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
+.btn:hover { opacity: .9; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn-ghost { background: none; color: #999; border: 1px solid #2a2d3a; }
+.nav-row { display: flex; justify-content: space-between; margin-top: 26px; }
+
+.result { background: #14141c; border: 1px solid var(--accent-border); border-radius: 12px; padding: 22px; }
+.result h3 { color: var(--accent); font-size: 18px; margin-bottom: 8px; }
+.result .r-line { font-size: 13px; color: #aaa; margin-bottom: 14px; }
+.result .magic { background: #0e0e16; border: 1px solid #24242f; border-radius: 8px; padding: 12px 14px; font-size: 12.5px; color: var(--accent); word-break: break-all; }
+.result .r-note { font-size: 12px; color: #888; margin-top: 12px; line-height: 1.6; }
+.err { color: #ff6b5c; }
+</style>
+</head>
+<body>
+<div class="flow-container">
+  <div class="header">
+    <h1 id="hdr">Quick Setup</h1>
+    <a href="/" id="close-link">Close</a>
+  </div>
+  <div class="flow-subtitle">Pick a starting archetype, give your agent a name, and it's ready. You can deepen it any time.</div>
+
+  <!-- PANEL 1: gallery -->
+  <div class="panel active" id="panel-gallery">
+    <div class="section-label">Choose an archetype</div>
+    <div class="section-title">Pick a place to start</div>
+    <div class="section-desc">Each archetype carries a frequency and a Canon tuning key. None of these are locked &mdash; you can rename, re-tune, and reshape later.</div>
+    <div class="preset-grid" id="preset-grid"><div style="color:#777;font-size:13px;">Loading archetypes&hellip;</div></div>
+  </div>
+
+  <!-- PANEL 2: name + person -->
+  <div class="panel" id="panel-name">
+    <div class="section-label" id="name-label">Name &amp; assign</div>
+    <div class="section-title">Name your agent</div>
+    <div class="section-desc">Who is this Presence for, and what's the agent's name?</div>
+
+    <div class="chosen" id="chosen-box">
+      <div class="c-dot"></div>
+      <div>
+        <div class="c-arch" id="chosen-arch"></div>
+        <div class="c-sub" id="chosen-sub"></div>
+      </div>
+      <button class="c-change" onclick="backToGallery()">Change</button>
+    </div>
+
+    <div class="row2">
+      <div class="field" id="op-person-field">
+        <label>Person's name <span class="hint">(the operator/member)</span></label>
+        <input id="f-person" type="text" placeholder="e.g. Dennis" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Agent name</label>
+        <input id="f-agent" type="text" placeholder="e.g. Sol" autocomplete="off">
+      </div>
+    </div>
+    <div class="field" style="max-width:50%;">
+      <label>Nickname <span class="hint">(optional &mdash; what you'll call them, e.g. Stu)</span></label>
+      <input id="f-nickname" type="text" placeholder="e.g. Stu" autocomplete="off">
+    </div>
+    <div class="row2" id="op-handle-row">
+      <div class="field">
+        <label>Handle <span class="hint">(the @ &mdash; their address &amp; MC URL, not their name)</span></label>
+        <input id="f-handle" type="text" placeholder="e.g. dennis" autocomplete="off" spellcheck="false">
+        <div id="handle-status" class="hint" style="margin-top:4px;min-height:15px;"></div>
+      </div>
+      <div class="field"></div>
+    </div>
+    <div class="row2" id="op-emailrole-row">
+      <div class="field">
+        <label>Email <span class="hint">(optional &mdash; sends a sign-in link)</span></label>
+        <input id="f-email" type="email" placeholder="name@example.com" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Role</label>
+        <select id="f-role">
+          <option value="member">Member</option>
+          <option value="admin">Admin</option>
+          <option value="guest">Guest</option>
+        </select>
+      </div>
+    </div>
+    <div class="field" style="max-width:50%;">
+      <label>Pronouns</label>
+      <select id="f-pronouns">
+        <option value="he/him">he / him</option>
+        <option value="she/her">she / her</option>
+        <option value="it/its">it / its</option>
+      </select>
+    </div>
+
+    <style>
+      .lp-chip{display:inline-block;padding:5px 10px;margin:3px 4px 3px 0;border:1px solid #2a2d3a;border-radius:14px;font-size:12.5px;cursor:pointer;user-select:none;color:#cfcfe0;}
+      .lp-chip .hint{font-size:10.5px;}
+      .chip-row{margin:2px 0 6px;}
+      #lens-add,#lens-pref,#lens-statement{width:100%;background:#1a1d27;border:1px solid #2a2d3a;border-radius:6px;padding:9px 12px;color:#e1e4ea;font-size:13.5px;margin-top:6px;box-sizing:border-box;font-family:inherit;}
+    </style>
+
+    <div class="dials">
+      <div id="dials-sentence" style="font-size:13px;color:#bfc3cc;margin-bottom:6px;font-style:italic;"></div>
+      <span class="dials-toggle" id="dials-toggle" onclick="toggleDials()">&#9656; Tune how they show up</span>
+      <div class="dials-body" id="dials-body"></div>
+    </div>
+
+    <div class="field">
+      <label>Shade <span class="hint">(optional &mdash; a secondary energy this agent leans into)</span></label>
+      <div id="shade-chips" class="chip-row"></div>
+    </div>
+
+    <div class="field">
+      <label>Lens <span class="hint">(optional &mdash; how this agent sees)</span></label>
+      <div id="lens-chips" class="chip-row"></div>
+      <input id="lens-add" type="text" placeholder="Add your own — type and press Enter (e.g. faith-centered)" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();addLensChip();}">
+      <textarea id="lens-statement" rows="2" placeholder="Anything else that should shape how they see (optional)"></textarea>
+      <input id="lens-pref" type="text" placeholder="Hold a line — e.g. never say Star Wars is better than Star Trek (Enter to add)" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();addPref();}">
+      <div id="lens-prefs" class="chip-row"></div>
+      <div class="hint" style="margin-top:5px;line-height:1.5;">Everything here rides along in their mind on every response. It is how they see, not a one-time note. You can change it anytime in their Profile.</div>
+    </div>
+
+    <div class="nav-row">
+      <button class="btn btn-ghost" onclick="backToGallery()">&larr; Back</button>
+      <button class="btn" id="create-btn" onclick="toReveal()">Continue &rarr;</button>
+    </div>
+  </div>
+
+  <!-- PANEL: Bring to Life reveal -->
+  <div class="panel" id="panel-reveal">
+    <div style="text-align:center;padding:28px 20px;background:#14141c;border:1px solid #24242f;border-radius:14px;margin-bottom:18px;">
+      <div id="rv-orb" style="width:84px;height:84px;border-radius:50%;background:var(--accent);box-shadow:0 0 24px var(--accent);margin:0 auto 18px;background-size:cover;background-position:center;"></div>
+      <div id="rv-name" style="font-size:30px;font-weight:800;color:#f0f0f5;margin-bottom:4px;"></div>
+      <div id="rv-arch" style="font-size:15px;font-weight:600;color:var(--accent);margin-bottom:14px;"></div>
+      <div id="rv-desc" style="font-size:13.5px;color:#9a9aa8;line-height:1.6;max-width:440px;margin:0 auto 16px;"></div>
+      <div id="rv-meta" style="font-size:12px;color:#888;letter-spacing:.04em;margin-bottom:14px;"></div>
+      <blockquote id="rv-key" style="font-size:13px;color:#cfcfe0;font-style:italic;border-left:3px solid var(--accent);padding:8px 14px;text-align:left;max-width:440px;margin:0 auto;background:rgba(255,255,255,0.02);"></blockquote>
+      <div id="rv-personality" style="font-size:12.5px;color:#9a9aa8;font-style:italic;max-width:440px;margin:14px auto 0;"></div>
+      <div id="rv-lens" style="font-size:12px;color:#9a9aa8;max-width:440px;margin:8px auto 0;line-height:1.6;"></div>
+    </div>
+    <div id="team-showcase" style="margin-bottom:18px;"></div>
+    <div class="nav-row">
+      <button class="btn btn-ghost" onclick="show('panel-name')">&larr; Back</button>
+      <button class="btn" id="bring-btn" onclick="createPresence()">Bring to Life</button>
+    </div>
+  </div>
+
+  <!-- PANEL: the wake moment -->
+  <div class="panel" id="panel-wake">
+    <div style="text-align:center;padding:30px 20px;background:#14141c;border:1px solid #24242f;border-radius:14px;margin-bottom:18px;">
+      <div id="wake-orb" style="width:46px;height:46px;border-radius:50%;background:var(--accent);box-shadow:0 0 30px var(--accent);margin:0 auto 20px;"></div>
+      <div id="wake-greeting" style="font-size:17px;color:#f0f0f5;line-height:1.6;max-width:460px;margin:0 auto 18px;">Waking&hellip;</div>
+      <div id="wake-question" style="font-size:14px;color:var(--accent);max-width:460px;margin:0 auto 14px;"></div>
+      <textarea id="wake-answer" rows="3" placeholder="Say hello back&hellip;" style="width:100%;max-width:460px;background:#1a1d27;border:1px solid #2a2d3a;border-radius:8px;padding:11px 14px;color:#e1e4ea;font-size:14px;box-sizing:border-box;font-family:inherit;"></textarea>
+    </div>
+    <div class="nav-row">
+      <span></span>
+      <button class="btn" id="wake-continue" onclick="finishWake()">Continue into your Cove &rarr;</button>
+    </div>
+  </div>
+
+  <!-- PANEL 3: result -->
+  <div class="panel" id="panel-result"></div>
+</div>
+
+<script>
+const DIAL_KEYS = ["directness", "warmth", "humor", "challenge", "formality"];
+const DIAL_LABELS = { directness: "Directness", warmth: "Warmth", humor: "Humor", challenge: "Challenge", formality: "Formality" };
+let PRESETS = [];
+let chosen = null;
+
+// Shade — optional secondary frequency (the four the nine archetypes don't cover).
+const SHADE_OPTIONS = [
+  { name: 'Boundary',  color: '#4682b4', desc: 'protection, discernment' },
+  { name: 'Gratitude', color: '#ffd700', desc: 'appreciation, value' },
+  { name: 'Release',   color: '#9370db', desc: 'letting go, transition' },
+  { name: 'Peace',     color: '#5ce1e6', desc: 'calm, centered flow' },
+];
+const LENS_STARTER_CHIPS = ['Faith-centered','Pragmatic builder','Gentle mentor','Straight shooter','Scholarly','Playful','Big-picture','Detail-focused'];
+let _shade = '';
+let _lensChips = new Set();
+let _lensPrefs = [];
+
+function cap(s){ return (s || '').charAt(0).toUpperCase() + (s || '').slice(1); }
+function personalitySentence(v){
+  const g = x => (x >= 66 ? 2 : (x >= 34 ? 1 : 0));
+  const d = g(v.directness ?? 50), w = g(v.warmth ?? 50), h = g(v.humor ?? 50), c = g(v.challenge ?? 50), f = g(v.formality ?? 50);
+  const dWord = ['gentle','plainspoken','very direct'][d];
+  const wWord = ['cool and measured','warm','deeply warm'][w];
+  let s = cap(dWord) + ' and ' + wWord;
+  const extra = [];
+  if (h === 2) extra.push('quick with humor'); else if (h === 0) extra.push('serious in tone');
+  if (c === 2) extra.push('will push you'); else if (c === 0) extra.push('easygoing');
+  if (f === 2) extra.push('formal and precise'); else if (f === 0) extra.push('casual');
+  if (extra.length) s += ', ' + extra.join(', ');
+  return s + '.';
+}
+function renderShade(){
+  const el = document.getElementById('shade-chips'); if (!el) return;
+  el.innerHTML = SHADE_OPTIONS.map(o => {
+    const on = _shade === o.name;
+    return `<span class="lp-chip" onclick="toggleShade('${o.name}')" style="border-color:${o.color}${on?'':'55'};background:${on?o.color+'22':'transparent'};color:${on?'#fff':'#cfcfe0'}"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${o.color};margin-right:6px;vertical-align:middle;"></span>${o.name} <span class="hint">${o.desc}</span></span>`;
+  }).join('');
+}
+function toggleShade(n){ _shade = (_shade === n) ? '' : n; renderShade(); }
+function renderLensChips(){
+  const el = document.getElementById('lens-chips'); if (!el) return;
+  const all = Array.from(new Set([...LENS_STARTER_CHIPS, ..._lensChips]));
+  el.innerHTML = all.map(c => {
+    const on = _lensChips.has(c);
+    return `<span class="lp-chip" onclick="toggleLensChip('${c.replace(/'/g,"\\'")}')" style="border-color:var(--accent)${on?'':'55'};background:${on?'rgba(255,255,255,0.06)':'transparent'};color:${on?'#fff':'#cfcfe0'}">${esc(c)}</span>`;
+  }).join('');
+}
+function toggleLensChip(c){ if (_lensChips.has(c)) _lensChips.delete(c); else _lensChips.add(c); renderLensChips(); }
+function addLensChip(){ const i = document.getElementById('lens-add'); const v = (i.value||'').trim(); if (v){ _lensChips.add(v); i.value=''; renderLensChips(); } }
+function renderLensPrefs(){
+  const el = document.getElementById('lens-prefs'); if (!el) return;
+  el.innerHTML = _lensPrefs.map((p,i) => `<span class="lp-chip" style="border-color:#ff8c0088;color:#cfcfe0;cursor:default;">${esc(p)} <span onclick="rmPref(${i})" style="cursor:pointer;color:#ff8c00;margin-left:4px;">&times;</span></span>`).join('');
+}
+function addPref(){ const i = document.getElementById('lens-pref'); const v = (i.value||'').trim(); if (v){ _lensPrefs.push(v); i.value=''; renderLensPrefs(); } }
+function rmPref(i){ _lensPrefs.splice(i,1); renderLensPrefs(); }
+function collectLens(){ return { chips: Array.from(_lensChips), statement: (document.getElementById('lens-statement')?.value||'').trim(), standing_preferences: _lensPrefs.slice() }; }
+
+// ── The wake moment — the agent's first words, before the operator enters the MC ──
+let _wakeRedirect = '/';
+async function enterWake(redirect) {
+  _wakeRedirect = redirect || '/';
+  const agent = document.getElementById('f-agent').value.trim();
+  show('panel-wake');
+  const wOrb = document.getElementById('wake-orb');
+  if (wOrb && chosen && chosen.avatar) {
+    wOrb.style.width = wOrb.style.height = '84px';
+    wOrb.style.backgroundImage = `url('${chosen.avatar}')`;
+    wOrb.style.backgroundSize = 'cover'; wOrb.style.backgroundPosition = 'center';
+    wOrb.style.boxShadow = '0 0 30px ' + (chosen.frequency_color || 'var(--accent)');
+  }
+  const g = document.getElementById('wake-greeting');
+  const q = document.getElementById('wake-question');
+  g.textContent = 'Waking…'; q.textContent = '';
+  try {
+    const r = await fetch('/api/flow/wake', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archetype: chosen.archetype, frequency: chosen.frequency, agent_name: agent, persona: chosen.persona, reflection: '' }),
+    });
+    const d = await r.json();
+    g.textContent = (d && d.greeting) ? d.greeting : ("I'm here. I'm " + agent + ".");
+    q.textContent = (d && d.question) ? d.question : 'What should I know about you first?';
+  } catch (e) {
+    g.textContent = "I'm here. I'm " + agent + ".";
+    q.textContent = 'What should I know about you first?';
+  }
+  const a = document.getElementById('wake-answer'); if (a) a.focus();
+}
+async function finishWake() {
+  const ans = (document.getElementById('wake-answer').value || '').trim();
+  const btn = document.getElementById('wake-continue');
+  btn.disabled = true; btn.textContent = 'Entering…';
+  if (ans) {
+    const q = document.getElementById('wake-question').textContent || '';
+    try {
+      await fetch('/api/presence/seed-memory', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'When we first met, I asked: "' + q + '" They told me: ' + ans, category: 'person', importance: 0.85 }),
+      });
+    } catch (e) { /* non-fatal — the birth memory is already seeded */ }
+  }
+  window.location.href = _wakeRedirect;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function show(id) { document.querySelectorAll('.panel').forEach(p => p.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+function setAccent(color) {
+  if (!color) return;
+  document.documentElement.style.setProperty('--accent', color);
+  document.documentElement.style.setProperty('--accent-border', color + '66');
+}
+
+async function _fetchJSON(url, tries = 10, delay = 2000) {
+  for (let i = 0; i < tries; i++) {
+    try { const r = await fetch(url); if (r.ok) return await r.json(); } catch (e) {}
+    if (i < tries - 1) await new Promise(res => setTimeout(res, delay));
+  }
+  return null;
+}
+async function loadPresets() {
+  const grid = document.getElementById('preset-grid');
+  if (grid) grid.innerHTML = '<div class="hint" style="font-size:13px;">Loading archetypes&hellip;</div>';
+  // First boot can take ~a minute (voice models + KB embedding). Retry through it
+  // instead of giving up on the first try.
+  const data = await _fetchJSON('/api/flow/agent-presets');
+  PRESETS = (data && data.presets) || [];
+  if (!PRESETS.length) { grid.innerHTML = '<div class="err" style="font-size:13px;">Could not load archetypes. Refresh to retry.</div>'; return; }
+  grid.innerHTML = PRESETS.map(p => `
+    <div class="preset-card" style="--pc:${esc(p.frequency_color)}" onclick="pick('${esc(p.id)}')">
+      ${p.avatar ? `<img src="${esc(p.avatar)}" alt="" loading="lazy" style="width:54px;height:54px;border-radius:50%;object-fit:cover;display:block;margin-bottom:8px;border:1px solid ${esc(p.frequency_color)}66;" onerror="this.style.display='none';this.nextElementSibling.style.display='block';"><div class="pc-dot" style="display:none;"></div>` : `<div class="pc-dot"></div>`}
+      <div class="pc-arch">${esc(p.archetype)}</div>
+      <div class="pc-freq">${esc(p.frequency)}</div>
+      <div class="pc-blurb">${esc(p.blurb)}</div>
+      <div class="pc-key">Tuning key &middot; ${esc(p.tuning_key)}</div>
+    </div>`).join('');
+}
+
+function pick(id) {
+  chosen = PRESETS.find(p => p.id === id);
+  if (!chosen) return;
+  setAccent(chosen.frequency_color);
+  document.getElementById('chosen-arch').textContent = chosen.archetype;
+  document.getElementById('chosen-sub').textContent = `${chosen.frequency} · ${chosen.tuning_key}`;
+  document.getElementById('f-pronouns').value = chosen.pronouns || 'it/its';
+  buildDials(chosen.personality || {});
+  renderShade();
+  renderLensChips();
+  renderLensPrefs();
+  show('panel-name');
+  document.getElementById('f-person').focus();
+}
+
+function backToGallery() { setAccent('#5ce1e6'); show('panel-gallery'); }
+
+function toggleDials() {
+  const body = document.getElementById('dials-body');
+  const t = document.getElementById('dials-toggle');
+  const open = body.classList.toggle('open');
+  t.innerHTML = (open ? '&#9662;' : '&#9656;') + ' Fine-tune personality (optional)';
+}
+
+function buildDials(vals) {
+  document.getElementById('dials-body').innerHTML = DIAL_KEYS.map(k => {
+    const v = (vals[k] != null) ? vals[k] : 50;
+    return `<div class="dial">
+      <div class="d-row"><span>${DIAL_LABELS[k]}</span><span class="d-val" id="dv-${k}">${v}</span></div>
+      <input type="range" min="0" max="100" value="${v}" id="d-${k}" oninput="document.getElementById('dv-${k}').textContent=this.value;refreshSentence()">
+    </div>`;
+  }).join('');
+  refreshSentence();
+}
+function refreshSentence() {
+  const el = document.getElementById('dials-sentence');
+  if (el) el.textContent = personalitySentence(collectDials());
+}
+
+function collectDials() {
+  const out = {};
+  DIAL_KEYS.forEach(k => { const el = document.getElementById('d-' + k); if (el) out[k] = parseInt(el.value, 10); });
+  return out;
+}
+
+// The standard team they're getting — shown on the creation moment alongside
+// their own agent. "Here's your Cove: your agent, and your team."
+let _teamLoaded = false;
+async function loadTeamShowcase() {
+  if (_teamLoaded) return;
+  const el = document.getElementById('team-showcase');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/team/roster');
+    const data = await r.json();
+    const team = data.agents || data.team || {};
+    const ids = Object.keys(team).filter(k => team[k] && typeof team[k] === 'object');
+    if (!ids.length) return;
+    _teamLoaded = true;
+    let html = '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#888;text-align:center;margin:4px 0 12px;">&hellip; and your team</div>';
+    html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;">';
+    ids.forEach(id => {
+      const a = team[id];
+      const base = String(id).split('-')[0];
+      // Pre-finalize the server doesn't know the Cove name yet, so team cards show
+      // bare first names — deliberate (Chords, 2026-07-01): the team doesn't wear
+      // the family name until the family exists. Finalize writes the real name to
+      // the DB and every surface composes "First Family" from that single source.
+      const nm = a.name || base;
+      const det = a.archetype || a.role || '';
+      const ini = (String(nm)[0] || '?').toUpperCase();
+      html += '<div style="background:#14141c;border:1px solid #24242f;border-radius:10px;padding:12px;text-align:center;">' +
+        '<div style="position:relative;width:40px;height:40px;margin:0 auto 8px;">' +
+          '<div style="position:absolute;inset:0;border-radius:50%;background:#2a2d3a;color:#cfcfe0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;">' + ini + '</div>' +
+          '<img src="/static/avatars/' + base + '.png" alt="" style="position:absolute;inset:0;width:40px;height:40px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\'">' +
+        '</div>' +
+        '<div style="font-size:12.5px;font-weight:600;color:#e1e4ea;">' + esc(nm) + '</div>' +
+        '<div style="font-size:10.5px;color:#999;margin-top:2px;">' + esc(det) + '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (e) { /* showcase is best-effort */ }
+}
+
+// Reveal the agent (name + archetype + tuning key) before it's brought to life.
+function toReveal() {
+  const agent = document.getElementById('f-agent').value.trim();
+  if (!chosen) { backToGallery(); return; }
+  if (!agent) { document.getElementById('f-agent').focus(); return; }
+  if (window._handleOk === false) { alert('That handle is taken or invalid — pick another, or clear it to auto-generate.'); return; }
+  const cove = (window._coveName || '').trim();
+  document.getElementById('rv-name').textContent = cove ? (agent + ' ' + cove) : agent;
+  const rvOrb = document.getElementById('rv-orb');
+  if (rvOrb) {
+    if (chosen.avatar) { rvOrb.style.backgroundImage = `url('${chosen.avatar}')`; rvOrb.style.boxShadow = '0 0 24px ' + (chosen.frequency_color || 'var(--accent)'); }
+    else { rvOrb.style.backgroundImage = ''; }
+  }
+  document.getElementById('rv-arch').textContent = chosen.archetype;
+  document.getElementById('rv-desc').textContent = chosen.persona || chosen.blurb || '';
+  const _shadeMeta = _shade ? (' &nbsp;&middot;&nbsp; Shade <strong style="color:#cfcfe0">' + esc(_shade) + '</strong>') : '';
+  document.getElementById('rv-meta').innerHTML =
+    'Frequency <strong style="color:var(--accent)">' + esc(chosen.frequency) + '</strong>' +
+    (chosen.tuning_key_song ? ' &nbsp;&middot;&nbsp; Principle <strong style="color:#cfcfe0">' + esc(chosen.tuning_key_song) + '</strong>' : '') +
+    _shadeMeta;
+  const keyEl = document.getElementById('rv-key');
+  if (chosen.tuning_key) { keyEl.textContent = '“' + chosen.tuning_key + '”'; keyEl.style.display = ''; }
+  else { keyEl.style.display = 'none'; }
+  const pEl = document.getElementById('rv-personality');
+  if (pEl) pEl.textContent = personalitySentence(collectDials());
+  const lEl = document.getElementById('rv-lens');
+  if (lEl) {
+    const lens = collectLens();
+    const bits = [];
+    if (lens.chips.length) bits.push('Sees through: ' + lens.chips.map(esc).join(', '));
+    if (lens.statement) bits.push(esc(lens.statement));
+    if (lens.standing_preferences.length) bits.push('Holds: ' + lens.standing_preferences.map(esc).join('; '));
+    lEl.innerHTML = bits.join('<br>');
+  }
+  // Founding moment: bring the whole Cove to life (named). Adding a presence later = just "Bring to Life".
+  const bb = document.getElementById('bring-btn');
+  if (bb) bb.textContent = (_qp.get('firstrun') === '1' && cove) ? ('Bring ' + cove + ' to Life') : 'Bring to Life';
+  loadTeamShowcase();
+  show('panel-reveal');
+}
+
+async function createPresence() {
+  const person = document.getElementById('f-person').value.trim();
+  const agent = document.getElementById('f-agent').value.trim();
+  const email = document.getElementById('f-email').value.trim();
+  const role = document.getElementById('f-role').value;
+  const pronouns = document.getElementById('f-pronouns').value;
+  if (!person || !agent) { alert('Person name and agent name are both required.'); return; }
+  if (!chosen) { backToGallery(); return; }
+  if (window._handleOk === false) { alert('That handle is taken or invalid — pick another, or clear it to auto-generate.'); return; }
+
+  const btn = document.getElementById('bring-btn');
+  btn.disabled = true; btn.textContent = 'Creating…';
+
+  const body = {
+    display_name: person,
+    agent_name: agent,
+    handle: (document.getElementById('f-handle').value || '').trim(),
+    email: email,
+    cove_role: role,
+    pronouns: pronouns,
+    nickname: (document.getElementById('f-nickname')?.value || '').trim(),
+    archetype: chosen.archetype,
+    archetype_desc: chosen.blurb,
+    frequency: chosen.frequency,
+    frequency_color: chosen.frequency_color,
+    tuning_key: chosen.tuning_key,
+    tuning_key_song: chosen.tuning_key_song,
+    persona: chosen.persona,
+    role: chosen.blurb,
+    avatar: chosen.avatar || '',
+    personality: collectDials(),
+    shade: _shade,
+    lens: collectLens(),
+    input_mode: 'quick',
+    send_email: false,  // #154 — in-Cove invites are copy-link only (Brevo stays at app signup)
+  };
+  if (_qp.get('team_active') != null) body.team_active = _qp.get('team_active') === 'true';
+  if (_qp.get('model_provider')) body.model_provider = _qp.get('model_provider');
+
+  // First-run (claim link -> new-cove-setup -> here): the operator is finishing
+  // their OWN Presence and locking in the Cove. Finalize (UPDATE the seeded
+  // operator) with the Cove name, instead of provisioning a new Presence.
+  const _firstrun = _qp.get('firstrun') === '1';
+  if (_firstrun && _qp.get('cove_name')) body.cove_name = _qp.get('cove_name');
+  const _endpoint = _firstrun ? '/api/presence/me/finalize' : '/api/presence/provision';
+
+  try {
+    const res = await fetch(_endpoint, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.detail || data.error || 'Setup failed');
+
+    if (_firstrun) {
+      // Operator just locked in their Cove + founding Presence. Before the MC, the
+      // agent wakes and meets them (the wake moment) — then into their Cove.
+      enterWake(data.redirect || '/');
+      return;
+    }
+
+    const acc = chosen.frequency_color;
+    document.getElementById('panel-result').innerHTML = `
+      <div class="result">
+        <h3>${esc(agent)} is ready.</h3>
+        <div class="r-line">${esc(chosen.archetype)} &middot; ${esc(chosen.frequency)} &middot; for ${esc(person)}</div>
+        ${data.signin_link ? `<div class="magic">${esc(data.signin_link)}</div>
+          <div class="r-note">Share this link with ${esc(person)} to open their Mission Control.${data.email_sent ? ' A copy was emailed.' : ''}</div>` : ''}
+        <div class="nav-row">
+          <button class="btn btn-ghost" onclick="resetFlow()">Create another</button>
+          <a class="btn" href="/" target="_top" style="text-decoration:none;">Done</a>
+        </div>
+      </div>`;
+    show('panel-result');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Try again';
+    alert(e.message || 'Something went wrong.');
+  }
+}
+
+function resetFlow() {
+  ['f-person', 'f-agent', 'f-email'].forEach(id => document.getElementById(id).value = '');
+  chosen = null; backToGallery();
+  const btn = document.getElementById('create-btn'); btn.disabled = false; btn.textContent = 'Create Presence';
+}
+
+// Pre-fill the person from the Agent Setup picker (?person=&email=&role=)
+const _qp = new URLSearchParams(location.search);
+if (_qp.get('person')) document.getElementById('f-person').value = _qp.get('person');
+if (_qp.get('email')) document.getElementById('f-email').value = _qp.get('email');
+if (_qp.get('role')) document.getElementById('f-role').value = _qp.get('role');
+
+// Cove name for the reveal's full name (agent + Cove). First-run carries it as a
+// param (not saved yet); otherwise read the live Cove name.
+window._coveName = _qp.get('cove_name') || '';
+if (!window._coveName) {
+  fetch('/api/family').then(r => r.json()).then(d => { window._coveName = (d.family && d.family.name) || ''; }).catch(() => {});
+}
+
+// The operator (person + level) is collected in the shared "who" step, so the
+// Quick door is JUST the agent — chips + agent name + pronouns. Hide the operator
+// fields whenever they were collected upstream (person passed in).
+if (_qp.get('handle')) document.getElementById('f-handle').value = _qp.get('handle');
+if (_qp.get('person')) {
+  ['op-person-field', 'op-handle-row', 'op-emailrole-row'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  const _sd = document.querySelector('#panel-name .section-desc');
+  if (_sd) _sd.textContent = "Pick your archetype and name your agent.";
+}
+if (_qp.get('firstrun') === '1') {
+  const _cl = document.getElementById('close-link'); if (_cl) _cl.style.display = 'none';
+}
+
+loadPresets();
+</script>
+<script>
+// @handle picker: auto-suggest from the person's name, live availability check.
+(function(){
+  const slug = s => (s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  const pEl = document.getElementById('f-person');
+  const hEl = document.getElementById('f-handle');
+  const sEl = document.getElementById('handle-status');
+  if (!pEl || !hEl || !sEl) return;
+  let touched = false, timer = null;
+  window._handleOk = true;  // empty handle is valid — backend auto-derives one
+  function setStatus(txt, ok){ sEl.textContent = txt; sEl.style.color = ok ? '#5ce1e6' : '#ff6b6b'; }
+  function check(){
+    clearTimeout(timer);
+    const h = hEl.value.trim();
+    if (!h){ window._handleOk = true; sEl.textContent = ''; return; }
+    window._handleOk = false; setStatus('Checking…', true);
+    timer = setTimeout(async () => {
+      try {
+        const r = await fetch('/api/presence/handle-available?handle=' + encodeURIComponent(h));
+        const d = await r.json();
+        window._handleOk = !!d.available;
+        setStatus(d.available ? '@' + d.handle + ' is available' : (d.reason || 'Not available'), !!d.available);
+      } catch(e){ window._handleOk = false; setStatus('Could not check — try again', false); }
+    }, 300);
+  }
+  hEl.addEventListener('input', () => { touched = true; hEl.value = slug(hEl.value); check(); });
+  pEl.addEventListener('input', () => { if (!touched){ hEl.value = slug(pEl.value); check(); } });
+  const _ph = new URLSearchParams(location.search).get('handle');
+  if (_ph) { hEl.value = slug(_ph); touched = true; check(); }
+})();
+</script>
+</body>
+</html>

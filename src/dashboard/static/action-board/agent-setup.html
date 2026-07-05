@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Setup — Create a Presence</title>
+<style>
+:root { --accent: #5ce1e6; --accent-border: rgba(92,225,230,0.28); }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.flow-container { max-width: 680px; margin: 0 auto; padding: 24px; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.header h1 { font-size: 18px; font-weight: 600; color: var(--accent); }
+.header a { color: #888; text-decoration: none; font-size: 13px; }
+.flow-subtitle { color: #777; font-size: 13px; margin-bottom: 28px; line-height: 1.6; }
+
+.panel { display: none; animation: fadeIn .3s ease; }
+.panel.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+.section-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.section-desc { font-size: 13.5px; color: #999; line-height: 1.65; margin-bottom: 24px; }
+
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 13px; font-weight: 500; color: #bbb; margin-bottom: 8px; }
+.field .hint { color: #777; font-weight: 400; }
+.field input, .field select { width: 100%; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 6px; padding: 11px 14px; color: #e1e4ea; font-size: 14px; font-family: inherit; }
+.field input:focus, .field select:focus { outline: none; border-color: var(--accent-border); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+.btn { background: var(--accent); color: #06121a; border: none; border-radius: 8px; padding: 12px 22px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn-ghost { background: none; color: #999; border: 1px solid #2a2d3a; }
+.nav-row { display: flex; justify-content: space-between; margin-top: 22px; }
+
+.door-grid { display: grid; gap: 14px; }
+.door { background: #14141c; border: 1px solid #24242f; border-radius: 12px; padding: 20px; cursor: pointer; transition: transform .15s, border-color .2s; display: flex; gap: 16px; align-items: flex-start; }
+.door:hover { transform: translateY(-2px); border-color: var(--accent-border); }
+.door.soon { opacity: .55; cursor: default; }
+.door.soon:hover { transform: none; border-color: #24242f; }
+.door .d-ico { font-size: 26px; line-height: 1; }
+.door .d-name { font-size: 16px; font-weight: 700; color: #f0f0f5; margin-bottom: 5px; }
+.door .d-desc { font-size: 12.5px; color: #9a9aa8; line-height: 1.55; }
+.door .d-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); font-weight: 700; margin-left: 8px; }
+.door .d-soon { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: #777; font-weight: 700; margin-left: 8px; }
+
+/* -- Team activation segmented control -- */
+.seg { display: flex; gap: 8px; }
+.seg-btn { flex: 1; background: #161620; border: 1px solid #2a2d3a; border-radius: 8px; padding: 10px 12px; color: #bbb; cursor: pointer; text-align: left; font-family: inherit; transition: border-color .2s, background .2s; }
+.seg-btn.active { border-color: var(--accent-border); background: #181d24; color: #f0f0f5; }
+.seg-btn .seg-t { display: block; font-size: 13.5px; font-weight: 600; }
+.seg-btn .seg-sub { display: block; font-size: 11px; color: #888; margin-top: 2px; }
+.seg-help { font-size: 11.5px; color: #777; line-height: 1.55; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="flow-container">
+  <div class="header"><h1>Agent Setup</h1><a href="/">Close</a></div>
+  <div class="flow-subtitle">Add a Presence to the Cove &mdash; a person and their personal agent.</div>
+
+  <!-- PANEL 1: who -->
+  <div class="panel active" id="panel-who">
+    <div class="section-label">Who is this for</div>
+    <div class="section-title">The person</div>
+    <div class="section-desc">Every Presence belongs to a person &mdash; the operator, or a family member you're adding.</div>
+    <div class="row2">
+      <div class="field"><label id="f-person-label">Person's name</label><input id="f-person" type="text" placeholder="e.g. Dennis" autocomplete="off"></div>
+      <div class="field" id="f-role-field"><label>Role</label>
+        <select id="f-role"><option value="member">Member</option><option value="admin">Admin</option><option value="guest">Guest</option></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Handle <span class="hint" id="f-handle-hint">(the @ &mdash; their address &amp; MC URL, not their name)</span></label>
+      <input id="f-handle" type="text" placeholder="e.g. dennis" autocomplete="off" spellcheck="false">
+      <div id="handle-status" class="hint" style="min-height:14px;margin-top:3px;"></div>
+    </div>
+
+    <div class="nav-row"><span></span><button class="btn" onclick="toPath()">Continue &rarr;</button></div>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+// Pre-fill person from an existing-member launch (?name=) if present.
+if (params.get('name')) document.getElementById('f-person').value = params.get('name');
+
+// First boot can take ~a minute (image build, voice models, KB embedding). Retry the
+// onboarding reads through that window instead of failing on the first try — that single
+// no-retry fetch is what left the person field blank + the archetypes "not loading".
+async function _fetchJSON(url, tries = 10, delay = 2000) {
+  for (let i = 0; i < tries; i++) {
+    try { const r = await fetch(url); if (r.ok) return await r.json(); } catch (e) {}
+    if (i < tries - 1) await new Promise(res => setTimeout(res, delay));
+  }
+  return null;
+}
+
+// First-run hand-off from new-cove-setup: this is the OPERATOR building their own
+// founding Presence. Pre-fill them, lock role to operator (so the team toggle shows).
+const _isFirstRun = params.get('firstrun') === '1';
+if (_isFirstRun) {
+  if (params.get('person')) document.getElementById('f-person').value = params.get('person');
+  if (params.get('handle')) document.getElementById('f-handle').value = params.get('handle');
+  const _roleSel = document.getElementById('f-role');
+  if (_roleSel) _roleSel.value = 'admin';   // the founder is the Cove admin (cove_role)
+  // The founder is always the operator — hide the role picker entirely and
+  // relabel the person field so it reads as the operator, not a member add.
+  const _rf = document.getElementById('f-role-field'); if (_rf) _rf.style.display = 'none';
+  const _pl = document.getElementById('f-person-label'); if (_pl) _pl.textContent = "Your name";
+  // This is the operator creating their OWN Presence — speak in second person, like the
+  // "Who's setting up this Cove?" step. ("their" is right only when adding a family member.)
+  const _hh = document.getElementById('f-handle-hint');
+  if (_hh) _hh.innerHTML = "(the @ &mdash; your address &amp; MC URL, not your name)";
+  const _sd = document.querySelector('#panel-who .section-desc');
+  if (_sd) _sd.textContent = "This is you — the operator setting up the Cove.";
+  // Bootstrap: no Mission Control to go back to yet.
+  const _cl = document.querySelector('.header a'); if (_cl) _cl.style.display = 'none';
+  document.querySelector('.flow-subtitle').textContent =
+    "You're the operator — set up your Presence: you, and your personal agent.";
+}
+
+// Mode-aware: the Quick door provisions via the Centralized engine (multi-mode only).
+// In a single-mode / Isolated Cove it doesn't apply, so disable it gracefully.
+(async () => {
+  try {
+    const d = await _fetchJSON('/api/presence/me');
+    if (d && d.cove_mode !== 'multi') {
+      const q = document.querySelector('.door[onclick*="quick"]');
+      if (q) {
+        q.classList.add('soon');
+        q.removeAttribute('onclick');
+        const tag = q.querySelector('.d-tag');
+        if (tag) { tag.className = 'd-soon'; tag.textContent = 'Centralized Coves'; }
+      }
+    }
+    // #202 — the operator's name + @handle are already locked in from their account
+    // (seeded at provision / set at signup). Don't re-ask: pre-fill and lock them.
+    // The Cove name on the prior step IS first-time — only the operator identity is known.
+    const p = d && d.presence;
+    if (_isFirstRun && p) {
+      const personEl = document.getElementById('f-person');
+      const handleEl = document.getElementById('f-handle');
+      const handleStatus = document.getElementById('handle-status');
+      if (personEl && p.display_name) {
+        personEl.value = p.display_name;
+        personEl.readOnly = true;
+        personEl.style.opacity = '0.75';
+      }
+      // Lock the handle only if it's a real chosen handle (not a temp migration username).
+      if (handleEl && p.username && !p.needs_username) {
+        handleEl.value = p.username;
+        handleEl.readOnly = true;
+        handleEl.style.opacity = '0.75';
+        window._handleOk = true;  // it's theirs — skip the availability check
+        if (handleStatus) handleStatus.textContent = '@' + p.username + ' — your handle (locked)';
+        // Identity was already collected in the Cove wizard (step 1). Don't show this
+        // screen again — jump straight to building the agent with the chosen door.
+        const _pre = params.get('door');
+        if (_pre === 'quick' || _pre === 'guided' || _pre === 'dictate') {
+          const personEl2 = document.getElementById('f-person');
+          if (personEl2 && !personEl2.value) personEl2.value = p.display_name || p.username;
+          go(_pre);
+          return;
+        }
+      }
+    }
+  } catch (e) { /* default: leave Quick enabled */ }
+})();
+
+function show(id) { document.querySelectorAll('.panel').forEach(p => p.classList.remove('active')); document.getElementById(id).classList.add('active'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+
+// Model provider default. The real "Connect your Intelligence" step lives in the MC.
+let engineState = 'ollama';
+// Team activation (Active/Dormant) is a whole-Cove setting in Stuart MC admin, not here.
+// Default to active at creation; admin controls it after.
+
+function toPath() {
+  if (!document.getElementById('f-person').value.trim()) { document.getElementById('f-person').focus(); return; }
+  // One unified flow now — no door picker. Operator (firstrun) and member-add both
+  // land in the same creation journey.
+  go('guided');
+}
+
+// Every path is the one unified creation flow (new-agent-setup.html). The `path`
+// argument is vestigial (kept so existing call sites don't break); we always route
+// to the single flow.
+function go(path) {
+  const person = document.getElementById('f-person').value.trim();
+  const email = (document.getElementById('f-email')?.value || '').trim();
+  const role = document.getElementById('f-role').value;
+  const handle = (document.getElementById('f-handle').value || '').trim();
+  if (window._handleOk === false) { alert('That handle is taken or invalid — pick another, or clear it to auto-generate.'); return; }
+  const cove = params.get('cove') || '';
+  const gq = new URLSearchParams({ person, email, role, cove, name: person });
+  if (handle) gq.set('handle', handle);
+  gq.set('model_provider', engineState);
+  if (role === 'admin') gq.set('team_active', 'true');
+  // Carry the first-run flag + Cove name forward so the flow finalizes the operator
+  // (locks in the Cove) instead of provisioning a separate Presence.
+  if (_isFirstRun) { gq.set('firstrun', '1'); if (params.get('cove_name')) gq.set('cove_name', params.get('cove_name')); }
+  if (params.get('member')) gq.set('member', params.get('member'));
+  location.href = '/static/action-board/new-agent-setup.html?' + gq.toString();
+}
+
+// @handle picker: auto-suggest from the person's name, live availability check.
+(function(){
+  const slug = s => (s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  const pEl = document.getElementById('f-person');
+  const hEl = document.getElementById('f-handle');
+  const sEl = document.getElementById('handle-status');
+  if (!pEl || !hEl || !sEl) return;
+  let touched = false, timer = null;
+  window._handleOk = true;
+  function setStatus(t, ok){ sEl.textContent = t; sEl.style.color = ok ? '#5ce1e6' : '#ff6b6b'; }
+  function check(){
+    clearTimeout(timer);
+    const h = hEl.value.trim();
+    if (!h){ window._handleOk = true; sEl.textContent = ''; return; }
+    window._handleOk = false; setStatus('Checking…', true);
+    timer = setTimeout(async () => {
+      try {
+        const r = await fetch('/api/presence/handle-available?handle=' + encodeURIComponent(h));
+        const d = await r.json();
+        window._handleOk = !!d.available;
+        setStatus(d.available ? '@' + d.handle + ' is available' : (d.reason || 'Not available'), !!d.available);
+      } catch(e){ window._handleOk = false; setStatus('Could not check — try again', false); }
+    }, 300);
+  }
+  hEl.addEventListener('input', () => { touched = true; hEl.value = slug(hEl.value); check(); });
+  pEl.addEventListener('input', () => { if (!touched){ hEl.value = slug(pEl.value); check(); } });
+  if (params.get('name')) { hEl.value = slug(params.get('name')); check(); }
+})();
+</script>
+</body>
+</html>

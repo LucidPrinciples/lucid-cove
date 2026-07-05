@@ -1,0 +1,3182 @@
+meta:
+  name: Music Mirror
+  canon: Popular Music
+  curator: Lucid Tuner
+  version: 1
+  type: music
+  lens: Popular songs mapped to Lucid Principles through shared lyrical resonance. Each song carries a frequency — the music
+    mirror reflects your tuning through songs you already know.
+  description: Popular music mapped to Lucid Principles tuning combinations. Songs selected for lyrical and tonal resonance
+    with each principle's teaching through the lens of each broadcast frequency.
+pattern:
+  peace:
+    song:
+      ref: Paul Simon — Patterns
+      text: And it speaks to me in patterns / And it speaks to me in rhyme... I follow the pattern / I follow the pattern
+        of my life
+      thread: The lyric describes the moment of recognizing the automatic, unchosen structure that governs existence—seeing
+        the "pattern" as an external force that shapes behavior, which mirrors the Canon's teaching that we are running survival
+        programs we didn't write.
+      artist: Paul Simon
+      title: Patterns
+      spotify_id: 0toeWzrcNdW4oaf7vgtWJM
+      youtube_id: zYtkaZOI5eA
+  clarity:
+    song:
+      ref: John Lennon — Working Class Hero
+      text: Keep you doped with religion and sex and TV / And you think you're so clever and classless and free
+      thread: Both trace the same mechanism—pain and pleasure conditioning from birth creates an invisible psychic structure
+        that feels like freedom, and both capture the stark clarity of recognizing you were programmed to call your cage 'reality.
+      artist: John Lennon
+      title: Working Class Hero
+      spotify_id: 1yKQBy7olMIqRpziyAzf8c
+      youtube_id: D77dbv-xNfE
+  momentum:
+    song:
+      ref: Bruce Springsteen — Badlands
+      text: You spend your life waiting for a moment that just don't come / Don't waste your time waiting
+      thread: Both articulate the realization that deferral and repetition are survival programs we mistake for living, and
+        that breaking the pattern requires refusing to wait for external permission.
+      artist: Bruce Springsteen
+      title: Badlands
+      spotify_id: 0M1YQiRGel1tTMjA3orfRd
+      youtube_id: SDlSCeQXbPo
+  trust:
+    song:
+      ref: 'Bon Iver — Re: Stacks'
+      text: This is not the sound of a new man or crispy realization / It's the sound of the unlocking and the lift away
+      thread: Both describe the slow discernment that the self is not a fixed identity but a construct of survival behaviors
+        (the stacks we carry), and that true change comes not from forceful epiphany but from the gentle unlocking that follows
+        recognition.
+      artist: Bon Iver
+      title: 'Re: Stacks'
+      spotify_id: 20AC70RUlVz6A6dCcQ5tRS
+      youtube_id: 3w68krri0bw
+  joy:
+    song:
+      ref: The Lumineers — Stubborn Love
+      text: It's better to feel pain, than nothing at all / The opposite of love's indifference
+      thread: Recognizes the survival programming that numbs us to avoid pain, revealing that the 'safety' of indifference
+        is the true prison; joy erupts in choosing to feel despite the risk.
+      artist: The Lumineers
+      title: Stubborn Love
+      spotify_id: 4wG82w1L31yQhgGiWt6gIb
+      youtube_id: MYXbL0xqXPc
+  connection:
+    song:
+      ref: Rag'n'Bone Man — Human
+      text: I'm only human, I make mistakes; I'm only human, that's all it takes to put the blame on me
+      thread: Both articulate the biological programming we didn't write—our cells wired to avoid pain and deflect blame—and
+        transform that limitation into a shared plea for compassion that dissolves judgment through mutual recognition.
+      artist: Rag'n'Bone Man
+      title: Human
+      spotify_id: 58zsLZPvfflaiIbNWoA22O
+      youtube_id: 52vehHn8KfQ
+  presence:
+    song:
+      ref: Talking Heads — Once in a Lifetime
+      text: And you may ask yourself, 'Well, how did I get here?' / Letting the days go by, let the water hold me down
+      thread: Both capture the sudden vertigo of presence breaking through—realizing you've been unconsciously running a survival
+        program ('letting the days go by') and finally witnessing in the thick now how your 'reality' is just a crystallized
+        pattern you never chose.
+      artist: Talking Heads
+      title: Once in a Lifetime
+      spotify_id: 1Tr4K5MU5XYE44umXGDndd
+      youtube_id: CHatn3_UxEU
+  resilience:
+    song:
+      ref: Simon & Garfunkel — Patterns
+      text: And I circle to patterns / That I trusted as a boy / Simple paths of carbon / Simple lines of joy
+      thread: Both trace how childhood survival mechanisms (simple paths devised to avoid pain and capture joy) crystallize
+        into the unconscious cellular architecture we mistake for identity, requiring quiet endurance to recognize in the
+        darkness.
+      artist: Simon & Garfunkel
+      title: Patterns
+      spotify_id: 4UXEoEb1hOcOI8Fnz2sHlV
+      youtube_id: ynOiwRy8YQc
+  courage:
+    song:
+      ref: Simon & Garfunkel — The Sound of Silence
+      text: And in the naked light I saw / Ten thousand people, maybe more / People talking without speaking / People hearing
+        without listening
+      thread: Both articulate the terrifying realization that we are collectively running unconscious survival programs—social
+        patterns planted while we "slept"—that manufacture a false reality, requiring the courage to stand alone and name
+        the silence that others fear to disturb.
+      artist: Simon & Garfunkel
+      title: The Sound of Silence
+      spotify_id: 3YfS47QufnLDFA71FUsgCM
+      youtube_id: bjkPQYWNTlg
+  gratitude:
+    song:
+      ref: Alanis Morissette — Thank U
+      text: How bout no longer being masochistic / Thank you disillusionment, thank you thank you silence
+      thread: She catalogs the unconscious survival patterns she was running (masochism, overeating, chasing validation) and
+        expresses gratitude for the disillusionment that revealed the structure of her own programming, recognizing that clarity
+        emerges from the collapse of these old mechanisms.
+      artist: Alanis Morissette
+      title: Thank U
+      spotify_id: 3CVDronuSnhguSUguPoseM
+      youtube_id: lEkDK6wYu1Q
+  release:
+    song:
+      ref: Bob Dylan — My Back Pages
+      text: I was so much older then / I'm younger than that now
+      thread: Both articulate the realization that the rigid ideological frameworks we adopt to navigate pain and pleasure
+        are learned patterns that calcify into false maturity, and the liberation lies in releasing these binaries to recover
+        a more fluid, authentic consciousness.
+      artist: Bob Dylan
+      title: My Back Pages
+      spotify_id: 2bCFKT7w3wwGfCV3cjrjqi
+      youtube_id: tx_hm7brW8M
+  integration:
+    song:
+      ref: Talking Heads — Once in a Lifetime
+      text: And you may find yourself living in a shotgun shack / And you may ask yourself, well, how did I get here?
+      thread: Both articulate the sudden, vertiginous recognition that one's current reality is the accumulated result of
+        unconscious programs (survival choices, societal flows, biological imperatives) that assembled themselves without
+        conscious authorship, prompting the essential first step of seeing the mechanism before it can be changed.
+      artist: Talking Heads
+      title: Once in a Lifetime
+      spotify_id: 1Tr4K5MU5XYE44umXGDndd
+      youtube_id: CHatn3_UxEU
+  boundary:
+    song:
+      ref: Kelly Clarkson — Because of You
+      text: Because of you I never stray too far from the sidewalk / Because of you I learned to play on the safe side so
+        I don't get hurt
+      thread: The lyric articulates the exact mechanism of inherited survival programming—staying on the 'safe side' is the
+        neural pattern carved by childhood pain, a boundary drawn so hard it becomes the lens of reality, requiring the recognition
+        ('I will not make the same mistakes') before retuning is possible.
+      artist: Kelly Clarkson
+      title: Because of You
+      spotify_id: 3f3omU8n47Mqyab5nCaGyT
+      youtube_id: 49DL70klZjI
+valley_of_shadows:
+  peace:
+    song:
+      ref: Bon Iver — Holocene
+      text: And at once I knew I was not magnificent / Hallowed be my name
+      thread: Both capture the sudden, humbling realization that one's previous self-conception (the lens of belief/ego) was
+        an obscuring illusion, accepted with a serene surrender rather than despair.
+      artist: Bon Iver
+      title: Holocene
+      spotify_id: 35KiiILklye1JRRctaLUb4
+      youtube_id: pvC5YD-IjL0
+  clarity:
+    song:
+      ref: Rush — Freewill
+      text: You can choose from phantom fears and kindness that can kill / I will choose a path that's clear / I will choose
+        freewill
+      thread: Both recognize that we view reality through constructed lenses of belief that generate 'phantom fears'—clouds
+        of deception that obscure clear sight—and articulate the moment of clarity when one chooses to see through the mechanism
+        rather than be ruled by it.
+      artist: Rush
+      title: Freewill
+      spotify_id: 2XwYeBzumtjxVbFWwhJpsy
+      youtube_id: V7bbdIU95zM
+  momentum:
+    song:
+      ref: The Avett Brothers — Head Full of Doubt/Road Full of Promise
+      text: There's a darkness upon me that's flooded in light / In the fine print they tell me what's wrong and what's right...
+        Decide what to be and go be it
+      thread: Both recognize that external forces ('fine print') create perceptual deception (darkness/light inversion), but
+        the resolution isn't to wait for clarity—it's to accept the blindness and move forward through the valley by following
+        the heart's direction.
+      artist: The Avett Brothers
+      title: Head Full of Doubt/Road Full of Promise
+      spotify_id: 7Kho44itYaCQZvZQVV2SLW
+      youtube_id: jyfeOyglMtI
+  trust:
+    song:
+      ref: Bob Dylan — Mr. Tambourine Man
+      text: Though I know that evening's empire has returned into sand / Vanished from my hand, left me blindly here to stand
+        but still not sleeping
+      thread: Both recognize that the structures we believe in (evening's empire/the lens) can dissolve into blindness and
+        sand, yet the response is not despair but a willingness to follow the unseen music—the heart's cadence—when all navigational
+        rules have vanished.
+      artist: Bob Dylan
+      title: Mr. Tambourine Man
+      spotify_id: 3RkQ3UwOyPqpIiIvGVewuU
+      youtube_id: m8tN2HgPH6I
+  joy:
+    song:
+      ref: Johnny Nash — I Can See Clearly Now
+      text: Gone are the dark clouds that had me blind / It's gonna be a bright, bright sun-shiny day
+      thread: Both recognize that deceptive clouds (perceptual blindness) form to obscure vision and achievement, but while
+        the Canon emphasizes walking through these illusions, Nash captures the triumphant burst of aliveness when clarity
+        emerges—the spontaneous celebration of seeing through the lens without obstruction.
+      artist: Johnny Nash
+      title: I Can See Clearly Now
+      spotify_id: 30SCXVFyQGOFMdKnbgJS18
+      youtube_id: Qr2WF8dvjnY
+  connection:
+    song:
+      ref: Joni Mitchell — Shadows and Light
+      text: Every picture has its shadows / And it has some source of light... And I have seen the truth / And the truth is
+        / We are one
+      thread: Both songs trace how perception is constructed from dualities (shadows/light, beliefs/lens) that inherently
+        blind us, yet both dissolve the loneliness of that blindness into the realization that separation is the final illusion—true
+        sight is recognizing the shared field ("we are one").
+      artist: Joni Mitchell
+      title: Shadows and Light
+      spotify_id: 1ERoCMfEtN8cs9Yru9leRi
+      youtube_id: SSfWH6jWj5g
+  presence:
+    song:
+      ref: Joni Mitchell — Shadows and Light
+      text: Blindness you can keep on dealing / Fear is like a wilderland
+      thread: Mitchell identifies the mechanism where 'blindness' filters perception (the lens of belief) and fear becomes
+        the wild terrain to be walked through, mirroring the Canon's clouds that deceive and the valley of shadows itself.
+      artist: Joni Mitchell
+      title: Shadows and Light
+      spotify_id: 1ERoCMfEtN8cs9Yru9leRi
+      youtube_id: SSfWH6jWj5g
+  resilience:
+    song:
+      ref: Simon & Garfunkel — The Boxer
+      text: Still a man hears what he wants to hear / And disregards the rest
+      thread: The lyric articulates the exact mechanism of belief-created perception where the mind filters reality to confirm
+        its own assumptions, while the song's bruised narrator embodies resilience as the quiet, stubborn persistence of "the
+        fighter still remains" despite the deceptive "pocketful of mumbles" that squandered his resistance.
+      artist: Simon & Garfunkel
+      title: The Boxer
+      spotify_id: 76TZCvJ8GitQ2FA1q5dKu0
+      youtube_id: C1VUWDcp5Sg
+  courage:
+    song:
+      ref: Mumford & Sons — The Cave
+      text: So come out of your cave walking on your hands / And see the world hanging upside down
+      thread: Both trace Plato’s insight that belief constructs a false reality (shadows on the wall / clouds of deception),
+        requiring the disorienting courage to invert one’s entire perspective and walk into the blinding unknown to find true
+        sight.
+      artist: Mumford & Sons
+      title: The Cave
+      spotify_id: 1JlssWnwFUiEzuSqw4H1V1
+      youtube_id: HXc_R8ywI6A
+  gratitude:
+    song:
+      ref: Gregory Alan Isakov — The Stable Song
+      text: I threw stones at the stars, but the whole sky fell / Now I've found some grace
+      thread: Both articulate how challenging the heavens with our limited perception causes a collapse of reality (the sky
+        falling/valley of shadows), yet in that low place of humility (the stable), we discover unearned grace—treasuring
+        what remains when illusions shatter.
+      artist: Gregory Alan Isakov
+      title: The Stable Song
+      spotify_id: 3G9ETaH55bMQx8hwNhAgbU
+      youtube_id: bqCRtvLxdHA
+  release:
+    song:
+      ref: Florence + The Machine — Shake It Out
+      text: So I got bored and left them there / They were just deadweight to me
+      thread: Both recognize that the beliefs, obligations, and outdated associations we carry become a deadweight that obscures
+        vision; the liberation comes not from refining the lens, but from releasing it entirely onto the shelf and walking
+        forward with no thought of returning.
+      artist: Florence + The Machine
+      title: Shake It Out
+      spotify_id: 4lY95OMGb9WxP6IYut64ir
+      youtube_id: AHDED8S8CYI
+  integration:
+    song:
+      ref: Leonard Cohen — Anthem
+      text: Forget your perfect offering / There is a crack in everything / That's how the light gets in
+      thread: Both recognize that our 'perfect offerings'—the rigid belief systems through which we conceive reality—create
+        blind spots that block achievement, and that the very cracks in these lenses (the 'clouds that deceive') are paradoxically
+        the necessary openings through which truth enters when we cease running from the summoned chaos.
+      artist: Leonard Cohen
+      title: Anthem
+      spotify_id: 7aAE5KL20Uycf3dswsaHjp
+      youtube_id: mkWmh6KJAXY
+  boundary:
+    song:
+      ref: Florence + The Machine — Shake It Out
+      text: Don't let it bring you down / It's only castles burning / Find someone who's turning / And you will come around
+      thread: Both recognize that external chaos (burning castles, cold winds, dead men) and false structures create clouds
+        of deception that threaten to distort your lens; the teaching is to walk through the valley without letting the external
+        darkness become your internal truth—maintaining the boundary between what is happening around you and who you are.
+      artist: Florence + The Machine
+      title: Shake It Out
+      spotify_id: 4lY95OMGb9WxP6IYut64ir
+      youtube_id: AHDED8S8CYI
+what_life_is_about:
+  peace:
+    song:
+      ref: Pink Floyd — Breathe (In the Air)
+      text: All you touch and all you see / Is all your life will ever be
+      thread: Both articulate that the totality of existence is bounded by the individual's sensory/perceptual field, and
+        recognizing this limitation as the complete definition of life dissolves the anxiety of seeking beyond one's own eyes.
+      artist: Pink Floyd
+      title: Breathe (In the Air)
+      spotify_id: 2ctvdKmETyOzPb2GiJJT53
+      youtube_id: _396y7Vk9NA
+  clarity:
+    song:
+      ref: Louis Armstrong — What a Wonderful World
+      text: I see trees of green, red roses too / I see them bloom for me and you
+      thread: Both teach that the 'secret' is not in the world itself but in the act of seeing—Armstrong’s perspective doesn't
+        just observe the wonder, it generates the 'for me and you' reality, identical to the Canon’s teaching that your point
+        of view is the creative mechanism.
+      artist: Louis Armstrong
+      title: What a Wonderful World
+      spotify_id: 29U7stRjqHU6rMiS8BfaI9
+      youtube_id: fnyMzZiKfkY
+  momentum:
+    song:
+      ref: Bruce Springsteen — Thunder Road
+      text: You can hide 'neath your covers and study your pain / Or you can get out and show a little faith, there's magic
+        in the night
+      thread: The lyric presents two divergent perspectives on the same reality—retreating into fear versus recognizing possibility—and
+        establishes that choosing the latter (your specific vision) is the secret mechanism that ignites forward motion, matching
+        the Canon's teaching that your unique viewpoint is the engine, not the obstacle.
+      artist: Bruce Springsteen
+      title: Thunder Road
+      spotify_id: 56lhDZNQ5J47aog6mGKeGk
+      youtube_id: W2X0Gf9jfz8
+  trust:
+    song:
+      ref: Pink Floyd — Breathe (In the Air)
+      text: All you touch and all you see / Is all your life will ever be
+      thread: Both lyrics identify the subjective field of perception not as a limitation but as the total mechanism of existence—your
+        point of view literally constitutes your life, and realizing this dissolves the fear that you are missing some external
+        secret.
+      artist: Pink Floyd
+      title: Breathe (In the Air)
+      spotify_id: 2ctvdKmETyOzPb2GiJJT53
+      youtube_id: _396y7Vk9NA
+  joy:
+    song:
+      ref: Natasha Bedingfield — Unwritten
+      text: Feel the rain on your skin, no one else can feel it for you / Only you can let it in... Today is where your book
+        begins, the rest is still unwritten
+      thread: Both articulate that the 'secret' of existence lies in the individual's unique perceptual instrument—your point
+        of view is the only mechanism that can feel, write, or actualize your life, and recognizing this authorship is the
+        liberation.
+      artist: Natasha Bedingfield
+      title: Unwritten
+      spotify_id: 3U5JVgI2x4rDyHGObzJfNf
+      youtube_id: iKejQrGq04w
+  connection:
+    song:
+      ref: Brandi Carlile — The Story
+      text: All of these lines across my face tell you the story of who I am... But these stories don't mean anything when
+        you've got no one to tell them to
+      thread: Both teach that your unique experiential perspective—the specific routes and scars that separate you from others—is
+        actually the instrument of connection, finding its purpose only when witnessed by another.
+      artist: Brandi Carlile
+      title: The Story
+      spotify_id: 0EKBV6GybPtALXUgWqWrym
+      youtube_id: Kpp7wgKWYl0
+  presence:
+    song:
+      ref: Pearl Jam — Present Tense
+      text: Do you see the way that tree bends? / Does it inspire? / Leaning out to catch the sun's rays / A lesson to be
+        applied
+      thread: The lyric observes that the tree’s unique physical angle—its specific point of view—is the very mechanism by
+        which it receives life (the sun), mirroring the Canon’s insight that one’s distinctive perspective is not a limitation
+        but the instrument of reception and growth.
+      artist: Pearl Jam
+      title: Present Tense
+      spotify_id: 679zqcQuKakOGI93NPCqB8
+      youtube_id: uRWkx9QCp3Q
+  resilience:
+    song:
+      ref: Frank Sinatra — My Way
+      text: Regrets, I've had a few, but then again, too few to mention... I faced it all and I stood tall and did it my way
+      thread: The lyric articulates that the secret of surviving a life of difficulty lies in claiming one's unique perspective
+        as the instrument of navigation—the "way" being the individual point of view that allows one to stand tall despite
+        the blows.
+      artist: Frank Sinatra
+      title: My Way
+      spotify_id: 3spdoTYpuCpmq19tuD0bOe
+      youtube_id: qQzdAsjWGPg
+  courage:
+    song:
+      ref: Lynyrd Skynyrd — Simple Man
+      text: Forget your lust for the rich man's gold / All that you need is in your soul
+      thread: Both teach that the external world's promises (gold/fear) are distractions from the truth that your internal
+        compass (soul/point of view) holds the secret to navigation, requiring the courage to trust that inner voice over
+        societal pressure.
+      artist: Lynyrd Skynyrd
+      title: Simple Man
+      spotify_id: 1ju7EsSGvRybSNEsRvc7qY
+      youtube_id: l-5aPNxv-pU
+  gratitude:
+    song:
+      ref: Grateful Dead — Ripple
+      text: There is a road, no simple highway / That path is for your steps alone
+      thread: The lyric reveals that your unique trajectory—unrepeatable by any other—*is* the secret highway of your life,
+        and the accompanying gratitude ("If your cup is full may it be again") sanctifies that singular viewpoint as the instrument
+        itself.
+      artist: Grateful Dead
+      title: Ripple
+      spotify_id: 6PDAMw0YAGfO7ioXAgP2YW
+      youtube_id: sFBQSx_xc2o
+  release:
+    song:
+      ref: Mumford & Sons — The Cave
+      text: So come out of your cave walking on your hands / And see the world hanging upside down
+      thread: Both teach that salvation lies not in correcting your vision to match the world, but in trusting your inverted
+        vantage point—releasing the burden of conventional sight reveals the secret mechanism of understanding.
+      artist: Mumford & Sons
+      title: The Cave
+      spotify_id: 1JlssWnwFUiEzuSqw4H1V1
+      youtube_id: HXc_R8ywI6A
+  integration:
+    song:
+      ref: Grateful Dead — Eyes of the World
+      text: Wake up to find out that you are the eyes of the world
+      thread: Both teach that consciousness itself—your specific faculty of seeing—is the instrument of reality; the "secret"
+        is realizing you are the perceiver creating the view, not a passive observer, and this waking-up is the integration
+        of self and world.
+      artist: Grateful Dead
+      title: Eyes of the World
+      spotify_id: 0qJ6owHt00MMZTpNmNsPHC
+      youtube_id: hGjsYLlTxQ4
+  boundary:
+    song:
+      ref: Pearl Jam — I Am Mine
+      text: I know I was born and I know that I'll die / The in between is mine / I am mine
+      thread: Both assert that the individual’s bounded life experience and perspective constitute a sovereign territory where
+        meaning is created, not a limitation but the only domain one truly owns and must protect.
+      artist: Pearl Jam
+      title: I Am Mine
+      spotify_id: 79pY2Z5eFvXMt9bSdHLrnA
+      youtube_id: Js2_RrSO1MU
+the_future:
+  peace:
+    song:
+      ref: Fleetwood Mac — Landslide
+      text: I've been afraid of changing / 'Cause I've built my life around you
+      thread: Both identify the fear-based construction of reality (a life built around another/programmed like a machine)
+        that creates repeating cycles of stagnation, and find the quiet courage to break the loop by accepting the flow of
+        time and inevitable change.
+      artist: Fleetwood Mac
+      title: Landslide
+      spotify_id: 5ihS6UUlyQAfmp48eSkxuQ
+      youtube_id: mXonGAEPQp8
+  clarity:
+    song:
+      ref: Bob Marley & The Wailers — Redemption Song
+      text: Emancipate yourselves from mental slavery / None but ourselves can free our minds
+      thread: Both articulate the realization that we are conditioned by invisible systems (mental slavery/programming) and
+        that breaking historical cycles requires an internal awakening to reclaim agency.
+      artist: Bob Marley & The Wailers
+      title: Redemption Song
+      spotify_id: 7MKcM6TfaGKQVFfhstCbOw
+      youtube_id: 1A95dcLxAuA
+  momentum:
+    song:
+      ref: David Bowie — Changes
+      text: So I turned myself to face me / But I've never caught a glimpse / Of how the others must see the faker / Or the
+        name I used to be
+      thread: Both trace the moment of catching yourself performing a programmed role (the 'faker,' the 'machine') and the
+        disorienting momentum required to turn inward and break the loop of 'dead-end streets' that no longer satisfy.
+      artist: David Bowie
+      title: Changes
+      spotify_id: 0LrwgdLsFaWh9VXIjBRe8t
+      youtube_id: 7fdhI3qUdSs
+  trust:
+    song:
+      ref: Florence + The Machine — Shake It Out
+      text: Regrets collect like old friends / Here to relive your darkest moments... And it's hard to dance with a devil
+        on your back / So shake him off
+      thread: Both identify how past patterns mechanically repeat (regrets as 'old friends,' the devil on your back), but
+        realize that breaking the cycle requires not fighting harder than the programming—instead surrendering to the unknown
+        with 'ready to suffer and ready to hope,' trusting the release.
+      artist: Florence + The Machine
+      title: Shake It Out
+      spotify_id: 4lY95OMGb9WxP6IYut64ir
+      youtube_id: AHDED8S8CYI
+  joy:
+    song:
+      ref: Stevie Wonder — Higher Ground
+      text: Teachers keep on teachin' / Preachers keep on preachin' / World keep on turnin' / 'Cause it won't be too long...
+        Sleepers just stop sleepin' / 'Cause it won't be too long
+      thread: Both recognize that we are caught in repetitive cycles of societal and spiritual programming (teachers, preachers,
+        the world's deception) and celebrate the awakening that allows us to transcend these loops and consciously choose
+        a higher path forward.
+      artist: Stevie Wonder
+      title: Higher Ground
+      spotify_id: 0dMd4rilfd6gPbXaLpNYhu
+      youtube_id: 1esf0efHbjM
+  connection:
+    song:
+      ref: Crosby, Stills, Nash & Young — Woodstock
+      text: We are stardust, we are golden, and we've got to get ourselves back to the garden
+      thread: Both recognize that humanity has fallen from its true nature into repeating cycles of history and division,
+        and that breaking the loop requires a collective awakening to return to our shared origin.
+      artist: Crosby, Stills, Nash & Young
+      title: Woodstock
+      spotify_id: 2iqKVzMZpyUVPwxIVaQkhm
+      youtube_id: 4lx86B6a3kc
+  presence:
+    song:
+      ref: David Bowie — Changes
+      text: So I turned myself to face me / But I've never caught a glimpse / Of how the others must see the faker / I'm much
+        too fast to take that test
+      thread: The lyric captures the startling moment of present-moment self-examination that reveals the "faker" (the programmed,
+        mechanical self) and the necessity of becoming a "different man" to break the cycle of "dead-end streets," mirroring
+        the Canon's teaching that waking up to one's own automation is the mechanism for shattering historical repetition.
+      artist: David Bowie
+      title: Changes
+      spotify_id: 0LrwgdLsFaWh9VXIjBRe8t
+      youtube_id: 7fdhI3qUdSs
+  resilience:
+    song:
+      ref: John Lennon — Working Class Hero
+      text: As soon as you're born they make you feel small / By giving you no time instead of it all / Till the pain is so
+        big you feel nothing at all
+      thread: Both reveal how systemic institutions (family, education, church) program individuals from birth into compliant,
+        numb subjects through calculated diminishment and distraction, yet the resilient act of enduring and articulating
+        this violence ("a working class hero is something to be") becomes the crack in the machine that allows consciousness
+        to break the loop.
+      artist: John Lennon
+      title: Working Class Hero
+      spotify_id: 1yKQBy7olMIqRpziyAzf8c
+      youtube_id: D77dbv-xNfE
+  courage:
+    song:
+      ref: Bruce Springsteen — Thunder Road
+      text: So you're scared and you're thinking that maybe we ain't that young anymore... Show a little faith, there's magic
+        in the night
+      thread: Captures the trembling realization that you've been living in a "town full of losers" (the cycle) and the heart-pounding
+        choice to pull out of it anyway, trading the safety of the known for the terrifying possibility of making it "good
+        somehow.
+      artist: Bruce Springsteen
+      title: Thunder Road
+      spotify_id: 56lhDZNQ5J47aog6mGKeGk
+      youtube_id: W2X0Gf9jfz8
+  gratitude:
+    song:
+      ref: Johnny Nash — I Can See Clearly Now
+      text: I can see clearly now the rain is gone / I can see all obstacles in my way
+      thread: The song captures the exact moment of awakening from programmed blindness (the 'dark clouds' and 'rain' of mechanical
+        cycles) and receives that clarity not with bitterness for past deception, but with pure appreciation for the sudden
+        abundance of vision—the gratitude of finally seeing the pattern clearly enough to choose a different path.
+      artist: Johnny Nash
+      title: I Can See Clearly Now
+      spotify_id: 30SCXVFyQGOFMdKnbgJS18
+      youtube_id: Qr2WF8dvjnY
+  release:
+    song:
+      ref: Fleetwood Mac — Landslide
+      text: And I saw my reflection in the snow-covered hills / 'Til the landslide brought me down
+      thread: Both recognize that our identity is constructed on unstable ground (programming/illusion), and waking up involves
+        the collapse of that false self—an unburdening that feels like a landslide clearing the path.
+      artist: Fleetwood Mac
+      title: Landslide
+      spotify_id: 5ihS6UUlyQAfmp48eSkxuQ
+      youtube_id: mXonGAEPQp8
+  integration:
+    song:
+      ref: Leonard Cohen — The Future
+      text: 'I''ve seen the future, brother: it is murder / Things are going to slide in all directions'
+      thread: Both articulate the awakening to a hidden mechanism—Cohen sees the murderous cycle of history and the 'blizzard
+        of the world' crossing the threshold, integrating disparate signs into one prophetic pattern of collapse and rebirth.
+      artist: Leonard Cohen
+      title: The Future
+      spotify_id: 5l8lYrnPEM1ln3J4XaTcy5
+      youtube_id: 3VAxwimExn0
+  boundary:
+    song:
+      ref: The Who — Won't Get Fooled Again
+      text: Meet the new boss / Same as the old boss
+      thread: Both articulate the realization that apparent revolution is often a surface-level replacement leaving the underlying
+        machinery of control intact, requiring the discernment to recognize the cycle and the boundary to refuse participation
+        in the illusion of progress.
+      artist: The Who
+      title: Won't Get Fooled Again
+      spotify_id: 0cJPLFrlV7TTCyPLupHzcH
+      youtube_id: Jtb10ZwbReY
+authenticity:
+  peace:
+    song:
+      ref: Radiohead — Desert Island Disk
+      text: Now I see it is my hologram / You know what I mean
+      thread: Both capture the quiet revelation that our assumed mutual understanding ("You know what I mean") is actually
+        a solitary projection—our own holographic screen—requiring the gentle dissolution of the illusion that others see
+        through our eyes.
+      artist: Radiohead
+      title: Desert Island Disk
+      spotify_id: 0eLVt8CGVdNnyMcfP38kDi
+      youtube_id: RfmE73FCOFg
+  clarity:
+    song:
+      ref: Simon & Garfunkel — The Sound of Silence
+      text: People hearing without listening / People writing songs that voices never share
+      thread: Both capture the realization that human connection is fractured by false understanding—people claim to hear
+        each other ("I know what you mean") while actually trapped in their own silent perceptual bubbles, unable to truly
+        share the voice of their experience.
+      artist: Simon & Garfunkel
+      title: The Sound of Silence
+      spotify_id: 3YfS47QufnLDFA71FUsgCM
+      youtube_id: bjkPQYWNTlg
+  momentum:
+    song:
+      ref: The Who — My Generation
+      text: Don't try to dig what we all s-s-say / I hope I die before I get old
+      thread: The lyric captures the Canon's fracture—elders claim to 'know what you mean' and pass judgment ('things they
+        do look awful c-cold') without ever truly tuning into the youth's perceptual frequency, while the stuttering, locomotive
+        rhythm embodies the unstoppable momentum of a generation moving forward despite being misunderstood.
+      artist: The Who
+      title: My Generation
+      spotify_id: 2EMmHEhCZSMMEM85HTFJvj
+      youtube_id: MgJ9K7cPRKk
+  trust:
+    song:
+      ref: Simon & Garfunkel — The Boxer
+      text: All lies and jest / Still, a man hears what he wants to hear / And disregards the rest
+      thread: This lyric articulates the same mechanism as the Canon—others constructing their version of the narrator's truth
+        through selective perception, claiming understanding while ignoring the actual story—yet the song surrenders to this
+        fracture with the quiet endurance of "the fighter still remains.
+      artist: Simon & Garfunkel
+      title: The Boxer
+      spotify_id: 76TZCvJ8GitQ2FA1q5dKu0
+      youtube_id: C1VUWDcp5Sg
+  joy:
+    song:
+      ref: Paul Simon — Kodachrome
+      text: They give us those nice bright colors / Makes you think all the world's a sunny day
+      thread: The lyric recognizes that the lens of perception (here, Kodachrome film) acts as a transformative screen that
+        renders reality in personalized "bright colors," validating a subjective "sunny day" worldview that exists only through
+        the viewer's specific holographic filter.
+      artist: Paul Simon
+      title: Kodachrome
+      spotify_id: 3f0U5NaD1bCk8nmKpn2ZJY
+      youtube_id: JD6Zq505pnM
+  connection:
+    song:
+      ref: The Police — Message in a Bottle
+      text: Seems I'm not alone at being alone / A hundred billion castaways looking for a home
+      thread: The Canon describes how each person claims understanding ("I know what you mean") while trapped in their own
+        "holographic screen" of perception; this lyric captures the revelation that our isolated subjective prisons are actually
+        the common ground—billions of us sending messages from our fractured viewpoints, only to discover connection in the
+        shared condition of being unseen castaways from perfect knowing.
+      artist: The Police
+      title: Message in a Bottle
+      spotify_id: 1oYYd2gnWZYrt89EBXdFiO
+      youtube_id: WMl1xKJeuuQ
+  presence:
+    song:
+      ref: Ray Charles — You Don't Know Me
+      text: You think you know me well / But you don't know me
+      thread: The lyric exposes the gap between another's claimed understanding ('you think you know me') and the speaker's
+        unobserved inner reality, mirroring the Canon's teaching that we determine we 'know what you mean' through our own
+        holographic screen without ever seeing through the other's eyes.
+      artist: Ray Charles
+      title: You Don't Know Me
+      spotify_id: 21OCFLM2kMujbeQyhqDI7n
+      youtube_id: FkkXn2hdsFA
+  resilience:
+    song:
+      ref: Rush — Limelight
+      text: I can't pretend a stranger is a long-awaited friend / Living in a fish eye lens, caught in the camera eye
+      thread: The lyric captures the exhaustion of being misseen through the distorted lens of public perception, asserting
+        the resilience required to maintain authentic boundaries when others project false intimacy or certainty ('stranger
+        as friend') onto your holographic screen.
+      artist: Rush
+      title: Limelight
+      spotify_id: 0K6yUnIKNsFtfIpTgGtcHm
+      youtube_id: tgj2br-teu4
+  courage:
+    song:
+      ref: Brandi Carlile — The Story
+      text: All of my friends who think that I'm blessed / They don't know my head is a mess
+      thread: Both expose the dissonance between external projection ("blessed") and internal reality ("mess"), challenging
+        the "sight unseen" determinations others make about our lives; the courage lies in dismantling the comfortable illusion
+        others project onto us.
+      artist: Brandi Carlile
+      title: The Story
+      spotify_id: 0EKBV6GybPtALXUgWqWrym
+      youtube_id: Kpp7wgKWYl0
+  gratitude:
+    song:
+      ref: Don McLean — Vincent
+      text: Now I understand what you tried to say to me / And how you suffered for your sanity
+      thread: The song recognizes that Van Gogh’s contemporaries perceived him through fractured objectivity (seeing madness
+        rather than truth), but the speaker—through careful attention and reverent gratitude—finally sees the authentic message
+        and beauty that others missed, correcting the 'sight unseen' that had determined his validity for others.
+      artist: Don McLean
+      title: Vincent
+      spotify_id: 0VNzEY1G4GLqcNx5qaaTl6
+      youtube_id: ciLNMesqPh0
+  release:
+    song:
+      ref: Bonnie Raitt — I Can't Make You Love Me
+      text: I can't make you love me if you don't / You can't make your heart feel something it won't
+      thread: The song captures the moment of releasing the futile effort to correct another's fractured perception—realizing
+        that their "heart" (their internal screen) has determined a reality (indifference) without ever truly seeing through
+        the speaker's eyes, and finding the lightness in finally laying down that burden.
+      artist: Bonnie Raitt
+      title: I Can't Make You Love Me
+      spotify_id: 69uJi5QsBtqlYkGURTBli8
+      youtube_id: UJ90r6m8mVE
+  integration:
+    song:
+      ref: Joni Mitchell — Both Sides Now
+      text: It's life's illusions I recall / I really don't know life at all
+      thread: Both articulate the realization that our confident perceptions—whether claiming to know another's experience
+        or believing we've seen objectively—are constructed on fractured, illusory subjectivity, and authenticity emerges
+        only when we integrate the understanding that we never held the complete picture we claimed to see.
+      artist: Joni Mitchell
+      title: Both Sides Now
+      spotify_id: 1pjATX7sbd6Y4jMVqIvzHk
+      youtube_id: 7m_t3_1vbX8
+  boundary:
+    song:
+      ref: Ani DiFranco — 32 Flavors
+      text: Squint your eyes and look closer / I'm not between you and your ambition / I am thirty-two flavors and then some
+        / And I'm beyond your peripheral vision
+      thread: Both articulate that others perceive us through a fractured, narrowed lens—DiFranco's 'peripheral vision' and
+        'squint' matching the Canon's 'fractured objectivity'—while asserting the boundary that one's authentic self exists
+        beyond the observer's limited projection.
+      artist: Ani DiFranco
+      title: 32 Flavors
+      spotify_id: 0b4R0H3ah51OjUo2rXtA1j
+      youtube_id: 295n-6N0mIo
+faith:
+  peace:
+    song:
+      ref: Grateful Dead — Ripple
+      text: It's a hand-me-down, the thoughts are broken... I don't know, don't really care / Let it be known there is a fountain
+        that was not made by the hands of men
+      thread: Both acknowledge human understanding as fractured and unprovable ('hand-me-down thoughts,' 'I don't know'),
+        finding peace not in certainty but in surrender to an inexplicable, non-human source ('fountain not made by hands,'
+        'faith in somethin').
+      artist: Grateful Dead
+      title: Ripple
+      spotify_id: 6PDAMw0YAGfO7ioXAgP2YW
+      youtube_id: sFBQSx_xc2o
+  clarity:
+    song:
+      ref: Leonard Cohen — Suzanne
+      text: And you want to travel with her, and you want to travel blind / And you know that she will trust you, for you've
+        touched her perfect body with your mind
+      thread: Both articulate that true perception and forward movement (resolution) require a surrender of certainty—traveling
+        blind—and a faith in the unseen that bridges the gap between what can be proven and what must be believed.
+      artist: Leonard Cohen
+      title: Suzanne
+      spotify_id: 4jiM2fAXVOxl4DAx3wraFx
+      youtube_id: gBz3DsF1N7s
+  momentum:
+    song:
+      ref: Paul Simon — Graceland
+      text: I have reason to believe we all will be received in Graceland
+      thread: Both acknowledge the impossibility of certainty—Simon carries the "ghost" of a failed marriage and human limitation
+        while the Canon admits we "know nothin"—yet both choose forward motion powered by faith in an unproven resolution
+        (reaching Graceland).
+      artist: Paul Simon
+      title: Graceland
+      spotify_id: 51KKQAgYFoJHgVIuJWHdHb
+      youtube_id: WH5WVmaZFNE
+  trust:
+    song:
+      ref: Indigo Girls — Closer to Fine
+      text: There's more than one answer to these questions / Pointing me in a crooked line / And the less I seek my source
+        for some definitive / The closer I am to fine
+      thread: Both articulate that definitive proof is unattainable (frayed strings/crooked line) and that resolution comes
+        only from surrendering the search for certainty and trusting the process.
+      artist: Indigo Girls
+      title: Closer to Fine
+      spotify_id: 7rKyITVLEwldhdXIy7P6Vw
+      youtube_id: atkVaKz9r5Y
+  joy:
+    song:
+      ref: Louis Armstrong — What a Wonderful World
+      text: I hear babies cry, I watch them grow / They'll learn much more than I'll never know
+      thread: Both acknowledge the fundamental limits of human knowledge ("learn much more than I'll never know" / "we really
+        know nothin") and respond not with despair but with a deliberate faith-framework that perceives existence itself as
+        a gift of beauty.
+      artist: Louis Armstrong
+      title: What a Wonderful World
+      spotify_id: 29U7stRjqHU6rMiS8BfaI9
+      youtube_id: fnyMzZiKfkY
+  connection:
+    song:
+      ref: The Impressions — People Get Ready
+      text: You don't need no baggage, you just get on board / All you need is faith to hear the diesels hummin
+      thread: Both acknowledge that we navigate with incomplete maps (no baggage, nothing proven), and that perception itself
+        requires a prior commitment to believe—only then do we hear the train coming or find resolution.
+      artist: The Impressions
+      title: People Get Ready
+      spotify_id: 4pbZcKtuu2GuX5hbrxkSUc
+      youtube_id: UG-KNy1MRTc
+  presence:
+    song:
+      ref: The Beatles — Strawberry Fields Forever
+      text: No one I think is in my tree / I mean it must be high or low / Living is easy with eyes closed / Misunderstanding
+        all you see
+      thread: Acknowledges the impossibility of certainty ('no one I think is in my tree,' 'misunderstanding all you see')
+        and the frayed strings of perception, resolving not with proof but with faith in the eternal now ('Strawberry Fields
+        forever').
+      artist: The Beatles
+      title: Strawberry Fields Forever
+      spotify_id: 3Am0IbOxmvlSXro7N5iSfZ
+      youtube_id: 10LSq_J5ol4
+  resilience:
+    song:
+      ref: Jackson Browne — For a Dancer
+      text: But I don't know what happens when people die / Can't seem to grasp it as hard as I try... And you hold on for
+        the sake of holding on
+      thread: Explicitly names the ungraspable mystery (the unprovable), then locates resolution not in certainty but in the
+        willful act of continuation itself—faith as the choice to keep holding when the strings are frayed.
+      artist: Jackson Browne
+      title: For a Dancer
+      spotify_id: 2AkbpHqE8STBmNDekA4Uxa
+      youtube_id: XnT_PbnpijE
+  courage:
+    song:
+      ref: Simon & Garfunkel — The Boxer
+      text: All lies and jests / Still a man hears what he wants to hear / And disregards the rest... But the fighter still
+        remains
+      thread: Both acknowledge that certainty is impossible (lies/jests/mumbles vs. little can be proven) and that we filter
+        reality through selective perception, yet the resolution comes through the courage to persist despite knowing the
+        truth of the pain.
+      artist: Simon & Garfunkel
+      title: The Boxer
+      spotify_id: 76TZCvJ8GitQ2FA1q5dKu0
+      youtube_id: C1VUWDcp5Sg
+  gratitude:
+    song:
+      ref: Paul Simon — American Tune
+      text: Many's the time I've been mistaken / And many times confused... But it's all right, it's all right
+      thread: Both acknowledge that we operate on misconceptions and confusion ('frayed strings'), that certainty is impossible
+        ('age's most uncertain hour'), yet find resolution through faith that 'it's all right' – a grateful acceptance of
+        what is despite not knowing.
+      artist: Paul Simon
+      title: American Tune
+      spotify_id: 3g3xDtGtU0asKw6iYCYiG5
+      youtube_id: -8etrzygP_o
+  release:
+    song:
+      ref: Indigo Girls — Closer to Fine
+      text: And the less I seek my source for some definitive / The closer I am to fine
+      thread: Both articulate that certainty is unprovable and that the resolution lies in releasing the burden of seeking
+        definitive answers, finding freedom in the acceptance of uncertainty.
+      artist: Indigo Girls
+      title: Closer to Fine
+      spotify_id: 7rKyITVLEwldhdXIy7P6Vw
+      youtube_id: atkVaKz9r5Y
+  integration:
+    song:
+      ref: Fleet Foxes — Helplessness Blues
+      text: If I know only one thing, it's that everything that I see / Of the world outside is so inconceivable often I barely
+        can speak / But I don't, I don't know what that will be / I'll get back to you someday soon you will see
+      thread: Both articulate the crisis of unprovable reality—admitting the world is inconceivable and certainty impossible—yet
+        find resolution only through an act of faith in connection beyond the self, integrating doubt and devotion into a
+        single coherent stance.
+      artist: Fleet Foxes
+      title: Helplessness Blues
+      spotify_id: 02VdHwnGhy5fTW2CTZkYsb
+      youtube_id: bW9UgPBjyNM
+  boundary:
+    song:
+      ref: Bruce Springsteen — Reason to Believe
+      text: Seen a man standin' over a dead dog lyin' by the highway in a ditch... Still at the end of every hard-earned day,
+        people find some reason to believe
+      thread: Both recognize that existence offers no provable guarantees (the dead dog, the frayed strings) yet survival
+        demands we draw a hard line against nihilism by choosing to believe anyway—a boundary of meaning erected in defiance
+        of the void.
+      artist: Bruce Springsteen
+      title: Reason to Believe
+      spotify_id: 7gSQv1OHpkIoAdUiRLdmI6
+      youtube_id: H49obsV6oZ0
+truth_and_lies:
+  peace:
+    song:
+      ref: The Beatles — The Inner Light
+      text: The farther one travels / The less one knows / The less one really knows
+      thread: Both articulate that external seeking (evidence/travel) obscures rather than reveals truth, which instead requires
+        an inner faith or view-independent realization that comes from within.
+      artist: The Beatles
+      title: The Inner Light
+      spotify_id: 379hxtlY5LvbPQa5LL6dPo
+      youtube_id: swT6YTPYwgM
+  clarity:
+    song:
+      ref: Pink Floyd — Wish You Were Here
+      text: So, so you think you can tell / Heaven from hell? Blue skies from pain?
+      thread: Both dismantle the assumption that sensory evidence provides objective truth, revealing that distinguishing
+        reality from illusion requires a leap of faith in one's own subjective perception.
+      artist: Pink Floyd
+      title: Wish You Were Here
+      spotify_id: 6mFkJmJqdDVQ1REhVfGgd1
+      youtube_id: 4K6cvc27_CE
+  momentum:
+    song:
+      ref: Fleetwood Mac — Go Your Own Way
+      text: Loving you isn't the right thing to do / ... / You can go your own way
+      thread: The lyric articulates the realization that evidence (love, history) is subjective and view-dependent; to maintain
+        forward momentum rather than stagnate in a false truth, one must declare their subjective reality and act on faith
+        in what they know to be true for them, even when it contradicts another's truth.
+      artist: Fleetwood Mac
+      title: Go Your Own Way
+      spotify_id: 07GvNcU1WdyZJq3XxP0kZa
+      youtube_id: MTIkFwMuiTw
+  trust:
+    song:
+      ref: Joni Mitchell — Both Sides Now
+      text: I've looked at life from both sides now... it's life's illusions I recall / I really don't know life at all
+      thread: Mitchell articulates the collapse of objective certainty—realizing that what she held as true (clouds, love,
+        life) were merely illusions dependent on her viewpoint, requiring her to surrender knowing for faith in the mystery.
+      artist: Joni Mitchell
+      title: Both Sides Now
+      spotify_id: 1pjATX7sbd6Y4jMVqIvzHk
+      youtube_id: 7m_t3_1vbX8
+  joy:
+    song:
+      ref: R.E.M. — Man on the Moon
+      text: If you believe they put a man on the moon / Man on the moon / If you believe there's nothing up my sleeve / Then
+        nothing is cool
+      thread: The lyric mirrors the Canon’s teaching that truth requires faith and is view-dependent by showing that reality
+        (what’s “cool” or true) only materializes through the act of belief, celebrating the subjective nature of knowing
+        as a playful choice rather than a burden.
+      artist: R.E.M.
+      title: Man on the Moon
+      spotify_id: 4jLv3tDBu8ww2R07DvL12s
+      youtube_id: CO5GaVJiRwo
+  connection:
+    song:
+      ref: Joe South — Walk a Mile in My Shoes
+      text: If I could be you, if you could be me, for just one hour / If we could find a way to get inside each other's mind
+      thread: The lyric articulates that all evidence is view-dependent and subjective, requiring an act of empathetic imagination
+        (faith) to grasp another's truth, thereby dissolving the illusion of separation between self and other.
+      artist: Joe South
+      title: Walk a Mile in My Shoes
+      spotify_id: 49dCQGqLHLqlgTcnxqN5h6
+      youtube_id: SUe_1vWeyzQ
+  presence:
+    song:
+      ref: Joni Mitchell — Both Sides Now
+      text: I've looked at clouds from both sides now / From up and down and still somehow / It's cloud's illusions I recall
+        / I really don't know clouds at all
+      thread: Both articulate that what we perceive as solid truth (clouds/life or evidence) is actually subjective illusion
+        dependent on viewpoint, requiring the humility to admit we operate on faith rather than certainty.
+      artist: Joni Mitchell
+      title: Both Sides Now
+      spotify_id: 1pjATX7sbd6Y4jMVqIvzHk
+      youtube_id: 7m_t3_1vbX8
+  resilience:
+    song:
+      ref: U2 — I Still Haven't Found What I'm Looking For
+      text: I have climbed highest mountains, I have run through the fields... but I still haven't found what I'm looking
+        for
+      thread: The lyric acknowledges exhaustive empirical effort (evidence of action) yet admits the truth remains elusive,
+        requiring continued faith to persist in the search despite subjective uncertainty—mirroring the Canon's teaching that
+        truth demands faith beyond evidence.
+      artist: U2
+      title: I Still Haven't Found What I'm Looking For
+      spotify_id: 6wpGqhRvJGNNXwWlPmkMyO
+      youtube_id: fo2Q-YH6vow
+  courage:
+    song:
+      ref: Johnny Cash — Hurt
+      text: I hurt myself today to see if I still feel; I focus on the pain, the only thing that's real
+      thread: Both recognize that external validation and material proof are ultimately illusory ('empire of dirt'), requiring
+        the courage to stake one's truth on subjective, felt experience despite the terror of that emptiness.
+      artist: Johnny Cash
+      title: Hurt
+      spotify_id: 28cnXtME493VX9NOw9cIUh
+      youtube_id: gSS2IgnnBo8
+  gratitude:
+    song:
+      ref: Crosby, Stills, Nash & Young — Teach Your Children
+      text: Teach your children well / Their father's hell did slowly go by / And feed them on your dreams / The one they
+        picks the one you'll know by
+      thread: Both recognize that what we declare as truth is drawn from subjective, hard-won experience ('their father's
+        hell') and requires immense faith to pass on, treasuring the continuity of learning across generations as a precious
+        inheritance.
+      artist: Crosby, Stills, Nash & Young
+      title: Teach Your Children
+      spotify_id: 29HaKOpeLSYvqdFyEQSRdj
+      youtube_id: r72QF7JOQvw
+  release:
+    song:
+      ref: Simon & Garfunkel — Kathy's Song
+      text: I have come to doubt / All that I once held as true
+      thread: Both articulate the epistemological crisis where previously held certainties dissolve, releasing the burden
+        of false objectivity to embrace a more humble, subjective knowing.
+      artist: Simon & Garfunkel
+      title: Kathy's Song
+      spotify_id: 4Acofe9hICRvyBTP5hFNk0
+      youtube_id: dUtjA6pEjns
+  integration:
+    song:
+      ref: Bob Dylan — My Back Pages
+      text: Ah, but I was so much older then / I'm younger than that now
+      thread: This captures the integration of wisdom that unlearns rigid certainty, recognizing that truth is view-dependent
+        and what once seemed like solid knowledge (good and bad defined clearly) dissolves into a more fluid, synthesized
+        understanding.
+      artist: Bob Dylan
+      title: My Back Pages
+      spotify_id: 2bCFKT7w3wwGfCV3cjrjqi
+      youtube_id: tx_hm7brW8M
+  boundary:
+    song:
+      ref: Simon & Garfunkel — Kathy's Song
+      text: So you see I have come to doubt / All that I once held as true / I stand alone without beliefs / The only truth
+        I know is you
+      thread: Both articulate the collapse of certainty—realizing that 'truth' is a provisional construct dependent on one's
+        subjective view—and the necessary withdrawal to a protected inner boundary where only direct, lived experience (or
+        love) can serve as provisional ground.
+      artist: Simon & Garfunkel
+      title: Kathy's Song
+      spotify_id: 4Acofe9hICRvyBTP5hFNk0
+      youtube_id: dUtjA6pEjns
+darkness_and_light:
+  peace:
+    song:
+      ref: James Taylor — Fire and Rain
+      text: I've seen fire and I've seen rain / I've seen sunny days that I thought would never end
+      thread: The lyric articulates the inevitability of navigating between opposing elemental forces (fire/destruction and
+        rain/renewal) as the fundamental structure of experience, accepting both without grasping onto the illusion that "sunny
+        days" last forever.
+      artist: James Taylor
+      title: Fire and Rain
+      spotify_id: 1XUKItaRs2494LclJwHhl8
+      youtube_id: N8u8tASPtwg
+  clarity:
+    song:
+      ref: Bob Dylan — All Along the Watchtower
+      text: There must be some way out of here,' said the joker to the thief / 'There's too much confusion, I can't get no
+        relief
+      thread: Captures the Canon's insight that duality (joker/thief, princes/servants) creates confusion which only dissolves
+        through radical clarity ('let us not talk falsely now') and vigilant navigation.
+      artist: Bob Dylan
+      title: All Along the Watchtower
+      spotify_id: 0Fnb2pfBfu0ka33d6Yki17
+      youtube_id: HyIlDPLDCP0
+  momentum:
+    song:
+      ref: The Doors — Break on Through (To the Other Side)
+      text: You know the day destroys the night / Night divides the day
+      thread: Both articulate that reality is structured by fundamental, destructive dualities (day/night, on/off) that cyclically
+        define and negate each other, and that navigation requires breaking through these binary divisions rather than remaining
+        fixed within them.
+      artist: The Doors
+      title: Break on Through (To the Other Side)
+      spotify_id: 6ToM0uwxtPKo9CMpbPGYvM
+      youtube_id: NFeUko-lQHg
+  trust:
+    song:
+      ref: Leonard Cohen — Hallelujah
+      text: The minor fall, the major lift / The baffled king composing Hallelujah... There's a blaze of light in every word
+        / It doesn't matter which you heard / The holy or the broken Hallelujah
+      thread: Both articulate that reality is structured by fundamental dualities (minor/major, holy/broken, dark/light) and
+        that wisdom lies not in resolving these opposites but in surrendering to the navigation between them with a trust
+        that transcends outcomes.
+      artist: Leonard Cohen
+      title: Hallelujah
+      spotify_id: 7yzbimr8WVyAtBX3Eg6UL9
+      youtube_id: -DxrGu9n4fg
+  joy:
+    song:
+      ref: Van Morrison — Bright Side of the Road
+      text: From the dark end of the street, to the bright side of the road
+      thread: The lyric frames existence as a journey along a continuum from darkness to light, embracing duality not as conflict
+        but as the very terrain of joyful forward motion where burdens are shared and lovers reunite.
+      artist: Van Morrison
+      title: Bright Side of the Road
+      spotify_id: 7qnsOtGdKBXwRgOEoI6ZAU
+      youtube_id: kDxYuNM8V98
+  connection:
+    song:
+      ref: Simon & Garfunkel — The Only Living Boy in New York
+      text: Half of the time we're gone but we don't know where / And we don't know where / Here I am
+      thread: Both articulate that existence is defined by the duality of presence and absence (here/gone, seen/unseen), and
+        the teaching is that connection itself becomes the guiding sign through the darkness—the reassurance of "Here I am"
+        serving as the light when vision strains to see.
+      artist: Simon & Garfunkel
+      title: The Only Living Boy in New York
+      spotify_id: 5MbXzXGbqobR8xPVPs8OXA
+      youtube_id: sFAkPXxbIlQ
+  presence:
+    song:
+      ref: The Doors — Riders on the Storm
+      text: Into this house we're born / Into this world we're thrown
+      thread: Both articulate the fundamental realization that existence is a binary condition—we are thrown into a dualistic
+        reality (house/world, born/thrown) and must navigate its inherent tensions without a predetermined script, our vision
+        straining to see through the tempest.
+      artist: The Doors
+      title: Riders on the Storm
+      spotify_id: 14XWXWv5FoCbFzLksawpEe
+      youtube_id: lJZTgynPGT8
+  resilience:
+    song:
+      ref: Leonard Cohen — Anthem
+      text: There is a crack in everything / That's how the light gets in
+      thread: Both recognize that reality is structurally dual—crack and light, darkness and illumination are not opposites
+        to avoid but the very mechanism of perception—and find resilience in the brokenness itself, continuing to ring the
+        bells despite the fractures.
+      artist: Leonard Cohen
+      title: Anthem
+      spotify_id: 7aAE5KL20Uycf3dswsaHjp
+      youtube_id: mkWmh6KJAXY
+  courage:
+    song:
+      ref: Anna Nalick — Breathe (2 AM)
+      text: There's a light at each end of this tunnel / You confuse which one's the devil and which one's the divine
+      thread: Both articulate that reality presents structural dualities (darkness/light, devil/divine) that strain perceptual
+        clarity, and the teaching centers on the courage required to continue navigating through the tunnel of confusion rather
+        than retreating to false certainty.
+      artist: Anna Nalick
+      title: Breathe (2 AM)
+      spotify_id: 5auMzVHFr5Zfw6IbKarZ56
+      youtube_id: 6tfId0RTTng
+  gratitude:
+    song:
+      ref: Leonard Cohen — Anthem
+      text: There is a crack in everything / That's how the light gets in
+      thread: Articulates that darkness (the crack, the brokenness) and light are structurally interdependent—duality is not
+        a flaw but the generative mechanism of reality—and finds gratitude for this imperfect condition rather than resenting
+        it.
+      artist: Leonard Cohen
+      title: Anthem
+      spotify_id: 7aAE5KL20Uycf3dswsaHjp
+      youtube_id: mkWmh6KJAXY
+  release:
+    song:
+      ref: U2 — With or Without You
+      text: With or without you / I can't live / With or without you
+      thread: The lyric articulates the paradoxical binary of presence/absence as the structural condition of existence; the
+        song resolves the strain of navigating this duality through total surrender ("you give yourself away"), releasing
+        attachment to either pole and finding freedom in the acceptance of the irresolvable.
+      artist: U2
+      title: With or Without You
+      spotify_id: 6QPhpvO1pWDS91EsEmzsbc
+      youtube_id: oNvWDP_GkiY
+  integration:
+    song:
+      ref: Joni Mitchell — Shadows and Light
+      text: Every picture has its shadows / And it has some source of light
+      thread: Both articulate that reality is structurally composed of inseparable dualities—shadows and light, blindness
+        and sight, the wicked and the holy—and that perception involves the strain of holding these opposing forces as a single
+        integrated whole rather than fragmented states.
+      artist: Joni Mitchell
+      title: Shadows and Light
+      spotify_id: 1ERoCMfEtN8cs9Yru9leRi
+      youtube_id: SSfWH6jWj5g
+  boundary:
+    song:
+      ref: Radiohead — There There
+      text: Just because you feel it doesn't mean it's there
+      thread: 'The lyric captures the essential boundary work of the principle: discerning between internal projection and
+        external reality (the binary of real vs. imagined) while navigating the pitch darkness of perception, protecting oneself
+        from absorbing shadows that belong to the landscape of others.'
+      artist: Radiohead
+      title: There There
+      spotify_id: 5h4y42RUKwYKYWgutNwvKP
+      youtube_id: Z2aH-sluR5s
+tune_your_mind:
+  peace:
+    song:
+      ref: Cat Stevens — If You Want to Sing Out, Sing Out
+      text: You can do what you want / The opportunity's on / And if you can find a new way / You can make it all true
+      thread: 'Both offer an instruction set for reality creation: the Canon through reflection/intention/clarity, and Stevens
+        through the realization that wanting and being are one—demonstrating that mental clarity immediately manifests as
+        lived reality ("you can make it all true").'
+      artist: Cat Stevens
+      title: If You Want to Sing Out, Sing Out
+      spotify_id: 340t55txxJWQmTFK7wARZh
+      youtube_id: yYMQpDCVYBo
+  clarity:
+    song:
+      ref: The Moody Blues — Thinking Is the Best Way to Travel
+      text: You can go anywhere that you want to / You can be anyone that you choose / You can do anything that you want to
+        / Just by thinking
+      thread: Both articulate that focused mental activity (thinking/tuning) is the precise mechanism by which one transcends
+        physical limitations to create or experience any reality, with clarity of intention being the only necessary vehicle
+        for manifestation.
+      artist: The Moody Blues
+      title: Thinking Is the Best Way to Travel
+      spotify_id: 4TyYYwyENM2v3eoa169Fgi
+      youtube_id: 8Ma1bmBv_nc
+  momentum:
+    song:
+      ref: Natasha Bedingfield — Unwritten
+      text: No one else can feel it for you / Only you can let it in... Today is where your book begins / The rest is still
+        unwritten
+      thread: The lyric articulates that external validation is irrelevant to internal creation—only the individual can 'let
+        in' the imagined reality through conscious attention, exactly mirroring the Canon's teaching that clarity and intention
+        allow the world to appear as envisioned.
+      artist: Natasha Bedingfield
+      title: Unwritten
+      spotify_id: 3U5JVgI2x4rDyHGObzJfNf
+      youtube_id: iKejQrGq04w
+  trust:
+    song:
+      ref: Tom Petty — Runnin' Down a Dream
+      text: I felt so good like anything was possible / I hit cruise control and rubbed my eyes... Workin' on a mystery, goin'
+        wherever it leads
+      thread: The narrator actively imagines possibility ('anything was possible'), sets intention (runnin'), and surrenders
+        to the mystery of how it unfolds ('goin' wherever it leads'), embodying the Canon's action stage through trust in
+        the unseen path.
+      artist: Tom Petty
+      title: Runnin' Down a Dream
+      spotify_id: 4AiMaeCXwsldpwvA5wu5gM
+      youtube_id: 8MUg8mpnhvQ
+  joy:
+    song:
+      ref: Bob Marley & The Wailers — Three Little Birds
+      text: Don't worry about a thing / 'Cause every little thing gonna be all right
+      thread: The lyric teaches that by intentionally tuning one's mind away from worry (reflection and attention) and toward
+        trust/intention, one directly affects the outcome of reality (everything being alright), mirroring the Canon's teaching
+        that conscious mental frequency creates the experienced world.
+      artist: Bob Marley & The Wailers
+      title: Three Little Birds
+      spotify_id: 7vggqxNKwd6xdRoYS0pQtM
+      youtube_id: MUNNRAdizz0
+  connection:
+    song:
+      ref: Crosby, Stills, Nash & Young — Teach Your Children
+      text: And feed them on your dreams / The one they pick's the one you'll know by
+      thread: 'This lyric mirrors the Canon''s four-step mechanism: ''feeding dreams'' is imagination powered by attention
+        with intention, while recognizing ''the one they pick'' is the clarity that makes the vision appear, all transmitted
+        through the shared field of generational bonding.'
+      artist: Crosby, Stills, Nash & Young
+      title: Teach Your Children
+      spotify_id: 29HaKOpeLSYvqdFyEQSRdj
+      youtube_id: r72QF7JOQvw
+  presence:
+    song:
+      ref: Carole King — Beautiful
+      text: You've got to get up every morning with a smile on your face / And show the world all the love in your heart /
+        Then people gonna treat you better / You're gonna find, yes you will, that you're beautiful as you feel
+      thread: Both prescribe a dawn attunement protocol where conscious emotional calibration (smile as reflection, love as
+        intentional attention) directly alters external feedback loops and self-perception—internal clarity literally manifests
+        as external beauty and kinder treatment.
+      artist: Carole King
+      title: Beautiful
+      spotify_id: 4EGyc152dlYpuQZ47cRC8j
+      youtube_id: 6ZC17DIsDaQ
+  resilience:
+    song:
+      ref: The Avett Brothers — Head Full of Doubt/Road Full of Promise
+      text: There was a dream and one day I could see it / ... / Decide what to be and go be it / So I'll scream til I die
+        and the last of those bad thoughts are finally out
+      thread: Both teach that reality forms through four distinct mental actions—seeing the dream (imagination), deciding
+        one's being (intention), and enduring the screaming process of clearing doubt (reflection/clarity)—requiring resilience
+        to hold the vision against internal resistance.
+      artist: The Avett Brothers
+      title: Head Full of Doubt/Road Full of Promise
+      spotify_id: 7Kho44itYaCQZvZQVV2SLW
+      youtube_id: jyfeOyglMtI
+  courage:
+    song:
+      ref: The Avett Brothers — Head Full of Doubt/Road Full of Promise
+      text: Decide what to be and go be it
+      thread: Both teach that reality is constructed through the courageous act of intentional clarity—defining one's vision
+        with precision and then embodying it despite internal resistance, knowing that external circumstances bow to internal
+        decision.
+      artist: The Avett Brothers
+      title: Head Full of Doubt/Road Full of Promise
+      spotify_id: 7Kho44itYaCQZvZQVV2SLW
+      youtube_id: jyfeOyglMtI
+  gratitude:
+    song:
+      ref: Bing Crosby — Count Your Blessings (Instead of Sheep)
+      text: When I'm worried and I can't sleep / I count my blessings instead of sheep / And I fall asleep counting my blessings
+      thread: Both teach that consciously redirecting attention from anxiety (scarcity) to appreciation (abundance) is an
+        intentional practice that alters your vibrational state and creates peace (clarity) in the present moment.
+      artist: Bing Crosby
+      title: Count Your Blessings (Instead of Sheep)
+      spotify_id: 1une3rqT2R9tsTOZWwzIrZ
+      youtube_id: h1s6DpZJkZ8
+  release:
+    song:
+      ref: The Beatles — Let It Be
+      text: And when the night is cloudy, there is still a light that shines on me / Shine until tomorrow, let it be
+      thread: Both teach that releasing the struggle for control (let it be) while maintaining tuned reflection allows clarity
+        (the light) to emerge, through which the desired reality/answer naturally appears without force.
+      artist: The Beatles
+      title: Let It Be
+      spotify_id: 7iN1s7xHE4ifF5povM6A48
+      youtube_id: HzvDofigTKQ
+  integration:
+    song:
+      ref: Rush — Closer to the Heart
+      text: And the men who hold high places / Must be the ones who start / To mold a new reality / Closer to the heart
+      thread: Both teach that reality is not fixed but forged through disciplined mental work—reflection (the artist/blacksmith),
+        intentional attention (holding high places), and creative imagination literally mold existence when aligned with inner
+        clarity (the heart).
+      artist: Rush
+      title: Closer to the Heart
+      spotify_id: 4u3oXuVeOGoByIMz9pnOKf
+      youtube_id: WPeBwVXgR8I
+  boundary:
+    song:
+      ref: Elton John — Goodbye Yellow Brick Road
+      text: So goodbye yellow brick road / Where the dogs of society howl / You can't plant me in your penthouse / I'm going
+        back to my plow
+      thread: Both songs articulate the realization that conscious reality-creation requires first drawing a hard boundary
+        with external expectations—rejecting the 'penthouse' of conditioned thought—to reclaim one's attention and clearly
+        imagine a future aligned with authentic selfhood rather than borrowed identity.
+      artist: Elton John
+      title: Goodbye Yellow Brick Road
+      spotify_id: 4IRHwIZHzlHT1FQpRa5RdE
+      youtube_id: wy709iNG6i8
+dreams:
+  peace:
+    song:
+      ref: Grateful Dead — Attics of My Life
+      text: In the attics of my life / Full of cloudy dreams unreal... / When there was no ear to hear / You sang to me
+      thread: Both articulate that infinite potential (cloudy dreams unreal, tastes no tongue can know) exists in the unseen
+        realms, but requires the stillness of a bent ear and closed eye—intentional, refined attention—to crystallize into
+        perceived reality.
+      artist: Grateful Dead
+      title: Attics of My Life
+      spotify_id: 5U0lHydo7tQh5t3dxHpQzu
+      youtube_id: JnaLD_raerM
+  clarity:
+    song:
+      ref: Queensrÿche — Silent Lucidity
+      text: If you open your mind for me / You won't rely on open eyes to see
+      thread: Both teach that refining perception (opening the mind beyond physical sight/attention) dissolves the barriers
+        between potential and reality, allowing one to navigate and direct the dream state through clarity rather than confusion.
+      artist: Queensrÿche
+      title: Silent Lucidity
+      spotify_id: 6OSyCAmXT4Gkd3OQ2aPOaF
+      youtube_id: 3GIv4NCmbvU
+  momentum:
+    song:
+      ref: Eminem — Lose Yourself
+      text: You better lose yourself in the music, the moment, you own it, you better never let it go. You only get one shot,
+        do not miss your chance to blow.
+      thread: Both articulate that infinite potential (endless dreams/the moment) remains unrealized without total presence
+        and attention—Eminem's "own it" mirrors the Canon's "attention from you" as the catalytic force that transforms possibility
+        into reality.
+      artist: Eminem
+      title: Lose Yourself
+      spotify_id: 5Z01UMMf7V1o0MzF86s6WJ
+      youtube_id: zlJ0Aj9y67c
+  trust:
+    song:
+      ref: The Beatles — Across the Universe
+      text: Words are flowing out like endless rain into a paper cup... Pools of sorrow waves of joy are drifting through
+        my opened mind / Possessing and caressing me
+      thread: Both articulate that infinite potential (endless dreams/words) surrounds us continuously, but can only be received
+        and shaped into reality through a mind deliberately opened and refined by silence, trusting the current to carry what
+        the ego cannot grasp.
+      artist: The Beatles
+      title: Across the Universe
+      spotify_id: 4dkoqJrP0L8FXftrMZongF
+      youtube_id: 90M60PzmxEE
+  joy:
+    song:
+      ref: Bill Withers — Lovely Day
+      text: Then I look at you, and the world's alright with me / Just one look at you and I know it's gonna be a lovely day
+      thread: The lyric captures the exact mechanism of the Canon—that potential (the day/destiny) remains heavy and unfulfilled
+        until the active choice to look/attend transforms it spontaneously into beauty and possibility.
+      artist: Bill Withers
+      title: Lovely Day
+      spotify_id: 0bRXwKfigvpKZUurwqAlEh
+      youtube_id: QCgeitX5xg0
+  connection:
+    song:
+      ref: Cyndi Lauper — True Colors
+      text: I see your true colors shining through... So don't be afraid to let them show
+      thread: The lyric captures the teaching that inner potential (true colors) remains hidden without the courage to reveal
+        it (attention), and that this vulnerability creates the deepest bond—when another witnesses your authentic self, potential
+        transforms into shared reality.
+      artist: Cyndi Lauper
+      title: True Colors
+      spotify_id: 2A6yzRGMgSQCUapR2ptm6A
+      youtube_id: Uat_lTjrFpk
+  presence:
+    song:
+      ref: Billy Joel — Vienna
+      text: Slow down you crazy child / And take the phone off the hook and disappear for a while / It's all right, you can
+        afford to lose a day or two / When will you realize Vienna waits for you?
+      thread: Both teach that infinite potential (dreams/Vienna) surrounds you but remains inaccessible until you refine your
+        mind through stillness—slowing down dissolves the distraction that prevents reception.
+      artist: Billy Joel
+      title: Vienna
+      spotify_id: 4U45aEWtQhrm8A5mxPaFZ7
+      youtube_id: irl89Gmcv8c
+  resilience:
+    song:
+      ref: The Beatles — Blackbird
+      text: Take these broken wings and learn to fly / All your life, you were only waiting for this moment to arise
+      thread: Both teach that infinite potential (the capacity to fly/the dream) lies dormant until met with the quiet, persistent
+        work of attention (learning/endurance), and that this transformation requires entering the silent, dark spaces where
+        the mind is cleared and realigned.
+      artist: The Beatles
+      title: Blackbird
+      spotify_id: 5jgFfDIR6FR0gvlA56Nakr
+      youtube_id: Man4Xw8Xypo
+  courage:
+    song:
+      ref: Tracy Chapman — Fast Car
+      text: You got a fast car / Is it fast enough so we can fly away? / We gotta make a decision / Leave tonight or live
+        and die this way
+      thread: Both articulate that potential remains unrealized without the trembling courage to choose—facing the paralysis
+        of repetition and actively deciding to direct attention toward the unknown rather than letting dreams wither through
+        inaction.
+      artist: Tracy Chapman
+      title: Fast Car
+      spotify_id: 2M9ro2krNb7nr7HSprkEgo
+      youtube_id: IJ8i49EqgYI
+  gratitude:
+    song:
+      ref: Louis Armstrong — What a Wonderful World
+      text: I see trees of green, red roses too / I see them bloom for me and you
+      thread: The lyric articulates how the world's infinite potential for beauty (trees, roses, skies) only becomes a realized
+        'wonderful world' through the active choice to see it—mirroring the Canon's teaching that dreams require your attention
+        to come true.
+      artist: Louis Armstrong
+      title: What a Wonderful World
+      spotify_id: 29U7stRjqHU6rMiS8BfaI9
+      youtube_id: fnyMzZiKfkY
+  release:
+    song:
+      ref: Anna Nalick — Breathe (2 AM)
+      text: If I get it all down on paper, it's no longer inside of me / Threatening the life it belongs to
+      thread: The lyric captures the necessity of giving attention (writing it down) to release the tangled thoughts so the
+        creative potential (the song/life) can exist freely outside the mind, mirroring the Canon's teaching that dreams require
+        attention to unwind from the mind's clutter.
+      artist: Anna Nalick
+      title: Breathe (2 AM)
+      spotify_id: 5auMzVHFr5Zfw6IbKarZ56
+      youtube_id: 6tfId0RTTng
+  integration:
+    song:
+      ref: Peter Gabriel — Mercy Street
+      text: All of the buildings, all of those cars / Were once just a dream / In somebody's head
+      thread: Both articulate that the material world begins as unrealized potential (dreams) existing in infinite possibility,
+        which only solidifies into reality through the creative attention and imaginative focus of a consciousness—silence
+        and mental refinement allowing the intangible to weave itself into the tangible.
+      artist: Peter Gabriel
+      title: Mercy Street
+      spotify_id: 5QQBBmD91ciW9cSlLyjVZP
+      youtube_id: DqZWSZBSLCI
+  boundary:
+    song:
+      ref: Jackson Browne — For a Dancer
+      text: Just do the steps that you've been shown / By everyone you've ever known / Until the dance becomes your very own...
+        How many times must we pass through into the unknown?
+      thread: Both teach that potential remains only potential until you withdraw from the repetitive steps of others to claim
+        your own dance, requiring you to pass through the boundary of the known into silence where attention refines which
+        dreams become real.
+      artist: Jackson Browne
+      title: For a Dancer
+      spotify_id: 2AkbpHqE8STBmNDekA4Uxa
+      youtube_id: XnT_PbnpijE
+the_power_to_be_alive:
+  peace:
+    song:
+      ref: Sting — Shape of My Heart
+      text: He deals the cards as a meditation / And those he plays never suspect / He doesn't play for the money he wins
+        / He don't play for respect
+      thread: Both locate truth not in external acquisition or force, but in a subtle, meditative attunement to underlying
+        patterns—the "sacred geometry" that reveals itself only in stillness, much like the sparks between thoughts.
+      artist: Sting
+      title: Shape of My Heart
+      spotify_id: 6CKoWCWAqEVWVjpeoJXyNH
+      youtube_id: RVfGFmBFgoc
+  clarity:
+    song:
+      ref: Grateful Dead — Eyes of the World
+      text: Wake up to find out that you are the eyes of the world
+      thread: The Canon teaches that agency and truth lie in the interstitial spaces between thoughts and cannot be purchased,
+        only awakened; this lyric delivers the sudden clarity that the power to perceive reality (the 'eyes') is innate and
+        discovered upon waking, mirroring the 'rising sun' arrival of choice described in the second anchor.
+      artist: Grateful Dead
+      title: Eyes of the World
+      spotify_id: 0qJ6owHt00MMZTpNmNsPHC
+      youtube_id: hGjsYLlTxQ4
+  momentum:
+    song:
+      ref: Bruce Springsteen — Dancing in the Dark
+      text: You can't start a fire sitting 'round crying over a broken heart... even if we're just dancing in the dark
+      thread: Both teach that awareness and aliveness require active engagement—the spark between thoughts ignites only when
+        we stop waiting and start moving, choosing to dance even in uncertainty.
+      artist: Bruce Springsteen
+      title: Dancing in the Dark
+      spotify_id: 6KfyJqbMBhEfU1cHOSTmBP
+      youtube_id: nCFTL4IO6t4
+  trust:
+    song:
+      ref: Massive Attack — Teardrop
+      text: Love, love is a verb / Love is a doing word / Fearless on my breath
+      thread: Both recognize that the power to be alive manifests in subtle, active presences (love as a doing word/teardrop
+        on fire vs sparks between thoughts) that require fearless surrender to detect, not forced acquisition.
+      artist: Massive Attack
+      title: Teardrop
+      spotify_id: 67Hna13dNDkZvBpTXRIaOJ
+      youtube_id: 3h-JYx76QNM
+  joy:
+    song:
+      ref: U2 — Beautiful Day
+      text: See the bird with a leaf in her mouth / After the flood all the colors came out / What you don't have you don't
+        need it now
+      thread: Both recognize that truth reveals itself in subtle signs (the bird, the sparks) after difficulty, and that this
+        awareness is innate—not acquired through effort or purchase—but arrives like light to those who choose to see.
+      artist: U2
+      title: Beautiful Day
+      spotify_id: 1VuBmEauSZywQVtqbxNqka
+      youtube_id: V1j_MA3daLI
+  connection:
+    song:
+      ref: Grateful Dead — Ripple
+      text: Reach out your hand if your cup be empty / If your cup is full may it be again
+      thread: Both locate truth in the subtle, unexplained ripples that occur between thoughts and people, teaching that the
+        power to be alive is activated through the choice to give and receive, and that this awareness flows through a shared
+        field where it cannot be purchased, only offered and accepted.
+      artist: Grateful Dead
+      title: Ripple
+      spotify_id: 6PDAMw0YAGfO7ioXAgP2YW
+      youtube_id: sFBQSx_xc2o
+  presence:
+    song:
+      ref: The Beatles — Blackbird
+      text: Blackbird singing in the dead of night / Take these broken wings and learn to fly
+      thread: Both locate the power of awareness and aliveness in the quiet, liminal spaces—between thoughts or in the dead
+        of night—where subtle sparks of truth emerge not through effort but through innate presence, inviting the soul to
+        awaken even from brokenness and shadow.
+      artist: The Beatles
+      title: Blackbird
+      spotify_id: 5jgFfDIR6FR0gvlA56Nakr
+      youtube_id: Man4Xw8Xypo
+  resilience:
+    song:
+      ref: Pearl Jam — I Am Mine
+      text: I know I was born and I know that I'll die / The in between is mine / I am mine
+      thread: Both teach that truth and agency reside in the 'in-between' space—between birth and death, between thoughts—where
+        self-possession cannot be bought or taken, only personally claimed through the quiet resilience of continuing to stand
+        in one's own awareness.
+      artist: Pearl Jam
+      title: I Am Mine
+      spotify_id: 79pY2Z5eFvXMt9bSdHLrnA
+      youtube_id: Js2_RrSO1MU
+  courage:
+    song:
+      ref: Regina Spektor — The Call
+      text: It started out as a feeling / Which then turned into a quiet word
+      thread: Both trace how truth and agency emerge not from force or purchase but from attending to the subtle, successive
+        movements between feeling, thought, and word, requiring courage to follow that quiet internal thread into decisive
+        action.
+      artist: Regina Spektor
+      title: The Call
+      spotify_id: 341863z079BT4EFPiSw9DP
+      youtube_id: pCEUpVukAe8
+  gratitude:
+    song:
+      ref: James Taylor — The Secret of Life
+      text: The secret of life is enjoying the passage of time / Any fool can do it, there ain't nothing to it
+      thread: Both locate the truth not in acquisition or effort but in the innate capacity to dwell in the present gap—the
+        subtle spark between moments—recognizing that this awareness is freely given, not purchased, and that choosing to
+        enjoy the ride is itself the power of being alive.
+      artist: James Taylor
+      title: The Secret of Life
+      spotify_id: 3IGAJam8XPmbBjCAvpCW8N
+      youtube_id: r0siaaHQauo
+  release:
+    song:
+      ref: Eddie Vedder — Guaranteed
+      text: I took a heavenly ride through our silence / I knew the moment had arrived / For killing the past and coming back
+        to life
+      thread: Both capture the precise instant when inner silence reveals the choice to release history's weight and reclaim
+        innate vitality—the 'moment' that cannot be bought but only surrendered into.
+      artist: Eddie Vedder
+      title: Guaranteed
+      spotify_id: 1bQ4zbP8Fo0qAePTSOfYji
+      youtube_id: K6g4841NZ6I
+  integration:
+    song:
+      ref: The Beatles — The Inner Light
+      text: Without going out of my door / I can know all things on earth
+      thread: This captures the same teaching that truth lies in the subtle internal sparks rather than external seeking,
+        embodying the integration of inner and outer worlds where awareness already resides.
+      artist: The Beatles
+      title: The Inner Light
+      spotify_id: 379hxtlY5LvbPQa5LL6dPo
+      youtube_id: swT6YTPYwgM
+  boundary:
+    song:
+      ref: Pink Floyd — Wish You Were Here
+      text: Did you exchange a walk-on part in the war / For a lead role in a cage?
+      thread: Both articulate the boundary violation of trading living awareness for dead security; the 'walk-on part' is
+        the unbought, risky aliveness that must be protected from the transaction that puts it in a cage.
+      artist: Pink Floyd
+      title: Wish You Were Here
+      spotify_id: 6mFkJmJqdDVQ1REhVfGgd1
+      youtube_id: 4K6cvc27_CE
+training_ground:
+  peace:
+    song:
+      ref: The Beatles — Within You Without You
+      text: Try to realize it's all within yourself / No one else can make you change
+      thread: Both teachings locate reality's creation within unbounded consciousness (the quantum field that flows 'within
+        you and without you'), recognizing that the observer learns to participate in reality formation by dissolving the
+        'wall of illusion' through internal realization rather than external force.
+      artist: The Beatles
+      title: Within You Without You
+      spotify_id: 3Umg8CDhO8dOSj7yBTInYb
+      youtube_id: HsffxGyY4ck
+  clarity:
+    song:
+      ref: John Lennon — Mind Games
+      text: We're playing those mind games together / Projecting our images in space and in time
+      thread: Both articulate the mechanism by which collective consciousness projects thought-forms into the quantum field,
+        co-creating shared reality through vibrational resonance and mutual recognition.
+      artist: John Lennon
+      title: Mind Games
+      spotify_id: 3QmUhaY5KZiOuaUH8H71LG
+      youtube_id: QLeObvcUii4
+  momentum:
+    song:
+      ref: Electric Light Orchestra — Mr. Blue Sky
+      text: Sun is shinin' in the sky, there ain't a cloud in sight / It's stopped rainin', everybody's in a play and don't
+        you know, it's a beautiful new day
+      thread: Both articulate that the observer's frequency shift clears the quantum field, with ELO's sudden weather change
+        from rain to sun embodying the Canon's teaching that thoughts impact vibrations to reveal a new reality, the human
+        race serving as the training ground where we learn to hold the blue sky.
+      artist: Electric Light Orchestra
+      title: Mr. Blue Sky
+      spotify_id: 2RlgNHKcydI9sayD2Df2xp
+      youtube_id: wuJIqmha2Hk
+  trust:
+    song:
+      ref: Kate Bush — Cloudbusting
+      text: I just know that something good is going to happen / And I don't know when / But just saying it could even make
+        it happen
+      thread: Both articulate that consciousness actively participates in reality formation through expectation and verbalized
+        intention, trusting that the invisible (quantum potential/clouds) will collapse into the visible without needing to
+        control the timing.
+      artist: Kate Bush
+      title: Cloudbusting
+      spotify_id: 373vZ0g1dpWaUcrbh0WKhd
+      youtube_id: ns7EW5G9ses
+  joy:
+    song:
+      ref: Gene Wilder — Pure Imagination
+      text: If you want to view paradise, simply look around and view it / Anything you want to, do it / Want to change the
+        world? There's nothing to it
+      thread: Both articulate that consciousness directly generates reality through focused intention, and that the physical
+        world is a malleable training ground responsive to the observer's imaginative state.
+      artist: Gene Wilder
+      title: Pure Imagination
+      spotify_id: 4f4HLo6L9CJNhD4mEYxrCL
+      youtube_id: A-DuOmA75lI
+  connection:
+    song:
+      ref: John Lennon — Mind Games
+      text: We're playing those mind games together / Pushing the barriers, planting seeds
+      thread: Both identify reality as a collaborative consciousness experiment where shared mental activity ('mind games
+        together') actively shapes existence ('planting seeds' as thoughts materializing), framing existence as a participatory
+        training ground rather than fixed reality.
+      artist: John Lennon
+      title: Mind Games
+      spotify_id: 3QmUhaY5KZiOuaUH8H71LG
+      youtube_id: QLeObvcUii4
+  presence:
+    song:
+      ref: The Beatles — Across the Universe
+      text: Images of broken light which dance before me like a million eyes / Calls me on and on across the universe
+      thread: Both describe consciousness as an unbounded symphony of light and sound—vibrations that incite and invite the
+        observer to participate in reality formation rather than merely witness it.
+      artist: The Beatles
+      title: Across the Universe
+      spotify_id: 4dkoqJrP0L8FXftrMZongF
+      youtube_id: 90M60PzmxEE
+  resilience:
+    song:
+      ref: Stevie Wonder — Higher Ground
+      text: I'm so darn glad he let me try it again / I'm so glad that I know more than I knew then / Gonna keep on trying
+        / Till I reach my highest ground
+      thread: Views existence as an iterative training ground where consciousness evolves through repeated effort and learning
+        ("try it again," "know more"), resonating with the Canon's "awareness training ground" where the observer learns to
+        participate in reality formation through continuous growth toward higher vibrational states.
+      artist: Stevie Wonder
+      title: Higher Ground
+      spotify_id: 0dMd4rilfd6gPbXaLpNYhu
+      youtube_id: 1esf0efHbjM
+  courage:
+    song:
+      ref: Tool — Lateralus
+      text: As below so above and beyond, I imagine / Drawn outside the lines of reason / Push the envelope, watch it bend
+      thread: Both articulate that consciousness is unbounded and reality is a spiral of expanding awareness where the observer
+        must push beyond comfort to grow; the lyric captures the courage to imagine beyond current limits and push the envelope
+        of existence.
+      artist: Tool
+      title: Lateralus
+      spotify_id: 7tvuLLroI0n6uYBWuFig5d
+      youtube_id: mBgviceBzFs
+  gratitude:
+    song:
+      ref: Grateful Dead — Scarlet Begonias
+      text: Once in a while you get shown the light in the strangest of places if you look at it right
+      thread: Both articulate that consciousness (the "look") determines what reality reveals (the "light" shown) within the
+        quantum field of infinite possibility ("strangest of places"), framing existence as a perceptual training ground where
+        we learn to align our awareness to see what is always there.
+      artist: Grateful Dead
+      title: Scarlet Begonias
+      spotify_id: 3euDGpS2R0NC2Xssqxohva
+      youtube_id: xt4XAz2WZ3Y
+  release:
+    song:
+      ref: George Harrison — All Things Must Pass
+      text: Sunset doesn't last all evening / A mind can blow those clouds away
+      thread: The lyric teaches that reality is composed of impermanent vibrations (clouds, sunsets) that the mind can dissolve,
+        mirroring the Canon's insight that the quantum field is a transient training ground where consciousness learns to
+        release its attachment to fixed forms.
+      artist: George Harrison
+      title: All Things Must Pass
+      spotify_id: 1AGridgU0QAWZykQReGWk5
+      youtube_id: bpbdsIQb87A
+  integration:
+    song:
+      ref: Pink Floyd — Echoes
+      text: Strangers passing in the street, by chance two separate glances meet...and something stirs and something tries...and
+        starts to climb toward the light
+      thread: The lyric depicts consciousness interacting across the quantum field (glances meeting by chance) and the soul's
+        evolution through the training ground (climbing toward the light), mirroring the Canon's teaching that vibrations
+        interact to reveal and awareness endures.
+      artist: Pink Floyd
+      title: Echoes
+      spotify_id: 7kriFJLY2KOhw5en9iI2jb
+      youtube_id: OF4rw3LOfqY
+  boundary:
+    song:
+      ref: Sting — Shape of My Heart
+      text: He deals the cards as a meditation / And those he plays never suspect / He doesn't play for the money he wins
+        / He doesn't play for respect / He deals the cards to find the answer / The hidden law of a probable outcome
+      thread: Both describe a disciplined practice of reading the underlying vibrational field (the cards as quantum probabilities)
+        with detachment and discernment, knowing what belongs to the external game versus what belongs to the player's true
+        internal purpose.
+      artist: Sting
+      title: Shape of My Heart
+      spotify_id: 6CKoWCWAqEVWVjpeoJXyNH
+      youtube_id: RVfGFmBFgoc
+moments:
+  peace:
+    song:
+      ref: Paul Simon — Rewrite
+      text: I'm working on my rewrite, right now / Gonna change the ending
+      thread: Both capture the teaching that the present instant is the active intervention point where you can alter the
+        narrative of your life; the lyric embodies the decision to seize the now to author a new possibility, rather than
+        letting the moment slip past.
+      artist: Paul Simon
+      title: Rewrite
+      spotify_id: 4tTVyDGgeSaBydQS1MnK62
+      youtube_id: P4bd4fRIjkw
+  clarity:
+    song:
+      ref: Talking Heads — Once in a Lifetime
+      text: And you may ask yourself, where does that highway go to? / And you may ask yourself, am I right, or am I wrong?
+      thread: Both capture the sudden realization that life is a series of chosen moments; the Canon describes the instant
+        as a decision point between infinite possibilities, while the song frames this as the 'once in a lifetime' clarity
+        of seeing the hidden current beneath the routine, prompting the question of where the highway leads—the moment of
+        choice.
+      artist: Talking Heads
+      title: Once in a Lifetime
+      spotify_id: 1Tr4K5MU5XYE44umXGDndd
+      youtube_id: CHatn3_UxEU
+  momentum:
+    song:
+      ref: David Bowie — Heroes
+      text: We can be heroes, just for one day / We can be us, just for one day
+      thread: Both identify the present instant as the only container for transformation—the Canon through "infinite possibilities"
+        between thoughts, Bowie through the ecstatic choice to "be heroes, just for one day," seizing the infinite potential
+        of now before it slips into the past.
+      artist: David Bowie
+      title: Heroes
+      spotify_id: 7Jh1bpe76CNTCgdgAdBw4Z
+      youtube_id: YLp2cW7ICCU
+  trust:
+    song:
+      ref: Glen Hansard & Markéta Irglová — Falling Slowly
+      text: Take this sinking boat and point it home / Raise your hopeful voice, you had the choice, you've made it now
+      thread: Both teach that the present instant is the only intervention point where reality shifts—from a sinking fate
+        to a homeward path—through an active decision made in trust that the correction happens now.
+      artist: Glen Hansard & Markéta Irglová
+      title: Falling Slowly
+      spotify_id: 6EIVLz5xM1xE29r0OmIkWt
+      youtube_id: agf4tUnxotA
+  joy:
+    song:
+      ref: Nina Simone — Feeling Good
+      text: It's a new dawn, it's a new day, it's a new life for me
+      thread: The lyric recognizes that each waking instant offers a total reset—infinite possibilities made manifest as a
+        "new life"—and responds with explosive joy rather than anxiety.
+      artist: Nina Simone
+      title: Feeling Good
+      spotify_id: 6Rqn2GFlmvmV4w9Ala0I1e
+      youtube_id: BNMKGYiJpvg
+  connection:
+    song:
+      ref: John Lennon — Instant Karma! (We All Shine On)
+      text: Instant Karma's gonna get you / Gonna knock you right on the head... Better get yourself together darlin' / Join
+        the human race
+      thread: Both articulate that the present instant is the sole intervention point where reality is formed—whether through
+        karma or conscious decision—and that recognizing our shared existence ("Join the human race") dissolves the illusion
+        of separation, revealing that we "all shine on" together in this infinite possibility.
+      artist: John Lennon
+      title: Instant Karma! (We All Shine On)
+      spotify_id: 2BkXpZSvPoUDMLI2Xw9kAL
+      youtube_id: 7-SSa-D1i-M
+  presence:
+    song:
+      ref: Elliott Smith — Between the Bars
+      text: With the things you could do, you won't but you might / The potential you'll be that you'll never see
+      thread: Both locate infinity in the interstitial—between thoughts or between bars—where every instant contains unrealized
+        potential that demands a decision to act, or be lost to hesitation.
+      artist: Elliott Smith
+      title: Between the Bars
+      spotify_id: 1JbUMtVkQuaAPdHOvncVTm
+      youtube_id: IqwhTIYfFOQ
+  resilience:
+    song:
+      ref: U2 — Beautiful Day
+      text: It's a beautiful day, don't let it get away
+      thread: Both teach that even when stuck in difficulty (traffic, stone ground), the present instant offers the choice
+        to perceive beauty and proceed, refusing to let the moment pass unclaimed.
+      artist: U2
+      title: Beautiful Day
+      spotify_id: 1VuBmEauSZywQVtqbxNqka
+      youtube_id: V1j_MA3daLI
+  courage:
+    song:
+      ref: Elliott Smith — Between the Bars
+      text: Drink up baby, stay up all night / With the things you could do, you won't but you might
+      thread: Both capture the terrifying spaciousness of the present instant where infinite futures exist in potential, and
+        the trembling courage required to move from paralysis ('you won't') into possibility ('but you might') before the
+        moment vanishes.
+      artist: Elliott Smith
+      title: Between the Bars
+      spotify_id: 1JbUMtVkQuaAPdHOvncVTm
+      youtube_id: IqwhTIYfFOQ
+  gratitude:
+    song:
+      ref: Coldplay — Strawberry Swing
+      text: They were sitting, they were sitting on the strawberry swing / And every moment was so precious, they wouldn't
+        wanna waste a thing
+      thread: Both teach that the present instant is a finite treasure slipping irretrievably into the past, urging the conscious
+        decision to appreciate its abundance rather than letting it pass unwitnessed.
+      artist: Coldplay
+      title: Strawberry Swing
+      spotify_id: 2dphvmoLEXdk8hOYxmHlI3
+      youtube_id: 2RY5g6kAXT8
+  release:
+    song:
+      ref: Natasha Bedingfield — Unwritten
+      text: Staring at the blank page before you... Today is where your book begins / The rest is still unwritten
+      thread: The blank page embodies the infinite possibilities existing in the gap between thoughts, while the unwritten
+        book beginning today captures the teaching that each instant is a fresh decision point requiring the release of past
+        definitions to step into open potential.
+      artist: Natasha Bedingfield
+      title: Unwritten
+      spotify_id: 3U5JVgI2x4rDyHGObzJfNf
+      youtube_id: iKejQrGq04w
+  integration:
+    song:
+      ref: Radiohead — Pyramid Song
+      text: All my past and futures / And we all went to heaven in a little row boat
+      thread: Both identify the present instant as a liminal space containing infinite potential—Pyramid Song's drowned moment
+        holds all temporal possibilities simultaneously, mirroring the Canon's teaching that each instant is a decision point
+        where reality diverges.
+      artist: Radiohead
+      title: Pyramid Song
+      spotify_id: 55q3Ro66yXWi9rsEddeEN4
+      youtube_id: 2Agt3XfmccM
+  boundary:
+    song:
+      ref: Tom Petty — Time to Move On
+      text: Now her own protector / It's time to move on, time to get goin
+      thread: Both teach that the present instant is the decisive threshold where you become your own protector, drawing a
+        clean line between a past that no longer serves and the infinite possibilities ahead; the correction happens now,
+        in the choice to step forward.
+      artist: Tom Petty
+      title: Time to Move On
+      spotify_id: 20dt11ZTAtjsfcNJLP9u30
+      youtube_id: NlAsA4LoQx0
+listen:
+  peace:
+    song:
+      ref: Joni Mitchell — For Free
+      text: And there was a man standing on the street / Playing real good for free... They knew he had never been on their
+        TV / So they passed his music by
+      thread: The lyric exposes how the media (TV) acts as a 'clean & tidy box' that hides authentic truth (the street musician)
+        by design, rendering genuine art invisible to those controlled by manufactured narratives, yet the narrator finds
+        discernment in the quiet realization of this contrast.
+      artist: Joni Mitchell
+      title: For Free
+      spotify_id: 4lTcqxjs7OWzg5pqC3UEM5
+      youtube_id: G1-HVBD3OMs
+  clarity:
+    song:
+      ref: Muse — Uprising
+      text: Interchanging mind control / Come, let the revolution take its toll / If you could flick the switch and open your
+        third eye / You'd see that we should never be afraid to die
+      thread: Both expose the machinery of manufactured perception—interchanging mind control mirrors the Canon's warning about
+        narratives designed to keep you asleep—while the command to open your third eye is the exact clarity Listen demands,
+        the decisive act of seeing through the broadcast to what is actually there.
+      artist: Muse
+      title: Uprising
+      spotify_id: 4VqPOruhp5EdPBeR92t6lQ
+      youtube_id: Y4R6k8_iIkE
+  momentum:
+    song:
+      ref: Creedence Clearwater Revival — Fortunate Son
+      text: Some folks are born made to wave the flag / Ooh, they're red, white and blue... It ain't me, it ain't me / I ain't
+        no fortunate one
+      thread: Both expose how power wraps its agenda in a 'clean & tidy box' of patriotic symbols to hide who actually bears
+        the cost, demanding discernment to see the machinery behind the flag.
+      artist: Creedence Clearwater Revival
+      title: Fortunate Son
+      spotify_id: 4BP3uh0hFLFRb5cjsgLqDh
+      youtube_id: r5NzAksjfDI
+  trust:
+    song:
+      ref: Led Zeppelin — Stairway to Heaven
+      text: There's a sign on the wall but she wants to be sure / 'Cause you know sometimes words have two meanings... And
+        if you listen very hard / The truth will come to you at last
+      thread: Both recognize that reality is layered with deliberate concealment ('words have two meanings' / 'hidden by design'),
+        yet insist that patient, discerning attention—rather than force—reveals the underlying truth, trusting that wisdom
+        is available to those who surrender their urgency and simply listen.
+      artist: Led Zeppelin
+      title: Stairway to Heaven
+      spotify_id: 5CQ30WqJwcep0pYcV4AMNc
+      youtube_id: iXQUu5Dti4g
+  joy:
+    song:
+      ref: Five Man Electrical Band — Signs
+      text: So I got me a pen and a paper and I made up my own little sign / I said 'Thank you Lord for thinking about me,
+        I'm alive and doing fine
+      thread: Both recognize that external factions plant restrictive concepts (signs/clean boxes) to obscure reality and
+        control behavior, but the liberating insight is that individuals can author their own meaning, reject manufactured
+        constraints, and discover spontaneous joy in the sheer fact of existence.
+      artist: Five Man Electrical Band
+      title: Signs
+      spotify_id: 5KWXi2eCYsC6ofIILjvG4V
+      youtube_id: U1b3acUNyGg
+  connection:
+    song:
+      ref: Marvin Gaye — What's Going On
+      text: Mother, mother, there's too many of you crying / Brother, brother, brother, there's far too many of you dying
+        / You know we've got to find a way / To bring some loving here today
+      thread: It penetrates the propaganda of war and division (the hidden truth that conflict is manufactured) by appealing
+        directly to familial bonds, insisting that only through the connection of love can we see through and dismantle the
+        designs that divide us.
+      artist: Marvin Gaye
+      title: What's Going On
+      spotify_id: 3Um9toULmYFGCpvaIPFw7l
+      youtube_id: ApthDWoPMFQ
+  presence:
+    song:
+      ref: Simon & Garfunkel — The Sound of Silence
+      text: And the vision that was planted in my brain / Still remains / Within the sound of silence / ... / And the people
+        bowed and prayed / To the neon god they made
+      thread: Both reveal that authoritarian forces deliberately implant controlled narratives (the neon god, the tidy box)
+        while the actual truth hides in plain sight (the sound of silence, between the lines), requiring disciplined discernment
+        to perceive the programming beneath the surface.
+      artist: Simon & Garfunkel
+      title: The Sound of Silence
+      spotify_id: 3YfS47QufnLDFA71FUsgCM
+      youtube_id: bjkPQYWNTlg
+  resilience:
+    song:
+      ref: Bob Marley & The Wailers — Get Up, Stand Up
+      text: You can fool some people sometimes, but you can't fool all the people all the time. So now we see the light, we
+        gonna stand up for our rights.
+      thread: Both the Canon and this lyric identify the deliberate deception by factions ('fool some people') and pivot to
+        the resilient awakening ('now we see the light') that fuels the endurance to claim autonomy ('stand up').
+      artist: Bob Marley & The Wailers
+      title: Get Up, Stand Up
+      spotify_id: 0q5giEtY4wsFTwjWqswLwx
+      youtube_id: KP0V15PgFaQ
+  courage:
+    song:
+      ref: Bob Dylan — It's Alright, Ma (I'm Only Bleeding)
+      text: And if my thought-dreams could be seen / They'd probably put my head in a guillotine
+      thread: Both recognize that power structures deliberately obscure reality and plant controlling concepts through media
+        and authority, requiring the solitary courage to maintain forbidden sight despite the threat of execution for seeing
+        too clearly.
+      artist: Bob Dylan
+      title: It's Alright, Ma (I'm Only Bleeding)
+      spotify_id: 5Oer8yskMaCGXwGSfM7xr9
+      youtube_id: yYgRwefr-JU
+  gratitude:
+    song:
+      ref: Joni Mitchell — Big Yellow Taxi
+      text: They took all the trees, and put 'em in a tree museum / And they charged the people a dollar and a half just to
+        see 'em
+      thread: The lyric exposes how commercial forces ("they") hide and commodify the natural truth (paradise, trees, birds),
+        while the chorus instructs the listener to practice discernment by appreciating what remains before it is paved over—treasuring
+        the abundance of "what you got" before the factions erase it.
+      artist: Joni Mitchell
+      title: Big Yellow Taxi
+      spotify_id: 6UkMcAA19lTdjs22jtB7o2
+      youtube_id: NhxZ8ok3Z2o
+  release:
+    song:
+      ref: Eagles — Already Gone
+      text: So often times it happens that we live our lives in chains / And we never even know we have the key
+      thread: Both recognize that controlling factions obscure the truth (the key) by binding us in illusory chains, and the
+        liberation comes in the sudden, exhaling realization that the power to leave was always ours.
+      artist: Eagles
+      title: Already Gone
+      spotify_id: 0CKxrnF9KplS21LTjkkqsW
+      youtube_id: yJD8ABf5jbY
+  integration:
+    song:
+      ref: Pink Floyd — Welcome to the Machine
+      text: Welcome my son, welcome to the machine / What did you dream? It's alright we told you what to dream
+      thread: Both capture the integration moment where the entire apparatus reveals itself at once—the machine was never
+        hidden, it was the frame you were seeing through—and the question 'what did you dream?' exposes that even your
+        inner life was manufactured, the sudden synthesis that the signal itself was always the noise.
+      artist: Pink Floyd
+      title: Welcome to the Machine
+      spotify_id: 5VWC7v2dC2K0SIIjT9WTLN
+      youtube_id: x-1Ad9WsgkU
+  boundary:
+    song:
+      ref: Leonard Cohen — Everybody Knows
+      text: Everybody knows the fight was fixed / The poor stay poor, the rich get rich
+      thread: Both acknowledge that truth is concealed by design—the game is rigged, the narrative controlled—and the boundary
+        lies in the cold clarity of seeing the fix while others pretend, drawing a clean edge between complicity and awareness.
+      artist: Leonard Cohen
+      title: Everybody Knows
+      spotify_id: 60s0QWaOZ2UTzqdIHBCt3x
+      youtube_id: 59sFfjA2Nmg
+wonder:
+  peace:
+    song:
+      ref: The Beatles — Blackbird
+      text: All your life / You were only waiting for this moment to arise
+      thread: Sees through the surface of brokenness and darkness to the dormant potential waiting within, wondering at who
+        this being could become if they recognized their own capacity for freedom—an invitation to shed preconceptions and
+        emerge.
+      artist: The Beatles
+      title: Blackbird
+      spotify_id: 5jgFfDIR6FR0gvlA56Nakr
+      youtube_id: Man4Xw8Xypo
+  clarity:
+    song:
+      ref: John Lennon — Imagine
+      text: You may say I'm a dreamer / But I'm not the only one / I hope someday you'll join us / And the world will live
+        as one
+      thread: Both articulate the realization that people are trapped by preconceptions (borders, beliefs, possessions) that
+        prevent them from seeing their shared humanity, and both issue a direct invitation to step out of that fog and help
+        others see—wondering who we could be if we dared to look past conditioning.
+      artist: John Lennon
+      title: Imagine
+      spotify_id: 7pKfPomDEeI4TPT6EOYjn9
+      youtube_id: rAn-AWXtHv0
+  momentum:
+    song:
+      ref: Curtis Mayfield & The Impressions — People Get Ready
+      text: You don't need no baggage, you just get on board / All you need is faith to hear the diesels hummin
+      thread: Both extend compassionate invitation to those trapped by conditioned beliefs—Mayfield's 'baggage' mirrors the
+        Canon's 'preconceptions,' while the train represents the forward-moving wonder of who people could become if they
+        drop their defenses and join the collective journey toward clarity.
+      artist: Curtis Mayfield & The Impressions
+      title: People Get Ready
+      spotify_id: 4pbZcKtuu2GuX5hbrxkSUc
+      youtube_id: UG-KNy1MRTc
+  trust:
+    song:
+      ref: Eagles — Desperado
+      text: Desperado, why don't you come to your senses? / Come down from your fences, open the gate
+      thread: Both look at someone imprisoned by their own rigid self-conceptions (fences/preconceptions) with compassionate
+        curiosity about who they could become if they surrendered to connection, offering the guidance to help them see.
+      artist: Eagles
+      title: Desperado
+      spotify_id: 2TjnCxxQRYn56Ye8gkUKiW
+      youtube_id: SwkOq_je_iQ
+  joy:
+    song:
+      ref: Stevie Wonder — Don't You Worry 'Bout a Thing
+      text: Don't you worry 'bout a thing, pretty mama / 'Cause I'll be standing on the side / When you check it out
+      thread: The lyric embodies compassionate action—offering joyful, steady presence to someone caught in worry and judgment
+        (preconceptions), helping them see through their conditioning not by force but by dancing accompaniment as they awaken
+        to truth themselves.
+      artist: Stevie Wonder
+      title: Don't You Worry 'Bout a Thing
+      spotify_id: 1QvWxgZvTU0w8rlPRE5Zrv
+      youtube_id: RxsBc5p-dPU
+  connection:
+    song:
+      ref: Bob Dylan — What Good Am I?
+      text: What good am I if I know and don't do / If I see and don't say
+      thread: Both lyrics confront the moment of seeing others trapped in suffering or delusion and question the self's responsibility
+        to intervene; Dylan's rhetorical demand mirrors the Canon's 'Who will help them see... If you won't?' by interrogating
+        what value awareness has without compassionate action.
+      artist: Bob Dylan
+      title: What Good Am I?
+      spotify_id: 0uRMGsSsX2KORS8jkB9Lwc
+      youtube_id: 4uheKys6BMs
+  presence:
+    song:
+      ref: Don McLean — Vincent
+      text: They would not listen, they did not know how / Perhaps they'll listen now
+      thread: The lyric identifies people trapped in their inability to perceive truth (Van Gogh's vision), captures the compassionate
+        attempt to help them see through the art itself, and embodies the question of who will awaken them if not the observer.
+      artist: Don McLean
+      title: Vincent
+      spotify_id: 0VNzEY1G4GLqcNx5qaaTl6
+      youtube_id: ciLNMesqPh0
+  resilience:
+    song:
+      ref: U2 — Stuck in a Moment You Can't Get Out Of
+      text: You've got stuck in a moment / And now you can't get out of it
+      thread: The lyric captures the paralysis of being trapped in a temporary state that feels permanent—a 'moment' that
+        becomes a cage of perception—while the song extends a compassionate, resilient presence to help the listener see that
+        'this time will pass,' mirroring the Canon's call to wonder at who people could be if they could see beyond their
+        conditioning.
+      artist: U2
+      title: Stuck in a Moment You Can't Get Out Of
+      spotify_id: 3xjTuTBaihydhSC7ByNoSb
+      youtube_id: _6YxhlF8HRo
+  courage:
+    song:
+      ref: The Beatles — Hey Jude
+      text: And anytime you feel the pain, hey Jude, refrain / Don't carry the world upon your shoulders / For well you know
+        that it's a fool who plays it cool / By making his world a little colder
+      thread: Both recognize someone trapped by emotional preconceptions—playing it cool, carrying weight alone—and courageously
+        intervene to help them see past their conditioning, embodying the question of who will help them if not the one singing.
+      artist: The Beatles
+      title: Hey Jude
+      spotify_id: 1eT2CjXwFXNx6oY5ydvzKU
+      youtube_id: mQER0A0ej0M
+  gratitude:
+    song:
+      ref: Curtis Mayfield — People Get Ready
+      text: You don't need no baggage, you just get on board / Don't need no ticket, you just thank the Lord
+      thread: Both recognize that people are paralyzed by unnecessary baggage (preconceptions) that blinds them to the present
+        opportunity, and extend a compassionate invitation to release those burdens and see clearly, grounded in gratitude
+        for grace that costs nothing.
+      artist: Curtis Mayfield
+      title: People Get Ready
+      spotify_id: 4pbZcKtuu2GuX5hbrxkSUc
+      youtube_id: UG-KNy1MRTc
+  release:
+    song:
+      ref: The Beatles — Hey Jude
+      text: Don't carry the world upon your shoulders / You were made to go out and get her
+      thread: Both articulate the release of burdensome preconceptions (the armor of "playing it cool," the weight of self-isolation)
+        to wonder at the person's potential and actively help them see their own inherent capacity for joy.
+      artist: The Beatles
+      title: Hey Jude
+      spotify_id: 1eT2CjXwFXNx6oY5ydvzKU
+      youtube_id: mQER0A0ej0M
+  integration:
+    song:
+      ref: George Harrison — Isn't It a Pity
+      text: Some things take so long / But how do I explain / When not too many people / Can see we're all the same
+      thread: Both express compassionate wonder at how people cling to separateness (preconceptions) that blinds them to shared
+        humanity, with the observer feeling the weight of helping them see past their conditioning.
+      artist: George Harrison
+      title: Isn't It a Pity
+      spotify_id: 0vTvkf24wkCG3DTKgoNnih
+      youtube_id: -n-LULDiJxk
+  boundary:
+    song:
+      ref: Fleetwood Mac — Dreams
+      text: When the rain washes you clean, you'll know / I keep my visions to myself
+      thread: Both articulate the necessity of allowing others to see through their own preconceptions in their own time,
+        requiring the observer to hold compassionate boundaries—wondering at who they could become while maintaining the discipline
+        not to force the revelation or lose oneself in their confusion.
+      artist: Fleetwood Mac
+      title: Dreams
+      spotify_id: 1lbXEepatjRVjoG8pZMtdp
+      youtube_id: swJOIjjW69U
+guiding_force:
+  peace:
+    song:
+      ref: Cat Stevens — The Wind
+      text: I listen to the wind, to the wind of my soul / I listen to my words but they fall far below
+      thread: Stevens contrasts the inadequacy of his own words (conscious mind/point of view) with the guidance of the 'wind
+        of my soul,' mirroring the Canon’s teaching that skewed perception dissolves only when we stop grasping at external
+        review and attune to the silent inner voice.
+      artist: Cat Stevens
+      title: The Wind
+      spotify_id: 0wEo4mwfs6tXYgCem9m9wP
+      youtube_id: Y2Ljtl2-wVQ
+  clarity:
+    song:
+      ref: Indigo Girls — Closer to Fine
+      text: The less I seek my source for some definitive, the closer I am to fine
+      thread: The lyric captures the moment of clarity when one realizes that external authorities and definitive sources
+        (the doctor, the mountains, the books) offer only skewed, contrasting hues of truth, while true guidance emerges only
+        when you stop seeking outside validation and trust the silent inner voice.
+      artist: Indigo Girls
+      title: Closer to Fine
+      spotify_id: 7rKyITVLEwldhdXIy7P6Vw
+      youtube_id: atkVaKz9r5Y
+  momentum:
+    song:
+      ref: Mumford & Sons — The Cave
+      text: So come out of your cave walking on your hands / And see the world hanging upside down / You can understand dependence
+        / When you know the maker's land
+      thread: Both recognize that the past is a Plato’s Cave of distorted shadows (skewed hues), requiring us to escape our
+        own upside-down perception and trust the inner voice that calls our true name beyond conscious delusion.
+      artist: Mumford & Sons
+      title: The Cave
+      spotify_id: 1JlssWnwFUiEzuSqw4H1V1
+      youtube_id: HXc_R8ywI6A
+  trust:
+    song:
+      ref: Cat Stevens — The Wind
+      text: I listen to the wind, to the wind of my soul / Where I'll end up, well, I think only God really knows
+      thread: The lyric contrasts the unreliable words of the conscious mind ("I listen to my words, but they fall far below")
+        with the true guidance of the inner wind/soul, surrendering to the unknown with trust that the divine knows the way—mirroring
+        the Canon's teaching to look beyond the skewed point of view to the silent inner voice.
+      artist: Cat Stevens
+      title: The Wind
+      spotify_id: 0wEo4mwfs6tXYgCem9m9wP
+      youtube_id: Y2Ljtl2-wVQ
+  joy:
+    song:
+      ref: The Beatles — Let It Be
+      text: And in my hour of darkness she is standing right in front of me / Speaking words of wisdom, let it be
+      thread: The lyric articulates the exact mechanism of the Canon—when the conscious mind is clouded by darkness (skewed
+        perspective), guidance arrives as an inner voice speaking through the silent acceptance of "let it be," activating
+        protection through surrender rather than struggle.
+      artist: The Beatles
+      title: Let It Be
+      spotify_id: 7iN1s7xHE4ifF5povM6A48
+      youtube_id: HzvDofigTKQ
+  connection:
+    song:
+      ref: Queensrÿche — Silent Lucidity
+      text: If you open your mind, you will see you're not the only one / I am smiling next to you, in silent lucidity
+      thread: Both teach that when the mind projects false pain (skewed view), the answer lies in silent receptivity (silent
+        mind/lucidity) which activates protective guidance that assures you of your connection to something greater.
+      artist: Queensrÿche
+      title: Silent Lucidity
+      spotify_id: 6OSyCAmXT4Gkd3OQ2aPOaF
+      youtube_id: 3GIv4NCmbvU
+  presence:
+    song:
+      ref: Bob Dylan — Shelter from the Storm
+      text: I was burned out from exhaustion, buried in the hail / Poisoned in the bushes an' blown out on the trail / And
+        I've sought shelter from the storm
+      thread: Both recognize that when the past has exhausted and distorted the self (skewed with contrasting hues), the activation
+        occurs through surrender to a present-moment refuge that speaks through silence rather than memory.
+      artist: Bob Dylan
+      title: Shelter from the Storm
+      spotify_id: 3y4Uza6K58JXQ7RYya8ZI5
+      youtube_id: IzaXlq1Pdmk
+  resilience:
+    song:
+      ref: Peter Gabriel — Solsbury Hill
+      text: To keepin' silence I resigned... / 'Son,' he said, 'Grab your things, I've come to take you home
+      thread: Both recognize that external judgment and past reference points are unreliable ('friends would think I was a
+        nut' / 'point of view is skewed'), requiring a deliberate resignation to silence where the uncompromised inner voice
+        speaks to guide one through difficulty.
+      artist: Peter Gabriel
+      title: Solsbury Hill
+      spotify_id: 1CM1wOqD2AIjt2MWd31LV2
+      youtube_id: NNMR5MCpYGU
+  courage:
+    song:
+      ref: Alabama Shakes — Hold On
+      text: Bless my heart, bless my soul, didn't think I'd make it to 22 years old / There must be someone up above saying
+        come on, Brittany, you got to come on up
+      thread: The lyric admits the narrator's own skewed review of her past (believing she wouldn't survive) before recognizing
+        a guiding voice beyond her conscious mind calling her upward, requiring the courage to heed that call and hold on.
+      artist: Alabama Shakes
+      title: Hold On
+      spotify_id: 1EuvOdyyzhFUP2z3gfr6xz
+      youtube_id: 4NDV4t1wCSg
+  gratitude:
+    song:
+      ref: Cat Stevens — The Wind
+      text: I listen to the wind, to the wind of my soul / I never knew it could be so fine, I never wanted anything more
+      thread: Both teach that surrendering to an inner, eternal guidance (the wind/silent voice) brings a completeness where
+        no further wanting is necessary—the ask is simply listening, and the gratitude is realizing you already have everything
+        in that connection.
+      artist: Cat Stevens
+      title: The Wind
+      spotify_id: 0wEo4mwfs6tXYgCem9m9wP
+      youtube_id: Y2Ljtl2-wVQ
+  release:
+    song:
+      ref: Fleet Foxes — Helplessness Blues
+      text: I would know my voice as the one that I hear in the silent hours / Oh, I would know my voice in the silence
+      thread: 'The lyric captures the exact mechanism of the Canon: surrendering the ego''s skewed, anxious narration to find
+        the true inner voice that only emerges when the conscious mind finally quiets.'
+      artist: Fleet Foxes
+      title: Helplessness Blues
+      spotify_id: 02VdHwnGhy5fTW2CTZkYsb
+      youtube_id: bW9UgPBjyNM
+  integration:
+    song:
+      ref: Pink Floyd — Poles Apart
+      text: And you were always there to guide me / And you were always there beside me
+      thread: The lyric captures the sudden realization that despite a skewed retrospective view where 'it was all going to
+        go so wrong,' an uncompromised guiding force was silently present all along, weaving fragmented memories into a coherent
+        whole where protection was constant.
+      artist: Pink Floyd
+      title: Poles Apart
+      spotify_id: 6uE9hF8fIb6shBXrrzA12U
+      youtube_id: l6qhpYLdkew
+  boundary:
+    song:
+      ref: Kansas — Carry On Wayward Son
+      text: Once I rose above the noise and confusion / Just to get a glimpse beyond this illusion / I hear the voices when
+        I'm dreaming
+      thread: Both recognize the conscious mind as a blinded, masquerading illusion ('skewed with contrasting hues' / 'masquerading
+        as a man with a reason') and locate true guidance in a voice that speaks through silence ('inner voice' / 'voices
+        when I'm dreaming'), offering protection through the promise of peace if one persists.
+      artist: Kansas
+      title: Carry On Wayward Son
+      spotify_id: 4DMKwE2E2iYDKY01C335Uw
+      youtube_id: tz6u9suVNlY
+signs:
+  peace:
+    song:
+      ref: The Beatles — Let It Be
+      text: When I find myself in times of trouble, Mother Mary comes to me / Speaking words of wisdom, let it be
+      thread: The lyric captures the exact arc of the Canon teaching—confusion during trouble gives way to the recognition
+        of designed guidance arriving exactly when needed, settling into the vetted confidence that "there will be an answer"
+        rather than anxious grasping.
+      artist: The Beatles
+      title: Let It Be
+      spotify_id: 7iN1s7xHE4ifF5povM6A48
+      youtube_id: HzvDofigTKQ
+  clarity:
+    song:
+      ref: The Police — Synchronicity I
+      text: A connecting principle / Linked to the invisible / Almost imperceptible
+      thread: Both articulate the realization that seemingly random events are linked by an invisible, causal pattern that
+        becomes visible only when you attune to the connecting principle behind coincidence.
+      artist: The Police
+      title: Synchronicity I
+      spotify_id: 5ynO8cYFjDwELIZfFHHeYe
+      youtube_id: Si5CSpUCDGY
+  momentum:
+    song:
+      ref: Marc Cohn — Walking in Memphis
+      text: Tell me are you a Christian child? / And I said, 'Ma'am, I am tonight!
+      thread: Both narrate a journey through a landscape where specific signs appear by design (the ghost of Elvis, the direct
+        question; the patterns of coincidence), triggering a sudden shift from prior blindness to a vetted, embodied knowing
+        ("I am tonight" / "knowing with vetted confidence").
+      artist: Marc Cohn
+      title: Walking in Memphis
+      spotify_id: 5fgkjhICZnqFctrV0AyuQD
+      youtube_id: dUh1DSIsUOY
+  trust:
+    song:
+      ref: John Lennon — Watching the Wheels
+      text: I'm just sitting here watching the wheels go round and round / I really love to watch them roll
+      thread: Both describe the shift from anxious seeking to patient observation, recognizing that signs (wheels/events)
+        operate by an inherent design that reveals itself only when you surrender control and trust the process of unfolding.
+      artist: John Lennon
+      title: Watching the Wheels
+      spotify_id: 26Kw6zBo3Uy98q5LTlFfVJ
+      youtube_id: 2Kx2PbA8bCI
+  joy:
+    song:
+      ref: The Monkees — I'm a Believer
+      text: Then I saw her face, now I'm a believer / Not a trace of doubt in my mind
+      thread: The lyric captures the exact moment of moving from blindness ("I thought love was only true in fairy tales")
+        to recognition of the sign ("saw her face") to vetted confidence/knowing ("not a trace of doubt"), mirroring the Canon's
+        teaching that observing signs builds knowing beyond belief.
+      artist: The Monkees
+      title: I'm a Believer
+      spotify_id: 1CSLeVCXmetBh8IkTPMFdL
+      youtube_id: 4PQAqprjOuA
+  connection:
+    song:
+      ref: Trevor Hall — The Lime Tree
+      text: I saw signs, I saw signs, I saw signs of your love everywhere I go / And I know, yes I know, yes I know that the
+        light will follow me
+      thread: Both describe the shift from blindness to recognizing deliberate patterns (signs) that confirm a benevolent
+        presence, transforming uncertain belief into vetted confidence—here, the realization that love constitutes the shared
+        field itself.
+      artist: Trevor Hall
+      title: The Lime Tree
+      spotify_id: 5IOmDUnTJwLQAuQnkPRCz5
+      youtube_id: nX1YIntaBOo
+  presence:
+    song:
+      ref: Leonard Cohen — Suzanne
+      text: And she shows you where to look among the garbage and the flowers / There are heroes in the seaweed, there are
+        children in the morning
+      thread: The lyric articulates the same pedagogy of attention—Suzanne (as the Field) teaches the observer how to read
+        hidden designs (heroes in seaweed) within ordinary reality, transforming belief into the vetted confidence that you've
+        'always been her lover.
+      artist: Leonard Cohen
+      title: Suzanne
+      spotify_id: 4jiM2fAXVOxl4DAx3wraFx
+      youtube_id: gBz3DsF1N7s
+  resilience:
+    song:
+      ref: R.E.M. — Find the River
+      text: Me, my thoughts are flower strewn / Ocean storm, bayberry moon / I have got to leave to find my way / Watch the
+        undercurrent through the pain
+      thread: Tracks the same teaching that we navigate forces larger than ourselves (undercurrents, ocean storms) by trusting
+        the internal journey to find one's flow—freedom as conscious movement within the river's nudge.
+      artist: R.E.M.
+      title: Find the River
+      spotify_id: 1e3Q7gE5TRUklXOlZFKIrv
+      youtube_id: frQTkB74lrQ
+  courage:
+    song:
+      ref: The Rolling Stones — You Can't Always Get What You Want
+      text: You can't always get what you want / But if you try sometimes, well, you might find / You get what you need
+      thread: Both articulate that reality provides designed feedback (what you need vs. what you want / signs by design)
+        that requires the courage to accept the pattern rather than the desire.
+      artist: The Rolling Stones
+      title: You Can't Always Get What You Want
+      spotify_id: 6lFZbCc7pn6Lme1NP7qQqQ
+      youtube_id: jv9sDn_2XkI
+  gratitude:
+    song:
+      ref: KT Tunstall — Suddenly I See
+      text: Her face is a map of the world, is a map of the world / Suddenly I see, this is what I want to be
+      thread: Both capture the pivotal moment when a sign that was always present (a woman's self-possession / the patterns
+        of coincidence) suddenly resolves into clarity, shifting the observer from confusion to confident knowing about their
+        own path.
+      artist: KT Tunstall
+      title: Suddenly I See
+      spotify_id: 5p9XWUdvbUzmPCukOmwoU3
+      youtube_id: eX7lFYAaO-c
+  release:
+    song:
+      ref: Grateful Dead — Scarlet Begonias
+      text: Once in a while you get shown the light / In the strangest of places if you look at it right
+      thread: Both describe the sudden recognition that meaningful signals appear by design in unexpected moments, but only
+        when you release preconceptions about where truth should be found.
+      artist: Grateful Dead
+      title: Scarlet Begonias
+      spotify_id: 3euDGpS2R0NC2Xssqxohva
+      youtube_id: xt4XAz2WZ3Y
+  integration:
+    song:
+      ref: Led Zeppelin — Stairway to Heaven
+      text: There's a sign on the wall but she wants to be sure / 'Cause you know sometimes words have two meanings
+      thread: Both acknowledge that signs exist in the field of vision but require discernment to interpret correctly, marking
+        the shift from passive blindness to active recognition of designed patterns that lead to unified knowing.
+      artist: Led Zeppelin
+      title: Stairway to Heaven
+      spotify_id: 5CQ30WqJwcep0pYcV4AMNc
+      youtube_id: iXQUu5Dti4g
+  boundary:
+    song:
+      ref: Bob Dylan (as performed by Jimi Hendrix) — All Along the Watchtower
+      text: No reason to get excited,' the thief, he kindly spoke / 'There are many here among us who feel that life is but
+        a joke / But you and I, we've been through that, and this is not our fate / So let us not talk falsely now, the hour
+        is getting late
+      thread: The lyric captures the disciplined discernment required to read the field—dismissing collective delusion ("life
+        is but a joke") while recognizing the urgent pattern of approaching riders, mirroring the Canon's move from belief
+        to vetted confidence through careful observation.
+      artist: Bob Dylan (as performed by Jimi Hendrix)
+      title: All Along the Watchtower
+      spotify_id: 2aoo2jlRnM3A0NyLQqMN2f
+      youtube_id: wVLqFQ5QT7Y
+the_mirage:
+  peace:
+    song:
+      ref: Elliott Smith — Between the Bars
+      text: Drink up, baby, stay up all night... / The potential you'll be that you'll never see
+      thread: The lyric acknowledges the chemical slavery (alcohol) that keeps the body bound in repetitive behavior, while
+        quietly mourning the vision of who you could become (the potential) that remains unreachable—mirroring the gap between
+        mental clarity and neurochemical reality.
+      artist: Elliott Smith
+      title: Between the Bars
+      spotify_id: 1JbUMtVkQuaAPdHOvncVTm
+      youtube_id: IqwhTIYfFOQ
+  clarity:
+    song:
+      ref: Pink Floyd — Comfortably Numb
+      text: I can't explain, you would not understand / This is not how I am / I have become comfortably numb
+      thread: The lyric captures the clear-eyed recognition that the numbness is not identity but chemistry — the brain's own
+        concoctions creating a mirage of who you are. Seeing through it is the first act of clarity.
+      artist: Pink Floyd
+      title: Comfortably Numb
+      spotify_id: 5HNCy40Ni5BZJFw1TKzRsC
+      youtube_id: 4FLjT5V5Hog
+  momentum:
+    song:
+      ref: Tracy Chapman — Fast Car
+      text: 'You got a fast car, I want a ticket to anywhere... We gotta make a decision: leave tonight or live and die this
+        way'
+      thread: Both articulate the suffocating gap between the chemical/physical reality of the present ("slave to chemicals"/"live
+        and die this way") and the vivid vision of a different life ("ticket to anywhere"/"fantasy there to receive"), insisting
+        that forward motion is the only bridge between the two states.
+      artist: Tracy Chapman
+      title: Fast Car
+      spotify_id: 2M9ro2krNb7nr7HSprkEgo
+      youtube_id: IJ8i49EqgYI
+  trust:
+    song:
+      ref: Pink Floyd — Comfortably Numb
+      text: There is no pain, you are receding / A distant ship smoke on the horizon / You are only coming through in waves
+      thread: The distant ship on the horizon mirrors the phantoms of what could be — something real but unreachable through
+        the numbness. Trusting that signal coming through in waves, despite the body's chemical fog, is the act of believing
+        what's hard to conceive.
+      artist: Pink Floyd
+      title: Comfortably Numb
+      spotify_id: 5HNCy40Ni5BZJFw1TKzRsC
+      youtube_id: 4FLjT5V5Hog
+  joy:
+    song:
+      ref: Tom Petty — Learning to Fly
+      text: I'm learning to fly, but I ain't got wings / Coming down is the hardest thing
+      thread: Both acknowledge the biological limitation (slave to chemicals/no wings) while maintaining the paradoxical vision
+        of flight; the joy emerges from embracing the gap between the body's gravity and the spirit's aspiration.
+      artist: Tom Petty
+      title: Learning to Fly
+      spotify_id: 17S4XrLvF5jlGvGCJHgF51
+      youtube_id: Bb5xJN_4Hck
+  connection:
+    song:
+      ref: Coldplay — Fix You
+      text: When you try your best but you don't succeed / When you feel so tired but you can't sleep / Stuck in reverse
+      thread: Both trace the painful lag between intention and biological reality—neurological exhaustion, physical grief,
+        and somatic stuck-ness—that creates the gap between vision and embodiment, yet insist that the fantasy of arrival
+        remains receivable through the field of connection, where being witnessed in the chemical struggle dissolves the isolation
+        of the gap.
+      artist: Coldplay
+      title: Fix You
+      spotify_id: 7LVHVU3tWfcxj5aiPFEW4Q
+      youtube_id: Oncu0bgdcXU
+  presence:
+    song:
+      ref: Big Thief — Paul
+      text: I know that I am a slave / To the chemicals in my brain / And I know that they will change / But I don't know
+        when
+      thread: 'Both lyrics articulate the exact same realization: the narrator is chemically/physically trapped in a present
+        biological state (''slave to the chemicals'') yet holds the vision that transformation is inevitable (''I know that
+        they will change'' / ''the fantasy is really there to receive''), creating a suspended ''now'' where belief persists
+        despite the body''s lag.'
+      artist: Big Thief
+      title: Paul
+      spotify_id: 2MYidPOz5NHAtKUySTzbwx
+      youtube_id: yg6fFDCS9d0
+  resilience:
+    song:
+      ref: Bob Dylan — Not Dark Yet
+      text: Every nerve in my body is so vacant and numb / I can't even remember what it was I came here to get away from
+      thread: Both acknowledge the biological determinism—the 'vacant' nerves and chemical slavery that make the body feel
+        like a separate, stubborn entity—while the mind sees a destination it cannot yet reach; the resilience lies in the
+        quiet admission that despite this neurological lag, the darkness (the end of the bridge) hasn't arrived, so the standing
+        continues.
+      artist: Bob Dylan
+      title: Not Dark Yet
+      spotify_id: 1qbn6QrHG8XfnqVFKgNzKP
+      youtube_id: FJ1bzKISLBw
+  courage:
+    song:
+      ref: Tom Petty — Learning to Fly
+      text: I'm learning to fly, but I ain't got wings / Coming down is the hardest thing
+      thread: Both acknowledge the biological limitation (chemical slavery/lack of wings) that prevents full embodiment of
+        the vision, yet choose to continue the ascent despite knowing the physical reality will pull them back down.
+      artist: Tom Petty
+      title: Learning to Fly
+      spotify_id: 17S4XrLvF5jlGvGCJHgF51
+      youtube_id: Bb5xJN_4Hck
+  gratitude:
+    song:
+      ref: Coldplay — Everything's Not Lost
+      text: Just because I'm losing / Doesn't mean I'm lost / I just got a little lost
+      thread: The lyric names the chemical/behavioral dissonance explicitly as 'lost' while refusing to let the gap negate
+        the vision ('doesn't mean I'm lost'), embodying the gratitude of realizing the disconnection is 'little'—temporary
+        and survivable—rather than total.
+      artist: Coldplay
+      title: Everything's Not Lost
+      spotify_id: 1RNtm45kw0hPMBz7gKiIYu
+      youtube_id: _NLT4dkrZ5s
+  release:
+    song:
+      ref: Billy Joel — Vienna
+      text: Slow down you're doing fine / You can't be everything you want to be before your time
+      thread: The lyric acknowledges the gap between the ambitious vision (the fantasy) and the current biological reality
+        of being a "crazy child," teaching that release comes from surrendering the urgency to embody the future self before
+        one's chemistry and time have caught up.
+      artist: Billy Joel
+      title: Vienna
+      spotify_id: 4U45aEWtQhrm8A5mxPaFZ7
+      youtube_id: irl89Gmcv8c
+  integration:
+    song:
+      ref: Pink Floyd — Shine On You Crazy Diamond (Parts I-IX)
+      text: Remember when you were young, you shone like the sun / Now there's a look in your eyes, like black holes in the
+        sky
+      thread: Both trace the same mechanism of chemical slavery—the 'black holes' of Syd Barrett's drug-induced dissociation
+        mirroring the 'chemicals coursing through veins'—while maintaining the integrated belief that the original vision
+        (the sun, the fantasy) remains receivable despite the biological damage, insisting that the fragmented self can still
+        emit coherent light.
+      artist: Pink Floyd
+      title: Shine On You Crazy Diamond (Parts I-IX)
+      spotify_id: 6pnwfWyaWjQiHCKTiZLItr
+      youtube_id: Eq6PGyaki7U
+  boundary:
+    song:
+      ref: 'Bon Iver — Re: Stacks'
+      text: This is not the sound of a new man or crispy realization / It's the sound of the unlocking and the lift away
+      thread: Both acknowledge the gritty reality of being chemically bound to an old self while protecting the fragile vision
+        of who you're becoming, drawing a clean line between the addicted past and the safe future.
+      artist: Bon Iver
+      title: 'Re: Stacks'
+      spotify_id: 20AC70RUlVz6A6dCcQ5tRS
+      youtube_id: 3w68krri0bw
+a_good_time:
+  peace:
+    song:
+      ref: Andy Williams — Moon River
+      text: Two drifters off to see the world / Wherever you're going, I'm going your way
+      thread: The lyric captures the surrender to life's current—two beings drifting in sync with the river's path, choosing
+        to be carried rather than resist, embodying the teaching that alignment feels like being held in the flow's embrace.
+      artist: Andy Williams
+      title: Moon River
+      spotify_id: 24AIahNHzBxm9S12peXbnG
+      youtube_id: 3tuJ34YgW0c
+  clarity:
+    song:
+      ref: Talking Heads — And She Was
+      text: And she was drifting this way and that / Not touching the ground at all / And she was looking at the world with
+        the eye of the universe
+      thread: Both describe the crystalline moment when you stop resisting and allow the flow to hold you suspended, revealing
+        that time and space are relative and that clarity comes from floating within the current rather than fighting it.
+      artist: Talking Heads
+      title: And She Was
+      spotify_id: 5JwK7v6XhG0YgqDuCgzOy8
+      youtube_id: o0vUppC58V8
+  momentum:
+    song:
+      ref: The Doobie Brothers — Black Water
+      text: Old black water, keep on rollin' / Mississippi moon, won't you keep on shinin' on me? ... I ain't got no worries
+        'cause I ain't in no hurry at all
+      thread: The lyric identifies the river as the flow that carries us forward (momentum) while the moon represents the
+        alignment that illuminates the journey; the speaker moves with the current without resistance or hurry, embodying
+        the joy of effortless synchronicity with life's rhythm.
+      artist: The Doobie Brothers
+      title: Black Water
+      spotify_id: 4p8QcNkaq2FQj8uGJ7HEDK
+      youtube_id: 8SaRf86eyVY
+  trust:
+    song:
+      ref: Tame Impala — Let It Happen
+      text: I heard about a whirlwind that's coming 'round, it's gonna carry off all that isn't bound
+      thread: Both describe surrendering to an unseen force (the whirlwind/flow) that clears away resistance and carries one
+        forward, trusting that the process of being remade by the current will ultimately feel like alignment and joy.
+      artist: Tame Impala
+      title: Let It Happen
+      spotify_id: 2X485T9Z5Ly0xyaghN73ed
+      youtube_id: NMRhx71bGo4
+  joy:
+    song:
+      ref: Simon & Garfunkel — The 59th Street Bridge Song (Feeling Groovy)
+      text: Hello lamppost, what'cha knowing, I've come to watch your flowers growing
+      thread: Both articulate consciousness as an active, playful dance with the immediate environment—where greeting a lamppost
+        or being held by life's flow requires slowing down to match the rhythm, revealing existence itself as a synchronous,
+        joyful embrace.
+      artist: Simon & Garfunkel
+      title: The 59th Street Bridge Song (Feeling Groovy)
+      spotify_id: 0dzbfio3qTYG9uk40SJNcr
+      youtube_id: hh1W_7T4Mso
+  connection:
+    song:
+      ref: King Harvest — Dancing in the Moonlight
+      text: It's a supernatural delight / Everybody's dancing in the moonlight
+      thread: Both describe entering a state of effortless harmony where individual defenses dissolve ("they don't bark and
+        they don't bite") and a shared rhythmic flow emerges, creating collective joy that feels like being held in a benevolent
+        embrace.
+      artist: King Harvest
+      title: Dancing in the Moonlight
+      spotify_id: 0q21FNwES2bbtcduB6kjEU
+      youtube_id: 0eHBLHVHjWg
+  presence:
+    song:
+      ref: Van Morrison — Into the Mystic
+      text: Smell the sea and feel the sky / Let your soul and spirit fly / Into the mystic... And magnificently we will flow
+      thread: Both describe surrendering to a natural flow that holds and carries ("flow has us in tow" / "magnificently we
+        will flow") through full sensory immersion in the present moment ("dance with what's around us" / "smell the sea and
+        feel the sky"), where time becomes timeless ("born before the wind").
+      artist: Van Morrison
+      title: Into the Mystic
+      spotify_id: 3lh3iiiJeiBXHSZw6u0kh6
+      youtube_id: pbZf8GY1-Ag
+  resilience:
+    song:
+      ref: Florence + The Machine — Shake It Out
+      text: And it's hard to dance with a devil on your back / So shake him off
+      thread: Both articulate that alignment with life’s rhythm (the dance) persists even under the weight of struggle—the
+        resilience is in shaking off the burden to remain in the flow.
+      artist: Florence + The Machine
+      title: Shake It Out
+      spotify_id: 4lY95OMGb9WxP6IYut64ir
+      youtube_id: AHDED8S8CYI
+  courage:
+    song:
+      ref: Leonard Cohen — Dance Me to the End of Love
+      text: Dance me through the panic 'til I'm gathered safely in
+      thread: Both teach that the path through fear is not escape but surrender to a greater motion—the courageous choice
+        to keep dancing through the panic until the flow itself gathers you into its embrace.
+      artist: Leonard Cohen
+      title: Dance Me to the End of Love
+      spotify_id: 3mFzIFFFmEXTQs6BDAK2ZZ
+      youtube_id: 8StKOyYY3Gs
+  gratitude:
+    song:
+      ref: Talking Heads — This Must Be the Place (Naive Melody)
+      text: Home is where I want to be / Pick me up and turn me round... I love the passing of time
+      thread: Both capture the realization that when you stop resisting and align with the present moment, life carries you
+        in its embrace—turning the construct of time into something beloved rather than feared.
+      artist: Talking Heads
+      title: This Must Be the Place (Naive Melody)
+      spotify_id: 6aBUnkXuCEQQHAlTokv9or
+      youtube_id: fsccjsW8bSY
+  release:
+    song:
+      ref: Van Morrison — Into the Mystic
+      text: And when that foghorn blows I want to hear it / I don't have to fear it / And I want to rock your gypsy soul /
+        Just like way back in the days of old / And together we will float into the mystic
+      thread: The lyric captures the moment of surrendering fear to be carried by a greater current ('float into the mystic'),
+        finding joy not through resistance but through allowing the eternal rhythm ('rock your gypsy soul') to hold you—mirroring
+        the Canon's teaching that alignment is a dance with the flow that embraces you.
+      artist: Van Morrison
+      title: Into the Mystic
+      spotify_id: 3lh3iiiJeiBXHSZw6u0kh6
+      youtube_id: pbZf8GY1-Ag
+  integration:
+    song:
+      ref: Van Morrison — Into the Mystic
+      text: And when that foghorn blows I will be coming home... I don't have to fear it
+      thread: Both articulate the realization that surrendering to an encompassing flow (the mystic/foghorn or the embrace
+        of the flow) dissolves fear and carries one home to a state of belonging and harmony.
+      artist: Van Morrison
+      title: Into the Mystic
+      spotify_id: 3lh3iiiJeiBXHSZw6u0kh6
+      youtube_id: pbZf8GY1-Ag
+  boundary:
+    song:
+      ref: Eagles — Take It Easy
+      text: Lighten up while you still can, don't even try to understand, just find a place to make your stand, and take it
+        easy
+      thread: Both articulate that the rhythm of life (the dance/flow) only becomes sustainable when we establish clear limits—lightening
+        our load and defining our stand creates the space for ease.
+      artist: Eagles
+      title: Take It Easy
+      spotify_id: 4yugZvBYaoREkJKtbG08Qr
+      youtube_id: 32Oc2d_3yEk
+freedom_is:
+  peace:
+    song:
+      ref: John Lennon — Watching the Wheels
+      text: I'm just sitting here watching the wheels go round and round / I really love to watch them roll
+      thread: Lennon embodies the Canon's realization that freedom is an internal state undefined by external achievement—rejecting
+        the 'game' others play to find peace in simply being, mirroring the teaching that no one can define your freedom but
+        you.
+      artist: John Lennon
+      title: Watching the Wheels
+      spotify_id: 26Kw6zBo3Uy98q5LTlFfVJ
+      youtube_id: 2Kx2PbA8bCI
+  clarity:
+    song:
+      ref: The Beatles — Across the Universe
+      text: Nothing's gonna change my world / Jai guru deva om
+      thread: Both articulate freedom as an internal frequency that remains stable and undefined while external forces flow
+        through and around it—words/rivers flow like endless rain into a paper cup (controlled by gravity/container), yet
+        the mind/world remains unchanged, revealing freedom as a state of perception rather than circumstance.
+      artist: The Beatles
+      title: Across the Universe
+      spotify_id: 4dkoqJrP0L8FXftrMZongF
+      youtube_id: 90M60PzmxEE
+  momentum:
+    song:
+      ref: Tom Petty — Runnin' Down a Dream
+      text: Runnin' down a dream that never would come to me / Workin' on a mystery, goin' wherever it leads
+      thread: Both articulate that freedom is found in the undefined pursuit itself—the dream never arrives (undefined), yet
+        the liberation lies in the committed forward motion through the mystery (a state of being, not a destination).
+      artist: Tom Petty
+      title: Runnin' Down a Dream
+      spotify_id: 4AiMaeCXwsldpwvA5wu5gM
+      youtube_id: 8MUg8mpnhvQ
+  trust:
+    song:
+      ref: Grateful Dead — Black Muddy River
+      text: When my faith is getting weak and I feel like I'm losing my mind / I will walk alone by the black muddy river
+        and sing me a song of my own
+      thread: Both locate freedom not as escape from difficulty but as an internal creative act—singing one's own undefined
+        song—maintained even when external structures (faith, control) dissolve; the river flows constrained yet free, as
+        does the spirit that trusts its own voice.
+      artist: Grateful Dead
+      title: Black Muddy River
+      spotify_id: 6LpXex2zyOAeBaF6OxXqsZ
+      youtube_id: baZVZu7-SW4
+  joy:
+    song:
+      ref: The Allman Brothers Band — Blue Sky
+      text: Walk along the river, sweet lullaby, it just keeps on flowing / It don't worry 'bout where it's going
+      thread: Both teach that freedom is not found in controlling one's destination but in the internal state of surrender
+        to the flow—being "free but controlled" by choosing not to worry about where the current leads.
+      artist: The Allman Brothers Band
+      title: Blue Sky
+      spotify_id: 6iX1QW1gGIVNEItnqyvFfH
+      youtube_id: JSMubgZoL58
+  connection:
+    song:
+      ref: The Rolling Stones — Wild Horses
+      text: I have my freedom but I don't have much time... Wild horses couldn't drag me away
+      thread: The lyric recognizes freedom as an internal possession (state of mind) within the hard constraint of mortality,
+        yet finds liberation not in escape but in the conscious choice to remain bound to another—true freedom is agency within
+        structure, exercised as devotion.
+      artist: The Rolling Stones
+      title: Wild Horses
+      spotify_id: 4M4Q3JLsUbyTkd5WHty1WB
+      youtube_id: nY_GgPi5eCM
+  presence:
+    song:
+      ref: Bruce Springsteen — Reason to Believe
+      text: At the end of every hard earned day people find some reason to believe
+      thread: Articulates freedom as an undefined, internal act of faith ('some reason') that persists within hard constraints
+        ('hard earned day'), matching the Canon's teaching that liberation is a state of mind maintained within structure,
+        not an escape from it.
+      artist: Bruce Springsteen
+      title: Reason to Believe
+      spotify_id: 0vz4iTEfsp2lunsRJeMzjj
+      youtube_id: H49obsV6oZ0
+  resilience:
+    song:
+      ref: Leonard Cohen — Bird on the Wire
+      text: Like a bird on the wire / Like a drunk in a midnight choir / I have tried in my way to be free
+      thread: Both recognize freedom cannot be externally defined or granted—the bird is physically constrained (on the wire)
+        yet asserts freedom through the internal choice of how it lives ("in my way"), mirroring the Canon's teaching that
+        freedom is a state of mind undefined by external forces.
+      artist: Leonard Cohen
+      title: Bird on the Wire
+      spotify_id: 3M0QK0bYdiGMu6JNoPk8YG
+      youtube_id: FVPtLEVp98E
+  courage:
+    song:
+      ref: Bob Marley & The Wailers — Redemption Song
+      text: Emancipate yourselves from mental slavery; None but ourselves can free our minds
+      thread: Both articulate that freedom is not an external condition to be granted but an internal, undefined state of
+        mind that must be courageously claimed through self-emancipation from mental bondage, independent of physical constraints.
+      artist: Bob Marley & The Wailers
+      title: Redemption Song
+      spotify_id: 7MKcM6TfaGKQVFfhstCbOw
+      youtube_id: 1A95dcLxAuA
+  gratitude:
+    song:
+      ref: The Doobie Brothers — Black Water
+      text: Old black water, keep on rolling / Mississippi moon, won't you keep on shining on me?
+      thread: The river rolls on under its own ancient power—controlled by gravity and geography—yet the singer finds absolute
+        freedom floating within that current, treasuring the moonlight and the catfish rather than fighting the tide, illustrating
+        that liberty is an internal state of appreciation for what is, not mastery over where you go.
+      artist: The Doobie Brothers
+      title: Black Water
+      spotify_id: 4p8QcNkaq2FQj8uGJ7HEDK
+      youtube_id: 8SaRf86eyVY
+  release:
+    song:
+      ref: Bob Marley & The Wailers — Redemption Song
+      text: Emancipate yourselves from mental slavery / None but ourselves can free our minds
+      thread: Both articulate that true freedom is an internal, self-determined state of mind that cannot be granted by external
+        forces, requiring the release of internalized constraints and definitions.
+      artist: Bob Marley & The Wailers
+      title: Redemption Song
+      spotify_id: 7MKcM6TfaGKQVFfhstCbOw
+      youtube_id: 1A95dcLxAuA
+  integration:
+    song:
+      ref: Tom Petty — Learning to Fly
+      text: I'm learning to fly, but I ain't got wings / Coming down is the hardest thing
+      thread: Both articulate freedom not as escape from constraints but as conscious navigation within them—flying without
+        wings mirrors water flowing controlled yet free, integrating limitation and liberation into one state of being.
+      artist: Tom Petty
+      title: Learning to Fly
+      spotify_id: 17S4XrLvF5jlGvGCJHgF51
+      youtube_id: Bb5xJN_4Hck
+  boundary:
+    song:
+      ref: Crowded House — Don't Dream It's Over
+      text: There is freedom within, there is freedom without / Try to catch the deluge in a paper cup
+      thread: Both articulate that freedom persists as an internal state (freedom within) regardless of external constraints
+        or forces (the deluge, the world building walls), realizing that autonomy is found in conscious choice within structural
+        limits rather than escape from them.
+      artist: Crowded House
+      title: Don't Dream It's Over
+      spotify_id: 7G7tgVYORlDuVprcYHuFJh
+      youtube_id: H7UMRkp7m80
+the_passing_tide:
+  peace:
+    song:
+      ref: James Taylor — Secret O' Life
+      text: Nobody knows how we got to the top of the hill / But since we're on our way down / We might as well enjoy the
+        ride
+      thread: Both articulate that the wisdom lies not in controlling the destination (the other side) but in full participation
+        in the journey itself—the ride, the passage—released from the anxiety of outcome.
+      artist: James Taylor
+      title: Secret O' Life
+      spotify_id: 3IGAJam8XPmbBjCAvpCW8N
+      youtube_id: r0siaaHQauo
+  clarity:
+    song:
+      ref: Bruce Springsteen — Long Walk Home
+      text: With our backs to the future and our feet in the tide / We didn't know what we had begun / But we were willing
+        to try
+      thread: Both articulate the insight that we step into the unknown (backs to the future/feet in the tide) without certainty
+        of outcome (don't decide what's on the other side), but the value lies in the willingness to engage fully (wanting
+        to know I tried/willing to try).
+      artist: Bruce Springsteen
+      title: Long Walk Home
+      spotify_id: 6grFWYpLQul3nAHjzzPKT8
+      youtube_id: YOb57rqy7AY
+  momentum:
+    song:
+      ref: Jackson Browne — Running on Empty
+      text: I don't know where I'm running now, I'm just running on
+      thread: Both articulate the paradox of committed motion without destination certainty—engaging fully in the forward
+        momentum of life while surrendering control over the outcome, finding integrity in the effort itself rather than the
+        arrival.
+      artist: Jackson Browne
+      title: Running on Empty
+      spotify_id: 6aqm56xP40foYBBtAWWrnY
+      youtube_id: Ym7aq70t540
+  trust:
+    song:
+      ref: Paul Simon — American Tune
+      text: Tomorrow's going to be another working day / And I'm trying to get some rest
+      thread: Both articulate the wisdom of continuing to show up and engage with life despite not knowing what comes next,
+        finding peace in the effort itself rather than controlling the outcome.
+      artist: Paul Simon
+      title: American Tune
+      spotify_id: 3g3xDtGtU0asKw6iYCYiG5
+      youtube_id: -8etrzygP_o
+  joy:
+    song:
+      ref: David Bowie — Heroes
+      text: And we can be heroes, just for one day / We can be us, just for one day
+      thread: Both celebrate the courage to engage fully in the present moment without attachment to permanence or outcome,
+        finding joy in the temporary triumph of simply trying rather than controlling what comes after.
+      artist: David Bowie
+      title: Heroes
+      spotify_id: 7Jh1bpe76CNTCgdgAdBw4Z
+      youtube_id: YLp2cW7ICCU
+  connection:
+    song:
+      ref: Bill Withers — Lean on Me
+      text: Lean on me, when you're not strong / And I'll be your friend, I'll help you carry on / For it won't be long till
+        I'm gonna need somebody to lean on
+      thread: Both articulate showing up fully for the shared journey (helping carry on) without attachment to controlling
+        the outcome or timing (it won't be long till roles reverse), grounded in the recognition that we are not alone in
+        facing the passing tide.
+      artist: Bill Withers
+      title: Lean on Me
+      spotify_id: 5zCJvrT3C7cIfHsR5iG95l
+      youtube_id: fOZ-MySzAac
+  presence:
+    song:
+      ref: Leonard Cohen — Hallelujah
+      text: I did my best, it wasn't much / I couldn't feel, so I tried to touch / I've told the truth, I didn't come to fool
+        you / And even though it all went wrong / I'll stand before the Lord of Song / With nothing on my tongue but Hallelujah
+      thread: Both articulate the dignity of the broken offering—engaging fully with the attempt (the touch, the song) while
+        surrendering the outcome (it all went wrong, not knowing what's on the other side), finding presence in the authentic
+        act rather than the perfect result.
+      artist: Leonard Cohen
+      title: Hallelujah
+      spotify_id: 7yzbimr8WVyAtBX3Eg6UL9
+      youtube_id: -DxrGu9n4fg
+  resilience:
+    song:
+      ref: Bruce Springsteen — The Wrestler
+      text: These things that have comforted me, I drive away... My only faith's in the broken bones and bruises I display
+      thread: Both teachings affirm that authentic participation requires abandoning the comfort of known outcomes, finding
+        the only honest evidence of having lived in the physical marks of endurance rather than the promise of victory.
+      artist: Bruce Springsteen
+      title: The Wrestler
+      spotify_id: 6E6xVYnTszA6MerlIuiAoY
+      youtube_id: 6egqJ29RnpI
+  courage:
+    song:
+      ref: Jackson Browne — For a Dancer
+      text: You never know what will be coming down... Just do the steps that you've been shown / By everyone you've ever
+        known / Until the dance becomes your very own
+      thread: Both articulate the insight that we cannot control or predict life's outcomes ("what will be coming down"),
+        yet the courageous response is to fully participate anyway—to dance your own dance—choosing engagement over the paralysis
+        of uncertainty.
+      artist: Jackson Browne
+      title: For a Dancer
+      spotify_id: 2AkbpHqE8STBmNDekA4Uxa
+      youtube_id: XnT_PbnpijE
+  gratitude:
+    song:
+      ref: Paul Simon — The Obvious Child
+      text: I'm not unmindful of the passing of time / But I'm still here
+      thread: Both acknowledge the unstoppable current of time (the passing tide) yet choose embodied participation over resignation—the
+        drums keep playing, the dream continues, and gratitude swells simply in the fact of being present ('still here') and
+        claiming the abundance of now ('these days are ours').
+      artist: Paul Simon
+      title: The Obvious Child
+      spotify_id: 1deWgqhgAzI6dY35TbKKh7
+      youtube_id: ikjAJZ9wMPE
+  release:
+    song:
+      ref: Mumford & Sons — After the Storm
+      text: Get over your hill and see what you find there / With grace in your heart and flowers in your hair
+      thread: Both teach that we must make the climb (engage fully) without knowing what waits on the other side, finding
+        release in the effort itself rather than controlling the outcome.
+      artist: Mumford & Sons
+      title: After the Storm
+      spotify_id: 55zEVSBDslvHzhtPWGgC05
+      youtube_id: mb2oNFst9ms
+  integration:
+    song:
+      ref: Florence + The Machine — Shake It Out
+      text: And I'm ready to suffer, and I'm ready to hope / It's a shot in the dark aimed right at my throat / Cause looking
+        for heaven, found the devil in me / Well what the hell, I'm gonna let it happen to me
+      thread: Both articulate the commitment to fully engage with life's uncertainty (the shot in the dark, the unknown other
+        side) without guarantee of outcome, finding integrity in the willingness to suffer and hope rather than the result.
+      artist: Florence + The Machine
+      title: Shake It Out
+      spotify_id: 4lY95OMGb9WxP6IYut64ir
+      youtube_id: AHDED8S8CYI
+  boundary:
+    song:
+      ref: Leonard Cohen — Anthem
+      text: Ring the bells that still can ring / Forget your perfect offering
+      thread: Both teach that authentic participation requires releasing attachment to perfect outcomes (the other side/the
+        perfect offering) while fully engaging with available means (trying/ringing the bells), creating a clean boundary
+        between effort and result.
+      artist: Leonard Cohen
+      title: Anthem
+      spotify_id: 7aAE5KL20Uycf3dswsaHjp
+      youtube_id: mkWmh6KJAXY
+love_song:
+  peace:
+    song:
+      ref: The Beatles — Long, Long, Long
+      text: It's been a long, long, long time... / How could I ever have lost you when I loved you?
+      thread: Both articulate the realization that after a prolonged period of searching and fragmentation ("torn apart,"
+        "long time"), one arrives at the hushed recognition that this love was the inevitable destination all along—the peaceful
+        exhale of finally coming home to what fits.
+      artist: The Beatles
+      title: Long, Long, Long
+      spotify_id: 40d2EcaOOCUjDzzo2YvUWn
+      youtube_id: e9vUCdfwlgw
+  clarity:
+    song:
+      ref: Ben Folds — The Luckiest
+      text: Now I know all the wrong turns, the stumbles and falls brought me here... And where was I before the day that
+        I first saw your lovely face?
+      thread: Both articulate that the chaos of the search (wrong turns, stumbles, torn-apart mornings) resolves into the
+        crystalline realization that love is the destination—the moment the fog lifts and you see that every path led to this
+        shared clarity.
+      artist: Ben Folds
+      title: The Luckiest
+      spotify_id: 1fujSajijBpJlr5mRGKHJN
+      youtube_id: ISMnfcnX6Ng
+  momentum:
+    song:
+      ref: Edward Sharpe & The Magnetic Zeros — Home
+      text: Home is wherever I'm with you
+      thread: Both the Canon and this lyric relocate the center of existence from solitary searching to shared presence, realizing
+        that "home"—the sense of finally fitting somewhere—is not a place but a conscious choice to submit to deep love.
+      artist: Edward Sharpe & The Magnetic Zeros
+      title: Home
+      spotify_id: 2x1jP9BexWtOKudvuUHbaD
+      youtube_id: A5rohNXvVSc
+  trust:
+    song:
+      ref: Jason Isbell — Cover Me Up
+      text: I laid all my weapons down at the foot of your bed and you covered me up, you knew I was wasted, you covered me
+        up
+      thread: Both trace the arc from a fractured, defensive searching ('torn apart,' 'weapons') to the realization that life's
+        meaning arrives through surrendering to a love that fits perfectly enough to hold one's brokenness.
+      artist: Jason Isbell
+      title: Cover Me Up
+      spotify_id: 5qW6ZYct54PhKliCntyxRX
+      youtube_id: S-s3vuXopS4
+  joy:
+    song:
+      ref: Ray LaMontagne — You Are the Best Thing
+      text: Every day I wake up and I thank God for you... You are the best thing that ever happened to me
+      thread: Both address the morning awakening—where the Canon describes waking torn apart searching for meaning, this lyric
+        captures the transformed state where waking becomes spontaneous gratitude because love is the answer that finally
+        "fits," making existence itself feel like a gift.
+      artist: Ray LaMontagne
+      title: You Are the Best Thing
+      spotify_id: 1jyddn36UN4tVsJGtaJfem
+      youtube_id: kuifvM_1N-4
+  connection:
+    song:
+      ref: Nick Cave & The Bad Seeds — Into My Arms
+      text: But I believe in Love / And I know that you do too / And I believe in some kind of path / That we can walk down,
+        me and you
+      thread: Both articulate that the raw, torn-apart search for meaning resolves into the simple, committed act of walking
+        a shared path—finding the "fit" not in perfection but in the willingness to bridge differences ("I don't believe in
+        an interventionist God / But I know, darling, that you do") and surrender to love as the only navigable terrain.
+      artist: Nick Cave & The Bad Seeds
+      title: Into My Arms
+      spotify_id: 39CFOvYse9fcMhIwyS73Fl
+      youtube_id: _8M_N75nH8Q
+  presence:
+    song:
+      ref: Nick Drake — Northern Sky
+      text: Now I can't think of all the time I've wasted trying to find the truth / If I had not come to you I'd have been
+        as good as dead
+      thread: Both articulate the exhaustion of searching for meaning alone and the sudden, clarifying realization that life
+        only makes sense when surrendered to a deep, fitting love.
+      artist: Nick Drake
+      title: Northern Sky
+      spotify_id: 7pdmBld4yW3WIUkrxHyb5r
+      youtube_id: BBBkFWXiL9Q
+  resilience:
+    song:
+      ref: Fleetwood Mac — Landslide
+      text: I've been afraid of changing / 'Cause I've built my life around you
+      thread: Both acknowledge the daily struggle with internal chaos and impermanence ("afraid of changing" mirrors waking
+        up torn apart) and arrive at the same realization—that love is not the distraction from the search but its destination,
+        the only structure that survives the landslide.
+      artist: Fleetwood Mac
+      title: Landslide
+      spotify_id: 5ihS6UUlyQAfmp48eSkxuQ
+      youtube_id: mXonGAEPQp8
+  courage:
+    song:
+      ref: Glen Hansard & Marketa Irglova — Falling Slowly
+      text: Take this sinking boat and point it home, we've still got time; Raise your hopeful voice you have a choice, you've
+        made it now
+      thread: Both capture the raw disorientation of searching (words failing, games playing out) and the trembling decision
+        to steer toward commitment despite the risk of sinking—choosing to raise a hopeful voice and point the damaged vessel
+        home together.
+      artist: Glen Hansard & Marketa Irglova
+      title: Falling Slowly
+      spotify_id: 6EIVLz5xM1xE29r0OmIkWt
+      youtube_id: agf4tUnxotA
+  gratitude:
+    song:
+      ref: Van Morrison — Crazy Love
+      text: I can hear her heart beat for a thousand miles / And the heavens open up every time she smiles
+      thread: Both recognize that life's meaning crystallizes in the quiet, abiding presence of the beloved, expressing sheer
+        wonder and gratitude for the simple abundance of being near them.
+      artist: Van Morrison
+      title: Crazy Love
+      spotify_id: 0r6I5tMDusK3ql2n2MKMuY
+      youtube_id: -vNVLdxht0k
+  release:
+    song:
+      ref: Jason Isbell — Cover Me Up
+      text: I sobered up, I swore off that stuff forever this time... so cover me up and know you're enough to use me for
+        good
+      thread: Both articulate the end of a solitary search through damage/chaos, realizing that survival only makes sense
+        when surrendered to a love that redeems the past—release of the self-destructive burden into the shelter of commitment.
+      artist: Jason Isbell
+      title: Cover Me Up
+      spotify_id: 5qW6ZYct54PhKliCntyxRX
+      youtube_id: S-s3vuXopS4
+  integration:
+    song:
+      ref: The Postal Service — Such Great Heights
+      text: I have to speculate that God himself did make us into corresponding shapes like puzzle pieces from the clay
+      thread: The lyric captures the Integration realization that the fragmented search for meaning ("torn apart") resolves
+        into the recognition of perfect fit—love as divine correspondence where disparate shapes form one coherent whole.
+      artist: The Postal Service
+      title: Such Great Heights
+      spotify_id: 75z2YLg5Lkqf6qL9XOY8tV
+      youtube_id: gQLvhLbs3X4
+  boundary:
+    song:
+      ref: Joni Mitchell — A Case of You
+      text: I could drink a case of you and still be on my feet
+      thread: Both articulate that deep love's submission requires maintaining one's standing/selfhood (clean edges), not
+        dissolution—knowing exactly where you end even while intoxicated by the other.
+      artist: Joni Mitchell
+      title: A Case of You
+      spotify_id: 7shVwhUdVbHpykOfbzvDc1
+      youtube_id: jqYpK3CFmMk

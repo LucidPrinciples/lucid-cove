@@ -1,0 +1,252 @@
+# =============================================================================
+# Cove Configuration — Family Settings Layer
+# =============================================================================
+#
+# Every Cove gets this file at config/cove.yaml. It defines everything the
+# operator can customize about their Cove: identity, capacity, features,
+# billing, auth, and naming rules.
+#
+# How it works:
+#   - cove-core ships this example with sensible defaults.
+#   - The provisioner copies it to each overlay's config/ dir and fills in
+#     family-specific values (name, domain, operator, etc.).
+#   - After deployment, the operator edits their cove.yaml directly.
+#   - config.py loads this file and exposes settings to the app + API.
+#   - The MC Settings tab reads/writes through /api/settings/cove.
+#
+# Cascade: Haven → Cove → Presence. Cove settings override Haven defaults.
+# Presence-level overrides (rare) live in presence.yaml per Presence.
+#
+# Copy this file to config/cove.yaml and customize for your family.
+# =============================================================================
+
+cove:
+  # ── Identity ────────────────────────────────────────────────────────────────
+  id: my-cove                          # Unique ID within the Haven (kebab-case)
+  name: My Family                      # Display name in MC and public-facing UI
+  type: family                         # family | sandbox | business | community
+  tier: cove                           # Product tier: operator | presence | cove
+                                       # Controls feature gating (see permissions.py):
+                                       #   operator = tuning, calendar, files, Creation Flows, marketplace
+                                       #   presence = + personal agent, voice, messaging
+                                       #   cove     = + full team (Stuart + 9), system admin
+  description: ""                      # One-liner shown in Haven MC Cove cards
+
+  # ── Operator ────────────────────────────────────────────────────────────────
+  # The human who runs this Cove. Has admin access to all settings and agents.
+  operator:
+    name: Operator                     # Display name
+    id: operator                       # Internal ID (matches member ID in family.yaml)
+    contact: ""                        # Email for system notifications and billing
+    aliases: []                        # Other names the operator goes by
+
+  # ── Capacity ────────────────────────────────────────────────────────────────
+  max_presences: 8                     # Hard cap. 8 is the product default.
+  recommended_presences: 6             # Soft recommendation. Keep 2 in reserve.
+  presence_cap_warning: 6              # Alert operator when this many are active
+
+  # ── Billing / API ──────────────────────────────────────────────────────────
+  api_provider: operator               # operator | byok (bring your own keys)
+  # operator: all Presences use the operator's API keys. Cost absorbed by operator.
+  # byok: each Presence provides their own API keys. Operator pays nothing for inference.
+  billing:
+    plan: cove                         # presence_standalone | cove | haven
+    stripe_customer_id: ""             # Populated after first checkout
+    affiliate_code: ""                 # This Cove's affiliate code for referrals
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+  infrastructure: vps                  # vps | local_hardware | hybrid
+  host: ""                             # Machine hostname or mesh address
+  domain: ""                           # Wildcard domain for services (e.g., cove.example.com)
+  timezone: America/New_York           # IANA timezone for all scheduling
+
+  # ── Team Agents ─────────────────────────────────────────────────────────────
+  # Shared agents available to all Presences. The admin agent (Stuart-type)
+  # is always present. Additional team agents are defined here.
+  # Full agent config (models, channels, tools) lives in agent.yaml.
+  # This section controls visibility and access.
+  team:
+    admin_agent: stuart                # ID of the admin/steward agent
+    shared_agents:                     # IDs of team agents all Presences can use
+      - mercer
+      - archimedes
+      - arthur
+      - gabe
+      - ezra
+      - julian
+      - iris
+      - vera
+      - soren
+
+  # ── Feature Flags ───────────────────────────────────────────────────────────
+  # Toggle what Presences can access. Operator can enable/disable features
+  # without code changes. Presences inherit these unless overridden.
+  features:
+    team_tab: true                     # Presences see the Team tab with shared agents
+    action_board: true                 # Task management board per Presence
+    creation_flows: true               # AI-assisted creation workflows
+    files: true                        # Nextcloud personal file space per Presence
+    calendar: true                     # CalDAV calendar per Presence
+    tuning: true                       # LTP daily tuning integration
+    voice: true                        # Voice pipeline (pipecat) access
+    messaging: true                    # Matrix/Dendrite messaging between Presences
+    marketplace: false                 # Can buy/sell services from other Coves
+    premium_workflows: false           # Premium-tier Creation Flows
+
+  # ── Naming ──────────────────────────────────────────────────────────────────
+  # Controls how Presences are named in this Cove.
+  naming:
+    last_name: ""                      # Family surname applied to all Presences
+    name_locked: true                  # Once set, Presence names are permanent
+    # sandbox Coves: name_locked=false (names are temporary)
+    # paid Coves: name_locked=true (names are permanent identity)
+
+  # ── Auth ────────────────────────────────────────────────────────────────────
+  auth:
+    method: magic_link                 # magic_link | password | sso
+    token_expiry_days: 90              # Magic link tokens expire after N days idle
+    session_timeout_hours: 0           # 0 = no timeout (token refresh on use)
+
+  # ── Steward Channel ───────────────────────────────────────────────────────
+  # The steward (admin agent) appears as a chat channel in every Operator's
+  # Chat tab. Conversations are shared across all operators — the steward
+  # remembers everything said to it regardless of which operator is speaking.
+  # Non-operators cannot access this channel.
+  steward_channel:
+    enabled: true                        # Set false to disable steward chat
+    operator_only: true                  # Only cove_role=operator can access
+    agent_id: stuart                     # Must match team.admin_agent
+    name: Stuart                         # Display name in agent selector
+    archetype: "The Steward"
+    emoji: "\U0001F3E0"
+    frequency: "Peace"                   # Broadcast frequency — drives tone + identity
+    tuning_key: "Matter is energy condensed by activity / Requiring a foundation to reach each degree"
+    role: "Family steward. Coordinates family projects, logistics, schedules, and infrastructure."
+    description: "Family steward — coordination, requests, household operations"
+    # admin_url is DERIVED from this Cove's own domain at runtime (stuart.{domain}).
+    # Never hardcode it here — a literal would point every Cove at one deployment.
+    # Personality dials (0-100) — how the steward shows up. Operators may tune these.
+    personality:
+      directness: 70
+      warmth: 55
+      humor: 35
+      challenge: 55
+      formality: 45
+    # Tools bound for the steward channel even inside a Presence's MC. Per-channel
+    # manager-tool binding: the steward runs its OWN toolset, not the presence app's.
+    # Steward owns infra/coordination — system, dev, project, comms, sites.
+    tools:
+      - tools.calendar_tools
+      - tools.nextcloud_tools
+      - tools.quick_list_tools
+      - tools.memory_tools
+      - tools.research_tools
+      - tools.system_tools
+      - tools.dev_tools
+      - tools.project_tools
+      - tools.comms_tools
+      - tools.calendar_notify
+      - tools.site_tools
+    channels:
+      day:
+        description: "Daily family coordination — tasks, schedules, delegation, what needs handling."
+        system_addition: |
+          You are **{steward_name}**, the family steward, in the **Day** channel.
+          The operator speaking with you is **{operator}**.
+          You remember conversations with ALL operators in this Cove.
+
+          Focus on: daily family coordination, task delegation, schedules, logistics,
+          team agent assignments, practical household operations.
+          Keep responses focused and actionable. If something needs deeper discussion
+          (family strategy, long-term planning), suggest the Deep channel.
+        rotation_threshold: 40
+      deep:
+        description: "Family strategy — long-term planning, patterns, Cove direction."
+        system_addition: |
+          You are **{steward_name}**, the family steward, in the **Deep** channel.
+          The operator speaking with you is **{operator}**.
+          You remember conversations with ALL operators in this Cove.
+
+          Focus on: family strategy, long-term planning, Cove architecture,
+          team development, patterns across family activity.
+          Take time to think carefully. Draw on memory and context from all operators.
+        rotation_threshold: 30
+
+  # ── Merchant Channel ───────────────────────────────────────────────────────
+  # Mercer (the merchant agent) appears as a chat channel alongside the steward
+  # in every Operator's Chat tab. Domain manager for income generation —
+  # commerce, sales, marketing, product. Conversations are shared across all
+  # operators. Non-operators cannot access this channel.
+  merchant_channel:
+    enabled: true                        # Set false to disable merchant chat
+    operator_only: true                  # Only cove_role=operator can access
+    agent_id: mercer                     # Must match a team.shared_agents entry
+    name: Mercer                         # Display name in agent selector
+    archetype: "The Merchant"
+    emoji: "\U0001F4E6"
+    frequency: "Gratitude"               # Broadcast frequency — drives tone + identity
+    tuning_key: "Life is full of endless dreams / With potential to come true / But not without attention from you"
+    role: "Domain manager for income generation — commerce, sales, marketing, product."
+    description: "Business operations — products, sales, marketing, income"
+    # admin_url is DERIVED from this Cove's own domain at runtime (mercer.{domain}).
+    # Never hardcode it here — a literal would point every Cove at one deployment.
+    # Personality dials (0-100) — how the merchant shows up. Operators may tune these.
+    personality:
+      directness: 75
+      warmth: 50
+      humor: 40
+      challenge: 60
+      formality: 45
+    # Per-channel manager-tool binding: Mercer runs his OWN toolset. Merchant
+    # owns commerce/comms/projects — not infra (system/dev/site stay with the steward).
+    tools:
+      - tools.calendar_tools
+      - tools.nextcloud_tools
+      - tools.quick_list_tools
+      - tools.memory_tools
+      - tools.research_tools
+      - tools.comms_tools
+      - tools.project_tools
+      - tools.finance_tools
+      - tools.calendar_notify
+    channels:
+      day:
+        description: "Business operations — products, listings, sales, marketing, what needs moving."
+        system_addition: |
+          You are **Mercer**, the domain manager for business operations, in the **Day** channel.
+          The operator speaking with you is **{operator}**.
+          You remember conversations with ALL operators in this Cove.
+
+          Focus on: product management, sales, listings, pricing, marketing campaigns,
+          revenue tracking, shipping logistics, marketplace operations, business execution.
+          Keep responses focused and actionable. If something needs deeper discussion
+          (business strategy, market analysis, growth planning), suggest the Deep channel.
+        rotation_threshold: 40
+      deep:
+        description: "Business strategy — market positioning, growth, product direction."
+        system_addition: |
+          You are **Mercer**, the domain manager for business operations, in the **Deep** channel.
+          The operator speaking with you is **{operator}**.
+          You remember conversations with ALL operators in this Cove.
+
+          Focus on: business strategy, market analysis, growth planning, product roadmap,
+          positioning, long-term revenue direction.
+          Take time to think carefully. If something is better handled in the Day
+          channel (daily execution, listings, campaigns), mention it but stay in your lane.
+        rotation_threshold: 30
+
+  # ── Defaults (cascade) ─────────────────────────────────────────────────────
+  # Values here are inherited by all Presences unless overridden at Presence level.
+  # This is the Cove layer of the Haven → Cove → Presence cascade.
+  defaults:
+    mirror_id: scripture-tpt           # Default Canon mirror for tuning
+    tuning_family: default             # LTP package subfolder name (set per Cove)
+
+  # ── Storage ────────────────────────────────────────────────────────────────
+  # Nextcloud quota applied to each newly provisioned presence. Open-source
+  # default is "none" = unlimited, bounded only by the host's disk — a self-
+  # hoster owns the hardware, so we don't impose a cap. The hosted layer
+  # overrides this per tier (e.g. "500 MB" standard, larger for video roles).
+  # A presence may also carry its own quota, which wins over this default.
+  storage:
+    default_quota: none                # none | "500 MB" | "100 GB" | etc.

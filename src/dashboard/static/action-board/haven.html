@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Haven</title>
+<style>
+:root { --accent: #5ce1e6; --accent-border: rgba(92,225,230,0.28); }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.flow-container { max-width: 760px; margin: 0 auto; padding: 24px; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.header h1 { font-size: 18px; font-weight: 600; color: var(--accent); }
+.flow-subtitle { color: #777; font-size: 13px; margin-bottom: 28px; line-height: 1.6; }
+
+.panel { display: none; }
+.panel.active { display: block; animation: fadeIn .3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.section-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+.section-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.section-desc { font-size: 13.5px; color: #999; line-height: 1.65; margin-bottom: 24px; }
+
+.field { margin-bottom: 18px; }
+.field label { display: block; font-size: 13px; font-weight: 500; color: #bbb; margin-bottom: 8px; }
+.field input { width: 100%; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 6px; padding: 11px 14px; color: #e1e4ea; font-size: 15px; font-family: inherit; }
+.field input:focus { outline: none; border-color: var(--accent-border); }
+.status { min-height: 16px; margin-top: 6px; font-size: 12.5px; }
+.status.err { color: #e06c6c; }
+.status.ok { color: #5ce1a0; }
+
+.btn { background: var(--accent); color: #06121a; border: none; border-radius: 8px; padding: 12px 22px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn-sm { padding: 7px 14px; font-size: 12.5px; }
+.btn-ghost { background: none; color: #999; border: 1px solid #2a2d3a; }
+
+.haven-addr { display: flex; align-items: center; gap: 10px; background: #14141c; border: 1px solid #24242f; border-radius: 10px; padding: 14px 16px; margin-bottom: 22px; }
+.haven-addr .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--accent); font-weight: 700; }
+.haven-addr a { color: #e1e4ea; font-size: 14px; text-decoration: none; word-break: break-all; }
+.haven-addr a:hover { color: var(--accent); }
+
+.row { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 26px; }
+.row .field { flex: 1; margin-bottom: 0; }
+
+.coves-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.cove-card { background: #14141c; border: 1px solid #24242f; border-radius: 12px; padding: 18px; }
+.cove-card .cc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.cc-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.cc-name { font-size: 15px; font-weight: 700; color: #f0f0f5; }
+.cc-badge { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); font-weight: 700; border: 1px solid var(--accent-border); border-radius: 4px; padding: 2px 6px; }
+.cc-meta { font-size: 12px; color: #9a9aa8; line-height: 1.7; margin-bottom: 12px; }
+.cc-meta .k { color: #6c6c78; }
+.cc-presence { font-size: 12px; color: #c8c8d2; margin-bottom: 12px; }
+.cc-presence .p-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #6c6c78; display: block; margin-bottom: 3px; }
+.cc-link { display: inline-block; font-size: 12.5px; color: var(--accent); text-decoration: none; }
+.cc-link:hover { text-decoration: underline; }
+.empty-msg { color: #777; font-size: 13px; }
+.section-head { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 14px; }
+.section-head h3 { font-size: 14px; font-weight: 600; color: #d8d8e0; }
+</style>
+</head>
+<body>
+<div class="flow-container">
+  <div class="header"><h1>Your Haven</h1></div>
+  <div class="flow-subtitle">A Haven is a collective of Coves &mdash; families, partners, or collaborators who choose to share a network.</div>
+
+  <!-- PANEL: form a Haven (shown when none exists yet) -->
+  <div class="panel" id="panel-form">
+    <div class="section-label">Form a Haven</div>
+    <div class="section-title">Start a Haven</div>
+    <div class="section-desc">Give your Haven a name. It becomes a shared space your Coves connect into, reachable at its own address.</div>
+    <div class="field">
+      <label>Haven name</label>
+      <input id="haven-name" type="text" placeholder="e.g. Riverstone" autocomplete="off">
+    </div>
+    <button class="btn" id="form-btn" onclick="formHaven()">Form Haven</button>
+    <div class="status" id="form-status"></div>
+  </div>
+
+  <!-- PANEL: manage (shown when a Haven exists) -->
+  <div class="panel" id="panel-manage">
+    <div class="haven-addr" id="haven-addr"></div>
+
+    <div class="row">
+      <div class="field">
+        <label>Connect a Cove</label>
+        <input id="connect-cove" type="text" placeholder="Cove name or id" autocomplete="off">
+      </div>
+      <button class="btn btn-sm" id="connect-btn" onclick="connectCove()">Connect</button>
+    </div>
+    <div class="status" id="connect-status" style="margin-top:-18px;margin-bottom:18px;"></div>
+
+    <div class="section-head">
+      <h3>Coves in this Haven</h3>
+      <button class="btn-ghost btn-sm" onclick="loadCoves()">Refresh</button>
+    </div>
+    <div class="coves-grid" id="coves-grid"><span class="empty-msg">Loading&hellip;</span></div>
+  </div>
+</div>
+
+<script>
+function ESC(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function slug(s){return String(s||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');}
+function show(id){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.getElementById(id).classList.add('active');}
+function setStatus(id,msg,cls){const e=document.getElementById(id);e.textContent=msg||'';e.className='status'+(cls?' '+cls:'');}
+
+let HAVEN=null; // {haven_id, name, url}
+
+async function init(){
+  try{
+    const r=await fetch('/api/haven/mine');
+    if(r.status===401||r.status===403){show('panel-form');setStatus('form-status','Sign in as the Cove admin to manage a Haven.','err');return;}
+    const d=await r.json();
+    if(d.formed){HAVEN={haven_id:d.haven_id,name:d.name,url:d.url};renderManage();}
+    else{show('panel-form');}
+  }catch(e){show('panel-form');setStatus('form-status','Could not reach the Cove: '+e.message,'err');}
+}
+
+async function formHaven(){
+  const name=document.getElementById('haven-name').value.trim();
+  if(!name){setStatus('form-status','Give your Haven a name.','err');return;}
+  const hid=slug(name);
+  if(!hid){setStatus('form-status','Use letters or numbers in the name.','err');return;}
+  const btn=document.getElementById('form-btn');btn.disabled=true;setStatus('form-status','Forming&hellip;');
+  try{
+    const r=await fetch('/api/haven/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({haven_id:hid,name:name})});
+    const d=await r.json();
+    if(!r.ok||d.ok===false){throw new Error(d.detail||d.reason||('HTTP '+r.status));}
+    await init();
+  }catch(e){setStatus('form-status','Could not form the Haven: '+e.message,'err');}
+  finally{btn.disabled=false;}
+}
+
+function renderManage(){
+  show('panel-manage');
+  const a=document.getElementById('haven-addr');
+  const title='<span class="lbl">'+ESC(HAVEN.name||'Haven')+'</span>';
+  if(HAVEN.url){a.innerHTML=title+'<a href="'+ESC(HAVEN.url)+'" target="_blank">'+ESC(HAVEN.url)+'</a>';}
+  else{a.innerHTML=title+'<span style="color:#9a9aa8;font-size:12.5px">Your Haven address appears once this Cove has a domain set.</span>';}
+  loadCoves();
+}
+
+async function connectCove(){
+  const v=document.getElementById('connect-cove').value.trim();
+  if(!v){setStatus('connect-status','Enter the Cove name or id to connect.','err');return;}
+  if(!HAVEN){return;}
+  const btn=document.getElementById('connect-btn');btn.disabled=true;setStatus('connect-status','Connecting&hellip;');
+  try{
+    const r=await fetch('/api/haven/'+encodeURIComponent(HAVEN.haven_id)+'/nest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cove:v})});
+    const d=await r.json();
+    if(!r.ok||d.ok===false){throw new Error(d.detail||d.reason||('HTTP '+r.status));}
+    document.getElementById('connect-cove').value='';
+    setStatus('connect-status','Connected.','ok');
+    loadCoves();
+  }catch(e){setStatus('connect-status','Could not connect that Cove: '+e.message,'err');}
+  finally{btn.disabled=false;}
+}
+
+function dotColor(status){return status==='online'?'#2ecc71':status==='registered'?'#5ce1e6':status==='offline'?'#e74c3c':'#95a5a6';}
+
+async function loadCoves(){
+  const el=document.getElementById('coves-grid');
+  try{
+    const r=await fetch('/api/haven/coves');
+    const d=await r.json();
+    const coves=d.coves||[];
+    if(!coves.length){el.innerHTML='<span class="empty-msg">No Coves yet. Connect one above.</span>';return;}
+    el.innerHTML=coves.map(c=>{
+      const presence=(c.presences&&c.presences.length)?c.presences.map(ESC).join(', '):'&mdash;';
+      const link=c.mc_url?'<a class="cc-link" href="'+ESC(c.mc_url)+'" target="_blank">Open Mission Control &rarr;</a>':'<span class="empty-msg">No address yet</span>';
+      return '<div class="cove-card">'
+        +'<div class="cc-top"><span class="cc-dot" style="background:'+dotColor(c.status)+'"></span>'
+        +'<span class="cc-name">'+ESC(c.name)+'</span>'+(c.is_owner?'<span class="cc-badge">This Cove</span>':'')+'</div>'
+        +'<div class="cc-meta"><span class="k">Operator</span> '+ESC(c.operator||'—')+'</div>'
+        +'<div class="cc-presence"><span class="p-lbl">Presences</span>'+presence+'</div>'
+        +link
+        +'</div>';
+    }).join('');
+  }catch(e){el.innerHTML='<span class="empty-msg">Error loading Coves: '+ESC(e.message)+'</span>';}
+}
+
+init();
+</script>
+</body>
+</html>

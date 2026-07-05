@@ -1,0 +1,110 @@
+# =============================================================================
+# agent.yaml — Example configuration for a cove-core agent
+# =============================================================================
+# Copy this to config/agent.yaml and customize for your agent.
+# This is THE single config file that drives the entire agent instance:
+# identity, channels, tools, dashboard tabs, accent color, operator name.
+# =============================================================================
+
+# ─── Instance Metadata ────────────────────────────────────────────────────────
+instance:
+  name: "Agent Name"              # Display name in header
+  type: personal                  # personal | admin
+  port: 8200                      # Dashboard port
+  operator: "Operator"            # Human's display name
+  timezone: "America/New_York"
+  accent_color: "#4a9eff"         # CSS accent color for the UI
+
+# ─── Agents ───────────────────────────────────────────────────────────────────
+# Personal = 1 agent. Admin = team of agents.
+agents:
+  - id: agent-id
+    name: "Agent Name"
+    archetype: "The Archetype"
+    emoji: ""
+    role: "One-line description of the agent's role."
+    status: active
+    channels:
+      - day
+      - deep
+    boundaries:
+      - "Example boundary — what the agent should not do."
+    can_delegate_to: []
+
+# ─── Channels ─────────────────────────────────────────────────────────────────
+# Every agent gets Day + Deep. The first channel listed loads by default.
+channels:
+  day:
+    description: "Daily rhythm — tasks, calendar, coordination, what needs handling now."
+    system_addition: |
+      You are in the **Day** channel — {operator}'s daily companion.
+      Focus on: tasks, calendar, schedule, daily coordination, practical matters.
+      Keep responses focused and actionable. If something is better suited for
+      the Deep channel (big-picture thinking, patterns, life direction), suggest it.
+    thread_prefix: "day"
+    rotation_threshold: 40
+
+  deep:
+    description: "Big picture — patterns, direction, the confidant/advisor mode."
+    system_addition: |
+      You are in the **Deep** channel — {operator}'s trusted advisor.
+      Focus on: patterns, direction, goals, deeper reflection, life trajectory.
+      Take your time. Think carefully. Draw on memory and context.
+      If something is better handled in the Day channel (daily tasks, scheduling),
+      mention it but stay in your lane.
+    thread_prefix: "deep"
+    rotation_threshold: 30
+
+# ─── Dashboard Tabs ───────────────────────────────────────────────────────────
+# Controls which tabs appear and in what order.
+# Each tab loads /static/js/{id}.js (or {script}.js if specified).
+tabs:
+  - id: home
+    label: Home
+  - id: chat
+    label: Chat
+    scripts: [chat, voice, manager-chat]
+  - id: tuning
+    label: Tuning
+  - id: joulework
+    label: JouleWork
+  - id: memory
+    label: Memory
+  - id: affiliates
+    label: Affiliates
+    script: affiliates
+  - id: settings
+    label: Settings
+
+# ─── Tools ────────────────────────────────────────────────────────────────────
+tools:
+  modules: []
+  # approval_tiers:           # Uncomment to enable approval system
+  #   auto:
+  #     - "*"                  # Default: all tools auto-execute
+  #   notify: []
+  #   block: []
+
+# ─── Agent-Specific Routes ────────────────────────────────────────────────────
+# Additional FastAPI route modules to register (beyond core routes).
+routes: []
+
+# ─── Format Rules ─────────────────────────────────────────────────────────────
+format_rules: |
+  Format: Use markdown. Bold key terms. Keep paragraphs short.
+  Be direct and clear. No filler language.
+
+# ─── Model Defaults ──────────────────────────────────────────────────────────
+defaults:
+  provider: openrouter
+  timeout_seconds: 60
+  model:
+    primary: "kimi-ai/kimi-k2-instruct"
+    fallback: "qwen3:32b"
+
+# ─── LTP Configuration ───────────────────────────────────────────────────────
+ltp:
+  source: git
+  delivery: git-pull
+  schedule: "07:00 ET"
+  timezone: "America/New_York"

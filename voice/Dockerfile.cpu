@@ -1,0 +1,59 @@
+# CPU-only pipecat-voice — for GPU-less / hosted (light) Coves.
+# Provides: voice dictation + batch transcription on CPU faster-whisper (int8),
+# and cloud BYOK ASR (HTTP only). No CUDA, no Qwen3-ASR (that needs a GPU; a
+# hosted Cove uses compute.video_asr=cloud instead). TTS via Piper (CPU).
+# Build:  docker build -f Dockerfile.cpu -t pipecat-voice:cpu .
+FROM python:3.11-slim@sha256:6d85378d88a19cd4d76079817532d62232be95757cb45945a99fec8e8084b9c2
+
+WORKDIR /app
+
+RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true" | debconf-set-selections \
+    && echo "deb http://deb.debian.org/debian trixie contrib" >> /etc/apt/sources.list.d/contrib.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libsndfile1 \
+    ffmpeg \
+    curl \
+    fonts-liberation \
+    fonts-dejavu-core \
+    fontconfig \
+    ttf-mscorefonts-installer \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f -v
+
+# CPU-only PyTorch (much smaller than the CUDA wheel)
+RUN pip install --no-cache-dir \
+    torch --index-url https://download.pytorch.org/whl/cpu
+
+# Core service deps (no qwen-asr — GPU-only; cloud ASR is HTTP via httpx)
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    httpx \
+    python-multipart \
+    numpy \
+    faster-whisper \
+    piper-tts \
+    onnxruntime
+
+# Default the batch ASR engine to CPU faster-whisper on this image.
+# (cove-core still overrides per-request from compute.video_asr — cloud/external.)
+ENV ASR_ENGINE=whisper \
+    WHISPER_MODEL=small
+
+COPY src/ /app/src/
+COPY test.html /app/test.html
+COPY jules.html /app/jules.html
+COPY julian-icon.png /app/julian-icon.png
+COPY julian-icon-512.png /app/julian-icon-512.png
+COPY manifest.json /app/manifest.json
+# Voice config (default + agent->voice map). The .onnx voice files are NOT bundled —
+# Piper self-downloads them into /root/.cache on first use (see piper_tts.py), the same
+# way Whisper fetches its STT model. Keeps the image small; TTS works with no host mount.
+COPY voices/config.json /voices/config.json
+
+RUN touch /app/src/__init__.py
+
+EXPOSE 8300
+
+CMD ["python", "-m", "src.server"]
