@@ -920,7 +920,7 @@ async function showThreadHistory() {
 
             html += `<div class="thread-item clickable" onclick="openThreadReader('${ESC(t.thread_id)}')">
                 <div class="thread-info">
-                    <span class="thread-title">${ESC(t.title || t.thread_id)}</span>
+                    <span class="thread-title">${ESC(t.title || 'Conversation')}</span>
                     <span class="thread-detail">
                         ${t.message_count || 0} messages · Created ${created}
                         ${archived ? ` · Archived ${archived}` : ''}
@@ -969,7 +969,7 @@ async function openThreadReader(threadId) {
         const statusClass = meta.status || 'active';
 
         headerEl.innerHTML = `
-            <h3>${ESC(meta.title || threadId)}</h3>
+            <h3>${ESC(meta.title || (created ? 'Conversation — ' + created : 'Conversation'))}</h3>
             <div class="thread-reader-meta">
                 <span class="thread-status ${statusClass}">${meta.status || 'unknown'}</span>
                 <span>${data.messages ? data.messages.length : 0} messages</span>

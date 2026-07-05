@@ -91,11 +91,9 @@ async function loadTeam() {
             const activeHA   = familyAgents.filter(a => a.status === 'active').length;
 
             // Count personal agents from family members
-            const paPACount = members.filter(m => m.personal_agent && m.personal_agent.name).length;
-            const paTotalAgents = activeHA + paPACount;
-            const paTotalFamily = paTotalAgents + members.length;
             if (summaryEl) {
-                summaryEl.textContent = `${paTotalAgents} agents · ${members.length} presences · ${paTotalFamily} total`;
+                const _pl = members.length === 1 ? 'presence' : 'presences';
+                summaryEl.textContent = `${activeHA} agents · ${members.length} ${_pl} · ${activeHA + members.length} total`;
             }
 
             let html = '';
@@ -131,12 +129,15 @@ async function loadTeam() {
         const managers  = agents.filter(([id]) => MANAGERS.has(_resolveId(id)));
         const buildTeam = agents.filter(([id]) => !MANAGERS.has(_resolveId(id)));
 
-        // Count all agents: team roster + personal agents from family members
-        const personalAgentCount = members.filter(m => m.personal_agent && m.personal_agent.name).length;
-        const totalAgents = agents.length + personalAgentCount;
-        const totalFamily = totalAgents + members.length;
+        // Count: shared team agents (the roster) vs presences. A presence is an
+        // operator + their OWN agent, so a presence's personal agent is part of the
+        // presence — counting it as a standalone "agent" too double-counts (CF-125b).
+        // Headline = team agents · presences; total = the two summed.
+        const teamAgents = agents.length;
+        const presenceCount = members.length;
         if (summaryEl) {
-            summaryEl.textContent = `${totalAgents} agents · ${members.length} presences · ${totalFamily} total`;
+            const _pl = presenceCount === 1 ? 'presence' : 'presences';
+            summaryEl.textContent = `${teamAgents} agents · ${presenceCount} ${_pl} · ${teamAgents + presenceCount} total`;
         }
 
         // JW legend — rendered in header right side
