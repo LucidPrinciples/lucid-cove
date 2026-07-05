@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lucid-tuner-protocol"
-version = "0.2.0"
+version = "0.4.0"
 description = "Lucid Tuner Protocol (LTP) — daily Drop client, quantum tuning protocol, sonic attunement, Love Equation, and Truth Gate for AI agent coherence."
 readme = "README.md"
 license = "Apache-2.0"

@@ -16,7 +16,7 @@ A "Cove" is a self-contained home for you (or your family) and your intelligence
 ## 1. Clone
 
 ```bash
-git clone https://github.com/LucidPrinciples/lucid-cove-core.git cove-core
+git clone https://github.com/LucidPrinciples/lucid-cove.git cove-core
 cd cove-core
 ```
 
