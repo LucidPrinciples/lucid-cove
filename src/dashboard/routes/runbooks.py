@@ -72,6 +72,47 @@ def _visible_to(audience: str, restricted: bool) -> bool:
     return audience in ("presence", "all")
 
 
+# ── Path templating (long-term: runbooks never make the user dig for a folder) ──
+# Runbook steps may use {{COVE_DIR}} (the stack folder that holds docker-compose.yml)
+# and {{CLONE_DIR}} (the lucid-cove repo you `git pull`). At serve time we fill them
+# with this box's real host paths, derived from COVE_HOST_DIR (baked into every Cove's
+# env by the provisioner). If a path is unknown, a readable placeholder is shown instead
+# of an empty string, so a copy-pasted command is never silently broken.
+
+def _host_paths() -> tuple[str, str]:
+    """(cove_dir, clone_dir) real host paths, or ("","") when unknown.
+
+    COVE_HOST_DIR is the stack folder, laid out as <clone>/out/<id>-cove by both
+    install.sh and the manual provisioner, so the clone root is its grandparent.
+    """
+    cove_dir = (env("COVE_HOST_DIR", "") or "").strip()
+    clone_dir = ""
+    if cove_dir:
+        p = Path(cove_dir)
+        if p.parent.name == "out":       # <clone>/out/<id>-cove -> clone root
+            clone_dir = str(p.parent.parent)
+    return cove_dir, clone_dir
+
+
+def _fill_paths(data: dict) -> dict:
+    """Substitute {{COVE_DIR}} / {{CLONE_DIR}} in every step's command/note/label."""
+    cove_dir, clone_dir = _host_paths()
+    cove_sub = cove_dir or "<your Cove folder — the one with docker-compose.yml>"
+    clone_sub = clone_dir or "<your lucid-cove clone>"
+
+    def sub(s):
+        if not isinstance(s, str):
+            return s
+        return s.replace("{{COVE_DIR}}", cove_sub).replace("{{CLONE_DIR}}", clone_sub)
+
+    for step in data.get("steps", []):
+        if isinstance(step, dict):
+            for k in ("command", "note", "label"):
+                if k in step:
+                    step[k] = sub(step[k])
+    return data
+
+
 @router.get("/api/runbooks")
 async def list_runbooks(request: Request):
     """List runbooks with metadata (no steps), scoped to the caller's role (CF-35)."""
@@ -118,7 +159,7 @@ async def get_runbook(slug: str, request: Request):
                 {"error": "Runbook not available for this role"}, status_code=403
             )
         data["slug"] = slug
-        return data
+        return _fill_paths(data)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

@@ -2,20 +2,20 @@
   "id": "update-cove",
   "num": 1,
   "title": "Update your Cove",
-  "when": "A new version of Lucid Cove is out, or you pulled changes to cove-core.",
+  "when": "A new version of Lucid Cove is out, or you pulled changes.",
   "category": "ops",
   "audience": "steward",
-  "description": "Pull the latest cove-core and rebuild your Cove. Database migrations apply automatically on restart. Run from your Cove's folder (the one with docker-compose.yml).",
+  "description": "Pull the latest Lucid Cove and rebuild your Cove. Database migrations apply automatically on restart. The paths below are filled in for your box.",
   "steps": [
     {
-      "label": "Update cove-core",
-      "command": "cd ../cove-core && git pull",
-      "note": "Use your cove-core path if it lives elsewhere."
+      "label": "Pull the latest code",
+      "command": "cd {{CLONE_DIR}} && git pull",
+      "note": "This is your lucid-cove clone (the folder you cloned from GitHub)."
     },
     {
       "label": "Rebuild + restart",
-      "command": "docker compose up -d --build",
-      "note": "Run from your Cove folder. Migrations apply automatically on boot."
+      "command": "cd {{COVE_DIR}} && docker compose up -d --build",
+      "note": "This is your Cove folder (the one with docker-compose.yml). Migrations apply automatically on boot."
     }
   ]
 }
