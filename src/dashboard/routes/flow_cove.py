@@ -63,7 +63,7 @@ Return ONLY a JSON array, nothing else:
     try:
         text = await guided_complete(
             request, system_prompt, [{"role": "user", "content": human}],
-            temperature=1.0, model_id="kimi-k2.5", flow_id="flow-cove-names")
+            temperature=1.0, flow_id="flow-cove-names")
     except Exception as e:
         return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
 
@@ -186,7 +186,7 @@ Return ONLY JSON, nothing else: {{"greeting": "...", "question": "..."}}"""
     try:
         content = await guided_complete(
             request, system_prompt, [{"role": "user", "content": "Wake and meet me."}],
-            temperature=0.8, model_id="kimi-k2.5", flow_id="flow-wake")
+            temperature=0.8, flow_id="flow-wake")
     except Exception as e:
         return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
 
@@ -243,7 +243,7 @@ Return ONLY JSON, nothing else: {{"message": "..."}}"""
     try:
         content = await guided_complete(
             request, system_prompt, [{"role": "user", "content": "Respond and make this our first memory."}],
-            temperature=0.8, model_id="kimi-k2.5", flow_id="flow-wake-reflect")
+            temperature=0.8, flow_id="flow-wake-reflect")
     except Exception as e:
         return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
 

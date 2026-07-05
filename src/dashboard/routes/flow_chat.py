@@ -105,7 +105,7 @@ async def flow_chat(request: Request):
 
     system_prompt = body.get("system_prompt", "").strip()
     messages_raw = body.get("messages", [])
-    model_id = body.get("model_id", "kimi-k2.5")
+    model_id = body.get("model_id")  # None → guided_complete defaults to the Cove brain
     temperature = body.get("temperature", 0.7)
     flow_id = body.get("flow_id")  # e.g. "new-cove-setup/step1", "new-cove-setup/names"
 

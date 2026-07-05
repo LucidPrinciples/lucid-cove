@@ -117,7 +117,7 @@ async def register_cove(*, cove_id, name, owner_handle="", domain="", homeserver
         "matrix_user": matrix_user, "referred_by": referred_by})
 
 
-async def spark_complete(*, system_prompt: str, messages: list, model_id: str = "kimi-k2.5",
+async def spark_complete(*, system_prompt: str, messages: list, model_id: str = None,
                          temperature: float = 0.7, flow_id: str = None,
                          timeout: float = 110.0) -> dict:
     """Ask the hub to run a guided/onboarding completion with LP's key (the spark).

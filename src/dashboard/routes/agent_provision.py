@@ -192,7 +192,7 @@ Return ONLY JSON:
     try:
         text = await guided_complete(
             request, pick_prompt, [{"role": "user", "content": user_context}],
-            temperature=0.4, model_id="kimi-k2.5", flow_id="flow-agent-identity")
+            temperature=0.4, flow_id="flow-agent-identity")
         m = re.search(r"\{[\s\S]*\}", text)
         if m:
             pick = json.loads(m.group())
@@ -326,7 +326,7 @@ Return ONLY a JSON array:
             text = await guided_complete(
                 request, system_prompt,
                 [{"role": "user", "content": f"Generate 8 names for {archetype}, a {gender} agent with {frequency} energy."}],
-                temperature=1.0, model_id="kimi-k2.5", flow_id="flow-agent-names")
+                temperature=1.0, flow_id="flow-agent-names")
             m = re.search(r"\[[\s\S]*\]", text)
             if m:
                 names = json.loads(m.group())
@@ -489,7 +489,7 @@ Return as JSON:
         content = await guided_complete(
             request, system_prompt,
             [{"role": "user", "content": f"Generate the persona and first message for {name}, {archetype}."}],
-            temperature=0.7, model_id="kimi-k2.5", flow_id="flow-agent-persona", timeout=120)
+            temperature=0.7, flow_id="flow-agent-persona", timeout=120)
 
         json_match = re.search(r"\{[\s\S]*\}", content)
         if json_match:

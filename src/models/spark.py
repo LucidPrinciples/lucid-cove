@@ -49,14 +49,22 @@ def _clean(content: str) -> str:
 
 
 async def guided_complete(request: Request, system_prompt: str, messages: list,
-                          *, temperature: float = 0.7, model_id: str = "kimi-k2.5",
+                          *, temperature: float = 0.7, model_id: str = None,
                           flow_id: str = None, timeout: float = 90.0) -> str:
     """Run a guided/onboarding completion via the best available spark tier.
 
     `messages` is a list of {role: 'user'|'assistant', content: str}. Returns the
     model's text. Raises RuntimeError if no tier is available (a fully off-network
     keyless Cove — the caller should fall back to a non-model path).
+
+    model_id defaults to the Cove BRAIN (the operator's configured model), which
+    floors to OpenRouter → local — never a hardcoded moonshot-direct id (a
+    founder-only touchpoint no public install would have keyed). A BYOK operator's
+    request-scoped key still swaps to their provider regardless.
     """
+    if not model_id:
+        from src.models.provider import current_cove_brain
+        model_id = current_cove_brain().get("model")
     prov, key = await _operator_creds(request)
     if not key:
         lp = (env("LP_GUIDED_OPENROUTER_KEY") or "").strip()

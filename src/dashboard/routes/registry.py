@@ -199,7 +199,8 @@ async def spark(request: Request):
     if not lp_key:
         raise HTTPException(503, "spark not configured on the hub")
 
-    model_id = (body.get("model_id") or "kimi-k2.5").strip()
+    from src.models.provider import current_cove_brain
+    model_id = (body.get("model_id") or current_cove_brain().get("model") or "").strip()
     try:
         temperature = float(body.get("temperature", 0.7))
     except (TypeError, ValueError):
