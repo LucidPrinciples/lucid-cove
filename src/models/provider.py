@@ -667,14 +667,14 @@ async def invoke_with_fallback(
     _slot = "tuning" if operation_type == "tuning" else None
     assignment = get_agent_model_assignment(agent_id, slot=_slot)
     # No explicit per-agent assignment → use the Cove's BRAIN (the operator's
-    # Add-Intelligence choice), not a hardcoded cloud model. This is what makes a
-    # self-host Cove tune on the model the operator actually configured: a local
-    # Ollama model, or a BYOK provider whose key apply_cove_model() already stashed
-    # in the process env. Previously this dead-defaulted to "kimi-k2.5" (moonshot),
-    # which fails on any box without MOONSHOT_API_KEY → degraded tunes. The founder
-    # is unchanged: its brain already resolves to kimi-k2.5. "kimi-k2.5" stays only
-    # as the last-resort literal if there's somehow no brain at all.
-    primary_id = assignment.get("primary") or current_cove_brain().get("model") or "kimi-k2.5"
+    # Add-Intelligence choice). This makes a self-host Cove tune on the model the
+    # operator actually configured — a local Ollama model, or a BYOK provider whose
+    # key apply_cove_model() stashed in the env — the same model chat uses.
+    # current_cove_brain() already supplies the correct open-source floor when no
+    # brain is set: OpenRouter (if a key is present) → local Ollama. We deliberately
+    # do NOT hardcode a moonshot-direct default here: moonshot is a founder-only
+    # single-provider touchpoint, never something a public install would have keyed.
+    primary_id = assignment.get("primary") or current_cove_brain().get("model")
     fallback_id = assignment.get("fallback")
 
     primary_provider, primary_model_str = _resolve_model_string(primary_id)
