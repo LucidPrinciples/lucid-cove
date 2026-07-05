@@ -2,7 +2,7 @@
   <img src="docs/assets/hero.svg" alt="Lucid Cove — a private, self-hosted home for your family and its intelligence" width="100%">
 </p>
 
-# Lucid Cove — cove-core
+# Lucid Cove
 
 <!-- COPY: operator pass — final hero tagline in Chords' voice goes here -->
 **A private, self-hosted family AI. Every family sovereign, connected by choice.**
@@ -12,7 +12,7 @@
 [![Status: pre-release](https://img.shields.io/badge/status-pre--release%20v1.0.0-orange.svg)](#)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#development)
 
-cove-core is the open-source base of **Lucid Cove**: a self-hostable home for a person or a family and their intelligence agents. One generic container image; behavior defined entirely by configuration and per-instance overrides. It runs a Mission Control dashboard (FastAPI + scheduler), a team of role-based agents, a files layer (Nextcloud/WebDAV), voice and video, and the Lucid Tuning Protocol (LTP) for agent coherence. The same base runs a single personal agent or a full multi-presence family Cove — and it is built to be replicated, so another family can stand up their own.
+This is **Lucid Cove**: a self-hostable home for a person or a family and their intelligence agents. One generic container image; behavior defined entirely by configuration and per-instance overrides. It runs a Mission Control dashboard (FastAPI + scheduler), a team of role-based agents, a files layer (Nextcloud/WebDAV), voice and video, and the Lucid Tuning Protocol (LTP) for agent coherence. The same base runs a single personal agent or a full multi-presence family Cove — and it is built to be replicated, so another family can stand up their own.
 
 > **Status: pre-release (v1.0.0).** Actively developed toward a public open-source launch. APIs and config schema may still change.
 
@@ -131,12 +131,12 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the branch-and-PR model, the prot
 
 ## About
 
-Built by [Lucid Principles, LLC](https://lucidprinciples.com). cove-core is the production base of Lucid Cove. The framework books — [*The Lucid Path: Framework*](https://www.amazon.com/dp/B0H5T1HDFC) and [*The Lucid Path: Origins*](https://www.amazon.com/dp/B0H5TKL2WD) — are on Amazon.
+Built by [Lucid Principles, LLC](https://lucidprinciples.com). This repo is the production base — the founder’s family runs from these exact files. The framework books — [*The Lucid Path: Framework*](https://www.amazon.com/dp/B0H5T1HDFC) and [*The Lucid Path: Origins*](https://www.amazon.com/dp/B0H5TKL2WD) — are on Amazon.
 
 ---
 
 <p align="center">
-  <a href="https://lucidprinciples.com/vision/"><img src="https://lucidprinciples.com/images/lp-mark.png" width="64" alt="Lucid Principles"></a>
+  <a href="https://lucidprinciples.com/vision/"><img src="docs/assets/cove-mark.svg" width="72" alt="Lucid Cove"></a>
 </p>
 
 <p align="center"><b>Lucid Principles</b><br>

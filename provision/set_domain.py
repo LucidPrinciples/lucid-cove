@@ -251,6 +251,17 @@ def main() -> int:
 
     domain = args.domain.strip().lower().lstrip("*").lstrip(".").rstrip(".")
     matrix_on = not args.no_matrix
+
+    # CF-126 (RUN-4 smith): installer boxes (install.sh) run the SHARED Caddy at
+    # ~/.lucidcove/caddy — but the claim card's command carried no mode flag, so this
+    # defaulted to host-caddy mode, went looking for /opt/caddy (the founder-P620
+    # convention), and died with "Caddy dir not found". Auto-detect: no explicit mode
+    # + the shared stack exists + /opt/caddy doesn't = this is an installer box.
+    if (not args.shared and not args.self_host and not args.caddy_dir.strip()
+            and os.path.isdir(os.path.expanduser("~/.lucidcove/caddy"))
+            and not os.path.isdir(netconfig.DEFAULT_CADDY_DIR)):
+        args.shared = True
+
     _mode = "shared" if args.shared else ("self-host" if args.self_host else "host-caddy")
     result = {"domain": domain, "cove_id": args.cove_id, "mode": _mode}
 
