@@ -417,6 +417,21 @@ async def threads_by_presence(limit: int = 50):
             )
             rows = await result.fetchall()
 
+        # Resolve display names so a Presence tab never shows a raw agent UUID. The
+        # metadata-less/legacy threads used to fall back to a titleized agent_id (an ugly
+        # UUID). Prefer the thread's tagged operator_name, then presence_agent_name, then
+        # the config agent name (id -> name), and only as a last resort a short label.
+        try:
+            from src.config import get_agents as _get_agents
+            _name_by_id = {str(a.get("id")): (a.get("name") or "").strip()
+                           for a in (_get_agents() or []) if a.get("id")}
+        except Exception:
+            _name_by_id = {}
+
+        def _looks_uuid(s):
+            s = (str(s) or "").replace("-", "")
+            return len(s) >= 16 and all(c in "0123456789abcdef" for c in s.lower())
+
         # Group by Presence
         import json
         presence_map = {}  # key = operator_name or agent_id
@@ -430,8 +445,15 @@ async def threads_by_presence(limit: int = 50):
             presence_key = operator_name or agent_id
 
             if presence_key not in presence_map:
+                display = (operator_name
+                           or (meta.get("presence_agent_name") or "").strip()
+                           or _name_by_id.get(str(agent_id), ""))
+                if not display:
+                    display = (f"Presence {str(agent_id)[-4:]}"
+                               if _looks_uuid(agent_id)
+                               else str(presence_key).replace("-", " ").title())
                 presence_map[presence_key] = {
-                    "name": operator_name or presence_key.replace("-", " ").title(),
+                    "name": display,
                     "agent_id": agent_id if agent_id != manager_agent_id else None,
                     "presence_agent_name": meta.get("presence_agent_name", ""),
                     "threads": [],

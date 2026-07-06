@@ -298,7 +298,7 @@
     return `
       <div class="pp-flabel">Nickname</div>
       <input class="pp-input" id="pp-ps-nickname" maxlength="60" value="${esc(ag.nickname || '')}" placeholder="What they go by">
-      <div class="pp-flabel">Shade (secondary frequency — blank to remove)</div>
+      <div class="pp-flabel">Shade <span style="opacity:.6;font-weight:normal;">(optional: a secondary energy your agent leans into, alongside its main archetype. Leave blank for none.)</span></div>
       <input class="pp-input" id="pp-ps-shade" maxlength="80" value="${esc(ag.shade || '')}">
       <div class="pp-flabel">Personality dials</div>
       <div id="pp-ps-dials">${sliderRows}</div>

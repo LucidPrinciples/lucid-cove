@@ -446,7 +446,9 @@ function _onboardingCardHtml(item) {
             <div class="approval-actions" style="flex-wrap:wrap;gap:6px;">
                 <button class="btn-approve" onclick="saveBackupConfig(this)">Save</button>
                 <button class="btn-approve" onclick="runBackupNow(this)">Back up now</button>
+                <button class="btn-ghost" onclick="ackOnboarding('${ESC(item.id)}')">Skip for now</button>
             </div>
+            <div style="font-size:0.7rem;color:var(--dim);margin-top:6px;">Not now? You can set this up anytime from Settings.</div>
         </div>`;
     }
     return `<div class="home-approval onboarding-card">

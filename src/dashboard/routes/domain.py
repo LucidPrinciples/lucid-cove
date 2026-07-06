@@ -367,9 +367,9 @@ async def domain_set(body: DomainSet, request: Request):
             _next.insert(0, _change_matrix_note)
         if _mx_host:
             _next.append(
-                "Finish Connect (Matrix) by running this on the Cove's host — it regenerates the "
-                "homeserver identity to matrix.%s so Connect works (it can't be done from the "
-                "browser):\n  %s" % (domain, host_command))
+                "Finish Connect (Matrix) by running the command below on the Cove's host. It "
+                "regenerates the homeserver identity to matrix.%s so Connect works (it can't be "
+                "done from the browser)." % domain)
         return {
             "ok": True,
             "domain": domain,
@@ -405,9 +405,9 @@ async def domain_set(body: DomainSet, request: Request):
             _next.insert(0, _change_matrix_note)
         if _mx_host:
             _next.append(
-                "Finish Connect (Matrix) by running this on the Cove's host — it regenerates the "
-                "homeserver identity to matrix.%s so Connect works (it can't be done from the "
-                "browser):\n  %s" % (domain, host_command))
+                "Finish Connect (Matrix) by running the command below on the Cove's host. It "
+                "regenerates the homeserver identity to matrix.%s so Connect works (it can't be "
+                "done from the browser)." % domain)
         return {
             "ok": True,
             "domain": domain,
