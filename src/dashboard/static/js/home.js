@@ -733,8 +733,20 @@ async function saveDomain(btn, confirmChange) {
                     + `<div style="margin-top:8px;"><button class="btn-ghost" onclick="checkMyRecords(this)">Check my records</button></div>`
                     + `<div id="rec-check-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>`;
             } else {
-                html = `<div style="color:var(--accent);">Saved ${ESC(d.domain)}.</div>${steps}`
-                    + (d.host_command ? `<code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(d.host_command)}</code>` : '');
+                // Self-host / co-located: the DNS + cert + Matrix step runs on the host, so we
+                // hand back the command AND the sign-in door. The door (/p/{token}, in d.door)
+                // logs the operator straight into the live Cove; it only resolves once the
+                // command has finished and the cert has issued, so it's framed as the next step,
+                // not a live link yet. §2.1 seam: fully_live is FALSE on every self-host claim
+                // (the host still owes the Matrix regen, so _mx_host forces it false), which is
+                // why the door has to be surfaced HERE, not only in the fully_live branch above.
+                const _door = d.door || ('https://' + d.domain);
+                html = `<div style="color:var(--accent);">Saved ${ESC(d.domain)}. One step left, on the machine hosting your Cove:</div>${steps}`
+                    + (d.host_command ? `<code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(d.host_command)}</code>` : '')
+                    + `<div style="margin-top:12px;color:var(--text);">When it finishes, your Cove is live at <b>https://${ESC(d.domain)}</b>. The secure connection takes about a minute, then open it here, already signed in:</div>`
+                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="${ESC(_door)}" target="_blank" rel="noopener">Open my Cove &#8599;</a>`
+                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This link signs you in at your new address. Once your Cove opens there you can close this localhost tab. It was just the setup surface.</div>`
+                    + `<div style="margin-top:10px;"><button class="btn-ghost" onclick="location.reload()">Ran the command? Refresh setup</button></div>`;
             }
             out.innerHTML = html;
         }

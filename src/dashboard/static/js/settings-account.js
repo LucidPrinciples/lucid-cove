@@ -182,11 +182,23 @@ async function saveSettingsAddress(confirmChange) {
         }
         if (!r.ok || d.error) { alert(d.error || 'Could not set the address.'); return; }
         if (status) {
-            status.textContent = (d.records && d.records.length) ? 'saved — add the DNS records shown' : 'set — reloading…';
             status.style.color = 'var(--green)';
+            if (d.records && d.records.length) {
+                status.textContent = 'Saved. Add the DNS records shown, then reload.';
+            } else {
+                // Changing the address repoints every link, so hand the operator the sign-in
+                // door at the NEW address (d.door = /p/{token}) instead of silently reloading
+                // them onto a login wall. The door only resolves once DNS + cert exist for the
+                // new address, so it's framed as "open it there," matching the claim card.
+                const _door = d.door || ('https://' + d.domain);
+                status.innerHTML = `Address set to <b>https://${ESC(d.domain)}</b>. The secure connection takes about a minute, then open it there, already signed in: `
+                    + `<a href="${ESC(_door)}" target="_blank" rel="noopener" style="color:var(--accent);">Open my Cove &#8599;</a>`
+                    + `<div style="margin-top:8px;"><button class="btn-sm" onclick="location.reload()">Refresh settings</button></div>`;
+            }
         }
-        // Refresh so the new address shows everywhere (Settings, admin links, links).
-        if (!(d.records && d.records.length)) setTimeout(() => location.reload(), 1500);
+        // No auto-reload: the records path stays put so the operator can copy them, and the
+        // address-change path now hands back the door above rather than reloading onto a login
+        // wall. The operator refreshes on their own click.
     } catch (e) { alert('Could not set: ' + e.message); }
 }
 
