@@ -434,8 +434,14 @@ function _onboardingCardHtml(item) {
         const lastLine = last.ts
             ? `<div style="margin-top:6px;color:${last.ok ? 'var(--green)' : 'var(--orange)'};">Last run: ${last.ok ? '✓' : '✗'} ${ESC(last.summary || '')}</div>`
             : '';
+        // #1412 — say plainly when backup isn't configured yet, so Settings shows the state
+        // (not just an empty form). Configured = a repo URL AND a saved token.
+        const _bkSetUp = !!(bk.remote_url && bk.has_token);
+        const _bkBadge = _bkSetUp
+            ? '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--green,#3fb950);border:1px solid var(--green,#3fb950);border-radius:4px;padding:1px 5px;margin-left:6px;">on</span>'
+            : '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--orange,#e67e22);border:1px solid var(--orange,#e67e22);border-radius:4px;padding:1px 5px;margin-left:6px;">not set up</span>';
         return `<div class="home-approval onboarding-card">
-            <div class="approval-tool">${title}</div>
+            <div class="approval-tool">${title}${_bkBadge}</div>
             <div class="approval-desc">${body}</div>
             <div style="font-size:0.72rem;color:var(--dim);margin-top:8px;line-height:1.6;">${guide}</div>
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">

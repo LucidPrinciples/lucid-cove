@@ -777,6 +777,13 @@ async function resolveCoveName() {
     return '';
 }
 
+// Title-case a Cove/family name for DISPLAY only (jules 1622): a lowercase-typed name like
+// "smith" should read as the proper surname "Smith" on the Meet screen. Display-only — the
+// stored/registered name is resolved separately at provision (and the registry title-cases it).
+function _titleCaseName(s) {
+    return (s || '').split(/(\s+)/).map(w => w ? w.charAt(0).toUpperCase() + w.slice(1) : w).join('');
+}
+
 // Centralized model context (from the Agent Setup picker). In multi-mode the
 // Guided door lands a Presence data-entry via /api/presence/provision instead of
 // generating an Isolated container.
@@ -1578,7 +1585,7 @@ async function buildReview() {
 
     // Resolve the Cove name — the agent's last name. Prefer the operator's just-chosen
     // name (URL param) over the backend, which still shows the seed during first-run.
-    const familyName = await resolveCoveName();
+    const familyName = _titleCaseName(await resolveCoveName());
     const fullName = familyName ? `${name} ${familyName}` : name;
 
     // Show loading, hide content
@@ -1798,7 +1805,7 @@ async function provisionAgent() {
     }
 
     // Get the Cove name (the agent's last name) — chosen name first, backend fallback.
-    const familyName = await resolveCoveName();
+    const familyName = _titleCaseName(await resolveCoveName());
     const fullName = familyName ? `${name} ${familyName}` : name;
 
     try {
