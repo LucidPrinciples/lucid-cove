@@ -71,6 +71,28 @@ def _load_instance_env(*dirs) -> None:
             pass
 
 
+def _operator_token_from_container(cove_id: str) -> str:
+    """The from-scratch operator token is minted at runtime into the Cove's cove.yaml (via
+    save_cove_config), read in-container by _op_token — it is NOT in the instance .env (that
+    slot is stamped empty at provision). set_domain runs on the host, so read the token
+    straight from the running app container (the authoritative source) for the hub call."""
+    import subprocess
+    if not cove_id:
+        return ""
+    try:
+        r = subprocess.run(
+            ["docker", "exec", f"{cove_id}-app", "sh", "-c",
+             "grep -rhE '^[[:space:]]*operator_token:' /app/config /app/data 2>/dev/null | head -1"],
+            capture_output=True, text=True, timeout=15)
+        line = (r.stdout or "").strip()
+        if ":" in line:
+            v = line.split(":", 1)[1].strip().strip('"').strip("'")
+            return v
+    except Exception:
+        pass
+    return ""
+
+
 def _acme_creds_via_hub(domain: str) -> dict:
     """Ask the HUB to mint the acme-dns credential (operator-token gated). A self-host box holds
     no Cloudflare token and can't reach the private acme-dns /register, so the hub (which has
@@ -116,6 +138,13 @@ def _resolve_acme_creds(args, domain: str, result: dict) -> dict:
     _load_instance_env(_inst,
                        getattr(args, "cove_dir", "") or "",
                        getattr(args, "compose_dir", "") or "", ".")
+    # A from-scratch Cove keeps its operator token in cove.yaml (not the .env). If the .env
+    # didn't supply one, read it from the running container so the hub call can authenticate.
+    import os as _os
+    if not (_os.getenv("LP_OPERATOR_TOKEN", "") or "").strip():
+        _tok = _operator_token_from_container(_cid)
+        if _tok:
+            _os.environ["LP_OPERATOR_TOKEN"] = _tok
     _ac = _acme_creds_via_hub(domain)
     if not (isinstance(_ac, dict) and _ac.get("ok")):
         try:
