@@ -23,7 +23,29 @@ c_dim(){ printf "\033[2m%s\033[0m\n" "$1"; }
 c_yellow(){ printf "\033[1;33m%s\033[0m\n" "$1"; }
 
 # ── 1. Prerequisites we cannot safely auto-install ──────────────────────────
+# WSL note: on Windows, the `docker` command only appears inside a WSL distro when
+# Docker Desktop's "WSL integration" is enabled for that distro. That's the #1
+# reason these checks fail on a machine that HAS Docker Desktop installed. A script
+# can't toggle that GUI setting, but it can detect the case and point at the fix.
+_is_wsl() { grep -qiE "microsoft|wsl" /proc/version 2>/dev/null || [ -n "${WSL_DISTRO_NAME:-}" ]; }
+_docker_desktop_present() {
+  command -v docker.exe >/dev/null 2>&1 && return 0
+  ls "/mnt/"[a-z]"/Program Files/Docker/Docker/Docker Desktop.exe" >/dev/null 2>&1
+}
 docker_help() {
+  if _is_wsl; then
+    c_red "Docker isn't available inside WSL."
+    if _docker_desktop_present; then
+      echo "  Docker Desktop is installed, but WSL integration isn't on for this distro."
+      echo "  Fix: open Docker Desktop, go to Settings > Resources > WSL Integration,"
+      echo "       turn it on for your distro (e.g. Ubuntu), then Apply & Restart."
+    else
+      echo "  1. Install Docker Desktop for Windows: https://www.docker.com/products/docker-desktop/"
+      echo "  2. In Docker Desktop: Settings > Resources > WSL Integration > enable your distro."
+    fi
+    echo "  Then open a NEW WSL terminal and re-run the installer."
+    exit 1
+  fi
   c_red "Docker is required and isn't available."
   echo "  • Mac / Windows: install Docker Desktop → https://www.docker.com/products/docker-desktop/"
   echo "  • Linux:         curl -fsSL https://get.docker.com | sh"
@@ -57,6 +79,13 @@ ensure_docker_running() {
     echo "  …or run the installer with sudo:   sudo bash install.sh"
     exit 1
   fi
+  if _is_wsl; then
+    c_red "Docker is installed but not reachable from WSL."
+    echo "  • Start Docker Desktop on Windows and wait until it says 'running'."
+    echo "  • Make sure WSL integration is on: Settings > Resources > WSL Integration."
+    echo "  Then re-run the installer."
+    exit 1
+  fi
   c_red "Docker is installed but not running."
   echo "  • Mac/Windows: open Docker Desktop and wait until it says 'running', then re-run."
   echo "  • Linux:       sudo systemctl start docker     (then re-run)"
@@ -80,6 +109,34 @@ if ! docker compose version >/dev/null 2>&1; then
   echo "Then re-run this installer."
   exit 1
 fi
+
+# ── 1.5 Safe working directory ───────────────────────────────────────────────
+# The installer clones into the CURRENT directory and the provisioner container
+# writes its out/ tree there as your user. Two dirs bite people (both seen on
+# Windows): a protected/system path — a "Run as administrator" shell opens in
+# C:\Windows\system32, where creating out/ fails with a PermissionError — and a
+# Windows drive mounted in WSL (/mnt/c/...), where bind-mount perms are flaky and
+# slow. Only relevant when we're about to clone a fresh copy (not when re-run from
+# inside an existing clone). Fall back to $HOME (the Linux-side home on WSL).
+if [ ! -f provision/centralized.py ]; then
+  _writable() { ( : > "$1/.lucidcove-wtest" ) 2>/dev/null && rm -f "$1/.lucidcove-wtest" 2>/dev/null; }
+  case "$PWD" in
+    /mnt/[a-z]/*) _BAD_DIR=1 ;;
+    *) if _writable "$PWD"; then _BAD_DIR=; else _BAD_DIR=1; fi ;;
+  esac
+  if [ -n "${_BAD_DIR:-}" ]; then
+    if [ -n "${HOME:-}" ] && [ -d "$HOME" ] && _writable "$HOME"; then
+      c_yellow "This folder can't host a Cove (a system path, or a Windows drive mounted in WSL)."
+      c_dim "  Installing in your home directory instead: $HOME"
+      cd "$HOME"
+    else
+      c_red "This directory isn't writable and I can't use your home directory either."
+      echo "  cd into a folder you own (e.g. cd ~) and re-run the installer."
+      exit 1
+    fi
+  fi
+fi
+
 # Disk space: the first run builds/pulls the app, voice (CPU torch), Nextcloud,
 # Dendrite, pgvector and Redis images plus whisper/piper model downloads — well
 # past 10 GB. Without this check that surfaces as cryptic mid-build failures.
