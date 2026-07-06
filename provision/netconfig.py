@@ -793,9 +793,14 @@ def _apply_matrix_regen(*, cove_id: str, domain: str, new_server: str,
                                 capture_output=True, text=True, timeout=60)
         steps["stop"] = (r_stop.returncode == 0) or (r_stop.stderr or "").strip()[:160]
         # 2. WIPE the regenerable Matrix DB (schema rebuilds on boot; agents re-register).
-        #    Connect to the maintenance `postgres` db to drop/recreate `dendrite`.
-        wipe = ("psql -U dendrite -d postgres -c 'DROP DATABASE IF EXISTS dendrite' && "
-                "psql -U dendrite -d postgres -c 'CREATE DATABASE dendrite'")
+        #    The `dendrite` role is created LOGIN-only and OWNS the `dendrite` database
+        #    (centralized.py), so it has NO CREATEDB — the old `DROP/CREATE DATABASE dendrite`
+        #    failed with "permission denied to create database" and left the DB on its OLD
+        #    server_name, so Dendrite CRASH-LOOPS on the new server_name (a changed server_name
+        #    against a non-empty DB is fatal). As the DB owner it CAN reset its own schema, which
+        #    clears every table without needing CREATEDB. Connect to the `dendrite` db itself.
+        wipe = ("psql -U dendrite -d dendrite -c "
+                "'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'")
         r_wipe = subprocess.run(["docker", "exec", "-u", "postgres", postgres_container,
                                  "sh", "-c", wipe], capture_output=True, text=True, timeout=40)
         steps["db_wipe"] = (r_wipe.returncode == 0) or (r_wipe.stderr or r_wipe.stdout).strip()[:160]

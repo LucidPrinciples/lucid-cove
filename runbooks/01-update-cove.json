@@ -14,8 +14,8 @@
     },
     {
       "label": "Rebuild + restart",
-      "command": "cd {{COVE_DIR}} && docker compose up -d --build",
-      "note": "This is your Cove folder (the one with docker-compose.yml). Migrations apply automatically on boot."
+      "command": "cd {{COVE_DIR}} && docker compose up -d --build --force-recreate",
+      "note": "This is your Cove folder (the one with docker-compose.yml). --force-recreate is REQUIRED: the app's code is bind-mounted from your clone and merged at container START, so without recreating, a pull won't take effect and migrations won't run. Migrations apply automatically on the fresh boot."
     }
   ]
 }
