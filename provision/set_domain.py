@@ -107,7 +107,14 @@ def _resolve_acme_creds(args, domain: str, result: dict) -> dict:
     if not (domain == "lucidcove.org" or domain.endswith(".lucidcove.org")):
         return acme
     # The host shell doesn't have the Cove's env — load it so the hub call can authenticate.
-    _load_instance_env(getattr(args, "cove_dir", "") or "",
+    # The creds (LP_REGISTRY_URL/LP_OPERATOR_TOKEN) live in the INSTANCE .env at
+    # out/<cove-id>-cove/.env (where docker-compose.yml is), NOT the clone root, so search
+    # there first, then any explicit --cove-dir/--compose-dir, then cwd.
+    from pathlib import Path as _P
+    _cid = (getattr(args, "cove_id", "") or "").strip()
+    _inst = str(_P("out") / f"{_cid}-cove") if _cid else ""
+    _load_instance_env(_inst,
+                       getattr(args, "cove_dir", "") or "",
                        getattr(args, "compose_dir", "") or "", ".")
     _ac = _acme_creds_via_hub(domain)
     if not (isinstance(_ac, dict) and _ac.get("ok")):
