@@ -159,6 +159,9 @@ async def get_runbook(slug: str, request: Request):
                 {"error": "Runbook not available for this role"}, status_code=403
             )
         data["slug"] = slug
+        # Mirror the list endpoint: the UI reads rb.name, but the new runbook format stores
+        # the display name under `title`. Without this the detail header renders "undefined".
+        data["name"] = data.get("title", data.get("name", slug))
         return _fill_paths(data)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
