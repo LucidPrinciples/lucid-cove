@@ -71,7 +71,7 @@ if (window.location.search.includes('embedded=1')) { document.querySelector('.ba
     <label>Access token</label>
     <div class="row">
         <input type="text" id="useToken" placeholder="gpugrant_…">
-        <button onclick="useGpu()">Connect</button>
+        <button onclick="useGpu(this)">Connect</button>
     </div>
     <div class="status" id="useStatus"></div>
     <div class="note">Current video transcription backend: <span id="curMode">…</span></div>
@@ -306,10 +306,14 @@ async function withdrawOffer() {
     } catch (e) { setStatus('mktStatus', 'Could not reach the market.', false); }
 }
 
-async function useGpu() {
+async function useGpu(btn) {
     const url = document.getElementById('useUrl').value.trim();
     const token = document.getElementById('useToken').value.trim();
     if (!url) { setStatus('useStatus', 'Enter a GPU endpoint URL.', false); return; }
+    // Visible working state on the button itself — without this a click looked like
+    // nothing happened (the status line alone was too easy to miss).
+    const _label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Connecting…'; }
     setStatus('useStatus', 'Connecting…');
     try {
         const r = await fetch('/api/settings/compute/video_asr', {
@@ -318,13 +322,18 @@ async function useGpu() {
             body: JSON.stringify({ mode: 'external', url, token }),
         });
         if (r.ok) {
-            setStatus('useStatus', 'Connected — transcription now runs on the rented GPU.', true);
+            setStatus('useStatus', 'Connected. Your video transcription now runs on the rented GPU.', true);
+            if (btn) btn.textContent = 'Connected ✓';
             loadMode(); loadStatus();
         } else {
             const e = await r.json().catch(() => ({}));
-            setStatus('useStatus', e.error || ('Failed (' + r.status + ') — admin only.'), false);
+            setStatus('useStatus', e.error || ('Failed (' + r.status + '), admin only.'), false);
+            if (btn) { btn.disabled = false; btn.textContent = _label || 'Connect'; }
         }
-    } catch (e) { setStatus('useStatus', 'Error: ' + e, false); }
+    } catch (e) {
+        setStatus('useStatus', 'Error: ' + e, false);
+        if (btn) { btn.disabled = false; btn.textContent = _label || 'Connect'; }
+    }
 }
 
 async function mintGrant() {

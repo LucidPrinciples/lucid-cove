@@ -347,6 +347,13 @@ def set_compute_config(section: str, mode: str = None, url: str = None, token: s
     entry = dict(compute.get(section) or {})
     if mode is not None:
         entry["mode"] = mode
+        # A rent token only applies to the 'external' backend (a borrowed GPU).
+        # Switching to any other mode must drop a stale token, otherwise the config
+        # lingers in a confusing mode:cloud + has_token:true state (the token is
+        # ignored but reads as if a GPU is still wired). An explicit token in the
+        # same call (external) is re-applied below and wins.
+        if mode != "external":
+            entry.pop("token", None)
     if url is not None:
         entry["url"] = url.strip()
     if token is not None:
