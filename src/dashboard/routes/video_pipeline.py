@@ -1565,7 +1565,10 @@ async def proxy_video_info(request: Request, filename: str = ""):
 async def pipeline_status(request: Request):
     """Overview of the entire video pipeline state (founder mount or the presence's NC)."""
     folders = {}
-    for folder in ["inbox", "processing", "transcripts", "shorts", "done"]:
+    # #1524 — match the REAL pipeline: inbox → processing → raw, with transcripts/shorts/moments
+    # as products. "done" was never a folder (it's a job-state string), and raw/moments were
+    # missing here — so the status overview showed a phantom folder and hid two real ones.
+    for folder in ["inbox", "processing", "raw", "transcripts", "shorts", "moments"]:
         folders[folder] = len(await _list_video_dir(request, folder))
 
     return {

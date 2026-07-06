@@ -1588,6 +1588,18 @@ async function buildReview() {
     const familyName = _titleCaseName(await resolveCoveName());
     const fullName = familyName ? `${name} ${familyName}` : name;
 
+    // #2.5 — reframe the Meet header for JOINING (adding a member to an existing Cove) vs
+    // FOUNDING (first run). Founding keeps the "bring this team into being" copy; a member
+    // join says plainly you're adding someone to a Cove that already exists.
+    if (urlParams.get('firstrun') !== '1' && familyName) {
+        const _l = document.querySelector('#step-5 .step-label');
+        const _t = document.querySelector('#step-5 .step-title');
+        const _d = document.querySelector('#step-5 .step-desc');
+        if (_l) _l.textContent = 'Add to your Cove';
+        if (_t) _t.textContent = `Meet ${name}`;
+        if (_d) _d.textContent = `You're adding ${name} to your ${familyName} Cove. Here's ${name} and the team they're joining. The moment you hit the button, ${name} comes online.`;
+    }
+
     // Show loading, hide content
     document.getElementById('step6-loading').style.display = 'block';
     document.getElementById('agent-preview').style.display = 'none';

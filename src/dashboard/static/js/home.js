@@ -710,7 +710,8 @@ async function saveDomain(btn, confirmChange) {
             const step = document.getElementById('addr-mesh-step');
             if (step) step.style.display = 'block';
             const mo = document.getElementById('addr-mesh-out');
-            if (mo) { mo.style.display = 'block'; mo.innerHTML = '<div style="color:var(--orange);">' + ESC(d.message || 'Put this box on the mesh first, then claim the address.') + '</div>'; }
+            if (mo) { mo.style.display = 'block'; mo.innerHTML = '<div style="color:var(--orange);">' + ESC(d.message || 'Put this box on the mesh first, then claim the address.') + '</div>'
+                + '<div style="color:var(--dim);font-size:0.7rem;margin-top:6px;">Stuck? Ask your agent in chat and paste what you saw. They can walk you through it.</div>'; }
             return;
         }
         if (!r.ok || d.error) { alert(d.error || 'Could not set that address.'); if (out) out.style.display = 'none'; return; }
