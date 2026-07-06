@@ -679,13 +679,13 @@ function getFullTranscript() {
 let DEST = "";
 function destPrefix() { return DEST ? DEST + "-" : ""; }
 
-function renderDestChips(names) {
+function renderDestChips(items) {
   const bar = document.getElementById("destBar");
   if (!bar) return;
   const chips = [
     { v: "", l: "→ Backlog (auto)", w: false },
     { v: "hold", l: "→ Hold in Inbox", w: true },
-  ].concat(names.map(n => ({ v: "for-" + n, l: "→ " + n, w: true })));
+  ].concat(items.map(it => ({ v: "for-" + it.v, l: "→ " + it.label, w: true })));
   bar.innerHTML = chips.map(c =>
     '<span class="dest-chip' + (DEST === c.v ? " on" : "") + (c.w ? " waits" : "") +
     '" data-v="' + c.v + '">' + c.l + "</span>").join("");
@@ -693,28 +693,37 @@ function renderDestChips(names) {
     el.onclick = () => {
       DEST = el.dataset.v;
       try { localStorage.setItem("jules-dest", DEST); } catch (e) {}
-      renderDestChips(names);
+      renderDestChips(items);
     };
   });
 }
 
 async function initDest() {
   try { DEST = localStorage.getItem("jules-dest") || ""; } catch (e) {}
-  let names = [];
+  // jules 2026-07-06: show each agent by its NAME (Stuart, Mercer, Atlas…), never a raw
+  // UUID. /api/config gives {id, name}; the chip LABEL is the display name and the routing
+  // token is a slug of the name (fallback to the id). Skip entries with no human name so a
+  // bare UUID can't become a chip. All real agents show — nobody is excluded.
+  let items = [];
   try {
     const r = await fetch("/api/config");
     const d = await r.json();
     const ag = d.agents || (d.config && d.config.agents) || [];
-    names = ag.map(a => String(a.id || a.name || a.handle || "").split(".")[0]
-                         .toLowerCase().replace(/[^a-z0-9]/g, ""))
-             .filter(Boolean);
+    const seen = new Set();
+    for (const a of ag) {
+      const name = String(a.name || "").trim();
+      const idSlug = String(a.id || "").split(".")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+      const nameSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const v = nameSlug || idSlug;
+      const label = name || (idSlug ? idSlug.charAt(0).toUpperCase() + idSlug.slice(1) : "");
+      // No human name and the value is a long hex blob → an unresolved UUID; skip it.
+      if (!v || !label || (!name && /^[0-9a-f]{16,}$/.test(v))) continue;
+      if (seen.has(v)) continue;
+      seen.add(v);
+      items.push({ v, label });
+    }
   } catch (e) { /* no agent list — Backlog/Hold chips still work */ }
-  // jules 2026-07-06: only the addressable steward/merchant get a routing chip for now.
-  // Other agents (including UUID-handle presences that were leaking in) are filtered
-  // out. The multi-agent routing machinery stays intact — widen ADDRESSABLE later.
-  const ADDRESSABLE = ["stuart", "mercer"];
-  names = names.filter(n => ADDRESSABLE.includes(n));
-  renderDestChips(Array.from(new Set(names)).slice(0, 8));
+  renderDestChips(items.slice(0, 8));
 }
 initDest();
 
