@@ -1,8 +1,10 @@
 # =============================================================================
-# matrix_haven.py — operator-owned Haven Matrix Space (#160 / #137 Phase B)
+# matrix_haven.py — steward-owned Haven Matrix Space (#160 / #137 Phase B)
 # =============================================================================
-# A Haven connects Coves. It is a Matrix Space + a Commons room, OWNED by the
-# operator who forms it (their per-Cove Matrix account, @handle:matrix.{cove}...).
+# A Haven connects Coves. It is a Matrix Space + a Commons room OWNED by the Haven
+# steward (a durable agent on the founding Cove, ensure_haven_steward) so it survives
+# operator churn (§2, 2026-07-06); the founding operator is the recorded human owner
+# and is invited in. Nest + invite also execute through the steward token.
 # This is the Haven-level mirror of matrix_spaces.py (which builds the Cove Space):
 #   - ensure_haven_space(): create the Haven Space + Commons once (idempotent,
 #     ids persisted in cove_haven and mirrored to the Hub registrar #133),
@@ -14,10 +16,10 @@
 # Replaces the manual matrix-haven-setup.py / matrix-haven-sync.py + the
 # hand-edited network.yaml (the registrar is now the source of truth).
 #
-# Cross-homeserver federation between per-Cove Dendrites must be proven on the box
-# first (the founder homeserver needs the deny_networks mesh fix; member Coves need
-# real domains + DNS). Until then these calls succeed locally but federated invites
-# to other homeservers won't deliver. See the integration-test runbook.
+# Cross-homeserver federation between per-Cove Dendrites is PROVEN delivering (2026-07-06:
+# two co-located Coves on real matrix.{domain} names, resolving over the mesh, formed a
+# Haven and federated the Commons end to end). Requirements: each Cove reachable at its
+# matrix.{domain} (deny_networks allows the 100.64.0.0/10 mesh; remote Coves need public DNS).
 # =============================================================================
 import logging
 import os
@@ -27,12 +29,17 @@ import urllib.parse as _up
 import httpx
 from fastapi import APIRouter, Request, HTTPException
 
-from src.dashboard.routes.matrix import _login
+from src.dashboard.routes.matrix import register_matrix_account, _try_login
 from src.dashboard.routes.presence import get_current_presence
 from src.dashboard.routes import registry_client
 
 log = logging.getLogger(__name__)
 router = APIRouter()
+
+# The durable Haven steward's Matrix localpart. Dot-free + distinct from the Cove steward's
+# ("steward"), so the two namespaces can't collide on the founding Cove's homeserver. v1
+# assumes one Haven per founding Cove (matches haven._owned_haven's LIMIT 1).
+HAVEN_STEWARD_LOCALPART = env("MATRIX_HAVEN_STEWARD_LOCALPART", "havensteward")
 
 
 def _internal() -> str:
@@ -85,23 +92,63 @@ async def _http(method: str, path: str, token: str = None, body: dict = None):
 
 # ── Owner identity (the operator forming the Haven) ──────────────────────────
 
-async def _owner_token(request: Request) -> tuple[str, str]:
-    """Log in as the current operator's per-Cove Matrix account. Returns (user_id, token).
-    The operator must have a Matrix account already (auto-provisioned on first Connect)."""
+async def _operator_matrix_id(request: Request) -> tuple[str, str]:
+    """(@matrix_id, handle) for the CURRENT operator managing the Haven — the human owner.
+    Derived from accounts.matrix_username (set on first Connect) WITHOUT logging in as them:
+    the steward now owns the rooms, so we only need the operator's id to invite them in and to
+    record them as the Haven's human owner in the registry."""
     presence = await get_current_presence(request)
     if not presence:
         raise HTTPException(401, "Sign in to manage a Haven")
     from src.memory.database import get_db
     async with get_db() as conn:
         r = await conn.execute(
-            "SELECT matrix_username, matrix_password FROM accounts WHERE id = %s", (presence["id"],))
+            "SELECT matrix_username FROM accounts WHERE id = %s", (presence["id"],))
         row = await r.fetchone()
-    user = (row or {}).get("matrix_username")
-    pw = (row or {}).get("matrix_password")
+    mu = (row or {}).get("matrix_username") or ""
+    handle = (presence.get("username") or "").lstrip("@").strip().lower()
+    sn = _server_name()
+    mx = ("@%s:%s" % (mu, sn)) if (mu and sn) else ""
+    return mx, handle
+
+
+async def ensure_haven_steward(haven_id: str) -> dict:
+    """Return {user, pw, token} for the Haven's steward Matrix identity, provisioning it once
+    (admin account, shared-secret) on the FOUNDING Cove's homeserver. The steward OWNS the Haven
+    Space + Commons so they survive operator churn (§2) — the Haven-level mirror of
+    matrix_spaces.ensure_steward. SELF-HEALING: stored creds that fail login with M_FORBIDDEN mean
+    the account was cleared under us; re-register once, persist durably, retry. If it still fails,
+    surface ONE actionable host command instead of looping."""
+    st = await _haven_state(haven_id)
+    user, pw = st.get("steward_username"), st.get("steward_password")
+    hs = _internal()
     if not (user and pw):
-        raise HTTPException(409, "Open Connect once first so your Matrix identity exists")
-    login = await _login(_internal(), user, pw)
-    return login["user_id"], login["access_token"]
+        user, pw = await register_matrix_account(HAVEN_STEWARD_LOCALPART, admin=True)
+        await _save_haven(haven_id, steward_username=user, steward_password=pw)
+
+    login = await _try_login(hs, user, pw)
+    if not login.get("ok"):
+        ec = (login.get("errcode") or "").upper()
+        if login.get("unreachable"):
+            raise HTTPException(502, "Matrix homeserver unreachable: %s" % login.get("body"))
+        if ec == "M_LIMIT_EXCEEDED":
+            raise HTTPException(429, "Matrix is warming up (rate limited) — retry shortly.")
+        if ec in ("M_FORBIDDEN", "M_USER_DEACTIVATED", "M_UNKNOWN"):
+            try:
+                user, pw = await register_matrix_account(HAVEN_STEWARD_LOCALPART, admin=True)
+                await _save_haven(haven_id, steward_username=user, steward_password=pw)
+                login = await _try_login(hs, user, pw)
+            except HTTPException as re:
+                log.warning("haven steward self-heal re-register failed: %s", getattr(re, "detail", re))
+        if not login.get("ok"):
+            raise HTTPException(
+                503,
+                "Haven steward Matrix account is stuck (registered but login forbidden — a "
+                "partial delete left a ghost). On the Cove host run: python3 "
+                "/cove-core/provision/set_domain.py --remove-matrix-user %s --cove-id <cove_id>, "
+                "then retry." % HAVEN_STEWARD_LOCALPART,
+            )
+    return {"user": login["data"]["user_id"], "pw": pw, "token": login["data"]["access_token"]}
 
 
 # ── cove_haven state ─────────────────────────────────────────────────────────
@@ -110,7 +157,8 @@ async def _haven_state(haven_id: str) -> dict:
     from src.memory.database import get_db
     async with get_db() as conn:
         r = await conn.execute(
-            "SELECT haven_id, name, owner_user, space_id, commons_id FROM cove_haven WHERE haven_id = %s",
+            "SELECT haven_id, name, owner_user, space_id, commons_id, "
+            "steward_username, steward_password FROM cove_haven WHERE haven_id = %s",
             (haven_id,))
         row = await r.fetchone()
     return dict(row) if row else {}
@@ -152,28 +200,33 @@ async def _invite(token: str, rooms: list, user_ids: list) -> list:
 # ── Build / sync the Haven Space ─────────────────────────────────────────────
 
 async def ensure_haven_space(request: Request, haven_id: str, name: str, members: list = None) -> dict:
-    """Idempotently ensure the operator-owned Haven Space + Commons exist and that
-    `members` (federated @user ids) are invited. Mirrors ids to the registrar."""
+    """Idempotently ensure the STEWARD-OWNED Haven Space + Commons exist and that the founding
+    operator + `members` (federated @user ids) are invited. The durable Haven steward (an agent on
+    this founding Cove) OWNS the rooms so they survive operator churn (§2); the human operator is
+    recorded as the Haven owner and invited in. Mirrors ids to the registrar."""
     if not _configured():
         return {"ok": False, "reason": "matrix not configured"}
     if not await _has_state_table():
         return {"ok": False, "reason": "cove_haven table absent — Haven Spaces disabled here"}
-    owner_user, tok = await _owner_token(request)
-    members = [m for m in (members or []) if m and m != owner_user]
+    owner_mx, owner_handle = await _operator_matrix_id(request)
+    steward = await ensure_haven_steward(haven_id)
+    tok, steward_user = steward["token"], steward["user"]
+    members = [m for m in (members or []) if m and m != steward_user and m != owner_mx]
+    invitees = ([owner_mx] if owner_mx else []) + members
 
     st = await _haven_state(haven_id)
     space_id, commons_id = st.get("space_id"), st.get("commons_id")
     if space_id and commons_id:
-        await _invite(tok, [space_id, commons_id], members)
-        await _sync_registry(haven_id, name, owner_user, space_id, commons_id, members)
+        await _invite(tok, [space_id, commons_id], invitees)
+        await _sync_registry(haven_id, name, owner_handle, space_id, commons_id, members)
         return {"ok": True, "haven_id": haven_id, "space_id": space_id,
                 "commons_id": commons_id, "created": False}
 
-    # Haven Space (m.space)
+    # Haven Space (m.space) — owned by the steward, operator + members invited
     s, r = await _http("POST", "/_matrix/client/v3/createRoom", tok, {
         "name": name, "topic": "A haven of connected Coves",
         "creation_content": {"type": "m.space"},
-        "preset": "private_chat", "visibility": "private", "invite": members})
+        "preset": "private_chat", "visibility": "private", "invite": invitees})
     if s != 200:
         raise HTTPException(502, "Create Haven Space failed: %s" % r)
     space_id = r["room_id"]
@@ -181,7 +234,7 @@ async def ensure_haven_space(request: Request, haven_id: str, name: str, members
     # Commons room
     s, r = await _http("POST", "/_matrix/client/v3/createRoom", tok, {
         "name": "%s Commons" % name, "topic": "Commons for %s" % name,
-        "preset": "private_chat", "visibility": "private", "invite": members})
+        "preset": "private_chat", "visibility": "private", "invite": invitees})
     if s != 200:
         raise HTTPException(502, "Create Commons room failed: %s" % r)
     commons_id = r["room_id"]
@@ -192,9 +245,10 @@ async def ensure_haven_space(request: Request, haven_id: str, name: str, members
     await _http("PUT", "/_matrix/client/v3/rooms/%s/state/m.space.parent/%s"
                 % (_up.quote(commons_id), _up.quote(space_id)), tok, {"via": [sn], "canonical": True})
 
-    await _save_haven(haven_id, name=name, owner_user=owner_user, space_id=space_id, commons_id=commons_id)
-    await _sync_registry(haven_id, name, owner_user, space_id, commons_id, members)
-    log.info("Built Haven Space %s (Commons %s) for %s", space_id, commons_id, name)
+    await _save_haven(haven_id, name=name, owner_user=owner_mx or owner_handle,
+                      space_id=space_id, commons_id=commons_id)
+    await _sync_registry(haven_id, name, owner_handle, space_id, commons_id, members)
+    log.info("Built steward-owned Haven Space %s (Commons %s) for %s", space_id, commons_id, name)
     return {"ok": True, "haven_id": haven_id, "space_id": space_id, "commons_id": commons_id, "created": True}
 
 
@@ -204,7 +258,9 @@ async def nest_member_cove(request: Request, haven_id: str, cove_key: str) -> di
     st = await _haven_state(haven_id)
     if not st.get("space_id"):
         raise HTTPException(409, "Build the Haven Space first")
-    owner_user, tok = await _owner_token(request)
+    await _operator_matrix_id(request)  # enforce operator sign-in
+    steward = await ensure_haven_steward(haven_id)
+    tok = steward["token"]
     cove = await registry_client.resolve_cove(cove_key)
     if not cove.get("ok"):
         raise HTTPException(404, "Cove not in registry: %s" % cove.get("reason"))
@@ -224,8 +280,8 @@ async def nest_member_cove(request: Request, haven_id: str, cove_key: str) -> di
             "message": "Nested %s into the Haven." % _cn}
 
 
-async def _sync_registry(haven_id, name, owner_user, space_id, commons_id, members):
-    owner_handle = owner_user.lstrip("@").split(":")[0] if owner_user else ""
+async def _sync_registry(haven_id, name, owner_handle, space_id, commons_id, members):
+    owner_handle = (owner_handle or "").lstrip("@").split(":")[0].strip().lower()
     res = await registry_client.upsert_haven(
         haven_id=haven_id, name=name, owner_handle=owner_handle,
         space_id=space_id, commons_id=commons_id, members=members)
@@ -266,7 +322,9 @@ async def api_invite_member(haven_id: str, request: Request):
     st = await _haven_state(haven_id)
     if not st.get("space_id"):
         raise HTTPException(409, "Build the Haven Space first")
-    owner_user, tok = await _owner_token(request)
+    await _operator_matrix_id(request)  # enforce operator sign-in
+    steward = await ensure_haven_steward(haven_id)
+    tok = steward["token"]
     failures = await _invite(tok, [st["space_id"], st["commons_id"]], [user_id])
     await registry_client.add_haven_member(haven_id, handle=user_id.lstrip("@").split(":")[0])
     # The membership is recorded either way; report whether the Matrix invite actually

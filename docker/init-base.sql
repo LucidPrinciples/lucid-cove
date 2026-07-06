@@ -956,9 +956,11 @@ CREATE TABLE IF NOT EXISTS registry_havens (
 CREATE TABLE IF NOT EXISTS cove_haven (
     haven_id       TEXT PRIMARY KEY,
     name           TEXT,
-    owner_user     TEXT,                         -- the operator's Matrix @user that owns it
+    owner_user     TEXT,                         -- the founding operator's Matrix @user (the human owner)
     space_id       TEXT,
     commons_id     TEXT,
+    steward_username TEXT,                        -- durable Haven steward that OWNS the Space/Commons (§2)
+    steward_password TEXT,
     created_at     TIMESTAMPTZ DEFAULT NOW(),
     updated_at     TIMESTAMPTZ DEFAULT NOW()
 );

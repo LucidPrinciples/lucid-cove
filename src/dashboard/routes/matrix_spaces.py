@@ -261,17 +261,62 @@ async def ensure_cove_space() -> dict:
     return {"ok": True, "space_id": space_id, "room_id": room_id, "created": True}
 
 
+async def _admin_handle_and_domain() -> tuple[str, str]:
+    """The founding admin operator's handle + the Cove's live domain, so the Space-path
+    registration carries the SAME owner_handle/domain the wizard-finalize path does — even
+    when finalize never ran. Handle = the earliest active admin account's username (the
+    founding operator, whose operator token authorizes the registry write); domain from the
+    live cove config (cleaned)."""
+    handle, domain = "", ""
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            r = await conn.execute(
+                "SELECT username FROM accounts WHERE active = TRUE AND cove_role = 'admin' "
+                "AND username IS NOT NULL AND username <> '' ORDER BY created_at LIMIT 1")
+            row = await r.fetchone()
+        if row:
+            handle = (row.get("username") or "").lstrip("@").strip().lower()
+    except Exception:
+        pass
+    try:
+        from src.config import load_cove_config
+        domain = (load_cove_config().get("domain") or "").strip().lstrip("*").lstrip(".").lower()
+    except Exception:
+        pass
+    return handle, domain
+
+
 async def _sync_space_to_registry(cove_name: str, space_id: str):
     """Register this Cove's Space id with the Hub registrar (#133) so a Haven can nest
     it (m.space.child). Best-effort + idempotent — runs on every ensure_cove_space so
     a Cove that came up before its registry config was set still self-heals. Never let
-    a registry hiccup affect Connect."""
+    a registry hiccup affect Connect.
+
+    Reliability (2026-07-06): this path used to send only cove_id/name/homeserver/space_id
+    — no owner_handle/domain — and swallowed failures with no retry. A Cove whose wizard
+    finalize never completed landed in the registry with an EMPTY owner_handle (its Haven
+    card is then sparse), and one that hit a brief hub outage never registered at all. Now
+    it carries the admin handle + domain AND, on failure, queues the FULL payload through
+    hub_retry so the scheduler lands it later (same durability the finalize path already has)."""
     try:
         from src.dashboard.routes import registry_client
-        if registry_client.configured() and space_id:
-            await registry_client.register_cove(
-                cove_id=env("COVE_ID") or cove_name.lower().replace(" ", "-"),
-                name=cove_name, homeserver=_server_name(), space_id=space_id)
+        if not (registry_client.configured() and space_id):
+            return
+        owner_handle, domain = await _admin_handle_and_domain()
+        payload = {
+            "cove_id": env("COVE_ID") or cove_name.lower().replace(" ", "-"),
+            "name": cove_name, "owner_handle": owner_handle, "domain": domain,
+            "homeserver": _server_name(), "space_id": space_id,
+        }
+        try:
+            res = await registry_client.register_cove(**payload)
+        except Exception as e:
+            res = {"ok": False, "reason": str(e)[:200]}
+        if not res.get("ok"):
+            from src.utils.hub_retry import mark_registration_pending
+            await mark_registration_pending(payload)
+            log.info("Cove Space registry sync queued for retry: %s", res.get("reason"))
     except Exception as e:
         log.info("Cove Space registry sync skipped: %s", e)
 

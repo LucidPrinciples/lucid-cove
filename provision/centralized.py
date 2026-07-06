@@ -1044,7 +1044,7 @@ services:
       - ./docker/init-nextcloud-db.sql:/docker-entrypoint-initdb.d/01-nextcloud.sql:ro
       - ./docker/operator-seed.sql:/docker-entrypoint-initdb.d/02-operator-seed.sql:ro{dendrite_db_mount}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${{POSTGRES_USER}}"]
+      test: ["CMD-SHELL", "pg_isready -U ${{POSTGRES_USER}} -d ${{POSTGRES_DB}}"]
       interval: 10s
       timeout: 5s
       retries: 5
