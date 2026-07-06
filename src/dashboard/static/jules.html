@@ -709,6 +709,11 @@ async function initDest() {
                          .toLowerCase().replace(/[^a-z0-9]/g, ""))
              .filter(Boolean);
   } catch (e) { /* no agent list — Backlog/Hold chips still work */ }
+  // jules 2026-07-06: only the addressable steward/merchant get a routing chip for now.
+  // Other agents (including UUID-handle presences that were leaking in) are filtered
+  // out. The multi-agent routing machinery stays intact — widen ADDRESSABLE later.
+  const ADDRESSABLE = ["stuart", "mercer"];
+  names = names.filter(n => ADDRESSABLE.includes(n));
   renderDestChips(Array.from(new Set(names)).slice(0, 8));
 }
 initDest();

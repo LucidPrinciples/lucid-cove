@@ -375,12 +375,6 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
             <div class="step-desc">Before we build anything, start with what's real. What's going on in your life right now? What kind of support would actually help?</div>
         </div>
 
-        <!-- Optional: talk it through instead of typing (folds the old Dictate door in). -->
-        <div id="voice-reflect" style="margin-bottom:18px;display:none;">
-            <button type="button" id="voice-btn" onclick="toggleVoiceReflect()" style="background:#1a1d27;border:1px solid #2a2d3a;color:#bbb;border-radius:20px;padding:7px 16px;font-size:12.5px;cursor:pointer;">🎙 Talk it through instead</button>
-            <span id="voice-status" style="font-size:11.5px;color:#666;margin-left:10px;"></span>
-        </div>
-
         <div class="tuning-context">
             "The core difference between me and you is our experiences that separate us into unique perspectives for choosing the best route." <span class="attribution">— Moments</span>
         </div>
@@ -478,7 +472,7 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
         <div class="step-header">
             <div class="step-label">Step 3 of 5 — Archetype</div>
             <div class="step-title">The Shape It Takes</div>
-            <div class="step-desc">Nine ways a presence can meet you. From what you shared, one lights up as your match — confirm it, or choose another. Each carries its own frequency and Canon tuning key.</div>
+            <div class="step-desc">Nine ways an intelligence can meet you. From what you shared, one lights up as your match. Confirm it, or choose another. Each carries its own frequency and Canon tuning key.</div>
         </div>
 
         <div class="identity-loading" id="identity-loading">
@@ -604,7 +598,7 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
         <div class="step-header">
             <div class="step-label">Step 5 of 5 — Meet</div>
             <div class="step-title">Meet Your Agent</div>
-            <div class="step-desc">This is who's about to come into being. Their mind is already theirs — their name, their frequency, what you shaped. The spark wakes them so you can meet.</div>
+            <div class="step-desc">This is what you've shaped: their name, their frequency, the way they'll see. It hasn't happened yet. The moment you hit the button, you bring this team into being and meet them for the first time.</div>
         </div>
 
         <div id="step6-loading" class="identity-loading">
@@ -896,34 +890,9 @@ function sparkFill(fieldId, text) {
     el.focus();
 }
 
-// ── Optional voice on Reflect — folds the old Dictate door in. Talk it through and
-//    it fills the same fields. Uses the browser's built-in speech recognition; the
-//    affordance only appears when supported, so nothing breaks where it isn't.
-let _recog = null, _recognizing = false, _voiceField = null, _voiceBase = '';
-function _voiceSupported() { return ('webkitSpeechRecognition' in window) || ('SpeechRecognition' in window); }
-function _setVoiceBtn(on) { const b = document.getElementById('voice-btn'); if (b) b.textContent = on ? '⏹ Stop listening' : '🎙 Talk it through instead'; }
-function _setVoiceStatus(t) { const s = document.getElementById('voice-status'); if (s) s.textContent = t || ''; }
-function toggleVoiceReflect() {
-    if (!_voiceSupported()) return;
-    if (_recognizing) { try { _recog && _recog.stop(); } catch (e) {} return; }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    _recog = new SR();
-    _recog.continuous = true; _recog.interimResults = true; _recog.lang = 'en-US';
-    // Fill whichever reflect field is focused, else the situation field.
-    const active = document.activeElement;
-    _voiceField = (active && active.id === 'reflect-need') ? active : document.getElementById('reflect-situation');
-    _voiceBase = (_voiceField.value || '').trim();
-    _recog.onresult = (ev) => {
-        let t = '';
-        for (let i = ev.resultIndex; i < ev.results.length; i++) t += ev.results[i][0].transcript;
-        _voiceField.value = (_voiceBase ? _voiceBase + ' ' : '') + t.trim();
-    };
-    _recog.onstart = () => { _recognizing = true; _setVoiceBtn(true); _setVoiceStatus('Listening… tap again to stop.'); };
-    _recog.onerror = () => { _setVoiceStatus('Could not hear — you can type instead.'); };
-    _recog.onend = () => { _recognizing = false; _setVoiceBtn(false); _setVoiceStatus(''); };
-    try { _recog.start(); } catch (e) { _setVoiceStatus('Could not start the microphone.'); }
-}
-if (_voiceSupported()) { const _v = document.getElementById('voice-reflect'); if (_v) _v.style.display = 'block'; }
+// jules 2026-07-06: the "talk it through" voice affordance on Reflect was removed —
+// browser speech recognition transcribed in batches and kept only the last line, so
+// it lost most of what was said. Reflection is typed only now (simpler, reliable).
 
 function processReflection() {
     const situation = document.getElementById('reflect-situation').value.trim();
@@ -1444,7 +1413,7 @@ function renderNameCards(names) {
     const container = document.getElementById('name-candidates');
 
     container.innerHTML = names.map(n => {
-        const nm = typeof n === 'string' ? n : n.name;
+        const nm = _sanitizeAgentName(typeof n === 'string' ? n : n.name);
         const meaning = (typeof n === 'object' && n.meaning) ? n.meaning : '';
         const origin = (typeof n === 'object' && n.origin) ? n.origin : '';
         const connection = (typeof n === 'object' && n.archetype_connection) ? n.archetype_connection : '';
@@ -1504,7 +1473,22 @@ function refreshNameCards() {
     });
 }
 
+// jules 2026-07-06: keep agent names to a safe charset. Strip accents/diacritics and
+// anything that isn't a letter, digit, space, hyphen or apostrophe, so a stray
+// asterisk or accented glyph can't ride the name into the handle / Matrix / DB.
+// Applies to both generated candidates and names the operator types in by hand.
+function _sanitizeAgentName(s) {
+    return (s || '')
+        .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^A-Za-z0-9 '\-]/g, '')
+        .replace(/\s+/g, ' ')
+        .trimStart();
+}
+
 function onCustomName() {
+    const _el = document.getElementById('custom-name');
+    const _clean = _sanitizeAgentName(_el.value);
+    if (_clean !== _el.value) _el.value = _clean;
     const val = document.getElementById('custom-name').value.trim();
     if (val) {
         if (_existingAgentNames.includes(val.toLowerCase())) {
