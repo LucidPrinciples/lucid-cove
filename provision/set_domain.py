@@ -46,6 +46,84 @@ def _matrix_server_name(domain: str) -> str:
     return f"matrix.{domain}" if domain else ""
 
 
+def _load_instance_env(*dirs) -> None:
+    """set_domain runs on the HOST, but the hub creds (LP_REGISTRY_URL / LP_OPERATOR_TOKEN)
+    live in the Cove's instance .env, not the host shell. Load them so the hub acme-credential
+    call can authenticate. Never overrides an explicit host export."""
+    import os
+    from pathlib import Path
+    for d in dirs:
+        if not d:
+            continue
+        p = Path(str(d)).expanduser() / ".env"
+        if not p.exists():
+            continue
+        try:
+            for line in p.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k, v = k.strip(), v.strip().strip('"').strip("'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+        except Exception:
+            pass
+
+
+def _acme_creds_via_hub(domain: str) -> dict:
+    """Ask the HUB to mint the acme-dns credential (operator-token gated). A self-host box holds
+    no Cloudflare token and can't reach the private acme-dns /register, so the hub (which has
+    both) mints it. Self-contained mirror of centralized._acme_creds_via_hub so set_domain
+    needn't import the heavy provisioner on the host. Headers match _hub_auth_headers exactly."""
+    import os, json, urllib.request
+    reg = (os.getenv("LP_REGISTRY_URL", "") or "").strip().rstrip("/")
+    sec = (os.getenv("LP_REGISTRY_SECRET", "") or "").strip()
+    tok = (os.getenv("LP_OPERATOR_TOKEN", "") or "").strip()
+    if not reg or not (sec or tok):
+        return {"ok": False, "reason": "no hub auth (need LP_REGISTRY_URL + operator token or fleet secret)"}
+    headers = {"Content-Type": "application/json", "User-Agent": "LucidCove-Cove/1.0"}
+    if sec:
+        headers["X-Registry-Secret"] = sec
+    if tok:
+        headers["X-Operator-Token"] = tok
+    body = json.dumps({"sub_domain": domain}).encode()
+    req = urllib.request.Request(reg + "/api/registry/acme-credential",
+                                 data=body, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        return {"ok": False, "reason": f"hub acme-credential failed: {str(e)[:160]}"}
+
+
+def _resolve_acme_creds(args, domain: str, result: dict) -> dict:
+    """acme-dns credential for a lucidcove.org subdomain. Ask the HUB first (mirrors the
+    bundled self-host path) — the old local provision_subdomain_cert_delegation needed
+    LP_ACMEDNS_URL on the box, so on a stranger's box it silently skipped and Caddy got NO
+    cert (tlsv1 internal error on the claimed domain). Fall back to the local delegation for a
+    founder/co-located box that DOES hold the creds. Returns the acmedns dict for the snippet."""
+    acme = {}
+    if not (domain == "lucidcove.org" or domain.endswith(".lucidcove.org")):
+        return acme
+    # The host shell doesn't have the Cove's env — load it so the hub call can authenticate.
+    _load_instance_env(getattr(args, "cove_dir", "") or "",
+                       getattr(args, "compose_dir", "") or "", ".")
+    _ac = _acme_creds_via_hub(domain)
+    if not (isinstance(_ac, dict) and _ac.get("ok")):
+        try:
+            from acmedns import provision_subdomain_cert_delegation
+        except ImportError:
+            from provision.acmedns import provision_subdomain_cert_delegation
+        _local = provision_subdomain_cert_delegation(domain)
+        if isinstance(_local, dict) and _local.get("ok"):
+            _ac = _local
+    result["acmedns"] = _ac
+    if isinstance(_ac, dict) and _ac.get("ok"):
+        acme = _ac.get("acmedns") or {}
+    return acme
+
+
 def _self_host_reconcile(args, domain: str, matrix_on: bool, result: dict) -> bool:
     """Self-host (bundled Caddy) path: render the Cove's own docker/Caddyfile (acme-dns
     DNS-01 for a lucidcove.org subdomain so no CF token is needed on this box; HTTP-01
@@ -57,17 +135,8 @@ def _self_host_reconcile(args, domain: str, matrix_on: bool, result: dict) -> bo
     if not (compose_dir / "docker-compose.yml").is_file():
         result["caddy"] = {"ok": False, "reason": f"no docker-compose.yml in {compose_dir} (pass --compose-dir)"}
         return False
-    # acme-dns for a lucidcove.org subdomain (scoped credential; our token stays on the hub).
-    acme = {}
-    if domain == "lucidcove.org" or domain.endswith(".lucidcove.org"):
-        try:
-            from acmedns import provision_subdomain_cert_delegation
-        except ImportError:
-            from provision.acmedns import provision_subdomain_cert_delegation
-        _ac = provision_subdomain_cert_delegation(domain)
-        result["acmedns"] = _ac
-        if isinstance(_ac, dict) and _ac.get("ok"):
-            acme = _ac.get("acmedns") or {}
+    # acme-dns for a lucidcove.org subdomain — hub-minted (our token stays on the hub).
+    acme = _resolve_acme_creds(args, domain, result)
     caddyfile = netconfig.build_selfhost_caddyfile(
         domain=domain, app_port=args.app_port,
         matrix_server_name=_matrix_server_name(domain), matrix_on=matrix_on, acmedns=acme)
@@ -89,16 +158,7 @@ def _shared_reconcile(args, domain: str, matrix_on: bool, result: dict) -> bool:
     Caddy's conf.d + reload it. Container-name routes over the bridge; per-site TLS (acme-dns
     for a lucidcove.org subdomain, else default). The shared Caddy owns 80/443 for the whole
     box. Returns True on a successful reload."""
-    acme = {}
-    if domain == "lucidcove.org" or domain.endswith(".lucidcove.org"):
-        try:
-            from acmedns import provision_subdomain_cert_delegation
-        except ImportError:
-            from provision.acmedns import provision_subdomain_cert_delegation
-        _ac = provision_subdomain_cert_delegation(domain)
-        result["acmedns"] = _ac
-        if isinstance(_ac, dict) and _ac.get("ok"):
-            acme = _ac.get("acmedns") or {}
+    acme = _resolve_acme_creds(args, domain, result)
     snippet = netconfig.build_haven_cove_snippet(
         cove_id=args.cove_id, domain=domain, app_port=args.app_port,
         matrix_server_name=_matrix_server_name(domain), matrix_on=matrix_on,
