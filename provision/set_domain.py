@@ -102,7 +102,7 @@ def _shared_reconcile(args, domain: str, matrix_on: bool, result: dict) -> bool:
     snippet = netconfig.build_haven_cove_snippet(
         cove_id=args.cove_id, domain=domain, app_port=args.app_port,
         matrix_server_name=_matrix_server_name(domain), matrix_on=matrix_on,
-        voice_on=bool(args.voice_port), acmedns=acme)
+        voice_on=(not args.no_voice), acmedns=acme)
     install_kwargs = {}
     if args.caddy_dir.strip():
         install_kwargs["caddy_dir"] = args.caddy_dir.strip()
@@ -199,6 +199,9 @@ def main() -> int:
     ap.add_argument("--matrix-port", type=int, default=8008, help="published Dendrite port")
     ap.add_argument("--voice-port", type=int, default=0, help="published voice port (routes voice.{domain})")
     ap.add_argument("--no-matrix", action="store_true", help="this Cove has no homeserver")
+    ap.add_argument("--no-voice", action="store_true",
+                    help="this Cove has no voice service (skip the voice.{domain} block). "
+                         "Voice is ON by default — a Cove always ships jules STT/TTS.")
     ap.add_argument("--mesh-ip", default="", help="mesh/public IP for the A records (auto if omitted)")
     ap.add_argument("--caddy-dir", default="",
                     help="override the Caddy dir (host-Caddy mode, or the SHARED Caddy conf.d "
