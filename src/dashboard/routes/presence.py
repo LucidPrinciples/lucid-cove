@@ -1649,6 +1649,31 @@ async def regenerate_link(presence_id: str, request: Request):
     return {"signin_link": signin_link, "token": raw_token}
 
 
+async def mint_signin_door(account_id, domain: str, scheme: str = "https") -> str:
+    """Mint a rotation-proof, session-backed magic-link door for `account_id` at `domain`
+    and return the /p/{token} URL (empty string if `domain` is blank).
+
+    Same machinery as regenerate_link: a fresh token, its accounts.auth_token row, AND a
+    matching 'pending' auth_sessions row — so the FIRST click validates. Creating the session
+    row locally is exactly what dodges the T3 first-click 401 that a bare *stamped* token hits.
+    Targets the Cove ROOT (not the operator subdomain): the /p handler shares the session
+    cookie across the Cove's subdomains, the root is the address the operator just claimed, and
+    it resolves before wildcard DNS necessarily has. Used by the domain-claim done-card so a
+    brand-new self-host operator can cross from localhost into their live Cove in one click."""
+    dom = (domain or "").strip()
+    if not dom:
+        return ""
+    raw_token = secrets.token_urlsafe(32)
+    hashed_token = _hash_token(raw_token)
+    from src.memory.database import get_db
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE accounts SET auth_token = %s, updated_at = NOW() WHERE id = %s",
+            (hashed_token, uuid.UUID(str(account_id))))
+        await _create_session(conn, uuid.UUID(str(account_id)), hashed_token, "pending")
+    return f"{scheme}://{dom}/p/{raw_token}"
+
+
 @router.get("/api/presence/sessions")
 async def list_my_sessions(request: Request):
     """List the current presence's active sign-in sessions (one per signed-in device).

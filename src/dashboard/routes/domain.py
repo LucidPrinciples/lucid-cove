@@ -254,15 +254,25 @@ async def domain_set(body: DomainSet, request: Request):
         f"{_mx_flag}{_mesh_flag}"
     )
 
-    # B14 + batch-10 #2: the domain door — once the Cove is live at https://{domain},
-    # hand back the door where the Cove now lives. We DELIBERATELY do NOT embed the
-    # cove.yaml operator_token here: `/p/` tokens are stored ONLY as hashes (auth_sessions),
-    # so a stamped raw token can never be validated back and 401s the moment it rotates
-    # (regenerate-link) or when it was minted registrar-side without a matching local
-    # session — exactly the T3 first-click 401. The reliable, always-current signed-in
-    # link is minted fresh from the live token store in Settings → Devices ("My door link").
-    # The done-card links the Cove root, which always loads.
+    # B14 + batch-10 #2: the domain door — once the Cove is live at https://{domain}, hand back
+    # a WORKING door so a brand-new operator can cross from localhost into their Cove in ONE
+    # click. History (keep the lesson): we must NOT stamp a bare cove.yaml operator_token —
+    # `/p/` tokens are stored only as hashes, so a stamped raw token 401s on first click (the
+    # T3 bug) because no matching session row exists. The fix is to MINT the token HERE via the
+    # live store (mint_signin_door also creates the matching 'pending' auth_sessions row), so the
+    # first click validates. Falls back to the bare Cove root if the mint fails, so a door-mint
+    # hiccup can never block the claim.
     domain_door = f"https://{domain}"
+    try:
+        from src.dashboard.routes.presence import get_current_presence, mint_signin_door
+        _op = await get_current_presence(request)
+        if _op and _op.get("id"):
+            _scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+            _minted = await mint_signin_door(_op["id"], domain, _scheme)
+            if _minted:
+                domain_door = _minted
+    except Exception:
+        pass  # never block the claim on a door-mint hiccup — the bare root still loads
 
     def _matrix_needs_host() -> bool:
         """Run-3 fix: the in-browser claim can reconcile DNS + Caddy live, but it can NEVER
