@@ -340,7 +340,7 @@ async function mintGrant() {
         if (r.ok && d.token) {
             setStatus('mintStatus', 'Minted. Copy this now — the token is shown only once.', true);
             document.getElementById('mintedCred').innerHTML =
-                `<div class="cred">Endpoint: ${esc(d.endpoint) || '(set VOICE_PUBLIC_URL)'}\nToken: ${esc(d.token)}</div>
+                `<div class="cred"><div>Endpoint: ${esc(d.endpoint) || '(set VOICE_PUBLIC_URL)'}</div><div style="margin-top:6px">Token: ${esc(d.token)}</div></div>
                  <button class="secondary" style="margin-top:8px" onclick="copyCred('${esc(d.endpoint)}','${esc(d.token)}')">Copy credential</button>`;
             document.getElementById('grantLabel').value = '';
             loadGrants();

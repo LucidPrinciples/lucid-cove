@@ -40,6 +40,18 @@ def _internal() -> str:
 
 
 def _server_name() -> str:
+    # Same staleness fix as matrix_spaces._server_name: after a domain claim the
+    # homeserver is matrix.{domain}, but the provision-stamped MATRIX_SERVER_NAME env
+    # stays matrix.{cove-id}.localhost. The Haven layer builds cross-Cove invites from
+    # this Cove's server_name, so a stale value makes every Haven invite federate to a
+    # dead .localhost host. Prefer the live cove domain.
+    try:
+        from src.config import load_cove_config
+        dom = (load_cove_config().get("domain") or "").strip().lstrip("*").lstrip(".").lower()
+        if dom:
+            return "matrix.%s" % dom
+    except Exception:
+        pass
     return env("MATRIX_SERVER_NAME") or ""
 
 

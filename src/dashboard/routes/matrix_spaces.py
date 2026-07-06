@@ -34,6 +34,21 @@ def _internal() -> str:
 
 
 def _server_name() -> str:
+    # After a domain claim the Matrix identity is regenerated to matrix.{domain}
+    # (Dendrite's real server_name), but the provision-stamped MATRIX_SERVER_NAME env
+    # goes STALE (still matrix.{cove-id}.localhost). Prefer the live cove domain so the
+    # steward-built Space/Family rooms AND the presence invites all carry ONE server_name
+    # that matches Dendrite. Otherwise _uid() builds invites against the dead .localhost
+    # name, Dendrite treats them as federation to an unresolvable host, and Space creation
+    # 502s with M_FORBIDDEN — the "no family room in Connect" bug. Mirrors the host-aware
+    # rule in matrix.py _client_homeserver + domain.py _matrix_server_name (matrix.{domain}).
+    try:
+        from src.config import load_cove_config
+        dom = (load_cove_config().get("domain") or "").strip().lstrip("*").lstrip(".").lower()
+        if dom:
+            return "matrix.%s" % dom
+    except Exception:
+        pass
     return env("MATRIX_SERVER_NAME") or ""
 
 
