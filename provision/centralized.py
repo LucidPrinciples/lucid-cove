@@ -362,6 +362,15 @@ LOCAL_OLLAMA_URL = "http://host.docker.internal:11434"
 P620_MESH_OLLAMA_URL = "http://100.64.0.1:11434"
 
 
+# Minimum GPU VRAM (MB) to justify the CUDA voice image + local video ASR. Qwen-ASR-1.7B
+# needs ~5-7GB in practice, so a smaller GPU can't actually serve it — and building the
+# multi-GB cu124 voice image on a tiny/old card (e.g. a 2GB Quadro M620) just burns resources
+# and can OOM the host mid-build (SIGBUS / "Bus error (core dumped)" on `docker compose build`).
+# Under this floor we fall back to CPU voice + cloud ASR. Override per-Cove with
+# compute.voice.gpu: true/false.
+GPU_VOICE_MIN_VRAM_MB = 8000
+
+
 def _detect_gpu_info() -> dict:
     """GPU on the provisioning HOST (nvidia-smi works here, unlike inside the app container).
     Returns {present, name, vram_mb}. Recorded into cove.yaml compute.gpu so the runtime
@@ -1495,6 +1504,11 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
     _cfg_gpu = compute.get("gpu") if isinstance(compute.get("gpu"), dict) else {}
     _gpu_info = _cfg_gpu if _cfg_gpu.get("present") else _detect_gpu_info()
     compute["gpu"] = _gpu_info
+    # A GPU must have real VRAM to serve local ASR / the CUDA voice image. A tiny old card
+    # (e.g. a 2GB M620) is "present" but NOT capable — building the cu124 image on it OOMs the
+    # host (SIGBUS). Capability, not mere presence, drives both video_asr and the voice image.
+    _gpu_capable = bool(_gpu_info.get("present")
+                        and int(_gpu_info.get("vram_mb") or 0) >= GPU_VOICE_MIN_VRAM_MB)
     # #181 — video ASR backend, detected from the machine at provision time
     # (onboarding checks the box). A GPU host transcribes video locally on its own
     # GPU; a light VPS Cove (no GPU by design) or a GPU-less host uses cloud ASR.
@@ -1503,7 +1517,7 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
         if target == "vps":
             _asr_mode = "cloud"
         else:
-            _asr_mode = "local" if _gpu_info.get("present") else "cloud"
+            _asr_mode = "local" if _gpu_capable else "cloud"
         compute["video_asr"] = {"mode": _asr_mode}
 
     cove["_app_port"] = deploy["app_port"]
@@ -1548,7 +1562,7 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
     # (e.g. reserve the GPU for Ollama -> false = CPU voice even on a GPU host).
     _voice_gpu_pref = _voice_cfg.get("gpu")
     voice_gpu = bool(voice_local and (_voice_gpu_pref if isinstance(_voice_gpu_pref, bool)
-                                      else _gpu_info.get("present", False)))
+                                      else _gpu_capable))
     # shared_net / bundle_caddy were computed up top (self-host now uses the shared Caddy).
     _domain = (cove.get("domain") or "").strip()
     (root / "docker-compose.yml").write_text(
