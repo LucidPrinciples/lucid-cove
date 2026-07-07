@@ -176,6 +176,23 @@ async def _save_haven(haven_id: str, **kw):
                 tuple(kw.values()) + (haven_id,))
 
 
+async def _set_steward_displayname(token: str, user_id: str, name: str) -> None:
+    """Give the Haven steward a human-readable Matrix display name ("{name} Haven") so it
+    stops showing its raw localpart (havensteward) in Commons member lists + "created the
+    room" system events. Idempotent (PUT), best-effort — a failure here must never block
+    Haven creation."""
+    label = ("%s Haven" % name).strip()
+    if not (token and user_id and label):
+        return
+    try:
+        s, _ = await _http("PUT", "/_matrix/client/v3/profile/%s/displayname" % _up.quote(user_id),
+                           token, {"displayname": label})
+        if s != 200:
+            log.info("haven steward displayname set returned %s", s)
+    except Exception as e:
+        log.info("haven steward displayname set skipped: %s", str(e)[:100])
+
+
 async def _invite(token: str, rooms: list, user_ids: list) -> list:
     """Invite user_ids into rooms. Returns a list of FAILURE dicts (batch-10 #4c) so the
     caller can surface a real 'couldn't deliver' message instead of the old silent swallow
@@ -211,6 +228,7 @@ async def ensure_haven_space(request: Request, haven_id: str, name: str, members
     owner_mx, owner_handle = await _operator_matrix_id(request)
     steward = await ensure_haven_steward(haven_id)
     tok, steward_user = steward["token"], steward["user"]
+    await _set_steward_displayname(tok, steward_user, name)
     members = [m for m in (members or []) if m and m != steward_user and m != owner_mx]
     invitees = ([owner_mx] if owner_mx else []) + members
 
