@@ -1,0 +1,25 @@
+# Force LF line endings on ALL text files, on every checkout including Windows.
+#
+# Why this matters here: the installer clones this repo on the HOST and bind-mounts it into
+# Linux containers (the app mounts the clone at /cove-core; SQL files are mounted into the DB's
+# docker-entrypoint-initdb.d; the entrypoint merges src/ into /app/src). If a Windows git
+# checkout applied CRLF (core.autocrlf=true, the Windows default), those bind-mounted
+# shell/SQL/entrypoint files would carry \r and fail inside the container
+# ("bad interpreter: /bin/sh^M", or a psql parse error) — which surfaces as "the image builds
+# but the container won't start / sits on Stopping forever". Forcing LF makes the working tree
+# deterministic regardless of host OS.
+* text=auto eol=lf
+
+# Binary assets — never normalize these.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.gguf binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
