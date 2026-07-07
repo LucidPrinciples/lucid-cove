@@ -1713,7 +1713,9 @@ async function provisionAgent() {
 
     const statusEl = document.getElementById('provision-status');
     statusEl.style.display = 'block';
-    statusEl.innerHTML = `<div class="provision-status"><div class="prov-step">${_isFirst ? 'Creating your Lucid Cove…' : 'Building your agent…'}</div></div>`;
+    // jules 07-07: don't repeat the button's headline here (that was the double "Creating your
+    // Lucid Cove…"). The button carries the words; this box just shows progress, then the result.
+    statusEl.innerHTML = `<div class="provision-status" style="text-align:center;"><div class="spinner"></div></div>`;
 
     const quals = [...selectedQualities];
     const feeling = (document.getElementById('agent-feeling')?.value || '').trim();

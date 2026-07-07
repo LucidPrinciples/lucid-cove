@@ -499,6 +499,9 @@ async function boot() {
             : (MC.tabs[0]?.id || MC.tabs[0] || 'home');
         // Manager/admin subdomain (stuart.{cove}) opens to the Team (Cove management) view.
         if (MC.adminView && MC.tabs.some(t => (t.id || t) === 'team')) firstTab = 'team';
+        // jules 07-07: an explicit ?tab= (e.g. the "Open chat" door) wins — land where it points.
+        const _wantTab = new URLSearchParams(location.search).get('tab');
+        if (_wantTab && MC.tabs.some(t => (t.id || t) === _wantTab)) firstTab = _wantTab;
         switchToTab(firstTab);
 
         // Auto-show onboarding for first-time Tuner users

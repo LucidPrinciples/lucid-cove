@@ -945,9 +945,9 @@ function _presenceChatDoorHref() {
     const dom = (typeof MC !== 'undefined' && MC.config && MC.config.domain) || '';
     const handle = (typeof MC !== 'undefined' && MC.presence && MC.presence.username) || '';
     const onDomain = dom && location.host.endsWith(dom);
-    if (handle && onDomain) return location.protocol + '//' + handle + '.' + dom + '/';
-    if (handle) return location.origin + '/?as=' + encodeURIComponent(handle);
-    return location.origin + '/';
+    if (handle && onDomain) return location.protocol + '//' + handle + '.' + dom + '/?tab=chat';
+    if (handle) return location.origin + '/?as=' + encodeURIComponent(handle) + '&tab=chat';
+    return location.origin + '/?tab=chat';
 }
 
 // B2: the brain-connect moment on a CHAT-LESS surface (the Presences landing / Cove-admin
