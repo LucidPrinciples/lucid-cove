@@ -156,6 +156,46 @@ def ensure_cove_dns(cove_domain: str, target_ip: str = "") -> dict:
     return {"ok": True, "ip": ip, "zone_id": zid, "actions": actions}
 
 
+def ensure_cove_dns_tunnel(cove_domain: str, tunnel_id: str) -> dict:
+    """PUBLIC-reachability variant: point *.{cove_domain} and {cove_domain} at the Cove's
+    Cloudflare named tunnel (CNAME -> {tunnel_id}.cfargotunnel.com, PROXIED) instead of the
+    mesh IP. This is what makes a remote invite link resolve from any phone. Proxied=True is
+    REQUIRED for cfargotunnel targets (the orange cloud is how the edge reaches the tunnel).
+    Idempotent. Returns {ok, target, zone_id, actions:[...]}."""
+    cove_domain = cove_domain.strip().rstrip(".")
+    tunnel_id = (tunnel_id or "").strip()
+    if not cove_domain or not tunnel_id:
+        raise ValueError("cove_domain and tunnel_id are required")
+    target = f"{tunnel_id}.cfargotunnel.com"
+    with _client() as client:
+        zid = _zone_id(client, cove_domain)
+        actions = [
+            _ensure_cname_proxied(client, zid, f"*.{cove_domain}", target),
+            _ensure_cname_proxied(client, zid, cove_domain, target),
+        ]
+    return {"ok": True, "target": target, "zone_id": zid, "actions": actions}
+
+
+def _ensure_cname_proxied(client: httpx.Client, zone_id: str, name: str, target: str) -> str:
+    """Create/update a PROXIED CNAME name -> target (for cfargotunnel tunnel records)."""
+    name = name.rstrip(".")
+    target = target.rstrip(".")
+    r = client.get(CF_API + f"/zones/{zone_id}/dns_records", params={"type": "CNAME", "name": name})
+    r.raise_for_status()
+    existing = r.json().get("result") or []
+    body = {"type": "CNAME", "name": name, "content": target, "ttl": 1, "proxied": True}
+    if existing:
+        rec = existing[0]
+        if (rec.get("content") or "").rstrip(".") == target and rec.get("proxied") is True:
+            return f"ok (unchanged) {name} -> {target}"
+        u = client.put(CF_API + f"/zones/{zone_id}/dns_records/{rec['id']}", json=body)
+        u.raise_for_status()
+        return f"updated {name} -> {target}"
+    c = client.post(CF_API + f"/zones/{zone_id}/dns_records", json=body)
+    c.raise_for_status()
+    return f"created {name} -> {target}"
+
+
 def main():
     if len(sys.argv) < 2:
         print("usage: cloudflare_dns.py <cove_domain> [target_ip]")

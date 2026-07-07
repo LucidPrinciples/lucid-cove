@@ -159,6 +159,17 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 let style = 'quick';
 let _nameOk = false;
 
+// ── Self-onboard JOIN mode ────────────────────────────────────────────────────
+// The invitee is a full operator joining an EXISTING Cove (they were seeded + signed
+// in at /join). Same operator-profile step as the founder, but we SKIP naming a Cove
+// (and the model panel): operator -> bio -> agent wizard. Role + Cove come from the
+// invite, threaded through to the agent wizard; the member-finalize stamps the role.
+const _params = new URLSearchParams(location.search);
+const _joinMode = _params.get('join') === '1';
+const _inviteTok = _params.get('invite') || '';
+const _joinRole = _params.get('role') || 'member';
+const _reservedHandle = _params.get('handle') || '';
+
 function show(id) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -375,7 +386,9 @@ async function opContinue() {
     if (!_opLocked && !_opConnected) {
       const r = await fetch('/api/onboarding/claim-operator', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: (opName.value || '').trim(), handle: (opHandle.value || '').trim(), email: (opEmail.value || '').trim() }),
+        // join:true tells the server NOT to write cove.yaml's operator_token (that's the
+        // founder's Cove token) — this is a member/second-admin joining an existing Cove.
+        body: JSON.stringify({ name: (opName.value || '').trim(), handle: (opHandle.value || '').trim(), email: (opEmail.value || '').trim(), join: _joinMode }),
       });
       const d = await r.json();
       if (!r.ok || !d.ok) {
@@ -412,9 +425,10 @@ async function opContinue() {
         return;
       }
     }
-    // One path now (no Quick/Guided door): straight to naming the Cove, reflection ready.
-    show('panel-name');
-    const _r = document.getElementById('cove-reflection'); if (_r) _r.focus();
+    // JOIN mode: no Cove to name — skip straight to the (optional) bio step, then the agent
+    // wizard. Otherwise (founder first-run): straight to naming the Cove, reflection ready.
+    if (_joinMode) { show('panel-bio'); const _b = document.getElementById('op-bio'); if (_b) _b.focus(); }
+    else { show('panel-name'); const _r = document.getElementById('cove-reflection'); if (_r) _r.focus(); }
   } catch (e) {
     alert('Could not continue: ' + e.message); opBtn.disabled = false; opBtn.textContent = 'Continue →';
   }
@@ -449,7 +463,7 @@ nameEl.addEventListener('keydown', e => { if (e.key === 'Enter' && _nameOk) toBi
 //    from the profile as a server-side fallback (flow_cove), so the agent's first words are
 //    genuinely about the person regardless of how the setup chain threads params. ──
 function toBio() {
-  if (!_nameOk) return;
+  if (!_joinMode && !_nameOk) return;   // join mode skips the Cove-name gate entirely
   show('panel-bio');
   const b = document.getElementById('op-bio'); if (b) b.focus();
 }
@@ -485,14 +499,43 @@ async function saveBioThenPresence() {
 // (person + level=Operator) and, for Guided, the model step + discovery; Quick
 // uses chips + fields. The Cove name rides along and locks in at finalize.
 function toPresence(operatorBio) {
+  const _bio = (operatorBio || '').trim();
+  // JOIN mode: hand off to the agent wizard in self mode. NO cove_name (the Cove exists,
+  // and there's no firstrun) — the member-finalize stamps the role from the invite and
+  // carries the Cove last name. Thread the invite so /complete can bind + consume it.
+  if (_joinMode) {
+    const jq = new URLSearchParams({ invite: _inviteTok, role: _joinRole, self: '1', join: '1', door: 'guided' });
+    if (_reservedHandle) jq.set('handle', _reservedHandle);
+    if (_bio) jq.set('operator_bio', _bio);
+    window.location.href = '/static/action-board/new-agent-setup.html?' + jq.toString();
+    return;
+  }
   if (!_nameOk) return;
   // One unified flow — always the creation journey (no door). door=guided keeps the
   // downstream route explicit; agent-setup.html now sends every path to new-agent-setup.
   const qs = new URLSearchParams({ firstrun: '1', cove_name: nameEl.value.trim(), door: 'guided', role: 'operator' });
-  const _bio = (operatorBio || '').trim();
   if (_bio) qs.set('operator_bio', _bio);   // best-effort passthrough; the durable path is the profile
   window.location.href = '/static/action-board/agent-setup.html?' + qs.toString();
 }
+
+// JOIN-mode copy + navigation tweaks (member joining an existing Cove, not founding one).
+(function initJoin() {
+  if (!_joinMode) return;
+  const h1 = document.querySelector('.header h1');
+  if (h1) h1.textContent = 'Set Up Your Presence';
+  const sub = document.querySelector('.flow-subtitle');
+  if (sub) sub.textContent = "You've been invited to join a Lucid Cove. Set up who you are, then bring your own personal agent into being.";
+  const opDesc = document.querySelector('#panel-operator .section-desc');
+  if (opDesc) opDesc.innerHTML = "This is you. Your @handle is your identity across the network &mdash; pick something that's yours, you can't change it later.";
+  // The bio step's Back goes to the operator step (there's no Cove-name panel in join mode).
+  const bioBack = document.querySelector('#panel-bio .btn-ghost');
+  if (bioBack) bioBack.setAttribute('onclick', "show('panel-operator')");
+  // A reserved handle rides in as a suggestion — prefill it (still editable + validated).
+  if (_reservedHandle) {
+    const oh = document.getElementById('op-handle');
+    if (oh && !oh.value) { oh.value = _reservedHandle; oh.dispatchEvent(new Event('input')); }
+  }
+})();
 </script>
 </body>
 </html>

@@ -420,8 +420,23 @@ async def claim_operator(request: Request):
 
     # Persist the minted token (so the cove-name reservation at finalize authenticates)
     # and write the chosen identity onto the seeded operator row.
+    #
+    # JOIN GUARD (self-onboard): a member/second-admin joining an EXISTING Cove must NOT
+    # write cove.yaml's operator_token — that slot holds the FOUNDER's Cove token, which
+    # authenticates every Cove-level hub write (register_cove, market, etc.). Clobbering it
+    # would break the Cove's hub auth. The invitee's @handle is still reserved on the hub
+    # (claim_operator above); their own token isn't persisted here (no per-account slot yet —
+    # future work for when members act on the hub under their own handle). We treat it as a
+    # join when the client says so OR when the Cove already holds an operator_token.
+    _is_join = bool(body.get("join"))
     try:
-        if minted_token:
+        from src.config import load_cove_config as _lcc_guard
+        if (_lcc_guard().get("operator_token") or "").strip():
+            _is_join = True
+    except Exception:
+        pass
+    try:
+        if minted_token and not _is_join:
             from src.config import save_cove_config
             save_cove_config({"operator_token": minted_token})
     except Exception as e:

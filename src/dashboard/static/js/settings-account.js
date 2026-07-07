@@ -116,6 +116,18 @@ async function loadSettingsCoveAdmin() {
             <div style="font-size:0.62rem;color:var(--dim);margin-top:4px;">Drives every link + turns on HTTPS. On a self-host the cert may need a one-time host step.</div>
         </div>`;
 
+    // Public reachability (self-host only): a home Cove is mesh-only, so a REMOTE invite
+    // link times out on an off-mesh phone. One host-side step opens a Cloudflare tunnel
+    // (no port-forward, home IP hidden) so remote /join links resolve anywhere. Only shown
+    // once an address exists — the tunnel needs a domain to route.
+    const publicHtml = curDomain ? `
+        <div style="padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
+            <label class="settings-label">Public reachability</label>
+            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Make this Cove reachable from anywhere so you can invite people who aren't on your mesh. One-time setup on the Cove's machine; nothing changes for the people you invite.</div>
+            <div style="margin-top:6px;"><button class="btn-sm" onclick="enablePublicCove(this)">Make this Cove public</button> <span id="public-status" style="font-size:0.72rem;color:var(--dim);"></span></div>
+            <div id="public-cmd-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>
+        </div>` : '';
+
     // The Cove brain — the admin's own intelligence becomes the team default for
     // every agent + scheduled job. jules 1656: this section renders on the Cove-admin
     // APEX, where there is NO "Your Agent" section above — scope the copy to where
@@ -144,7 +156,31 @@ async function loadSettingsCoveAdmin() {
             <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 0;">Add or remove people and agents in the steward console. <a href="${stewardHref}" target="_blank" rel="noopener" style="color:var(--accent);">Open the steward console ↗</a></div>
         </div>`;
 
-    el.innerHTML = addrHtml + brainHtml + membersHtml;
+    el.innerHTML = addrHtml + publicHtml + brainHtml + membersHtml;
+}
+
+// Request making this Cove publicly reachable (Cloudflare tunnel). The app can't run
+// docker or hold the CF token, so it hands back the one command to run on the box.
+async function enablePublicCove(btn) {
+    const out = document.getElementById('public-cmd-out');
+    const status = document.getElementById('public-status');
+    if (btn) { btn.disabled = true; }
+    if (status) { status.textContent = 'Preparing…'; status.style.color = 'var(--dim)'; }
+    try {
+        const r = await fetch('/api/reachability/public', { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok || d.error) { if (status) { status.textContent = d.error || 'Could not prepare.'; status.style.color = '#ff6b6b'; } if (btn) btn.disabled = false; return; }
+        if (status) { status.textContent = 'Run this once on your Cove’s machine:'; status.style.color = 'var(--accent)'; }
+        if (out) {
+            out.style.display = 'block';
+            out.innerHTML =
+                '<div style="background:#0e0e16;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:ui-monospace,monospace;color:var(--accent);word-break:break-all;">' + ESC(d.host_command || '') + '</div>' +
+                '<div style="color:var(--dim);margin-top:6px;line-height:1.5;">' + ESC(d.note || '') + '</div>';
+        }
+    } catch (e) {
+        if (status) { status.textContent = 'Could not prepare — try again.'; status.style.color = '#ff6b6b'; }
+    }
+    if (btn) btn.disabled = false;
 }
 
 // =============================================================================

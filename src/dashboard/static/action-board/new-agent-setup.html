@@ -1776,8 +1776,13 @@ async function provisionAgent() {
         // their OWN founding Presence + locks in the Cove. Finalize (UPDATE the
         // seeded operator) with the Cove name; otherwise provision a new Presence.
         const _firstrun = urlParams.get('firstrun') === '1';
+        // Self-onboard join: the invitee set their OWN name + @handle in the operator step
+        // (already persisted on their signed-in account). Don't send a display_name here —
+        // otherwise the agent name would overwrite it. The member-finalize keeps the claimed
+        // name when display_name is blank.
+        const _selfJoin = (urlParams.get('self') === '1') && !!urlParams.get('invite');
         const _body = {
-            display_name: personParam || memberNameParam || name,
+            display_name: _selfJoin ? '' : (personParam || memberNameParam || name),
             agent_name: name,
             handle: urlParams.get('handle') || undefined,
             email: emailParam,
