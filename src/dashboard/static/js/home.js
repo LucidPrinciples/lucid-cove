@@ -333,7 +333,8 @@ function _onboardingCardHtml(item) {
                 <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then refresh:</div>
                 <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
                 <div style="margin-top:10px;color:var(--text);">When it finishes, your Cove is live at <b>https://${_pd}</b>, and this link signs you in:</div>
-                <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="${_pdoor}" target="_blank" rel="noopener">Open my Cove &#8599;</a>
+                <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>
+                <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This link signs you in at your new address. Once your Cove opens there you can close this localhost tab. It was just the setup surface.</div>
                 <div style="margin-top:10px;"><button class="btn-ghost" onclick="_addrRanCommand(this)">Ran the command? Refresh setup</button></div>
             </div>`;
         }
@@ -599,6 +600,22 @@ async function _addrRanCommand(btn) {
     location.reload();
 }
 
+async function _openMyCove(btn) {
+    // jules 07-07: mint a FRESH sign-in door at CLICK time so "Open my Cove" always crosses over
+    // logged in — the step-data/bare door has no /p/{token} (tokens are stored hashed, can't be
+    // persisted), so a reload used to drop the sign-on and land on a login wall.
+    const _t = btn ? btn.textContent : '';
+    if (btn) { btn.style.pointerEvents = 'none'; btn.textContent = 'Opening…'; }
+    let url = '';
+    try {
+        const d = await (await fetch('/api/onboarding/cove-door', { method: 'POST' })).json();
+        url = d && d.door;
+    } catch (e) {}
+    if (btn) { btn.style.pointerEvents = ''; btn.textContent = _t || 'Open my Cove ↗'; }
+    if (url) window.open(url, '_blank', 'noopener');
+    else alert('Your Cove address isn\'t live yet — run the host command, then use "Ran the command? Refresh setup".');
+}
+
 function _addrShowClaim(reach) {
     const step = document.getElementById('addr-mesh-step');
     if (step) step.style.display = 'none';
@@ -761,7 +778,7 @@ async function saveDomain(btn, confirmChange) {
                 const _door = d.door || ('https://' + d.domain);
                 html = `<div style="color:var(--green);">&#10003; Address set to https://${ESC(d.domain)}. We handled the DNS and certificate for you &mdash; nothing to copy and nothing to do. The secure connection finishes in under a minute.</div>`
                     + `<div style="margin-top:10px;color:var(--text);">Your Cove now lives at <b>https://${ESC(d.domain)}</b> &mdash; open it there:</div>`
-                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="${ESC(_door)}" target="_blank" rel="noopener">Open my Cove &#8599;</a>`
+                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>`
                     + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">Your other devices reach it once they're on your Cove's mesh (add them from Settings &rarr; Connect a device).</div>`
                     + `<button class="btn-approve" style="margin-top:10px;" onclick="location.reload()">Done &mdash; refresh</button>`;
             } else if (recs.length) {
@@ -784,7 +801,7 @@ async function saveDomain(btn, confirmChange) {
                 html = `<div style="color:var(--accent);">Saved ${ESC(d.domain)}. One step left, on the machine hosting your Cove:</div>${steps}`
                     + (d.host_command ? `<code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(d.host_command)}</code>` : '')
                     + `<div style="margin-top:12px;color:var(--text);">When it finishes, your Cove is live at <b>https://${ESC(d.domain)}</b>. The secure connection takes about a minute, then open it here, already signed in:</div>`
-                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="${ESC(_door)}" target="_blank" rel="noopener">Open my Cove &#8599;</a>`
+                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>`
                     + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This link signs you in at your new address. Once your Cove opens there you can close this localhost tab. It was just the setup surface.</div>`
                     + `<div style="margin-top:10px;"><button class="btn-ghost" onclick="_addrRanCommand(this)">Ran the command? Refresh setup</button></div>`;
             }
