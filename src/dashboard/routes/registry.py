@@ -435,8 +435,15 @@ async def register_cove(request: Request):
         # account lives on the Cove (not the hub), so the accounts check is operator-only;
         # operator mode already proved ownership in _authorize_write.
         if handle:
+            # jules 07-07: a handle reserved with an EMPTY cove_id is the operator's OWN unclaimed
+            # reservation (from claim-operator, before their Cove registered). Let them claim it for
+            # their Cove — only a DIFFERENT, non-empty cove_id means genuinely taken. Operator-mode
+            # already proved this handle is the caller's own in _authorize_write, and the accounts
+            # check below still blocks another person's username. Without this, EVERY self-host Cove
+            # 409'd on its own handle and never registered (so Haven nest could never resolve it).
             r = await conn.execute(
-                "SELECT cove_id FROM registry_handles WHERE handle = %s AND COALESCE(cove_id,'') <> %s",
+                "SELECT cove_id FROM registry_handles WHERE handle = %s "
+                "AND COALESCE(cove_id,'') NOT IN ('', %s)",
                 (handle, cid))
             if await r.fetchone():
                 raise HTTPException(409, f"Handle '@{handle}' is taken")
