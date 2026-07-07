@@ -1586,7 +1586,7 @@ async function buildReview() {
     // Resolve the Cove name — the agent's last name. Prefer the operator's just-chosen
     // name (URL param) over the backend, which still shows the seed during first-run.
     const familyName = _titleCaseName(await resolveCoveName());
-    const fullName = familyName ? `${name} ${familyName}` : name;
+    const fullName = familyName ? `${_titleCaseName(name)} ${familyName}` : _titleCaseName(name);
 
     // #2.5 — reframe the Meet header for JOINING (adding a member to an existing Cove) vs
     // FOUNDING (first run). Founding keeps the "bring this team into being" copy; a member
@@ -1818,7 +1818,7 @@ async function provisionAgent() {
 
     // Get the Cove name (the agent's last name) — chosen name first, backend fallback.
     const familyName = _titleCaseName(await resolveCoveName());
-    const fullName = familyName ? `${name} ${familyName}` : name;
+    const fullName = familyName ? `${_titleCaseName(name)} ${familyName}` : _titleCaseName(name);
 
     try {
         const res = await fetch('/api/flow/agent-provision', {

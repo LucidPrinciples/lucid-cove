@@ -1149,12 +1149,14 @@ async def finalize_setup(request: Request):
     body = await request.json()
     agent_name = (body.get("agent_name") or body.get("name") or "").strip()
     cove_name = (body.get("cove_name") or "").strip()
-    # jules 07-07: capitalize the Cove name AT THE ROOT (when it's saved) — not just for display.
-    # It's stored here as last_name + cove.yaml name + the registry record, so a lowercase-typed
-    # "breckenridge" becomes "Breckenridge" everywhere (MC header included), not only on the Meet
-    # screen. Per-word first-letter uppercase, preserving internal caps (McLeod stays McLeod).
-    if cove_name:
-        cove_name = " ".join((w[:1].upper() + w[1:]) for w in cove_name.split(" ") if w)
+    # jules 07-07: capitalize the agent's name AND the Cove name AT THE ROOT (when saved) — not
+    # just for display. Both are stored (agent_name/agent_identity + last_name/cove.yaml/registry),
+    # so a lowercase-typed "beth"/"breckenridge" becomes "Beth"/"Breckenridge" everywhere (MC header
+    # included). Per-word first-letter uppercase, preserving internal caps (McLeod stays McLeod).
+    def _capname(_s):
+        return " ".join((w[:1].upper() + w[1:]) for w in _s.split(" ") if w) if _s else _s
+    agent_name = _capname(agent_name)
+    cove_name = _capname(cove_name)
     # Both are REQUIRED: naming the Cove + creating the founding Presence's agent
     # IS the registration act (Cove name + operator handle reserved against the
     # Haven registry, #133). Neither is optional — together they lock in the Cove.
