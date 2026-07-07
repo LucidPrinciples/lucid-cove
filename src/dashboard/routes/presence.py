@@ -1577,7 +1577,7 @@ async def list_presences(request: Request):
         from src.memory.database import get_db
         async with get_db() as conn:
             result = await conn.execute(
-                """SELECT id, display_name, agent_name, last_name, cove_role,
+                """SELECT id, display_name, agent_name, agent_identity, last_name, cove_role,
                           active_workflows, name_locked, created_at, last_access, active
                    FROM accounts ORDER BY created_at"""
             )
@@ -1587,12 +1587,23 @@ async def list_presences(request: Request):
 
     presences = []
     for row in rows:
+        # Resolve the agent name: accounts.agent_name is the primary source, but for
+        # presences created via the centralized provisioner it's blank until the
+        # operator finishes the agent-setup step. Fall back to agent_identity.agent_name
+        # (where "Knight" etc. live from the archetype discovery flow) so the roster
+        # never shows a blank or generic "Agent" label.
+        agent_name = (row["agent_name"] or "").strip()
+        if not agent_name:
+            _ai = row["agent_identity"]
+            _ai = _ai if isinstance(_ai, dict) else (
+                json.loads(_ai) if isinstance(_ai, str) and _ai.strip() else {})
+            agent_name = (_ai.get("agent_name") or "").strip()
         presences.append({
             "id": str(row["id"]),
             "display_name": row["display_name"],
-            "agent_name": row["agent_name"],
+            "agent_name": agent_name,
             "last_name": row["last_name"],
-            "full_name": f"{row['agent_name']} {row['last_name']}",
+            "full_name": f"{agent_name} {row['last_name']}".strip(),
             "cove_role": row["cove_role"],
             "active": row["active"],
             "last_access": row["last_access"].isoformat() if row["last_access"] else None,

@@ -464,6 +464,33 @@ async def list_model_assignments():
     # so the grid can SHOW it as the effective '(Cove default)' instead of a blank (#13).
     brain = current_cove_brain()
     brain_model = brain.get("model")
+
+    # Resolve the personal agent's real name from the DB. The config file (agent.yaml)
+    # seeds the personal agent with the placeholder "Agent" at provision time; the
+    # operator's chosen name (e.g. "Knight") lives in accounts.agent_name or
+    # agent_identity.agent_name. Without this, the Intelligence settings table shows
+    # "Agent" instead of the real name.
+    _personal_name_override = None
+    try:
+        from src.memory.database import get_db
+        import json as _json
+        async with get_db() as _conn:
+            _r = await _conn.execute(
+                """SELECT agent_name, agent_identity FROM accounts
+                   WHERE cove_role = 'admin' AND active = TRUE
+                   ORDER BY created_at LIMIT 1"""
+            )
+            _row = await _r.fetchone()
+            if _row:
+                _personal_name_override = (_row["agent_name"] or "").strip()
+                if not _personal_name_override:
+                    _ai = _row["agent_identity"]
+                    _ai = _ai if isinstance(_ai, dict) else (
+                        _json.loads(_ai) if isinstance(_ai, str) and _ai.strip() else {})
+                    _personal_name_override = (_ai.get("agent_name") or "").strip()
+    except Exception:
+        pass
+
     agents_out = {}
     for agent in get_agents():
         aid = agent.get("id", "")
@@ -472,8 +499,13 @@ async def list_model_assignments():
         work = get_agent_model_assignment(aid)
         tune = get_agent_model_assignment(aid, slot="tuning")
         row = overridden.get(aid) or {}
+        # Use the DB-resolved name for the personal agent when the config still has
+        # the "Agent" placeholder.
+        _name = agent.get("name", aid)
+        if aid == "agent" and _personal_name_override:
+            _name = _personal_name_override
         agents_out[aid] = {
-            "name": agent.get("name", aid),
+            "name": _name,
             "working_primary": work.get("primary"),
             "working_fallback": work.get("fallback"),
             "tuning_primary": tune.get("primary"),
