@@ -165,7 +165,9 @@ async function loadTeam() {
         if (canEdit || viewMode === 'operator') {
             html += `<div class="family-add-row">
                 <button class="btn btn-subtle family-add-btn" onclick="window.location.href='/static/action-board/agent-setup.html'">+ Add a Presence</button>
-            </div>`;
+                <button class="btn btn-subtle family-add-btn" onclick="invitePresence()">Invite by link</button>
+            </div>
+            <div id="invite-presence-box"></div>`;
         }
 
         // ── Haven ─────────────────────────────────────────────────────────
@@ -627,6 +629,67 @@ async function addFamilyMember() {
     } catch (e) {
         if (feedback) feedback.textContent = `Error: ${e.message}`;
     }
+}
+
+// ── Invite a Presence by link (self-onboard) ────────────────────────────────
+function invitePresence() {
+    const box = document.getElementById('invite-presence-box');
+    if (!box) return;
+    if (document.getElementById('invite-form')) { document.getElementById('invite-form').remove(); return; }
+    const form = document.createElement('div');
+    form.id = 'invite-form';
+    form.className = 'add-member-form';
+    form.innerHTML = `
+        <div class="team-section-header">Invite a Presence by link</div>
+        <div class="add-member-fields">
+            <select id="inv-role" class="amf-input">
+                <option value="member">Member — their own agent + tools, reaches the team through an admin</option>
+                <option value="admin">Admin — full access to the build team</option>
+            </select>
+            <input type="text" id="inv-label" class="amf-input" placeholder="For whom? (optional, e.g. Mom)" autocomplete="off">
+            <div class="amf-actions">
+                <button class="btn btn-action amf-save" onclick="createPresenceInvite()">Create link</button>
+                <button class="btn amf-cancel" onclick="document.getElementById('invite-form').remove()">Cancel</button>
+            </div>
+            <div id="inv-feedback" class="amf-feedback"></div>
+            <div id="inv-result"></div>
+        </div>`;
+    box.innerHTML = '';
+    box.appendChild(form);
+}
+
+async function createPresenceInvite() {
+    const role = (document.getElementById('inv-role')?.value) || 'member';
+    const label = (document.getElementById('inv-label')?.value || '').trim();
+    const fb = document.getElementById('inv-feedback');
+    const out = document.getElementById('inv-result');
+    if (fb) fb.textContent = 'Creating…';
+    try {
+        const res = await fetch('/api/presence/invite', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role, label }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) { if (fb) fb.textContent = data.detail || data.error || 'Could not create the link.'; return; }
+        if (fb) fb.textContent = '';
+        const url = data.join_url || '';
+        out.innerHTML = `<div style="margin-top:10px;padding:10px;background:#0e0e16;border:1px solid #24242f;border-radius:8px;">
+            <div style="font-size:0.75rem;color:#888;margin-bottom:6px;">Send this to the person — they open it on their own phone to set up their Presence. Single-use, expires in 7 days.</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <input id="inv-link" class="amf-input" style="flex:1;" readonly value="${esc(url)}">
+                <button class="btn btn-action" onclick="copyInviteLink(event)">Copy</button>
+            </div>
+        </div>`;
+    } catch (e) { if (fb) fb.textContent = 'Error: ' + e.message; }
+}
+
+function copyInviteLink(ev) {
+    const el = document.getElementById('inv-link');
+    if (!el) return;
+    el.select();
+    try { navigator.clipboard.writeText(el.value); } catch (e) { try { document.execCommand('copy'); } catch (_) {} }
+    const btn = ev && ev.target;
+    if (btn) { const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = t; }, 1500); }
 }
 
 async function loadFamilyMemberTasks(memberId) {

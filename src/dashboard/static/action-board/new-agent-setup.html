@@ -1812,7 +1812,13 @@ async function provisionAgent() {
         // seed placeholder.
         const _coveName = coveNameParam.trim() || (await resolveCoveName());
         if (_firstrun && _coveName) _body.cove_name = _coveName;
-        const _endpoint = _firstrun ? '/api/presence/me/finalize' : '/api/presence/provision';
+        // Self-onboard (invite link opened on the invitee's OWN device): complete through the
+        // token-gated invite endpoint, which provisions on the COVE's model + mints THEIR door.
+        const _invite = urlParams.get('invite');
+        const _self = (urlParams.get('self') === '1') && !!_invite;
+        const _endpoint = _firstrun ? '/api/presence/me/finalize'
+            : (_self ? ('/api/presence/invite/' + encodeURIComponent(_invite) + '/complete')
+                     : '/api/presence/provision');
         try {
             const res = await fetch(_endpoint, {
                 method: 'POST',
@@ -1830,6 +1836,18 @@ async function provisionAgent() {
             }
             const fc = agentIdentity?.frequency_color || '#5ce1e6';
             document.getElementById('provision-nav').style.display = 'none';
+            // Self-onboard: the invitee just formed their own Presence on their own device →
+            // send them straight into THEIR Mission Control (the /complete endpoint minted the door).
+            if (_self) {
+                const _door = data.door || '/';
+                statusEl.innerHTML = `<div class="provision-status">
+                    <h3 style="color:${fc}">${esc(name)} is awake.</h3>
+                    <p style="color:#888;margin-top:6px;">You're all set — welcome to the family.</p>
+                    <a href="${esc(_door)}" style="display:inline-block;margin-top:14px;padding:11px 22px;background:${fc};color:#0b0b12;border-radius:8px;font-weight:700;text-decoration:none;">Enter your Mission Control</a>
+                </div>`;
+                if (data.door) setTimeout(() => { window.location.href = _door; }, 2500);
+                return;
+            }
             const forWhom = personParam || memberNameParam || name;
             // Build the existing signin-link result (shown after the wake, or now
             // if there's no usable presence id to wake under).

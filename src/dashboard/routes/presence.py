@@ -350,6 +350,12 @@ async def signin_link_auth(token: str, request: Request):
         needs_setup = False
 
     redirect_to = "/static/action-board/new-cove-setup.html?firstrun=1" if needs_setup else "/"
+    # Honor an internal ?next= landing target (e.g. a self-onboard invitee lands straight in
+    # Chat with their agent). Strictly internal paths only — never an open redirect.
+    if not needs_setup:
+        _next = (request.query_params.get("next") or "").strip()
+        if _next.startswith("/") and not _next.startswith("//"):
+            redirect_to = _next
     response = RedirectResponse(redirect_to)
     response.set_cookie(
         key=COOKIE_NAME,
