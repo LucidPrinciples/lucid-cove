@@ -12,21 +12,13 @@ models:
 
   # ── Cloud models ────────────────────────────────────────────────────────────
 
-  - id: kimi-k2.5
-    name: "Kimi K2.5 (Moonshot Direct)"
-    provider: moonshot
-    model_string: "kimi-k2.5"
-    type: cloud
-    context_window: 128000
-    notes: "Best reasoning. Direct Moonshot API — no OpenRouter relay. Use for orchestration, complex builds, auditing."
-
   - id: kimi-k2.5-openrouter
     name: "Kimi K2.5 (OpenRouter)"
     provider: openrouter
     model_string: "moonshotai/kimi-k2.5"
     type: cloud
     context_window: 128000
-    notes: "Legacy OpenRouter path. Use kimi-k2.5 (Moonshot direct) instead."
+    notes: "Best reasoning. Via OpenRouter, which covers Claude, GPT, DeepSeek and more with one key. No separate Moonshot-direct entry needed (same model)."
 
   - id: gemini-flash
     name: "Gemini 2.5 Flash"

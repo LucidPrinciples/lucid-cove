@@ -239,6 +239,14 @@ function _setupDoneLine(s) {
             <a href="${ESC(href)}" target="_blank" rel="noopener" style="color:var(--accent);">open it &#8599;</a>
             <span style="color:var(--dim);">(other devices need your Cove's mesh first)</span>
         </div>`;
+    } else if (s.id === 'add_intelligence' && typeof _presenceChatDoorHref === 'function') {
+        // jules 2026-07-07: the awake "Open chat" card was wiped by the post-connect re-render.
+        // Carry the chat link on the COMPLETED step instead, so it persists (like the address door).
+        const chref = _presenceChatDoorHref();
+        const agent = (typeof MC !== 'undefined' && MC.agentName) || 'Your agent';
+        if (chref) door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
+            ${ESC(agent)} is awake. <a href="${ESC(chref)}" target="_blank" rel="noopener" style="color:var(--accent);">Open chat &#8599;</a>
+        </div>`;
     }
     return `<div class="home-approval onboarding-card" style="opacity:.65;padding:6px 10px;">
         <div class="approval-tool" style="color:var(--green);">✓ ${ESC(s.title)}</div>${door}
@@ -261,11 +269,13 @@ function openOnboardingHelp() {
         m.onclick = (e) => { if (e.target === m) m.remove(); };
         m.innerHTML = `<div style="background:var(--bg-card,#1a1a1a);border:1px solid var(--border);border-radius:10px;max-width:460px;width:100%;padding:18px;font-size:0.8rem;line-height:1.55;color:var(--text);">
             <div style="font-weight:600;font-size:0.95rem;margin-bottom:8px;">How your Cove works</div>
-            <p>A <b>Cove</b> is your private family Intelligence. Three quick steps get it running:</p>
-            <p><b>1. Set your address.</b> Your Cove gets its own web address. That turns on HTTPS, so voice and the mic work, and gives everyone a clean link (you're <code>your-handle.your-address</code>).</p>
-            <p><b>2. Add intelligence.</b> Connect a model (your own key, or a local one). This switches on your <b>Agent</b> and the <b>Tools</b> — including jules.</p>
-            <p><b>3. Get it on your phone.</b> Join your phone to the private mesh, then open <b>jules</b> — talk anywhere and it lands in your Inbox for your agent to act on.</p>
-            <p style="color:var(--dim);">That's it. From there your agent helps you build, capture, and organize — and you can add family members, each with their own handle.</p>
+            <p>A <b>Cove</b> is your private family Intelligence. A few steps get it running. Do them in any order; nothing is required.</p>
+            <p><b>1. Add intelligence.</b> Connect a model (your own key, or a local one). This switches on your <b>Agent</b> and the <b>Tools</b>, including jules.</p>
+            <p><b>2. Set your address.</b> Your Cove gets its own web address. That turns on HTTPS so voice and the mic work, and gives everyone a clean link (you're <code>your-handle.your-address</code>).</p>
+            <p><b>3. Set up compute.</b> Choose where heavy work runs: a cloud model, this box's GPU, a GPU rented from another Cove, or CPU only.</p>
+            <p><b>4. Connect on mobile.</b> Join your phone to the private mesh, then open <b>jules</b> and talk anywhere. It lands in your Inbox for your agent to act on.</p>
+            <p><b>5. Protect your Cove.</b> It backs itself up every night to a private repo you own, so if this box dies your Cove doesn't.</p>
+            <p style="color:var(--dim);">From there your agent helps you build, capture, and organize, and you can add family members, each with their own handle.</p>
             <div style="text-align:right;margin-top:10px;"><button class="btn-approve" onclick="document.getElementById('onboarding-help-modal').remove()">Got it</button></div>
         </div>`;
         document.body.appendChild(m);
