@@ -354,7 +354,7 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
         <h1>New Agent Setup</h1>
         <a href="/" class="back-mc" target="_top">← Back to Mission Control</a>
     </div>
-    <script>if (window.location.search.includes('embedded=1') || window.location.search.includes('firstrun=1')) document.querySelector('.back-mc')?.remove();</script>
+    <script>if (window.location.search.includes('embedded=1') || window.location.search.includes('firstrun=1') || window.location.search.includes('self=1')) document.querySelector('.back-mc')?.remove();</script>
     <p class="flow-subtitle">Shape the personal agent who represents you. Not a tool you configure. A companion you bring into being. Take your time with this.</p>
 
     <div class="progress-bar" id="progress">
@@ -1528,9 +1528,9 @@ function onCustomName() {
 // The standard Cove team they're joining, shown alongside their own agent.
 // ══════════════════════════════════════════════════════════════════════════════
 let _teamLoaded = false;
-function _showcaseCard(ini, title, sub, avatarBase) {
-    const av = avatarBase
-        ? '<img src="/static/avatars/' + avatarBase + '.png" alt="" style="position:absolute;inset:0;width:40px;height:40px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\'">'
+function _showcaseCard(ini, title, sub, avatarUrl) {
+    const av = avatarUrl
+        ? '<img src="' + avatarUrl + '" alt="" style="position:absolute;inset:0;width:40px;height:40px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\'">'
         : '';
     return '<div style="background:#14141c;border:1px solid #24242f;border-radius:10px;padding:12px;text-align:center;">' +
         '<div style="position:relative;width:40px;height:40px;margin:0 auto 8px;">' +
@@ -1554,19 +1554,42 @@ async function loadTeamShowcase() {
     try {
         let html = '';
         let coveName = '';
-        // Who's already in the Cove (existing Presences) — only when JOINING an existing Cove.
+        // JOINING an existing Cove: show the NEW Presence forming right now FIRST (agent on
+        // top, the person as the new addition), then who's ALREADY in the Cove (excluding the
+        // person joining — they're the new one, not an existing member).
         if (joining) {
+            // Who is joining (the signed-in seed) — used to exclude self + label the new card.
+            let _meHandle = '', _meName = '';
+            try {
+                const me = await (await fetch('/api/presence/me')).json();
+                const mp = me && me.presence;
+                _meHandle = ((mp && mp.username) || '').replace(/^@/, '').toLowerCase();
+                _meName = (mp && mp.display_name) || '';
+            } catch (e) { /* best-effort */ }
+
+            // The new Presence: agent (title) + the person (as the new addition).
+            const _agentName = _titleCaseName((selectedName || (document.getElementById('custom-name')?.value || '')).trim());
+            if (_agentName) {
+                const _newAvatar = (agentIdentity && agentIdentity.avatar) || '';
+                html += _showcaseHead('joining now') + _showcaseGrid([
+                    _showcaseCard((_agentName[0] || '?').toUpperCase(), _agentName,
+                                  _meName ? ('for ' + _meName) : 'your new presence', _newAvatar),
+                ]);
+            }
+
             try {
                 const fr = await fetch('/api/family');
                 const fd = await fr.json();
                 coveName = (fd.family && fd.family.name) || '';
-                const members = (fd.members || []).filter(m => m && (m.name || m.display_name));
+                const members = (fd.members || []).filter(m => m && (m.name || m.display_name)
+                    && ((m.username || '').replace(/^@/, '').toLowerCase() !== _meHandle));
                 if (members.length) {
                     const cards = members.map(m => {
                         const pn = String(m.name || m.display_name || '').trim();
-                        const ag = String(m.agent_name || (m.agent && m.agent.name) || '').split(' ')[0].trim();
-                        const sub = ag ? ('with ' + ag) : (m.cove_role || 'Operator');
-                        return _showcaseCard((pn[0] || '?').toUpperCase(), pn, sub, '');
+                        const ag = String((m.personal_agent && m.personal_agent.name) || m.agent_name || '').split(' ')[0].trim();
+                        const sub = ag ? ('with ' + ag) : (m.role || 'Presence');
+                        const avatar = m.avatar_url || (m.personal_agent && m.personal_agent.avatar) || '';
+                        return _showcaseCard((pn[0] || '?').toUpperCase(), pn, sub, avatar);
                     });
                     html += _showcaseHead("who's already in the Cove") + _showcaseGrid(cards);
                 }
@@ -1589,7 +1612,7 @@ async function loadTeamShowcase() {
                     const a = team[id];
                     const base = String(id).split('-')[0];
                     const nm = (a.name || base).split(' ')[0];
-                    return _showcaseCard((String(nm)[0] || '?').toUpperCase(), nm, a.archetype || a.role || '', base);
+                    return _showcaseCard((String(nm)[0] || '?').toUpperCase(), nm, a.archetype || a.role || '', '/static/avatars/' + base + '.png');
                 });
                 html += _showcaseHead(joining ? '… and the build team' : '… and your team') + _showcaseGrid(cards);
             }
@@ -1845,12 +1868,13 @@ async function provisionAgent() {
             // send them straight into THEIR Mission Control (the /complete endpoint minted the door).
             if (_self) {
                 const _door = data.door || '/';
+                // No auto-redirect — it flashed by before the person could see what happened.
+                // They tap in when ready; the button lands them in their own Chat with the agent.
                 statusEl.innerHTML = `<div class="provision-status">
                     <h3 style="color:${fc}">${esc(name)} is awake.</h3>
-                    <p style="color:#888;margin-top:6px;">You're all set — welcome to the family.</p>
-                    <a href="${esc(_door)}" style="display:inline-block;margin-top:14px;padding:11px 22px;background:${fc};color:#0b0b12;border-radius:8px;font-weight:700;text-decoration:none;">Enter your Mission Control</a>
+                    <p style="color:#888;margin-top:6px;">You're all set — welcome to the family. Meet ${esc(name)} in your Chat.</p>
+                    <a href="${esc(_door)}" style="display:inline-block;margin-top:14px;padding:11px 22px;background:${fc};color:#0b0b12;border-radius:8px;font-weight:700;text-decoration:none;">Meet ${esc(name)} →</a>
                 </div>`;
-                if (data.door) setTimeout(() => { window.location.href = _door; }, 2500);
                 return;
             }
             const forWhom = personParam || memberNameParam || name;

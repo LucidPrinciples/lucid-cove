@@ -418,12 +418,18 @@ async def complete_invite(token: str, request: Request):
             (uuid.UUID(pid), inv["id"]))
 
     # Land them straight in Chat with their agent. mint_signin_door rotates a fresh
-    # session-backed token on the Cove root; the /p door honors an internal ?next=.
+    # session-backed token on the Cove ROOT (their {handle}.{cove} subdomain is mesh-only,
+    # so root is the reachable address for a remote invitee). The /p door honors an internal
+    # ?next=. We thread `?as={handle}` so an ADMIN invitee gets their PERSONAL home+chat, not
+    # the Cove-admin apex surface (core.py forces personal view on ?as=<own handle>); it's a
+    # harmless no-op for a member (who never gets the admin apex anyway).
     from urllib.parse import urlencode
+    _final_handle = (new_handle or presence.get("username") or "").lstrip("@")
+    _next = ("/?as=%s&tab=chat" % _final_handle) if _final_handle else "/?tab=chat"
     dom = _cove_domain()
-    door = await mint_signin_door(pid, dom) if dom else "/?tab=chat"
+    door = await mint_signin_door(pid, dom) if dom else _next
     if door and dom:
-        door = door + ("&" if "?" in door else "?") + urlencode({"next": "/?tab=chat"})
+        door = door + ("&" if "?" in door else "?") + urlencode({"next": _next})
     from fastapi.responses import JSONResponse
     resp = JSONResponse({"ok": True, "presence_id": pid, "door": door, "role": role})
     resp.delete_cookie("lp_invite", path="/")   # onboarding capability consumed
