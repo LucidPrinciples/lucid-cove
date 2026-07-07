@@ -224,7 +224,9 @@ async def ensure_haven_space(request: Request, haven_id: str, name: str, members
 
     # Haven Space (m.space) — owned by the steward, operator + members invited
     s, r = await _http("POST", "/_matrix/client/v3/createRoom", tok, {
-        "name": name, "topic": "A haven of connected Coves",
+        # jules 07-07: name the Space "{name} Haven" so its invite is clearly distinct from the
+        # "{name} Commons" chat invite — an operator receives BOTH, and they were two blank prompts.
+        "name": "%s Haven" % name, "topic": "A haven of connected Coves",
         "creation_content": {"type": "m.space"},
         "preset": "private_chat", "visibility": "private", "invite": invitees})
     if s != 200:
@@ -272,6 +274,12 @@ async def nest_member_cove(request: Request, haven_id: str, cove_key: str) -> di
                        % (_up.quote(st["space_id"]), _up.quote(child_space)), tok, {"via": [via]})
     if s != 200:
         raise HTTPException(502, "Nest member Cove failed: %s" % r)
+    # jules 07-07: auto-invite the member Cove's operator to the Haven Space + Commons — nesting
+    # alone only writes the structure (m.space.child); without this the Commons never shows on their
+    # side until a SEPARATE invite. Best-effort; needs the member's registered owner_handle.
+    _mop = (cove.get("owner_handle") or "").strip().lstrip("@")
+    if _mop and via and st.get("commons_id"):
+        await _invite(tok, [st["space_id"], st["commons_id"]], ["@%s:%s" % (_mop, via)])
     # Record the membership in the registrar (best-effort).
     await registry_client.add_haven_member(
         haven_id, cove={"cove_id": cove.get("cove_id"), "space_id": child_space, "homeserver": via})
