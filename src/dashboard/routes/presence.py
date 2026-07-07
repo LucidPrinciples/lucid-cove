@@ -702,6 +702,14 @@ def _sanitize_name(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _titlecase_name(s: str) -> str:
+    """Per-word first-letter uppercase, preserving internal caps (McLeod stays McLeod).
+    Mirrors the wizard's _capname/_titleCaseName so a lowercase-typed agent name stores
+    capitalized on the member-add path too — the founding-root path already caps, this
+    gives parity so 'janet' becomes 'Janet' everywhere."""
+    return " ".join((w[:1].upper() + w[1:]) if w else w for w in (s or "").split(" "))
+
+
 async def _unique_handle(conn, base: str) -> str:
     """Ensure the handle is unique within this Cove (accounts.username)."""
     handle, n = base, 1
@@ -849,7 +857,7 @@ async def _create_presence_record(
     # direct API call or stale cached JS can't store junk (idempotent on names the
     # client already cleaned).
     display_name = _sanitize_name(display_name)
-    agent_name = _sanitize_name(agent_name)
+    agent_name = _titlecase_name(_sanitize_name(agent_name))
     from src.config import load_cove_config
     _cove = load_cove_config()
     # last_name = the Cove name for EVERY presence (the agent's full name is

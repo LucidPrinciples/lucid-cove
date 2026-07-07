@@ -1528,35 +1528,64 @@ function onCustomName() {
 // The standard Cove team they're joining, shown alongside their own agent.
 // ══════════════════════════════════════════════════════════════════════════════
 let _teamLoaded = false;
+function _showcaseCard(ini, title, sub, avatarBase) {
+    const av = avatarBase
+        ? '<img src="/static/avatars/' + avatarBase + '.png" alt="" style="position:absolute;inset:0;width:40px;height:40px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\'">'
+        : '';
+    return '<div style="background:#14141c;border:1px solid #24242f;border-radius:10px;padding:12px;text-align:center;">' +
+        '<div style="position:relative;width:40px;height:40px;margin:0 auto 8px;">' +
+          '<div style="position:absolute;inset:0;border-radius:50%;background:#2a2d3a;color:#cfcfe0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;">' + ini + '</div>' + av +
+        '</div>' +
+        '<div style="font-size:12.5px;font-weight:600;color:#e1e4ea;">' + esc(title) + '</div>' +
+        '<div style="font-size:10.5px;color:#999;margin-top:2px;">' + esc(sub) + '</div>' +
+    '</div>';
+}
+function _showcaseHead(label) {
+    return '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#888;text-align:center;margin:4px 0 12px;">' + label + '</div>';
+}
+function _showcaseGrid(cards) {
+    return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;margin-bottom:16px;">' + cards.join('') + '</div>';
+}
 async function loadTeamShowcase() {
     if (_teamLoaded) return;
     const el = document.getElementById('team-showcase');
     if (!el) return;
+    const joining = urlParams.get('firstrun') !== '1';
     try {
+        let html = '';
+        // Who's already in the Cove (existing Presences) — only when JOINING an existing Cove.
+        if (joining) {
+            try {
+                const fr = await fetch('/api/family');
+                const fd = await fr.json();
+                const members = (fd.members || []).filter(m => m && (m.name || m.display_name));
+                if (members.length) {
+                    const cards = members.map(m => {
+                        const pn = String(m.name || m.display_name || '').trim();
+                        const ag = String(m.agent_name || (m.agent && m.agent.name) || '').split(' ')[0].trim();
+                        const sub = ag ? ('with ' + ag) : (m.cove_role || 'Operator');
+                        return _showcaseCard((pn[0] || '?').toUpperCase(), pn, sub, '');
+                    });
+                    html += _showcaseHead("who's already in the Cove") + _showcaseGrid(cards);
+                }
+            } catch (e) { /* presences best-effort */ }
+        }
+        // The build team — first names only (the surname is just the Cove name, redundant here).
         const r = await fetch('/api/team/roster');
         const data = await r.json();
         const team = data.agents || data.team || {};
         const ids = Object.keys(team).filter(k => team[k] && typeof team[k] === 'object');
-        if (!ids.length) return;
+        if (ids.length) {
+            const cards = ids.map(id => {
+                const a = team[id];
+                const base = String(id).split('-')[0];
+                const nm = (a.name || base).split(' ')[0];
+                return _showcaseCard((String(nm)[0] || '?').toUpperCase(), nm, a.archetype || a.role || '', base);
+            });
+            html += _showcaseHead(joining ? '… and the build team' : '… and your team') + _showcaseGrid(cards);
+        }
+        if (!html) return;
         _teamLoaded = true;
-        let html = '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#888;text-align:center;margin:4px 0 12px;">… and your team</div>';
-        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;">';
-        ids.forEach(id => {
-            const a = team[id];
-            const base = String(id).split('-')[0];
-            const nm = a.name || base;
-            const det = a.archetype || a.role || '';
-            const ini = (String(nm)[0] || '?').toUpperCase();
-            html += '<div style="background:#14141c;border:1px solid #24242f;border-radius:10px;padding:12px;text-align:center;">' +
-                '<div style="position:relative;width:40px;height:40px;margin:0 auto 8px;">' +
-                  '<div style="position:absolute;inset:0;border-radius:50%;background:#2a2d3a;color:#cfcfe0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;">' + ini + '</div>' +
-                  '<img src="/static/avatars/' + base + '.png" alt="" style="position:absolute;inset:0;width:40px;height:40px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\'">' +
-                '</div>' +
-                '<div style="font-size:12.5px;font-weight:600;color:#e1e4ea;">' + esc(nm) + '</div>' +
-                '<div style="font-size:10.5px;color:#999;margin-top:2px;">' + esc(det) + '</div>' +
-            '</div>';
-        });
-        html += '</div>';
         el.innerHTML = html;
         el.style.display = 'block';
     } catch (e) { /* showcase is best-effort */ }
@@ -1595,9 +1624,13 @@ async function buildReview() {
         const _l = document.querySelector('#step-5 .step-label');
         const _t = document.querySelector('#step-5 .step-title');
         const _d = document.querySelector('#step-5 .step-desc');
-        if (_l) _l.textContent = 'Add to your Cove';
-        if (_t) _t.textContent = `Meet ${name}`;
-        if (_d) _d.textContent = `You're adding ${name} to your ${familyName} Cove. Here's ${name} and the team they're joining. The moment you hit the button, ${name} comes online.`;
+        const _cap = _titleCaseName(name);
+        const _admin = roleParam === 'admin';
+        if (_l) _l.textContent = _admin ? 'Join as admin' : 'Join the Cove';
+        if (_t) _t.textContent = `Meet ${_cap}`;
+        if (_d) _d.textContent = _admin
+            ? `You and ${_cap} are joining the ${familyName} Cove as an admin. You'll work with ${_cap}, Stuart, and the build team. Here's everyone already here — welcome to the family.`
+            : `You and ${_cap} are forming a Presence in the ${familyName} Cove. Here's everyone already here — welcome to the family. The moment you hit the button, ${_cap} comes online.`;
     }
 
     // Show loading, hide content
