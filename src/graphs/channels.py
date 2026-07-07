@@ -455,19 +455,30 @@ def _channel_tool_modules(channel: str):
 # =============================================================================
 
 def _get_tool_tier(tool_func) -> Optional[str]:
-    """Check if a tool has an approval tier assigned in config.
+    """Resolve a tool's approval tier: 'auto', 'notify', or 'block'.
 
-    Returns: 'auto', 'notify', 'block', or None (no tiers configured).
+    Resolution order:
+      1. config `tools.approval_tiers` — if it lists this tool, that wins (operator override).
+      2. the tool's own @approve/@notify/@auto decorator tag (the default, always present).
+
+    This is why an @approve tool (e.g. git_push) blocks even when no approval_tiers
+    config is set: the decorator is the source of truth, config only overrides it.
     """
-    tiers = get_approval_tiers()
-    if not tiers:
-        return None
-
     tool_name = getattr(tool_func, "name", str(tool_func))
-    for tier_name, tool_names in tiers.items():
-        if tool_name in tool_names:
-            return tier_name
-    return "auto"  # default tier if tiers are configured but tool isn't listed
+
+    # 1. Explicit config override wins.
+    tiers = get_approval_tiers()
+    if tiers:
+        for tier_name, tool_names in tiers.items():
+            if tool_name in tool_names:
+                return tier_name
+
+    # 2. Fall back to the tool's decorator tag (auto/notify/approve -> auto/notify/block).
+    try:
+        from src.tools.approval import get_tier, Tier
+        return {Tier.APPROVE: "block", Tier.NOTIFY: "notify", Tier.AUTO: "auto"}[get_tier(tool_func)]
+    except Exception:
+        return "auto"
 
 
 # =============================================================================
@@ -763,10 +774,10 @@ async def agent_node(state: ChannelState) -> dict:
         )
     channel_addition = get_channel_system_addition(channel)
 
-    # Add approval queue status if approval system is active
+    # Surface any pending approvals (they exist in the DB regardless of how they were
+    # raised — decorator gate or a tool's inline request), so the agent can reference them.
     approval_note = ""
-    tiers = get_approval_tiers()
-    if tiers:
+    if True:
         try:
             from src.tools.approval import get_pending_approvals
             pending = await get_pending_approvals()
@@ -1147,7 +1158,6 @@ async def tool_node(state: ChannelState) -> dict:
 
     tools = get_tools(_channel_tool_modules(state.get("channel", "")))
     tool_map = {t.name: t for t in tools}
-    tiers = get_approval_tiers()
 
     tool_messages = []
     for call in last_message.tool_calls:
@@ -1164,22 +1174,21 @@ async def tool_node(state: ChannelState) -> dict:
             continue
 
         try:
-            # Check approval tiers if configured
-            if tiers:
-                tier = _get_tool_tier(tool_func)
-                if tier == "block":
-                    try:
-                        from src.tools.approval import block_for_approval, ApprovalRequired
-                        channel = state.get("channel", "")
-                        await block_for_approval(tool_name, tool_args, channel=channel)
-                    except ImportError:
-                        pass  # No approval module — run freely
-                elif tier == "notify":
-                    try:
-                        from src.tools.approval import log_notify
-                        log_notify(tool_name, tool_args)
-                    except ImportError:
-                        pass
+            # Approval tier: decorator tag by default, config can override. Always checked.
+            tier = _get_tool_tier(tool_func)
+            if tier == "block":
+                try:
+                    from src.tools.approval import block_for_approval, ApprovalRequired
+                    channel = state.get("channel", "")
+                    await block_for_approval(tool_name, tool_args, channel=channel)
+                except ImportError:
+                    pass  # No approval module — run freely
+            elif tier == "notify":
+                try:
+                    from src.tools.approval import log_notify
+                    log_notify(tool_name, tool_args)
+                except ImportError:
+                    pass
 
             result = await tool_func.ainvoke(tool_args)
             result_str = str(result)

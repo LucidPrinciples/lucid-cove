@@ -79,11 +79,15 @@ tabs:
 # ─── Tools ────────────────────────────────────────────────────────────────────
 tools:
   modules: []
-  # approval_tiers:           # Uncomment to enable approval system
-  #   auto:
-  #     - "*"                  # Default: all tools auto-execute
-  #   notify: []
-  #   block: []
+  # Approval tiers are ON BY DEFAULT via each tool's @approve/@notify decorator
+  # (e.g. git_push, create_github_pr, run_write_sql -> block; the agent proposes and
+  # waits for operator sign-off in Mission Control). You only need approval_tiers below
+  # to OVERRIDE a tool's default tier for this agent. Listed tools win; unlisted tools
+  # keep their decorator tier.
+  # approval_tiers:
+  #   auto:   []               # force these to run without sign-off
+  #   notify: []               # force these to run + log
+  #   block:  []               # force these to require approval
 
 # ─── Agent-Specific Routes ────────────────────────────────────────────────────
 # Additional FastAPI route modules to register (beyond core routes).
