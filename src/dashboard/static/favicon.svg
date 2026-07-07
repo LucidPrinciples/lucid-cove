@@ -1,6 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 440">
-  <path d="M 75,370 Q 75,120 250,45 Q 425,120 425,370" fill="none" stroke="#4682b4" stroke-width="12" stroke-linecap="butt"/>
-  <path d="M 150,370 Q 150,190 250,120 Q 350,190 350,370" fill="none" stroke="#5ce1e6" stroke-width="24" stroke-linecap="butt"/>
-  <line x1="69" y1="370" x2="431" y2="370" stroke="#4682b4" stroke-width="7" stroke-linecap="butt"/>
-  <circle cx="250" cy="272" r="15" fill="#5ce1e6"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500"><rect width="500" height="500" fill="#0a0a0f"/><g transform="translate(0,20)"><path d="m75 370q0-250 175-325 175 75 175 325z" fill="#0a0a0f"/><path d="m75 370q0-250 175-325 175 75 175 325" fill="none" stroke="#4682b4" stroke-width="12"/><path d="m150 370q0-180 100-250 100 70 100 250" fill="none" stroke="#5ce1e6" stroke-width="24"/><path d="m69 370h362" stroke="#4682b4" stroke-width="7"/><g fill="#5ce1e6"><circle cx="250" cy="272" r="15"/></g></g></svg>
