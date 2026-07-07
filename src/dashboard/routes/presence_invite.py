@@ -168,7 +168,12 @@ async def open_invite(token: str, request: Request):
     q = {"invite": token, "role": inv["role"], "self": "1", "embedded": "1"}
     if inv.get("reserved_handle"):
         q["handle"] = inv["reserved_handle"]
-    return RedirectResponse("%s?%s" % (_WIZARD, urlencode(q)), status_code=302)
+    resp = RedirectResponse("%s?%s" % (_WIZARD, urlencode(q)), status_code=302)
+    # Onboarding capability cookie: the invitee has no session yet, so this authorizes ONLY
+    # the wizard's onboarding endpoints (middleware checks it). httponly (server-read only),
+    # 1-hour window, cleared at /complete; the invite is single-use so it self-closes anyway.
+    resp.set_cookie("lp_invite", token, httponly=True, samesite="lax", max_age=3600, path="/")
+    return resp
 
 
 # ── Complete (public, gated by the token) ────────────────────────────────────
@@ -248,4 +253,7 @@ async def complete_invite(token: str, request: Request):
         # Land them straight in Chat with their agent (the /p door honors an internal ?next=).
         from urllib.parse import urlencode
         door = door + ("&" if "?" in door else "?") + urlencode({"next": "/?tab=chat"})
-    return {"ok": True, "presence_id": str(presence_id), "door": door, "role": inv["role"]}
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse({"ok": True, "presence_id": str(presence_id), "door": door, "role": inv["role"]})
+    resp.delete_cookie("lp_invite", path="/")   # onboarding capability consumed
+    return resp

@@ -188,6 +188,26 @@ class OperatorAuthMiddleware(BaseHTTPMiddleware):
         if presence:
             return await call_next(request)
 
+        # Self-onboard capability: an invitee running the wizard has NO session yet (they
+        # become a Presence only at /complete). A valid, open invite cookie authorizes ONLY
+        # the onboarding endpoints — the wizard's model/flow calls, the family read for the
+        # showcase, and the token-gated completion. Nothing else. The invite is single-use +
+        # expiring, so this capability closes itself. (2026-07-07, self-onboard.)
+        _is_onboarding = (
+            path.startswith("/api/flow/")
+            or path == "/api/family"
+            or (path.startswith("/api/presence/invite/") and path.endswith("/complete"))
+        )
+        if _is_onboarding:
+            inv_tok = request.cookies.get("lp_invite", "")
+            if inv_tok:
+                try:
+                    from src.dashboard.routes.presence_invite import _valid_invite
+                    if await _valid_invite(inv_tok):
+                        return await call_next(request)
+                except Exception:
+                    pass
+
         # No valid auth — reject
         from fastapi.responses import JSONResponse
         return JSONResponse(
