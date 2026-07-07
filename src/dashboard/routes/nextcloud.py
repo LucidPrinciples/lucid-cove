@@ -70,15 +70,15 @@ PRESENCE_FOLDERS = [
     # (a future cross-Presence share, CF-113). Existing Coves keep whatever they have.
     "AgentSkills/Content",
     "AgentSkills/Content/video",
+    # #1524 — seed ONLY the folders the pipeline actually uses (inbox -> processing -> raw,
+    # with transcripts/shorts/moments as products). Dropped processed/clips/thumbnails/done:
+    # they were seeded but never read or written anywhere (the stale folders on the Files screen).
     "AgentSkills/Content/video/inbox",
-    "AgentSkills/Content/video/raw",
     "AgentSkills/Content/video/processing",
+    "AgentSkills/Content/video/raw",
     "AgentSkills/Content/video/transcripts",
-    "AgentSkills/Content/video/processed",
-    "AgentSkills/Content/video/clips",
     "AgentSkills/Content/video/shorts",
-    "AgentSkills/Content/video/thumbnails",
-    "AgentSkills/Content/video/done",
+    "AgentSkills/Content/video/moments",
     "AgentSkills/Content/images",
     "AgentSkills/Content/audio",
     "AgentSkills/Content/posts",
