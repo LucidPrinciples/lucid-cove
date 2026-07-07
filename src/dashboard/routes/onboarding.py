@@ -71,7 +71,14 @@ async def onboarding_items(request: Request):
     #   2. Intelligence — the model/API that activates Agents + Tools (incl. jules).
     #   3. Device + jules — get the Cove on your phone (walk-around capture).
     # A member (non-admin) doesn't set the Cove address — it's already done for them.
-    address_done = _domain_set or (not is_admin)
+    # jules 07-07: a self-host claim SAVES the domain but isn't LIVE until the host command runs
+    # (set_domain.py stamps domain_live). Keep the step OPEN until live so the command stays reachable
+    # instead of collapsing on save. Absent marker defaults to live — existing Coves are unaffected.
+    try:
+        _addr_live = bool(_cc.get("domain_live", True))
+    except Exception:
+        _addr_live = True
+    address_done = (_domain_set and _addr_live) or (not is_admin)
     # "Done" only on an EXPLICIT operator choice (Ollama or a key) or a real key —
     # not a provisioner default provider string (which would falsely show connected).
     intel_done = bool(ac.get("intelligence_configured") or (ac.get("model_api_key") or "").strip())
@@ -168,6 +175,10 @@ async def onboarding_items(request: Request):
             # fresh from the live token store in Settings → Devices ("My door link").
             "domain": ((_cc.get("domain") or "").strip() if _domain_set else ""),
             "door": (f"https://{(_cc.get('domain') or '').strip()}" if _domain_set else ""),
+            # jules 07-07: when saved-but-not-live, hand back the exact host command so the card can
+            # keep showing it (never collapse it out of reach). Empty once live.
+            "host_command": ((_cc.get("pending_host_command") or "").strip()
+                             if (_domain_set and not _addr_live) else ""),
             "body": ("Set your Cove's address — your lucidcove.org subdomain, or your own "
                      "domain. Everyone here becomes {handle}.{your-address}, and it turns on "
                      "HTTPS so voice and the mic just work."),
@@ -301,6 +312,24 @@ async def onboarding_ack(request: Request):
             "UPDATE accounts SET agent_config = %s, updated_at = NOW() WHERE id = %s",
             (json.dumps(ac), str(p["id"])),
         )
+    return {"ok": True}
+
+
+@router.post("/api/onboarding/address-live")
+async def onboarding_address_live(request: Request):
+    """Operator-attested: they ran the host command for the address, so mark it live.
+    In-container we can NEVER detect that the host command ran (no docker socket), so the
+    'Ran the command? Refresh setup' click is the signal — it flips domain_live + clears the
+    stored pending command so the claim step completes instead of showing the command forever."""
+    from src.dashboard.routes.presence import get_current_presence
+    p = await get_current_presence(request)
+    if not p or not p.get("id"):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
+    try:
+        from src.config import save_cove_config
+        save_cove_config({"domain_live": True, "pending_host_command": ""})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
     return {"ok": True}
 
 

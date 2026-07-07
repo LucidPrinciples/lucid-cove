@@ -302,7 +302,17 @@ async def domain_set(body: DomainSet, request: Request):
     # (see below), so a failed change leaves the current address intact.
     def _persist() -> bool:
         try:
-            return bool(save_cove_config({"domain": domain, "subdomain_routing": True}))
+            # jules 07-07: record whether the address is actually LIVE yet. A self-host claim SAVES
+            # the domain but still owes the host command (_matrix_needs_host); until it runs the
+            # address isn't live. Persist domain_live + the exact pending command so onboarding keeps
+            # the step OPEN and hands the command back (it was collapsing on save, out of reach).
+            # set_domain.py flips domain_live=true + clears pending_host_command when it completes.
+            _pending = bool(_matrix_needs_host())
+            return bool(save_cove_config({
+                "domain": domain, "subdomain_routing": True,
+                "domain_live": (not _pending),
+                "pending_host_command": (host_command if _pending else ""),
+            }))
         except Exception as e:
             log.error("save_cove_config(domain=%s) failed: %s", domain, e)
             return False

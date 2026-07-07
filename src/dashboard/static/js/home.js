@@ -322,6 +322,21 @@ function _onboardingCardHtml(item) {
         </div>`;
     }
     if (item.id === 'claim_address') {
+        // jules 07-07: domain saved but not live yet (self-host command pending). Show the command +
+        // door directly so they survive a reload — previously the step collapsed to a command-less
+        // done-line the instant the domain saved, stranding the operator.
+        if (item.host_command) {
+            const _pd = ESC(item.domain || '');
+            const _pdoor = ESC(item.door || ('https://' + (item.domain || '')));
+            return `<div class="home-approval onboarding-card">
+                <div class="approval-tool">${title}</div>
+                <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then refresh:</div>
+                <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
+                <div style="margin-top:10px;color:var(--text);">When it finishes, your Cove is live at <b>https://${_pd}</b>, and this link signs you in:</div>
+                <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="${_pdoor}" target="_blank" rel="noopener">Open my Cove &#8599;</a>
+                <div style="margin-top:10px;"><button class="btn-ghost" onclick="_addrRanCommand(this)">Ran the command? Refresh setup</button></div>
+            </div>`;
+        }
         const sub = ESC(item.cove_subdomain || '');
         // Subdomain is the recommended default: zero DNS, zero token — one click and we
         // (the hub) create the records + issue HTTPS. Own domain is the power option.
@@ -576,6 +591,14 @@ async function _addrOpen(btn) {
     }
 }
 
+async function _addrRanCommand(btn) {
+    // jules 07-07: operator attests they ran the host command → mark the address live so the
+    // claim step completes (in-container we can't detect the host command ran), then reload.
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try { await fetch('/api/onboarding/address-live', { method: 'POST' }); } catch (e) {}
+    location.reload();
+}
+
 function _addrShowClaim(reach) {
     const step = document.getElementById('addr-mesh-step');
     if (step) step.style.display = 'none';
@@ -763,7 +786,7 @@ async function saveDomain(btn, confirmChange) {
                     + `<div style="margin-top:12px;color:var(--text);">When it finishes, your Cove is live at <b>https://${ESC(d.domain)}</b>. The secure connection takes about a minute, then open it here, already signed in:</div>`
                     + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="${ESC(_door)}" target="_blank" rel="noopener">Open my Cove &#8599;</a>`
                     + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This link signs you in at your new address. Once your Cove opens there you can close this localhost tab. It was just the setup surface.</div>`
-                    + `<div style="margin-top:10px;"><button class="btn-ghost" onclick="location.reload()">Ran the command? Refresh setup</button></div>`;
+                    + `<div style="margin-top:10px;"><button class="btn-ghost" onclick="_addrRanCommand(this)">Ran the command? Refresh setup</button></div>`;
             }
             out.innerHTML = html;
         }
