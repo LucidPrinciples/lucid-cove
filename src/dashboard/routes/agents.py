@@ -523,6 +523,16 @@ async def set_model_assignment(agent_id: str, request: Request):
             try:
                 from src.models.provider import model_is_runnable
                 if model_is_runnable(wp):
+                    # E (jules 07-07): keep compute.llm in step with the chosen brain, so Compute
+                    # doesn't read "cloud" after the operator picked a LOCAL (Ollama) model. Provider
+                    # == ollama => local; anything else => cloud. Best-effort, never blocks the pick.
+                    try:
+                        from src.models.provider import _resolve_model_string
+                        from src.config import set_compute_config
+                        _prov, _ = _resolve_model_string(wp)
+                        set_compute_config("llm", mode=("local" if (_prov or "").strip().lower() == "ollama" else "cloud"))
+                    except Exception as _ce:
+                        log.warning("compute.llm sync skipped: %s", _ce)
                     from src.dashboard.routes.presence import get_current_presence
                     p = await get_current_presence(request)
                     if p and p.get("id"):
