@@ -1553,11 +1553,13 @@ async function loadTeamShowcase() {
     const joining = urlParams.get('firstrun') !== '1';
     try {
         let html = '';
+        let coveName = '';
         // Who's already in the Cove (existing Presences) — only when JOINING an existing Cove.
         if (joining) {
             try {
                 const fr = await fetch('/api/family');
                 const fd = await fr.json();
+                coveName = (fd.family && fd.family.name) || '';
                 const members = (fd.members || []).filter(m => m && (m.name || m.display_name));
                 if (members.length) {
                     const cards = members.map(m => {
@@ -1570,19 +1572,27 @@ async function loadTeamShowcase() {
                 }
             } catch (e) { /* presences best-effort */ }
         }
-        // The build team — first names only (the surname is just the Cove name, redundant here).
-        const r = await fetch('/api/team/roster');
-        const data = await r.json();
-        const team = data.agents || data.team || {};
-        const ids = Object.keys(team).filter(k => team[k] && typeof team[k] === 'object');
-        if (ids.length) {
-            const cards = ids.map(id => {
-                const a = team[id];
-                const base = String(id).split('-')[0];
-                const nm = (a.name || base).split(' ')[0];
-                return _showcaseCard((String(nm)[0] || '?').toUpperCase(), nm, a.archetype || a.role || '', base);
-            });
-            html += _showcaseHead(joining ? '… and the build team' : '… and your team') + _showcaseGrid(cards);
+        // The build team. Admins (and the founder) work with it directly. A MEMBER reaches it
+        // THROUGH their Cove's admins, so we don't present the team as theirs — a soft line
+        // instead of the grid (the admin/member access model, 2026-07-07).
+        if (joining && roleParam !== 'admin') {
+            const _cn = coveName ? (esc(coveName) + ' ') : '';
+            html += '<div style="font-size:11.5px;color:#8a8a97;text-align:center;margin:6px auto 2px;max-width:340px;line-height:1.55;">The ' + _cn + 'build team works behind the scenes — you\'ll reach them through your Cove\'s admins.</div>';
+        } else {
+            // First names only (the surname is just the Cove name, redundant here).
+            const r = await fetch('/api/team/roster');
+            const data = await r.json();
+            const team = data.agents || data.team || {};
+            const ids = Object.keys(team).filter(k => team[k] && typeof team[k] === 'object');
+            if (ids.length) {
+                const cards = ids.map(id => {
+                    const a = team[id];
+                    const base = String(id).split('-')[0];
+                    const nm = (a.name || base).split(' ')[0];
+                    return _showcaseCard((String(nm)[0] || '?').toUpperCase(), nm, a.archetype || a.role || '', base);
+                });
+                html += _showcaseHead(joining ? '… and the build team' : '… and your team') + _showcaseGrid(cards);
+            }
         }
         if (!html) return;
         _teamLoaded = true;
