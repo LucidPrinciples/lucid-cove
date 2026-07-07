@@ -96,6 +96,7 @@ def _ensure_record(client: httpx.Client, zone_id: str, name: str, ip: str) -> st
         u = client.put(CF_API + f"/zones/{zone_id}/dns_records/{rec['id']}", json=body)
         u.raise_for_status()
         return f"updated {name} -> {ip}"
+    _delete_conflicts(client, zone_id, name, "A")   # CNAME -> A needs the CNAME gone (rollback)
     c = client.post(CF_API + f"/zones/{zone_id}/dns_records", json=body)
     c.raise_for_status()
     return f"created {name} -> {ip}"
@@ -156,28 +157,48 @@ def ensure_cove_dns(cove_domain: str, target_ip: str = "") -> dict:
     return {"ok": True, "ip": ip, "zone_id": zid, "actions": actions}
 
 
-def ensure_cove_dns_tunnel(cove_domain: str, tunnel_id: str) -> dict:
-    """PUBLIC-reachability variant: point *.{cove_domain} and {cove_domain} at the Cove's
-    Cloudflare named tunnel (CNAME -> {tunnel_id}.cfargotunnel.com, PROXIED) instead of the
-    mesh IP. This is what makes a remote invite link resolve from any phone. Proxied=True is
-    REQUIRED for cfargotunnel targets (the orange cloud is how the edge reaches the tunnel).
-    Idempotent. Returns {ok, target, zone_id, actions:[...]}."""
+def ensure_cove_dns_tunnel(cove_domain: str, tunnel_id: str, wildcard: bool = False) -> dict:
+    """PUBLIC-reachability variant: point the Cove's domain at its Cloudflare named tunnel
+    (CNAME -> {tunnel_id}.cfargotunnel.com, PROXIED) instead of the mesh IP. This is what
+    makes a remote invite link resolve from any phone.
+
+    APEX-ONLY by default (just {cove_domain}): the invite link + the post-signup door both
+    land on the Cove ROOT, so the apex is all a remote invite needs — and leaving *.{domain}
+    on the mesh A record keeps matrix.{domain} (federation) off the public proxy. Pass
+    wildcard=True to ALSO proxy *.{domain} — note a PROXIED wildcard is Cloudflare
+    Enterprise-only, so on a normal plan this stays apex-only.
+
+    Proxied=True is REQUIRED for cfargotunnel targets. Any conflicting A/AAAA at the name is
+    removed first (CF forbids a CNAME coexisting with an A record). Idempotent."""
     cove_domain = cove_domain.strip().rstrip(".")
     tunnel_id = (tunnel_id or "").strip()
     if not cove_domain or not tunnel_id:
         raise ValueError("cove_domain and tunnel_id are required")
     target = f"{tunnel_id}.cfargotunnel.com"
+    names = [cove_domain] + ([f"*.{cove_domain}"] if wildcard else [])
     with _client() as client:
         zid = _zone_id(client, cove_domain)
-        actions = [
-            _ensure_cname_proxied(client, zid, f"*.{cove_domain}", target),
-            _ensure_cname_proxied(client, zid, cove_domain, target),
-        ]
+        actions = [_ensure_cname_proxied(client, zid, n, target) for n in names]
     return {"ok": True, "target": target, "zone_id": zid, "actions": actions}
 
 
+def _delete_conflicts(client: httpx.Client, zone_id: str, name: str, keep_type: str) -> None:
+    """Delete any records at `name` whose type conflicts with `keep_type`. CNAME can't
+    coexist with A/AAAA (and vice-versa), so repointing A<->CNAME must purge the other."""
+    name = name.rstrip(".")
+    for t in ("A", "AAAA", "CNAME"):
+        if t == keep_type:
+            continue
+        r = client.get(CF_API + f"/zones/{zone_id}/dns_records", params={"type": t, "name": name})
+        r.raise_for_status()
+        for rec in (r.json().get("result") or []):
+            d = client.delete(CF_API + f"/zones/{zone_id}/dns_records/{rec['id']}")
+            d.raise_for_status()
+
+
 def _ensure_cname_proxied(client: httpx.Client, zone_id: str, name: str, target: str) -> str:
-    """Create/update a PROXIED CNAME name -> target (for cfargotunnel tunnel records)."""
+    """Create/update a PROXIED CNAME name -> target (for cfargotunnel tunnel records).
+    Purges any conflicting A/AAAA at the name first."""
     name = name.rstrip(".")
     target = target.rstrip(".")
     r = client.get(CF_API + f"/zones/{zone_id}/dns_records", params={"type": "CNAME", "name": name})
@@ -191,6 +212,7 @@ def _ensure_cname_proxied(client: httpx.Client, zone_id: str, name: str, target:
         u = client.put(CF_API + f"/zones/{zone_id}/dns_records/{rec['id']}", json=body)
         u.raise_for_status()
         return f"updated {name} -> {target}"
+    _delete_conflicts(client, zone_id, name, "CNAME")   # A/AAAA -> CNAME needs the A gone
     c = client.post(CF_API + f"/zones/{zone_id}/dns_records", json=body)
     c.raise_for_status()
     return f"created {name} -> {target}"

@@ -82,6 +82,9 @@ def main() -> int:
                          "Use https://{cove_id}-caddy:443 if you pass --network {cove_net}.")
     ap.add_argument("--network", default="host",
                     help="docker network for cloudflared (default: host, so localhost:443 reaches Caddy)")
+    ap.add_argument("--wildcard", action="store_true",
+                    help="ALSO proxy *.{domain} through the tunnel (Cloudflare Enterprise only). "
+                         "Default: apex-only, leaving subdomains (incl. matrix.{domain}) on the mesh.")
     ap.add_argument("--dry-run", action="store_true", help="print what would happen; touch nothing")
     args = ap.parse_args()
 
@@ -121,12 +124,13 @@ def main() -> int:
     else:
         print(f"  container {cf['container']} up ({cf['id']})")
 
-    print(f"→ Repointing DNS (*.{domain} + {domain} → {tun['hostname']}, proxied) …")
+    _scope = f"*.{domain} + {domain}" if args.wildcard else domain
+    print(f"→ Repointing DNS ({_scope} → {tun['hostname']}, proxied) …")
     if args.dry_run:
         print("    (dry-run — DNS untouched)")
     else:
         try:
-            res = cloudflare_dns.ensure_cove_dns_tunnel(domain, tun["id"])
+            res = cloudflare_dns.ensure_cove_dns_tunnel(domain, tun["id"], wildcard=args.wildcard)
             for a in res["actions"]:
                 print("    " + a)
         except Exception as e:
