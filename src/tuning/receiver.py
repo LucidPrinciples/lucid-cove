@@ -195,8 +195,9 @@ async def _http_fetch(date_str: str) -> Optional[dict]:
 def _public_drop_fallback(today: str) -> Optional["TuningPackage"]:
     """When no local/repo package exists, subscribe to the public Drop — the
     open-source delivery path every Cove uses (no private repo, no manual copy).
-    Returns a TuningPackage (signal + universal coaching + any archetype prompts)
-    for today, or None if disabled/unreachable/stale."""
+    Returns a TuningPackage (signal + universal coaching + any archetype prompts) —
+    today's when published, otherwise the LATEST available so a Cove is never left
+    un-tuned waiting for the day's Drop. None only if disabled/unreachable."""
     try:
         from src.tuning.public_drop import public_drop_package, drop_enabled
         if not drop_enabled():
@@ -204,11 +205,23 @@ def _public_drop_fallback(today: str) -> Optional["TuningPackage"]:
         data = public_drop_package()
         if not data:
             return None
-        if data.get("date") and data["date"] != today:
-            print(f"{ts_log()} [tuning-receiver] Public Drop is {data.get('date')}, not today ({today}) — not dispatching")
-            return None
-        print(f"{ts_log()} [tuning-receiver] Subscribed to public Drop: "
-              f"{data.get('frequency')} (#{data.get('lt_echo_num')})")
+        # Tune off the LATEST available Drop, even when it isn't dated today. The Drop
+        # publishes ~05:30 ET, so a Cove that comes up before that (fresh install,
+        # reboot, wake-from-sleep) would otherwise find "no package for today" and skip
+        # tuning ENTIRELY until the next day's sweep — leaving a brand-new Cove blank
+        # (the regression re-found 2026-07-07: co-located Coves booted just after
+        # midnight, hit no_package, and one never tuned its team all day). Dedup is by
+        # calendar date (echoes.tuned_at::date), so accepting the latest can't
+        # double-tune — it only guarantees a Cove is never un-tuned for lack of TODAY's
+        # package. When today's Drop lands, the next force_pull refreshes what's served.
+        drop_date = data.get("date")
+        if drop_date and drop_date != today:
+            print(f"{ts_log()} [tuning-receiver] Public Drop latest is {drop_date} "
+                  f"(today {today} not published yet) — tuning off latest available "
+                  f"{data.get('frequency')} (#{data.get('lt_echo_num')})")
+        else:
+            print(f"{ts_log()} [tuning-receiver] Subscribed to public Drop: "
+                  f"{data.get('frequency')} (#{data.get('lt_echo_num')})")
         return TuningPackage(data)
     except Exception as e:
         print(f"{ts_log()} [tuning-receiver] Public Drop fallback failed: {e}")

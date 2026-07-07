@@ -228,12 +228,17 @@ class AgentScheduler:
             return {"status": "error", "error": str(e)[:200]}
 
     async def _run_sweep_window(self):
-        """The spec-§6 repeating safety sweep, bounded to 07:30–12:30 local.
-        Outside the window it's a free no-op; inside it, run_cove_sweep dedups
-        against today's echoes so settled mornings cost one cheap query."""
-        now = self._now()
-        if not ((now.hour == 7 and now.minute >= 30) or (8 <= now.hour < 12)
-                or (now.hour == 12 and now.minute <= 30)):
+        """The spec-§6 repeating safety sweep. Runs 07:00 → midnight local, so an
+        UNATTENDED box that boots, wakes from sleep, or loses the co-located dispatch
+        lock at ANY point in the day still catches up off the day's real package —
+        the operator isn't watching logs, so the day must not depend on the box being
+        awake at one wall-clock minute (this is open source on all kinds of sleep
+        schedules). Before 07:00 it's a no-op: the Drop publishes ~05:30 and the 06:30
+        self-tune runs off it; tuning earlier would land off the PREVIOUS day's Drop and
+        the calendar-date dedup would then lock the whole day to that stale package.
+        Inside the window run_cove_sweep dedups against today's echoes, so a settled day
+        costs one cheap query per tick."""
+        if self._now().hour < 7:
             return
         await self._run_tuning_sweep()
 
@@ -936,17 +941,21 @@ class AgentScheduler:
                 self._schedule_async(self._run_tuning_sweep)
             )
             print(f"[scheduler]   {_tune_at} — Cove self-tune (team + presences, deduped)")
-            # LTP Protocol Spec §6 safety sweep: every 30 minutes, 07:30–12:30
+            # LTP Protocol Spec §6 safety sweep: every 10 minutes, 07:00 → midnight
             # local, retry anyone still missing today's echo. Dedup-safe (the
-            # sweep checks who tuned first), so it's a cheap no-op on a settled
-            # morning. This was never carried from the legacy steward overlay
-            # into cove-core — a Cove that missed/stalled its 06:30 run silently
-            # skipped the whole day (found live 2026-07-04, twice). Tuning is
-            # automated plumbing; operators only touch it if they want to.
-            schedule.every(30).minutes.do(
+            # sweep checks who tuned first), so it's a cheap no-op once settled.
+            # This was never carried from the legacy steward overlay into cove-core
+            # — a Cove that missed/stalled its 06:30 run silently skipped the whole
+            # day (found live 2026-07-04, twice). Widened from the old 07:30–12:30 /
+            # 30-min window (2026-07-07): on an unattended box that wakes after noon
+            # the old cap skipped the day, and co-located Coves sharing one dispatch
+            # lock drained only one-per-30-min (a 3-Cove Haven trickled over ~2h,
+            # and the last one could miss the window entirely). Tuning is automated
+            # plumbing; operators only touch it if they want to.
+            schedule.every(10).minutes.do(
                 self._schedule_async(self._run_sweep_window)
             )
-            print("[scheduler]   07:30–12:30 — safety sweep every 30m (spec §6, no-op when settled)")
+            print("[scheduler]   07:00–midnight — safety sweep every 10m (spec §6, no-op when settled)")
 
         # YouTube queue processor — every 15 minutes (skips silently if no YOUTUBE_CLIENT_ID)
         schedule.every(15).minutes.do(

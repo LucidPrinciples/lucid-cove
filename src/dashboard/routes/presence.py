@@ -687,6 +687,21 @@ def _slugify_handle(name: str) -> str:
     return s or "presence"
 
 
+def _sanitize_name(s: str) -> str:
+    """Server-side mirror of the client _sanitizeAgentName (new-agent-setup.html):
+    NFKD-fold accents, keep only letters/digits/space/apostrophe/hyphen, collapse
+    whitespace. Belt-and-suspenders so a name reaching the API directly (or via stale
+    cached JS) can't persist control chars, markdown asterisks, or emoji into the
+    agent/Cove name that shows in every MC header, chat label, and the registry."""
+    import unicodedata
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = re.sub(r"[^A-Za-z0-9 '\-]", "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 async def _unique_handle(conn, base: str) -> str:
     """Ensure the handle is unique within this Cove (accounts.username)."""
     handle, n = base, 1
@@ -830,6 +845,11 @@ async def _create_presence_record(
     """
     agent_config = agent_config or {}
     agent_identity = agent_identity or {}
+    # Belt-and-suspenders: normalize the operator-supplied names server-side too, so a
+    # direct API call or stale cached JS can't store junk (idempotent on names the
+    # client already cleaned).
+    display_name = _sanitize_name(display_name)
+    agent_name = _sanitize_name(agent_name)
     from src.config import load_cove_config
     _cove = load_cove_config()
     # last_name = the Cove name for EVERY presence (the agent's full name is
@@ -1147,8 +1167,8 @@ async def finalize_setup(request: Request):
         raise HTTPException(401, "Not authenticated")
 
     body = await request.json()
-    agent_name = (body.get("agent_name") or body.get("name") or "").strip()
-    cove_name = (body.get("cove_name") or "").strip()
+    agent_name = _sanitize_name(body.get("agent_name") or body.get("name") or "")
+    cove_name = _sanitize_name(body.get("cove_name") or "")
     # jules 07-07: capitalize the agent's name AND the Cove name AT THE ROOT (when saved) — not
     # just for display. Both are stored (agent_name/agent_identity + last_name/cove.yaml/registry),
     # so a lowercase-typed "beth"/"breckenridge" becomes "Beth"/"Breckenridge" everywhere (MC header
