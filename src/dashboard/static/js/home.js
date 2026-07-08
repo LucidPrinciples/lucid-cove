@@ -187,8 +187,8 @@ async function loadHomeApprovals() {
                     </div>
                     <div id="${diffId}" class="approval-diff" style="display:none;"></div>` : ''}
                     <div class="approval-actions">
-                        <button class="btn-approve" onclick="respondApproval('${ESC(a.request_id)}', true)">Approve &amp; Deploy</button>
-                        <button class="btn-deny" onclick="respondApproval('${ESC(a.request_id)}', false)">Deny</button>
+                        <button class="btn-approve" onclick="respondApproval('${ESC(a.request_id)}', true, this)">Approve &amp; Deploy</button>
+                        <button class="btn-deny" onclick="respondApproval('${ESC(a.request_id)}', false, this)">Deny</button>
                     </div>
                 </div>`;
             }
@@ -197,8 +197,8 @@ async function loadHomeApprovals() {
                 <div class="approval-tool">${ESC(a.tool_name)}</div>
                 <div class="approval-desc">${ESC(a.description || '').substring(0, 120)}</div>
                 <div class="approval-actions">
-                    <button class="btn-approve" onclick="respondApproval('${ESC(a.request_id)}', true)">Approve</button>
-                    <button class="btn-deny" onclick="respondApproval('${ESC(a.request_id)}', false)">Deny</button>
+                    <button class="btn-approve" onclick="respondApproval('${ESC(a.request_id)}', true, this)">Approve</button>
+                    <button class="btn-deny" onclick="respondApproval('${ESC(a.request_id)}', false, this)">Deny</button>
                 </div>
             </div>`;
         }).join('');
@@ -1062,20 +1062,22 @@ async function loadSiteDiff(repo, branch, containerId) {
     }
 }
 
-async function respondApproval(requestId, approved) {
-    // Find the approval card and update button states
-    const card = document.querySelector(`.home-approval button[onclick*="${requestId}"]`)?.closest('.home-approval');
-    const buttons = card ? card.querySelectorAll('button') : [];
-    const actionBtn = approved
-        ? card?.querySelector('.btn-approve')
-        : card?.querySelector('.btn-deny');
+async function respondApproval(requestId, approved, btnEl) {
+    // Use the actual clicked button (robust); fall back to a lookup for old callers.
+    const actionBtn = btnEl
+        || document.querySelector(`.home-approval button[onclick*="${requestId}"]`);
+    const card = actionBtn ? actionBtn.closest('.home-approval') : null;
+    const buttons = card ? card.querySelectorAll('button') : (actionBtn ? [actionBtn] : []);
 
-    // Disable all buttons and show processing state
-    buttons.forEach(b => b.disabled = true);
+    // Re-entry guard — an already-processing click is ignored (no double-submit).
+    if (actionBtn && actionBtn.disabled) return;
+
+    // Immediate pressed state, set BEFORE the await so the click always registers visibly.
+    buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.55'; });
     if (actionBtn) {
         actionBtn.dataset.origText = actionBtn.textContent;
-        actionBtn.textContent = approved ? 'Deploying...' : 'Denying...';
-        actionBtn.style.opacity = '0.7';
+        actionBtn.textContent = approved ? 'Approving…' : 'Denying…';
+        actionBtn.style.opacity = '1';
     }
 
     try {
@@ -1085,27 +1087,29 @@ async function respondApproval(requestId, approved) {
             body: JSON.stringify({ approved }),
         });
         const data = await res.json();
+        // The action really runs now — surface a failed execution instead of a false ✓.
+        const executed = data.executed !== false;
 
         if (actionBtn) {
-            if (approved && data.site_edit) {
-                actionBtn.textContent = 'Deployed ✓';
-                actionBtn.style.background = 'var(--accent)';
-            } else if (approved) {
-                actionBtn.textContent = 'Approved ✓';
-            } else {
+            if (!approved) {
                 actionBtn.textContent = 'Denied';
+            } else if (data.site_edit) {
+                actionBtn.textContent = executed ? 'Deployed ✓' : 'Approved — merge failed';
+                actionBtn.style.background = executed ? 'var(--accent)' : '';
+            } else {
+                actionBtn.textContent = executed ? 'Approved ✓' : 'Approved — action failed';
+                actionBtn.style.background = executed ? 'var(--accent)' : '';
             }
         }
 
-        // Refresh approvals after a moment so the user sees the confirmation
-        setTimeout(() => loadHomeApprovals(), 2000);
+        // Hold the confirmation briefly, then refresh the list.
+        setTimeout(() => loadHomeApprovals(), 2500);
     } catch (err) {
         if (actionBtn) {
             actionBtn.textContent = 'Error — retry';
-            actionBtn.disabled = false;
             actionBtn.style.opacity = '1';
         }
-        buttons.forEach(b => b.disabled = false);
+        buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
     }
 }
 
