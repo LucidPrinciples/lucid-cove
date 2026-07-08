@@ -703,7 +703,9 @@ async function initDest() {
   // jules 2026-07-06: show each agent by its NAME (Stuart, Mercer, Atlas…), never a raw
   // UUID. /api/config gives {id, name}; the chip LABEL is the display name and the routing
   // token is a slug of the name (fallback to the id). Skip entries with no human name so a
-  // bare UUID can't become a chip. All real agents show — nobody is excluded.
+  // bare UUID can't become a chip. Build-team agents temporarily hidden — re-enable by
+  // removing from HIDDEN_DEST_AGENTS.
+  const HIDDEN_DEST_AGENTS = new Set(["archimedes","arthur","gabe","ezra","julian","iris","vera","soren"]);
   let items = [];
   try {
     const r = await fetch("/api/config");
@@ -715,6 +717,7 @@ async function initDest() {
       const idSlug = String(a.id || "").split(".")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
       const nameSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
       const v = nameSlug || idSlug;
+      if (HIDDEN_DEST_AGENTS.has(v)) continue;
       const label = name || (idSlug ? idSlug.charAt(0).toUpperCase() + idSlug.slice(1) : "");
       // No human name and the value is a long hex blob → an unresolved UUID; skip it.
       if (!v || !label || (!name && /^[0-9a-f]{16,}$/.test(v))) continue;
