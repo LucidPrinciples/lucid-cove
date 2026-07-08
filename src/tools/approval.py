@@ -236,6 +236,20 @@ async def block_for_approval(tool_name: str, kwargs: dict, channel: str = "") ->
     """
     arg_desc = ', '.join(f'{k}={repr(v)[:100]}' for k, v in kwargs.items())
     description = f"{tool_name}({arg_desc})"
+
+    # Dedupe: agents retry a blocked call (the "APPROVAL REQUIRED" result reads like a
+    # failure to them), which would otherwise stack identical requests in the operator's
+    # queue. If an identical one is already pending, reuse it.
+    try:
+        for r in await get_pending_approvals():
+            if r.tool_name == tool_name and r.args == kwargs:
+                logger.info(f"[APPROVE] reusing pending {r.request_id} for duplicate {description}")
+                raise ApprovalRequired(r)
+    except ApprovalRequired:
+        raise
+    except Exception as e:
+        logger.debug(f"[approval] dedupe check skipped (non-fatal): {e}")
+
     request = ApprovalRequest(
         tool_name=tool_name,
         description=description,
@@ -288,15 +302,24 @@ async def execute_approved_tool(request_id: str) -> dict:
         tool_name = row["tool_name"]
         tool_args = row["args"] if isinstance(row["args"], dict) else json.loads(row["args"] or "{}")
 
-        # Find the tool — try agent_tools if available
+        # Find the tool. Build a superset map from every tool pool so ANY approvable
+        # tool resolves regardless of which agent raised it (git_push et al. live in
+        # ALL_DEV_TOOLS). NOTE: get_agent_tools(agent_id) requires an arg — calling it
+        # bare used to throw here and silently strand every approved action.
         tool_func = None
         try:
-            from src.tools.agent_tools import get_agent_tools
-            tools = get_agent_tools()
-            tool_map = {t.name: t for t in tools}
+            from src.tools import agent_tools as _at
+            pools = []
+            for _name in dir(_at):
+                if _name.startswith("ALL_") and _name.endswith("_TOOLS"):
+                    pools += list(getattr(_at, _name, []) or [])
+            tool_map = {getattr(t, "name", None): t for t in pools}
             tool_func = tool_map.get(tool_name)
-        except ImportError:
-            pass
+            if tool_func is None:
+                # Fallback: a concrete agent's set (default getter → Stuart, includes dev tools).
+                tool_func = {t.name: t for t in _at.get_agent_tools("stuart")}.get(tool_name)
+        except Exception as e:
+            logger.error(f"Tool lookup for approved '{tool_name}' failed: {e}")
 
         if not tool_func:
             return {"success": False, "error": f"Tool '{tool_name}' not found"}
