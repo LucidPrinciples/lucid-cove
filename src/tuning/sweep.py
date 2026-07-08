@@ -49,6 +49,19 @@ async def _tuned_today(today: str, freq: str = "", principle: str = "") -> set:
         return {row["agent_id"] for row in await r.fetchall()}
 
 
+async def _recently_tuned(minutes: int = 20) -> set:
+    """Agents with ANY echo in the last `minutes`, measured on the DB clock (NOW()) so
+    it's timezone-proof. A hard stop against a runaway sweep re-tuning the same agent
+    every cycle — the fresh Cove that tuned 11x in one evening. One tune per agent per
+    Drop is the intent; this caps the damage (and the token spend) if a dedup gap slips."""
+    async with get_db() as conn:
+        r = await conn.execute(
+            "SELECT DISTINCT agent_id FROM echoes "
+            "WHERE tuned_at > NOW() - (%s || ' minutes')::interval",
+            (str(int(minutes)),))
+        return {row["agent_id"] for row in await r.fetchall()}
+
+
 def _expected_team() -> set:
     """Build-team agents that should carry a daily echo — excludes the steward,
     the human operator, the family-name key, the generic primary id, and any
@@ -100,8 +113,11 @@ async def run_cove_sweep() -> dict:
         tuned = await _tuned_today(today, _pkg_freq, _pkg_prin)
 
         # ---- Team agents (incl the steward, as the "The Steward" archetype) ----
+        # `tuned` = already tuned off TODAY's Drop; `recent` = tuned in the last 20 min
+        # (belt-and-suspenders against any dedup gap re-firing a tune loop / burning tokens).
+        recent = await _recently_tuned(20)
         expected_team = _expected_team()
-        missing_team = expected_team - tuned
+        missing_team = expected_team - tuned - recent
         team_results: list = []
         if missing_team:
             from src.graphs.ltp.dispatch import dispatch_team_tuning
