@@ -2211,14 +2211,11 @@ async function sendWakeReply() {
             _persistWakeThread();   // best-effort — put the exchange in the chat thread
         }, 700);
     } else if (_wakeMode === 'self') {
-        // Self-onboard invitee: no brain-connect handoff (they joined an existing Cove).
-        // Instead, ORIENT them — point at what's already set up + Settings — then seed the
-        // whole exchange into their Chat so it's populated (not empty) when they land.
-        setTimeout(() => {
-            _addWakeBubble('agent', esc(WAKE_JOIN_ORIENT), { html: true });
-            document.getElementById('wake-nav').style.display = 'flex';
-            _persistWakeThread();
-        }, 700);
+        // Self-onboard invitee: seed the spark exchange into their Chat. The orientation
+        // ("mirror") is NOT shown here during the spark — it's seeded as a separate trailing
+        // message so it's waiting as the most-recent message when they land in Chat.
+        _persistWakeThread();
+        document.getElementById('wake-nav').style.display = 'flex';
     } else {
         document.getElementById('wake-nav').style.display = 'flex';
     }
@@ -2229,19 +2226,21 @@ async function sendWakeReply() {
 async function _persistWakeThread() {
     if (_wakeMode === 'member') return;   // member mode seeds under the member's own presence
     const opener = _wakeGreeting + (_wakeQuestion ? '\n\n' + _wakeQuestion : '');
-    // Founder gets the brain-connect handoff appended; a self-onboard invitee gets the
-    // orientation ("mirror") instead; neither for anyone else.
     const _fm = (_wakeFirstMemory || "Thank you. I'm keeping that.");
-    const closing = _wakeIsFirstrun ? (_fm + '\n\n' + WAKE_HANDOFF)
-        : (_wakeMode === 'self' ? (_fm + '\n\n' + WAKE_JOIN_ORIENT) : _fm);
+    // Founder appends the brain-connect handoff onto the first-memory message.
+    const closing = _wakeIsFirstrun ? (_fm + '\n\n' + WAKE_HANDOFF) : _fm;
+    const msgs = [
+        { role: 'ai', content: opener },
+        { role: 'human', content: _wakeOpReply },
+        { role: 'ai', content: closing },
+    ];
+    // Self-onboard invitee: the orientation ("mirror") is a SEPARATE trailing message so it
+    // lands LAST — the most-recent message waiting when they open Chat, not part of the spark.
+    if (_wakeMode === 'self') msgs.push({ role: 'ai', content: WAKE_JOIN_ORIENT });
     try {
         await fetch('/api/presence/wake-thread', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: [
-                { role: 'ai', content: opener },
-                { role: 'human', content: _wakeOpReply },
-                { role: 'ai', content: closing },
-            ] }),
+            body: JSON.stringify({ messages: msgs }),
         });
     } catch (e) { /* best-effort */ }
 }
