@@ -270,6 +270,41 @@ def _render_lens(lens) -> str:
     return "\n".join(out)
 
 
+def _dev_workflow_block(agent: dict) -> str:
+    """The ship-code workflow, injected into every agent's prompt so the
+    branch -> push -> PR -> merge process is ambient context, not pasted per
+    ticket. Role-aware: the steward owns the Cove-level repos and keeps `main`
+    releasable; everyone else (personal agent, build team) works their own scope
+    and hands anything bigger or Cove-level up to the steward. The approval gate
+    plus branch protection are the trust that lets agents work freely.
+
+    Steward detection works in BOTH modes: config agents expose `can_delegate_to`;
+    centralized presences hardcode that empty, so we also read archetype/role."""
+    role_text = f"{agent.get('archetype', '')} {agent.get('role', '')} {agent.get('name', '')}".lower()
+    is_steward = bool(agent.get("can_delegate_to")) or "steward" in role_text
+
+    lines = ["\n## How You Ship Code\n"]
+    if is_steward:
+        lines.append(
+            "You lead development and own the Cove-level repos. Keep `main` clean and "
+            "releasable, run branches and PRs, and coordinate the build team on code."
+        )
+    else:
+        lines.append(
+            "You work within your own scope — your presence's repo. Anything beyond that "
+            "scope, or any change to a Cove-level repo, you hand to the steward to build with "
+            "the team. You don't take those on alone."
+        )
+    lines.append(
+        "The flow, always: work on a branch -> `git_push` (this reaches the operator as an "
+        "approval with the diff) -> open a PR with `create_github_pr` -> the operator reviews "
+        "and merges. A pushed branch is NOT done until the PR is merged. `main` is "
+        "branch-protected and you push with a non-admin token, so nothing lands without the "
+        "operator's merge. Use the `git_*` / `create_github_pr` tools — never raw shell for git."
+    )
+    return "\n".join(lines)
+
+
 def build_system_prompt(
     agent_id: str,
     tuning_state: Optional[dict] = None,
@@ -481,6 +516,9 @@ def build_system_prompt(
     prompt_parts.append("- Canon Protectorate: Tuning Keys must be exact verbatim quotes from the Canon.")
     prompt_parts.append('- Never use bare "Lucid" as a brand name -- always "Lucid Tuner" or "Lucid Principles Framework."')
     prompt_parts.append('- LOA can be an on-ramp but never the identity. The framework explains the mechanism behind the observation.')
+
+    # ── 9c. How you ship code (role-aware; ambient dev workflow) ──────────────
+    prompt_parts.append(_dev_workflow_block(agent))
 
     # ── 10. Agent-specific framework documents ───────────────────────────────
     user_ctx_file = CONFIG_DIR / "user-context.md"
