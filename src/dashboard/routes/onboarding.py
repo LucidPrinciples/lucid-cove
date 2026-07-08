@@ -49,6 +49,26 @@ async def onboarding_items(request: Request):
         return {"items": []}
     ac = _agent_config(p)
     is_admin = (p.get("cove_role") or "") == "admin"
+
+    # JOINER GATE: anyone who came in through an invite (their account was consumed by a
+    # presence_invites row) never SET UP this Cove — the founder did. The cove-config
+    # checklist (add intelligence / address / compute / mobile / backup) is founder-only;
+    # a joiner (member OR admin-invitee) can't even complete those (the Cove is already
+    # configured), so the nags are pure confusion. Suppress them — a joiner's orientation
+    # is the agent's welcome in Chat (the spark), not owner setup cards.
+    try:
+        import uuid as _uuid
+        from src.memory.database import get_db as _get_db
+        async with _get_db() as _conn:
+            _r = await _conn.execute(
+                "SELECT 1 FROM presence_invites WHERE consumed_by = %s LIMIT 1",
+                (_uuid.UUID(str(p["id"])),))
+            if await _r.fetchone():
+                return {"steps": [], "items": [], "done_count": 0,
+                        "total": 0, "complete": True}
+    except Exception:
+        pass
+
     _cove_id = ""
     try:
         from src.config import load_cove_config

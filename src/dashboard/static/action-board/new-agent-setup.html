@@ -2010,6 +2010,15 @@ const WAKE_PLAIN_LINE =
     "Your Lucid Cove team runs on an AI model. The setup tour uses one from Lucid Cove. " +
     "Connect your own to bring the team online. Your agents' memory and identity stay either way.";
 
+// Self-onboard invitee orientation (the "mirror"): a joiner arrives to an already-built
+// Cove, so instead of the founder's brain-connect handoff, the agent points them at what's
+// already set up + where to look, and prompts them to engage. Seeded into their Chat.
+const WAKE_JOIN_ORIENT =
+    "One thing before we dive in: your Cove is already set up and running — the model we think " +
+    "on, the tools, jules, all of it. Nothing to configure to get started. If you ever want to " +
+    "look under the hood — the model, the GPU, your settings — it's all in Settings. For now, " +
+    "tell me what you're hoping to get done and we'll start right there.";
+
 async function enterWake(redirect, coveName, isFirstrun) {
     _wakeMode = 'firstrun';
     _wakeMemberPresenceId = '';
@@ -2201,10 +2210,16 @@ async function sendWakeReply() {
             document.getElementById('wake-nav').style.display = 'flex';
             _persistWakeThread();   // best-effort — put the exchange in the chat thread
         }, 700);
+    } else if (_wakeMode === 'self') {
+        // Self-onboard invitee: no brain-connect handoff (they joined an existing Cove).
+        // Instead, ORIENT them — point at what's already set up + Settings — then seed the
+        // whole exchange into their Chat so it's populated (not empty) when they land.
+        setTimeout(() => {
+            _addWakeBubble('agent', esc(WAKE_JOIN_ORIENT), { html: true });
+            document.getElementById('wake-nav').style.display = 'flex';
+            _persistWakeThread();
+        }, 700);
     } else {
-        // Self-onboard invitee: no brain-connect handoff (they're joining an existing Cove),
-        // but STILL seed the spark exchange into their Chat so it isn't empty when they land.
-        if (_wakeMode === 'self') _persistWakeThread();
         document.getElementById('wake-nav').style.display = 'flex';
     }
 }
@@ -2214,10 +2229,11 @@ async function sendWakeReply() {
 async function _persistWakeThread() {
     if (_wakeMode === 'member') return;   // member mode seeds under the member's own presence
     const opener = _wakeGreeting + (_wakeQuestion ? '\n\n' + _wakeQuestion : '');
-    // The founder gets the brain-connect handoff appended; a self-onboard invitee does not.
-    const closing = _wakeIsFirstrun
-        ? (_wakeFirstMemory || "Thank you. I'm keeping that.") + '\n\n' + WAKE_HANDOFF
-        : (_wakeFirstMemory || "Thank you. I'm keeping that.");
+    // Founder gets the brain-connect handoff appended; a self-onboard invitee gets the
+    // orientation ("mirror") instead; neither for anyone else.
+    const _fm = (_wakeFirstMemory || "Thank you. I'm keeping that.");
+    const closing = _wakeIsFirstrun ? (_fm + '\n\n' + WAKE_HANDOFF)
+        : (_wakeMode === 'self' ? (_fm + '\n\n' + WAKE_JOIN_ORIENT) : _fm);
     try {
         await fetch('/api/presence/wake-thread', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
