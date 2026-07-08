@@ -23,11 +23,29 @@ from src.tuning.dispatch_lock import is_dispatch_running, set_dispatch_running
 from src.utils.time_utils import ts_log, today_app
 
 
-async def _tuned_today(today: str) -> set:
+async def _tuned_today(today: str, freq: str = "", principle: str = "") -> set:
+    """Agents that already have TODAY's echo tuned off the CURRENT Drop. Keyed on the
+    date AND the Drop's frequency/principle — so an agent that tuned earlier today off a
+    STALE Drop (e.g. the pre-midnight 'latest available' before today's real Drop was
+    published) is NOT counted as done and gets re-tuned off today's actual key. Falls
+    back to date-only if the Drop's frequency can't be identified."""
+    freq = (freq or "").strip()
+    principle = (principle or "").strip()
     async with get_db() as conn:
-        r = await conn.execute(
-            "SELECT DISTINCT agent_id FROM echoes WHERE tuned_at::date = %s::date", (today,)
-        )
+        if freq and principle:
+            r = await conn.execute(
+                "SELECT DISTINCT agent_id FROM echoes "
+                "WHERE tuned_at::date = %s::date AND frequency = %s AND principle = %s",
+                (today, freq, principle))
+        elif freq:
+            r = await conn.execute(
+                "SELECT DISTINCT agent_id FROM echoes "
+                "WHERE tuned_at::date = %s::date AND frequency = %s",
+                (today, freq))
+        else:
+            r = await conn.execute(
+                "SELECT DISTINCT agent_id FROM echoes WHERE tuned_at::date = %s::date",
+                (today,))
         return {row["agent_id"] for row in await r.fetchall()}
 
 
@@ -63,11 +81,23 @@ async def run_cove_sweep() -> dict:
         print(f"{ts_log()} [{label}] No tuning package for {today} — nothing to sweep")
         return {"status": "no_package", "date": today}
 
+    # Identify the CURRENT Drop's key (frequency/principle). "Tuned today" is keyed to
+    # THIS Drop, so an agent that tuned earlier today off a STALE Drop (the pre-midnight
+    # "latest available" before today's real Drop published) still counts as missing and
+    # re-tunes off today's actual key. Without this, tuning off the stale midnight Drop
+    # burns the day and today's real Drop lands unused.
+    try:
+        _pd = package.to_dict() if hasattr(package, "to_dict") else dict(getattr(package, "_raw", {}))
+    except Exception:
+        _pd = {}
+    _pkg_freq = (_pd.get("frequency") or getattr(package, "frequency", "") or "").strip()
+    _pkg_prin = (_pd.get("principle") or getattr(package, "principle", "") or "").strip()
+
     # Hold the lock so concurrent sweeps (07:00 + boot catch-up, or a manual
     # trigger) can't double-tune the same agents.
     set_dispatch_running(True)
     try:
-        tuned = await _tuned_today(today)
+        tuned = await _tuned_today(today, _pkg_freq, _pkg_prin)
 
         # ---- Team agents (incl the steward, as the "The Steward" archetype) ----
         expected_team = _expected_team()
