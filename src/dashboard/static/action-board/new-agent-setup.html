@@ -1872,14 +1872,14 @@ async function provisionAgent() {
             // Self-onboard: the invitee just formed their own Presence on their own device →
             // send them straight into THEIR Mission Control (the /complete endpoint minted the door).
             if (_self) {
-                const _door = data.door || '/';
-                // No auto-redirect — it flashed by before the person could see what happened.
-                // They tap in when ready; the button lands them in their own Chat with the agent.
-                statusEl.innerHTML = `<div class="provision-status">
-                    <h3 style="color:${fc}">${esc(name)} is awake.</h3>
-                    <p style="color:#888;margin-top:6px;">You're all set — welcome to the family. Meet ${esc(name)} in your Chat.</p>
-                    <a href="${esc(_door)}" style="display:inline-block;margin-top:14px;padding:11px 22px;background:${fc};color:#0b0b12;border-radius:8px;font-weight:700;text-decoration:none;">Meet ${esc(name)} →</a>
-                </div>`;
+                // The invitee formed their own Presence on their own device. Run THE SPARK
+                // (meet the agent + seed the opening exchange into their Chat) BEFORE landing
+                // them in it — the same first-contact the founder gets. Skipping it left them
+                // in an empty chat. finishWake() then navigates to the door (their own Chat).
+                _wakeMode = 'self';
+                _wakeMemberPresenceId = '';
+                _wakeMemberResultHTML = '';
+                await _runWake(data.door || '/', false);
                 return;
             }
             const forWhom = personParam || memberNameParam || name;
@@ -2098,6 +2098,10 @@ async function _runWake(redirect, isFirstrun) {
         if (wakeDesc) wakeDesc.textContent =
             'You\'re meeting ' + name + ' on their person\'s behalf. What you say here becomes their first memory, waiting for the person they belong to.';
         if (wakeContinueBtn) wakeContinueBtn.textContent = 'Finish and get their link →';
+    } else if (_wakeMode === 'self') {
+        if (wakeDesc) wakeDesc.textContent =
+            'Lucid Cove gave a spark of Intelligence so you can meet ' + name + '. This is the first thing they\'ll remember about you, so make it count.';
+        if (wakeContinueBtn) wakeContinueBtn.textContent = 'Continue to your Chat →';
     } else {
         if (wakeDesc) wakeDesc.textContent =
             'Lucid Cove gave a spark of Intelligence so you can meet your agent. This is the first thing they\'ll remember about you, so make it count.';
@@ -2198,6 +2202,9 @@ async function sendWakeReply() {
             _persistWakeThread();   // best-effort — put the exchange in the chat thread
         }, 700);
     } else {
+        // Self-onboard invitee: no brain-connect handoff (they're joining an existing Cove),
+        // but STILL seed the spark exchange into their Chat so it isn't empty when they land.
+        if (_wakeMode === 'self') _persistWakeThread();
         document.getElementById('wake-nav').style.display = 'flex';
     }
 }
@@ -2205,9 +2212,12 @@ async function sendWakeReply() {
 // Persist the first exchange into the operator's personal-agent chat thread, so the
 // conversation that began at the spark is already there when they open the MC.
 async function _persistWakeThread() {
-    if (_wakeMode === 'member') return;   // firstrun only — the operator's own thread
+    if (_wakeMode === 'member') return;   // member mode seeds under the member's own presence
     const opener = _wakeGreeting + (_wakeQuestion ? '\n\n' + _wakeQuestion : '');
-    const closing = (_wakeFirstMemory || "Thank you. I'm keeping that.") + '\n\n' + WAKE_HANDOFF;
+    // The founder gets the brain-connect handoff appended; a self-onboard invitee does not.
+    const closing = _wakeIsFirstrun
+        ? (_wakeFirstMemory || "Thank you. I'm keeping that.") + '\n\n' + WAKE_HANDOFF
+        : (_wakeFirstMemory || "Thank you. I'm keeping that.");
     try {
         await fetch('/api/presence/wake-thread', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },

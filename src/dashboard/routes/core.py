@@ -145,20 +145,31 @@ async def frontend_config(request: Request):
                 # subdomain. Only honored for an admin + an actual manager name.
                 _as = (request.query_params.get("as") or "").strip().lower()
                 _force_personal = False
-                if _as and account and account.get("cove_role") == "admin":
-                    _mgrs = {
-                        ((_cc.get("steward_channel") or {}).get("name") or "").strip().lower(),
-                        ((_cc.get("merchant_channel") or {}).get("name") or "").strip().lower(),
-                    } - {""}
+                if _as and account:
                     _own = (account.get("username") or "").lstrip("@").strip().lower()
-                    if _as in _mgrs:
-                        _hc = {**_hc, "kind": "manager", "label": _as}
+                    if account.get("cove_role") == "admin":
+                        _mgrs = {
+                            ((_cc.get("steward_channel") or {}).get("name") or "").strip().lower(),
+                            ((_cc.get("merchant_channel") or {}).get("name") or "").strip().lower(),
+                        } - {""}
+                        if _as in _mgrs:
+                            _hc = {**_hc, "kind": "manager", "label": _as}
+                        elif _as == _own:
+                            # The admin opening THEIR OWN personal home on the box — the apex
+                            # otherwise renders the Cove-admin surface, and their operator
+                            # subdomain doesn't resolve on localhost/NAT yet (CF-90). This is
+                            # their own identity + data, so it's a pure view switch: render
+                            # the personal home (agent + onboarding nags), not the admin apex.
+                            _hc = {**_hc, "kind": "operator", "label": _own}
+                            _force_personal = True
                     elif _as == _own:
-                        # The admin opening THEIR OWN personal home on the box — the apex
-                        # otherwise renders the Cove-admin surface, and their operator
-                        # subdomain doesn't resolve on localhost/NAT yet (CF-90). This is
-                        # their own identity + data, so it's a pure view switch: render
-                        # the personal home (agent + onboarding nags), not the admin apex.
+                        # A MEMBER (or any non-admin Presence) opening their own personal home
+                        # via ?as=<own handle>. A member never gets the admin apex, but the
+                        # bare apex still isn't their Chat — a self-onboard invitee landed on
+                        # the cove surface instead of their agent. Same pure view switch as the
+                        # admin case: render THEIR personal home. Manager-MC (_as in _mgrs)
+                        # stays admin-only; cove_admin below stays gated to cove_role=="admin",
+                        # so the founder admin apex is unaffected.
                         _hc = {**_hc, "kind": "operator", "label": _own}
                         _force_personal = True
                 config["host_context"] = {
