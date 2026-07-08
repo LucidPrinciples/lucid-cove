@@ -376,7 +376,7 @@ async def process_moments(request: Request):
 
     body = await request.json()
     stem = body.get("stem", "").strip()
-    crop = body.get("crop_template", {})
+    crop = body.get("crop_template") or {}
     moments = body.get("moments", [])
 
     if not stem or not moments:
