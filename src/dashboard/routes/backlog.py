@@ -148,16 +148,24 @@ async def _read_backlog_nc(request) -> str | None:
 
 @router.get("/api/backlog/items")
 async def get_backlog_items(request: Request):
-    """Return parsed backlog as JSON. Read order: vault filesystem (founder /
-    legacy mounts) → NC WebDAV (provisioned Coves) → empty lanes (a fresh Cove
-    with nothing recorded yet is a working empty board, not an error)."""
+    """Return parsed backlog as JSON.
+
+    Read order — PRESENCE-SCOPED source first: in multi mode each presence has
+    their OWN AgentSkills/Ops/jules-backlog.md in their Nextcloud space, so the
+    per-presence NC read comes first. The container-global /vault file is the
+    single-mode / founder-legacy fallback ONLY — on a legacy box with a /vault
+    mount it would otherwise serve ONE shared board to every presence.
+    Empty lanes = a working empty board, not an error."""
     text = None
-    path = _find_backlog()
-    if path:
-        try:
-            text = path.read_text(encoding="utf-8")
-        except Exception:
-            text = None
+    if env("COVE_MODE", "single") == "multi":
+        text = await _read_backlog_nc(request)
+    if text is None:
+        path = _find_backlog()
+        if path:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:
+                text = None
     if text is None:
         text = await _read_backlog_nc(request)
     if text is None:

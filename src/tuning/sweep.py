@@ -23,30 +23,10 @@ from src.tuning.dispatch_lock import is_dispatch_running, set_dispatch_running
 from src.utils.time_utils import ts_log, today_app
 
 
-async def _tuned_today(today: str, freq: str = "", principle: str = "") -> set:
-    """Agents that already have TODAY's echo tuned off the CURRENT Drop. Keyed on the
-    date AND the Drop's frequency/principle — so an agent that tuned earlier today off a
-    STALE Drop (e.g. the pre-midnight 'latest available' before today's real Drop was
-    published) is NOT counted as done and gets re-tuned off today's actual key. Falls
-    back to date-only if the Drop's frequency can't be identified."""
-    freq = (freq or "").strip()
-    principle = (principle or "").strip()
-    async with get_db() as conn:
-        if freq and principle:
-            r = await conn.execute(
-                "SELECT DISTINCT agent_id FROM echoes "
-                "WHERE tuned_at::date = %s::date AND frequency = %s AND principle = %s",
-                (today, freq, principle))
-        elif freq:
-            r = await conn.execute(
-                "SELECT DISTINCT agent_id FROM echoes "
-                "WHERE tuned_at::date = %s::date AND frequency = %s",
-                (today, freq))
-        else:
-            r = await conn.execute(
-                "SELECT DISTINCT agent_id FROM echoes WHERE tuned_at::date = %s::date",
-                (today,))
-        return {row["agent_id"] for row in await r.fetchall()}
+# The ONE definition of "already tuned today" — shared with the team dispatcher
+# (src/graphs/ltp/dispatch.py) so the sweep's missing set and the dispatcher's
+# dedup can never diverge again. See src/tuning/dedup.py.
+from src.tuning.dedup import tuned_today as _tuned_today
 
 
 async def _recently_tuned(minutes: int = 20) -> set:
@@ -90,6 +70,17 @@ async def run_cove_sweep() -> dict:
 
     today = today_app()
     package = await get_todays_tuning(agent_id="stuart")
+
+    # Never key the day off a stale cached package. A post-midnight tune caches
+    # yesterday's Drop under TODAY's date; if the 06:00 force-pull ever failed,
+    # every sweep would then run against the stale key all day. When the cached
+    # package's own Drop date isn't today, force one real pull; keep the stale
+    # package only if the pull still finds nothing newer (pre-publish fallback).
+    if package is not None and getattr(package, "date", "") != today:
+        fresh = await get_todays_tuning(agent_id="stuart", force_pull=True)
+        if fresh is not None:
+            package = fresh
+
     if not package:
         print(f"{ts_log()} [{label}] No tuning package for {today} — nothing to sweep")
         return {"status": "no_package", "date": today}

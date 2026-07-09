@@ -50,14 +50,20 @@ def _add_activity_step(channel: str, text: str):
     _channel_status[channel]["steps"].append(text)
 
 
-async def _persist_activity_steps(channel: str):
-    """Save activity steps to the database."""
+async def _persist_activity_steps(channel: str, thread_id: str | None = None):
+    """Save activity steps to the database.
+
+    Callers that already resolved the send's thread MUST pass it in. Resolving
+    here without the request loses the presence scope (multi mode) and silently
+    creates/maintains a primary-scoped thread for a presence-scoped channel —
+    the companion half of the wrong-scope rotation bug."""
     status = _channel_status.get(channel, {})
     steps = status.get("steps", [])
     if not steps:
         return
     try:
-        thread_id = await _get_active_thread_id(channel)
+        if not thread_id:
+            thread_id = await _get_active_thread_id(channel)
         from src.memory.database import get_db
         import json
         started_at = status.get("started_at")
@@ -654,9 +660,16 @@ async def send_message(request: Request):
                         percent = tokens_used / token_limit if token_limit else 0
 
                         if percent >= CONTEXT_CRITICAL_THRESHOLD:
-                            print(f"[chat] Context critical ({percent*100:.1f}%) on {ch} -- auto-rotating")
+                            # Rotate under the SAME scope that resolved thread_id above.
+                            # Unscoped rotation archives/creates a PRIMARY-scoped thread
+                            # while the presence-scoped thread stays active + over-limit:
+                            # the reply loses all short-term context and every subsequent
+                            # send re-rotates (persistent amnesia on that channel).
+                            _rot_scope = await resolve_list_agent_id(ch, request)
+                            print(f"[chat] Context critical ({percent*100:.1f}%) on {ch} "
+                                  f"-- auto-rotating (scope={_rot_scope})")
                             from src.memory.threads import auto_rotate_thread
-                            rotation_info = await auto_rotate_thread(ch)
+                            rotation_info = await auto_rotate_thread(ch, agent_id=_rot_scope)
                             thread_id = rotation_info["new_thread_id"]
                             pre_send_msg_count = 2
             except Exception as e:
@@ -854,7 +867,7 @@ async def send_message(request: Request):
                 yield _sse({"type": "done", "data": {"response": f"Error: {e}", "error": str(e)}})
             finally:
                 _running_tasks.pop(ch, None)
-                await _persist_activity_steps(ch)
+                await _persist_activity_steps(ch, thread_id=thread_id)
                 _clear_channel_status(ch)
                 try:
                     from src.memory.threads import update_thread_stats
@@ -921,7 +934,11 @@ async def reset_chat(request: Request, channel: str = ""):
     archiving, so the next thread can seed with continuity context.
     """
     ch = channel or get_default_channel()
-    agent_id = await _personal_agent_id(request)
+    # Same scope resolution as send/history: steward/merchant channels scope
+    # per-presence (_manager_thread_scope), personal channels to the presence's
+    # own agent. _personal_agent_id here archived/created the WRONG thread for
+    # manager channels on presences whose agent_identity is empty.
+    agent_id = await resolve_list_agent_id(ch, request)
     _scope = enter_channel_db_scope(ch)
     try:
         from src.memory.memory import store_memory

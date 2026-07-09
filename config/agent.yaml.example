@@ -102,9 +102,11 @@ format_rules: |
 defaults:
   provider: openrouter
   timeout_seconds: 60
+  # Use REGISTRY IDS from config/models.yaml (not raw provider paths) — unknown
+  # ids get a provider inferred for them and fail over on every call.
   model:
-    primary: "kimi-ai/kimi-k2-instruct"
-    fallback: "qwen3:32b"
+    primary: "kimi-k2.5-openrouter"
+    fallback: "qwen3-30b-moe"
 
 # ─── LTP Configuration ───────────────────────────────────────────────────────
 ltp:

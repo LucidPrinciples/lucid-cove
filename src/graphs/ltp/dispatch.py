@@ -113,18 +113,23 @@ async def dispatch_team_tuning(state: dict) -> dict:
     if only:
         team_pool &= set(only)
 
-    # Dedup: never re-tune an agent that already has today's echo. Covers the
-    # single-mode graph path (compose_echo tunes the steward first) and any
-    # double-trigger; the sweep already pre-filters via _only_agents, this is
+    # Dedup: never re-tune an agent that already has today's echo OFF THE CURRENT
+    # Drop. Same definition as the sweep (shared helper src/tuning/dedup.py), keyed
+    # to the package's frequency/principle — an agent that tuned earlier today off
+    # a STALE Drop (post-midnight catch-up before the real Drop published) is NOT
+    # done and re-tunes off today's real key. Date-only keying here used to VETO
+    # the sweep's re-tune set (2026-07-08: team_missing=10 all day, zero dispatched).
+    # Covers the single-mode graph path (compose_echo tunes the steward first) and
+    # any double-trigger; the sweep pre-filters via _only_agents, this is
     # belt-and-braces so the unified steward-in-team dispatch can't double up.
     try:
         from src.utils.time_utils import today_app as _today_app
-        async with get_db() as _c:
-            _r = await _c.execute(
-                "SELECT DISTINCT agent_id FROM echoes WHERE tuned_at::date = %s::date",
-                (_today_app(),),
-            )
-            _tuned_today = {row["agent_id"] for row in await _r.fetchall()}
+        from src.tuning.dedup import tuned_today as _tuned_today_q
+        _tuned_today = await _tuned_today_q(
+            _today_app(),
+            (package.get("frequency") or ""),
+            (package.get("principle") or ""),
+        )
         team_pool = {a for a in team_pool if a not in _tuned_today}
     except Exception:
         pass

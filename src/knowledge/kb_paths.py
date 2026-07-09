@@ -2,7 +2,7 @@
 
 The Knowledge Base is hub-owned and distributed via the public Drop, synced into
 each Cove (mounted at the FRAMEWORK_DIR / SHARED_FRAMEWORK_DIR location, default
-``/shared/framework``). The public ``lucid-cove-core`` repo does NOT ship
+``/shared/framework``). The public ``lucid-cove`` repo does NOT ship
 ``data/knowledge-base`` — so KB reads resolve at call time in priority order:
 synced location first, the repo-bundled copy only as a founder/dev fallback.
 

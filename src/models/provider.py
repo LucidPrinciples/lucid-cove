@@ -184,19 +184,31 @@ def _resolve_local_fallback() -> str:
         return _DEFAULT_LOCAL_MODEL
 
 
+_WARNED_UNKNOWN_MODELS: set = set()
+
+
 def _resolve_model_string(model_id: str) -> tuple[str, str]:
     """Resolve a model registry ID to (provider, model_string).
 
     Returns (provider, model_string) from the registry, or falls back to
-    treating the ID as a raw model string with provider inference.
+    treating the ID as a raw model string with provider inference. The
+    inference is kept for self-host flexibility (any local Ollama tag works
+    without registry ceremony) but it warns ONCE per unknown id — a typo'd
+    registry id (e.g. 'kimi-k2.5' instead of 'kimi-k2.5-openrouter') otherwise
+    becomes a silent daily ollama 404 with every call landing on the fallback.
     """
     model_def = get_model_from_registry(model_id)
     if model_def:
         return model_def["provider"], model_def.get("model_string", model_id)
     # Fallback: treat as raw model string, infer provider
-    if "/" in model_id:
-        return "openrouter", model_id
-    return "ollama", model_id
+    provider = "openrouter" if "/" in model_id else "ollama"
+    if model_id not in _WARNED_UNKNOWN_MODELS:
+        _WARNED_UNKNOWN_MODELS.add(model_id)
+        print(f"[provider] WARNING: model id '{model_id}' is not in the registry "
+              f"(config/models.yaml) — inferring provider '{provider}'. If this is a "
+              f"registry id typo, fix the assignment; every call on it will fail over "
+              f"to the fallback model.")
+    return provider, model_id
 
 
 def _get_context_window(model_id: str) -> int:
