@@ -746,11 +746,11 @@ async def youtube_queue_update(queue_id: int, req: QueueUpdateRequest, request: 
 
             old_status = row["status"]
 
-            if old_status not in ("draft", "queued"):
+            if old_status not in ("draft", "queued", "failed"):
                 return JSONResponse(
                     status_code=409,
                     content={
-                        "error": f"Cannot edit — status is '{old_status}'. Only 'draft' or 'queued' posts can be edited.",
+                        "error": f"Cannot edit — status is '{old_status}'. Only 'draft', 'queued', or 'failed' posts can be edited.",
                     },
                 )
 
@@ -768,6 +768,14 @@ async def youtube_queue_update(queue_id: int, req: QueueUpdateRequest, request: 
 
             if not updates:
                 return {"status": "no_changes", "id": queue_id}
+
+            # Re-queue of a FAILED post = a retry: clear the old error and any
+            # stale upload marker so the processor picks it up cleanly. Failed
+            # rows used to be a dead end (409 on edit) — the operator's only
+            # path after a fixed misconfig was recreating the whole card.
+            if old_status == "failed" and updates.get("status") == "queued":
+                updates["error_message"] = None
+                updates["uploaded_at"] = None
 
             set_clause = ", ".join(f"{k} = %({k})s" for k in updates)
             updates["id"] = queue_id
