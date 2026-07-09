@@ -1780,7 +1780,10 @@ async function provisionAgent() {
     const btn = document.getElementById('btn-provision');
     btn.disabled = true;
     const _isFirst = urlParams.get('firstrun') === '1';
-    btn.textContent = _isFirst ? 'Creating your Lucid Cove…' : 'Building…';
+    const _familyName = urlParams.get('familyName');
+    const _name = selectedName || document.getElementById('custom-name').value.trim();
+    btn.textContent = _isFirst ? 'Creating your Lucid Cove…'
+        : (_familyName ? `Bringing ${_name} into ${_familyName}…` : `Bringing ${_name} into the Cove…`);
 
     const statusEl = document.getElementById('provision-status');
     statusEl.style.display = 'block';
