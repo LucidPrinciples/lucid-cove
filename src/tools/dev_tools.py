@@ -13,6 +13,7 @@ import asyncio
 import os
 from src.env import env
 from pathlib import Path
+import shlex
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -242,12 +243,15 @@ async def git_commit(project: str, message: str) -> str:
     _family = get_setting_sync("family_name", "Cove")
     _git_name = f"{_admin_name} {_family}"
     _admin_id = get_setting_sync("admin_agent_id", "stuart")
+    # shlex.quote EVERYTHING user-supplied: an apostrophe/quote/dash in a commit
+    # message used to shell-split the command (found live 2026-07-09: the steward's
+    # first #D10 commit failed twice and forced a raw-shell workaround).
     env_cmd = (
-        f'GIT_AUTHOR_NAME="{_git_name}" '
-        f'GIT_COMMITTER_NAME="{_git_name}" '
-        f'GIT_AUTHOR_EMAIL="{_admin_id}@lucidtuner.ai" '
-        f'GIT_COMMITTER_EMAIL="{_admin_id}@lucidtuner.ai" '
-        f'git commit -m "{message}"'
+        f'GIT_AUTHOR_NAME={shlex.quote(_git_name)} '
+        f'GIT_COMMITTER_NAME={shlex.quote(_git_name)} '
+        f'GIT_AUTHOR_EMAIL={shlex.quote(_admin_id + "@lucidtuner.ai")} '
+        f'GIT_COMMITTER_EMAIL={shlex.quote(_admin_id + "@lucidtuner.ai")} '
+        f'git commit -m {shlex.quote(message)}'
     )
     proc = await asyncio.create_subprocess_shell(
         env_cmd,
@@ -293,7 +297,7 @@ async def git_push(project: str, branch: str = "") -> str:
     repo = _resolve_repo(project)
     if not branch:
         branch = await _run_git("branch --show-current", repo)
-    return await _run_git(f"push origin {branch}", repo)
+    return await _run_git(f"push origin {shlex.quote(branch)}", repo)
 
 
 @approve
@@ -326,9 +330,9 @@ async def create_github_pr(project: str, title: str, body: str = "",
         base: Base branch (default: main)
     """
     repo = _resolve_repo(project)
-    body_escaped = body.replace('"', '\\"')
     return await _run_cmd(
-        f'gh pr create --title "{title}" --body "{body_escaped}" --base {base}',
+        f'gh pr create --title {shlex.quote(title)} --body {shlex.quote(body)} '
+        f'--base {shlex.quote(base)}',
         cwd=repo, timeout=30
     )
 
