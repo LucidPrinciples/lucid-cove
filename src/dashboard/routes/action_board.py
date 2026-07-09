@@ -797,12 +797,17 @@ async def update_social_item(item_id: int, request: Request):
             # scheduled youtube post must be mirrored there or nothing fires.
             # Idempotent: the youtube_queue id is stored back in platform_data
             # so re-scheduling updates the same row instead of duplicating.
-            promoted_id = await _promote_youtube_post(conn, item_id, pid)
+            promoted = await _promote_youtube_post(conn, item_id, pid)
 
         result = {"ok": True, "updated": list(updates.keys())}
-        if promoted_id:
+        if promoted:
+            promoted_id, cal_ok = promoted
             result["youtube_queue_id"] = promoted_id
             result["queued"] = True
+            # Surface calendar failure instead of a false green — the board
+            # shows "Scheduled" either way, but tells the operator when the
+            # calendar event didn't land (creds/config issue to fix).
+            result["calendar"] = "ok" if cal_ok else "failed"
         return result
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -876,16 +881,20 @@ async def _promote_youtube_post(conn, item_id: int, presence_id: str | None = No
             (json.dumps(pdata), item_id),
         )
 
+    cal_ok = False
     try:
         from src.dashboard.routes.youtube_calendar import create_youtube_calendar_event
-        await create_youtube_calendar_event(
+        cal_ok = await create_youtube_calendar_event(
             yq_id, s["title"], s["upload_date"], s["publish_date"], s["series"] or "",
+            presence_id=presence_id,
         )
     except Exception as e:
         logger.warning(f"Promote {item_id}: queued #{yq_id} but calendar event failed: {e}")
+    if not cal_ok:
+        logger.warning(f"Promote {item_id}: queued #{yq_id} but NO calendar event was created")
 
-    logger.info(f"Promoted social_queue #{item_id} → youtube_queue #{yq_id} (queued)")
-    return yq_id
+    logger.info(f"Promoted social_queue #{item_id} → youtube_queue #{yq_id} (queued, calendar={'ok' if cal_ok else 'FAILED'})")
+    return yq_id, cal_ok
 
 
 @router.delete("/api/action-board/social/{item_id}")

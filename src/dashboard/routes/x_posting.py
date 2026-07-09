@@ -453,9 +453,10 @@ async def process_queued_x_posts() -> dict:
     for row in ready:
         qid = row["id"]
         caption = build_caption(row["title"], row["hashtags"], row.get("description", ""))
-        video_path = resolve_content_path(row["file_path"])
 
-        # Resolve THIS row's presence credentials (env fallback for legacy NULL rows).
+        # Resolve THIS row's presence credentials FIRST (env fallback for legacy
+        # NULL rows) — never download a multi-GB clip for a row that will fail
+        # on credentials anyway.
         owner_id = row.get("agent_id")
         if owner_id not in creds_cache:
             creds_cache[owner_id], _ = await resolve_x_creds(owner_id=owner_id)
@@ -468,17 +469,28 @@ async def process_queued_x_posts() -> dict:
             results.append({"id": qid, "status": "failed", "error": "no X credentials"})
             continue
 
+        # /content mount (legacy) or the owning presence's Nextcloud via WebDAV
+        # (centralized — no mount). Temp downloads are unlinked after the post.
+        from src.utils.content_fetch import fetch_content_file
+        video_path, _tmp_video = await fetch_content_file(
+            row["file_path"], presence_id=row.get("agent_id"), label="scheduler/x")
+
         if not video_path:
             async with get_db() as conn:
                 await conn.execute(
                     "UPDATE social_queue SET status='failed', error_message=%s WHERE id=%s",
-                    (f"File not found under /content: {row['file_path']}", qid))
+                    (f"File not found (no /content mount and not fetchable from cloud): {row['file_path']}", qid))
             results.append({"id": qid, "status": "failed", "error": "file not found"})
             continue
 
         if _dry_run():
             results.append({"id": qid, "status": "dry_run", "would_post": caption,
                             "file": str(video_path)})
+            if _tmp_video:
+                try:
+                    video_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
             continue
 
         async with get_db() as conn:
@@ -502,6 +514,12 @@ async def process_queued_x_posts() -> dict:
                     "UPDATE social_queue SET status='failed', error_message=%s WHERE id=%s",
                     (str(e)[:500], qid))
             results.append({"id": qid, "status": "failed", "error": str(e)[:300]})
+        finally:
+            if _tmp_video and video_path is not None:
+                try:
+                    video_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     return {"status": "ok", "processed": len(results),
             "dry_run": _dry_run(), "results": results}

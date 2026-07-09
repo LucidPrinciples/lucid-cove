@@ -724,9 +724,18 @@ async function scheduleSocial(itemId) {
             body: JSON.stringify(body),
         });
         if (!res.ok) throw new Error(`${res.status}`);
-        if (feedback) feedback.innerHTML = `<span style="color:var(--green)">Scheduled ✓</span>`;
-        if (btn) { btn.textContent = 'Scheduled ✓'; btn.style.background = 'var(--green)'; }
-        setTimeout(() => closeFlowOverlay(), 1500);
+        const data = await res.json().catch(() => ({}));
+        if (data.calendar === 'failed') {
+            // Queued for upload, but the calendar event didn't land — say so
+            // instead of a false all-green (the old silent-failure mode).
+            if (feedback) feedback.innerHTML = `<span style="color:var(--yellow, #d9a441)">Scheduled ✓ — but the calendar event failed (check cloud credentials)</span>`;
+            if (btn) { btn.textContent = 'Scheduled (no calendar)'; btn.style.background = 'var(--yellow, #d9a441)'; }
+            setTimeout(() => closeFlowOverlay(), 3500);
+        } else {
+            if (feedback) feedback.innerHTML = `<span style="color:var(--green)">Scheduled ✓</span>`;
+            if (btn) { btn.textContent = 'Scheduled ✓'; btn.style.background = 'var(--green)'; }
+            setTimeout(() => closeFlowOverlay(), 1500);
+        }
     } catch (e) {
         if (feedback) feedback.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
         if (btn) { btn.textContent = 'Schedule'; btn.disabled = false; }

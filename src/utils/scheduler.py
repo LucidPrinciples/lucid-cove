@@ -588,11 +588,21 @@ class AgentScheduler:
         Uploads each to YouTube as private with publishAt, then updates
         the queue entry with the video ID and status.
 
-        Only runs if YOUTUBE_CLIENT_ID is configured (skips silently otherwise).
+        Only runs if the YouTube OAuth app is configured — via Posting Accounts
+        (feature flags, the centralized path) OR env vars (legacy). Gating on
+        env alone made the processor skip silently forever on centralized
+        stacks, where the operator saves creds through the UI into flags.
         """
-        # Skip if YouTube not configured on this agent
-        if not env("YOUTUBE_CLIENT_ID"):
+        try:
+            from src.dashboard.routes.youtube_auth import _get_oauth_config
+            _get_oauth_config()
+        except Exception:
+            if not getattr(self, "_yt_skip_logged", False):
+                self._yt_skip_logged = True
+                print(f"{ts_log()} [scheduler] YouTube queue processor idle: OAuth app "
+                      "not configured (Posting Accounts or YOUTUBE_* env). Logged once.")
             return
+        self._yt_skip_logged = False
 
         try:
             from src.memory.database import get_db
@@ -603,7 +613,7 @@ class AgentScheduler:
                 result = await conn.execute(
                     """SELECT id, title, description, tags, hashtags, file_path,
                               category_id, made_for_kids, is_short, related_video,
-                              playlist_id, publish_date, series
+                              playlist_id, publish_date, series, presence_id
                        FROM youtube_queue
                        WHERE status = 'queued' AND upload_date <= NOW()
                              AND youtube_video_id IS NULL
@@ -628,12 +638,13 @@ class AgentScheduler:
         """Check for queued X (Twitter) posts ready to publish.
 
         Runs every 15 minutes. Thin wrapper — all logic lives in
-        x_posting.process_queued_x_posts(). Skips silently when X
-        credentials are not configured on this agent (only Atlas has them).
-        Respects X_DRY_RUN.
+        x_posting.process_queued_x_posts(), which resolves credentials PER ROW
+        (each presence's own X keys; env X_API_KEY is only the legacy fallback).
+        So no env gate here — on a centralized stack the env is empty while
+        per-presence creds exist, and gating on env silently skipped every
+        post. An unconfigured Cove just sees an empty queue / per-row cred
+        failures (which surface on the card). Respects X_DRY_RUN.
         """
-        if not env("X_API_KEY"):
-            return
         try:
             from src.dashboard.routes.x_posting import process_queued_x_posts
 
@@ -664,10 +675,23 @@ class AgentScheduler:
         except Exception:
             pass
 
+        _tmp_video: bool = False
+        video_path = None
         try:
             from src.dashboard.routes.youtube_auth import get_valid_access_token
+            from src.dashboard.routes.posting_identity import yt_service_key
 
-            access_token = await get_valid_access_token("youtube")
+            # The OAuth callback stores the connected channel's token PER
+            # PRESENCE ('youtube:{owner_id}'); the legacy global 'youtube' row
+            # exists only on single-mode installs. Look up the owner's token
+            # first, fall back to the global row for legacy/NULL-owner posts.
+            _svc = yt_service_key(post.get("presence_id"))
+            try:
+                access_token = await get_valid_access_token(_svc)
+            except ValueError:
+                if _svc == "youtube":
+                    raise
+                access_token = await get_valid_access_token("youtube")
 
             # Build title
             title = post["title"]
@@ -700,13 +724,15 @@ class AgentScheduler:
 
             video_metadata = {"snippet": snippet, "status": status_meta}
 
-            # Check file exists
+            # Resolve the clip: /content mount (legacy) or the owning
+            # presence's Nextcloud via WebDAV (centralized — no mount exists).
             import json
-            from pathlib import Path
             import httpx
 
-            from src.utils.content_paths import resolve_content_path
-            video_path = resolve_content_path(post["file_path"])
+            from src.utils.content_fetch import fetch_content_file
+            video_path, _tmp_video = await fetch_content_file(
+                post["file_path"], presence_id=post.get("presence_id"),
+                label="scheduler/youtube")
             if not video_path:
                 raise FileNotFoundError(f"Video not found: {post['file_path']}")
 
@@ -792,7 +818,7 @@ class AgentScheduler:
             # Remove calendar event — upload is done
             try:
                 from src.dashboard.routes.youtube_calendar import delete_youtube_calendar_event
-                await delete_youtube_calendar_event(post_id)
+                await delete_youtube_calendar_event(post_id, presence_id=post.get("presence_id"))
             except Exception:
                 pass
 
@@ -811,6 +837,13 @@ class AgentScheduler:
                     )
             except Exception:
                 pass
+        finally:
+            # A WebDAV-fetched clip is a multi-GB temp file — never leave it behind.
+            if _tmp_video and video_path is not None:
+                try:
+                    video_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     async def _create_youtube_followups(self, post: dict, video_id: str, video_url: str):
         """Create a single follow-up task for Studio-only actions after upload.

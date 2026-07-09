@@ -784,7 +784,8 @@ async def youtube_queue_update(queue_id: int, req: QueueUpdateRequest, request: 
             if new_status == "queued" and (old_status != "queued" or dates_changed):
                 # Create or update calendar event (PUT is idempotent — overwrites if exists)
                 result = await conn.execute(
-                    "SELECT title, upload_date, publish_date, series FROM youtube_queue WHERE id = %s",
+                    "SELECT title, upload_date, publish_date, series, presence_id "
+                    "FROM youtube_queue WHERE id = %s",
                     (queue_id,),
                 )
                 post = await result.fetchone()
@@ -792,9 +793,14 @@ async def youtube_queue_update(queue_id: int, req: QueueUpdateRequest, request: 
                     await create_youtube_calendar_event(
                         queue_id, post["title"], post["upload_date"],
                         post["publish_date"], post["series"] or "",
+                        presence_id=post.get("presence_id"),
                     )
             elif new_status == "draft" and old_status == "queued":
-                await delete_youtube_calendar_event(queue_id)
+                _r = await conn.execute(
+                    "SELECT presence_id FROM youtube_queue WHERE id = %s", (queue_id,))
+                _row = await _r.fetchone()
+                await delete_youtube_calendar_event(
+                    queue_id, presence_id=(_row or {}).get("presence_id"))
 
         now = now_app().strftime("%Y-%m-%d %H:%M %Z")
         print(f"[{now}] [youtube] Queue updated: #{queue_id} fields={list(updates.keys())}")
@@ -828,7 +834,7 @@ async def youtube_queue_cancel(queue_id: int, request: Request):
     try:
         async with get_db() as conn:
             result = await conn.execute(
-                f"SELECT status FROM youtube_queue WHERE id = %s{scope_sql}",
+                f"SELECT status, presence_id FROM youtube_queue WHERE id = %s{scope_sql}",
                 (queue_id,) + scope_args,
             )
             row = await result.fetchone()
@@ -850,7 +856,8 @@ async def youtube_queue_cancel(queue_id: int, request: Request):
             )
 
         # Remove calendar event if it existed
-        await delete_youtube_calendar_event(queue_id)
+        await delete_youtube_calendar_event(
+            queue_id, presence_id=(row.get("presence_id") if hasattr(row, "get") else None))
 
         now = now_app().strftime("%Y-%m-%d %H:%M %Z")
         print(f"[{now}] [youtube] Queue cancelled: #{queue_id}")
