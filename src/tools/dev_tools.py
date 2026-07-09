@@ -13,6 +13,7 @@ import asyncio
 import os
 from src.env import env
 from pathlib import Path
+import shlex
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -242,12 +243,15 @@ async def git_commit(project: str, message: str) -> str:
     _family = get_setting_sync("family_name", "Cove")
     _git_name = f"{_admin_name} {_family}"
     _admin_id = get_setting_sync("admin_agent_id", "stuart")
+    # shlex.quote EVERYTHING user-supplied: an apostrophe/quote/dash in a commit
+    # message used to shell-split the command (found live 2026-07-09: the steward's
+    # first #D10 commit failed twice and forced a raw-shell workaround).
     env_cmd = (
-        f'GIT_AUTHOR_NAME="{_git_name}" '
-        f'GIT_COMMITTER_NAME="{_git_name}" '
-        f'GIT_AUTHOR_EMAIL="{_admin_id}@lucidtuner.ai" '
-        f'GIT_COMMITTER_EMAIL="{_admin_id}@lucidtuner.ai" '
-        f'git commit -m "{message}"'
+        f'GIT_AUTHOR_NAME={shlex.quote(_git_name)} '
+        f'GIT_COMMITTER_NAME={shlex.quote(_git_name)} '
+        f'GIT_AUTHOR_EMAIL={shlex.quote(_admin_id + "@lucidtuner.ai")} '
+        f'GIT_COMMITTER_EMAIL={shlex.quote(_admin_id + "@lucidtuner.ai")} '
+        f'git commit -m {shlex.quote(message)}'
     )
     proc = await asyncio.create_subprocess_shell(
         env_cmd,
@@ -293,7 +297,7 @@ async def git_push(project: str, branch: str = "") -> str:
     repo = _resolve_repo(project)
     if not branch:
         branch = await _run_git("branch --show-current", repo)
-    return await _run_git(f"push origin {branch}", repo)
+    return await _run_git(f"push origin {shlex.quote(branch)}", repo)
 
 
 @approve
@@ -313,11 +317,55 @@ async def git_delete_branch(project: str, branch: str, remote: bool = False) -> 
     return result
 
 
+def _github_repo_and_token(repo: str) -> tuple[str, str] | None:
+    """(owner/name, token) for this clone's origin, or None.
+
+    Token sources, in order: embedded in the remote URL, GH_TOKEN/GITHUB_TOKEN
+    env, ~/.git-credentials (the same PAT the clone pushes with). No gh CLI,
+    no shell parsing of user text — this feeds the REST call below."""
+    import re
+    import subprocess
+    try:
+        url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=repo,
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception:
+        return None
+    m = re.search(r"github\.com[:/](?P<own>[^/]+)/(?P<name>[^/\s]+?)(?:\.git)?$", url)
+    if not m:
+        return None
+    slug = f"{m.group('own')}/{m.group('name')}"
+
+    tok = ""
+    m2 = re.search(r"https://(?:[^:@/]+:)?(?P<tok>[^@/]+)@github\.com", url)
+    if m2 and not m2.group("tok").startswith("github.com"):
+        tok = m2.group("tok")
+    if not tok:
+        tok = env("GH_TOKEN") or env("GITHUB_TOKEN") or ""
+    if not tok:
+        try:
+            from pathlib import Path as _P
+            cred = _P(env("HOME", "/root")) / ".git-credentials"
+            if cred.exists():
+                for line in cred.read_text().splitlines():
+                    m3 = re.search(r"https://(?:[^:@/]+:)?(?P<tok>[^@/]+)@github\.com", line)
+                    if m3:
+                        tok = m3.group("tok")
+                        break
+        except Exception:
+            pass
+    return (slug, tok) if tok else None
+
+
 @approve
 @tool
 async def create_github_pr(project: str, title: str, body: str = "",
                            base: str = "main") -> str:
-    """Create a GitHub pull request using gh CLI. Requires approval.
+    """Create a GitHub pull request. Requires approval.
+
+    Talks to the GitHub REST API directly with the clone's own credentials —
+    NO shell, NO gh CLI. The old gh-CLI shell-out failed on EVERY approved
+    execution for days (unescaped title/body shell-split; and gh isn't in the
+    container image) while the approval card showed green — the LOOP-1 ghost.
 
     Args:
         project: Project name or path
@@ -326,11 +374,38 @@ async def create_github_pr(project: str, title: str, body: str = "",
         base: Base branch (default: main)
     """
     repo = _resolve_repo(project)
-    body_escaped = body.replace('"', '\\"')
-    return await _run_cmd(
-        f'gh pr create --title "{title}" --body "{body_escaped}" --base {base}',
-        cwd=repo, timeout=30
-    )
+    branch = (await _run_git("branch --show-current", repo)).strip()
+    if not branch or branch.startswith("Error"):
+        return f"Error: could not determine current branch in {repo}: {branch}"
+    if branch in ("main", "master"):
+        return "REFUSED: you are on main — create the PR from your feature branch."
+
+    rt = _github_repo_and_token(repo)
+    if not rt:
+        return ("Error: no GitHub credentials found for this clone (remote URL, "
+                "GH_TOKEN/GITHUB_TOKEN, or ~/.git-credentials). Ask the operator "
+                "to wire the push PAT.")
+    slug, token = rt
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"https://api.github.com/repos/{slug}/pulls",
+                headers={"Authorization": f"Bearer {token}",
+                         "Accept": "application/vnd.github+json"},
+                json={"title": title, "body": body, "head": branch, "base": base},
+            )
+    except Exception as e:
+        return f"Error: PR request failed to send: {e}"
+
+    if resp.status_code == 201:
+        data = resp.json()
+        return (f"PR CREATED: #{data.get('number')} {data.get('html_url')}\n"
+                f"'{title}' ({branch} -> {base}). Tell the operator the PR number.")
+    if resp.status_code == 422 and "already exists" in resp.text:
+        return f"A PR for {branch} -> {base} already exists: {resp.text[:200]}"
+    return (f"Error: GitHub API returned {resp.status_code}: {resp.text[:300]}")
 
 
 # =============================================================================
