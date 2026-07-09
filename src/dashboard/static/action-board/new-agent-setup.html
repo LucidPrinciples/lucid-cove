@@ -634,7 +634,7 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
         <div class="step-header">
             <div class="step-label">The Spark</div>
             <div class="step-title" id="wake-title">Waking…</div>
-            <div class="step-desc" id="wake-desc">Lucid Cove gave a spark of Intelligence so you can meet your agent. This is the first thing they'll remember about you, so make it count.</div>
+            <div class="step-desc" id="wake-desc">Lucid Cove gave a spark of Intelligence so you can meet your agent. This is the first thing it will remember about you, so make it count.</div>
         </div>
 
         <div class="wake-chat" id="wake-chat"></div>
@@ -2095,6 +2095,11 @@ async function _runWake(redirect, isFirstrun) {
     _wakeOpReply = '';
     const name = selectedName || document.getElementById('custom-name').value.trim() || 'your agent';
 
+    // Gender → object pronoun for the spark copy
+    const gender = document.getElementById('agent-gender')?.value || 'neutral';
+    const objPronounMap = { masculine: 'him', feminine: 'her', neutral: 'it' };
+    const them = objPronounMap[gender] || 'it';
+
     // Reveal the wake step (it lives outside the numbered steps).
     document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
     document.getElementById('step-wake').classList.add('active');
@@ -2109,11 +2114,11 @@ async function _runWake(redirect, isFirstrun) {
         if (wakeContinueBtn) wakeContinueBtn.textContent = 'Finish and get their link →';
     } else if (_wakeMode === 'self') {
         if (wakeDesc) wakeDesc.textContent =
-            'Lucid Cove gave a spark of Intelligence so you can meet ' + name + '. This is the first thing they\'ll remember about you, so make it count.';
+            'Lucid Cove gave a spark of Intelligence so you can meet ' + name + '. This is the first thing ' + them + ' will remember about you, so make it count.';
         if (wakeContinueBtn) wakeContinueBtn.textContent = 'Continue to your Chat →';
     } else {
         if (wakeDesc) wakeDesc.textContent =
-            'Lucid Cove gave a spark of Intelligence so you can meet your agent. This is the first thing they\'ll remember about you, so make it count.';
+            'Lucid Cove gave a spark of Intelligence so you can meet your agent. This is the first thing ' + them + ' will remember about you, so make it count.';
         if (wakeContinueBtn) wakeContinueBtn.textContent = 'Continue — add your intelligence →';
     }
 
