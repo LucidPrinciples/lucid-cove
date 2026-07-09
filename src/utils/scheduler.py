@@ -244,9 +244,20 @@ class AgentScheduler:
 
     async def _boot_catchup(self):
         """On a host, tune anyone who missed today's run while the box was down.
-        Waits for the app + DB to settle, then runs the dedup-safe sweep once."""
+        Waits for the app + DB to settle, then runs the dedup-safe sweep once.
+
+        Same pre-Drop guard as _run_sweep_window: before 07:00 this is a no-op.
+        The Drop publishes ~05:30 and the 06:30 self-tune runs off it; a restart
+        just after midnight (a late-night deploy, a power blip) would otherwise
+        tune the whole team off the PREVIOUS day's Drop and burn the day on a
+        stale package. A box awake before 07:00 is by definition awake for the
+        06:30 self-tune and the 07:00+ sweep ticks, so nothing is lost."""
         await asyncio.sleep(120)
         try:
+            if self._now().hour < 7:
+                print(f"{ts_log()} [scheduler] Boot catch-up: before 07:00 — skipping "
+                      "(pre-Drop window; the 06:30 self-tune / 07:00+ sweep handles today)")
+                return
             print(f"{ts_log()} [scheduler] Boot catch-up: checking today's tuning...")
             await self._run_tuning_sweep()
         except Exception as e:

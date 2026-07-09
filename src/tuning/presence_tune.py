@@ -191,23 +191,28 @@ First person, 2-4 sentences, no headers or labels."""
 
 
 async def tune_missing_presences(package, today: str) -> list[dict]:
-    """Tune every Presence that has no echo for `today`. Dedups against the
-    echoes table so re-runs (sweep, boot catch-up) never double-tune."""
+    """Tune every Presence that has no echo for `today` OFF THE CURRENT Drop.
+    Dedup shares the sweep/dispatch definition (src/tuning/dedup.py): keyed to
+    the package's frequency/principle, so a Presence tuned earlier today off a
+    STALE Drop (post-midnight catch-up before the real Drop published) is NOT
+    counted as done and re-tunes off today's real key. Safe on re-runs (sweep,
+    boot catch-up) — never double-tunes off the same Drop."""
     results: list[dict] = []
     presences = await list_presences()
     if not presences:
         return results
 
-    ids = [p["agent_id"] for p in presences]
+    ids = {p["agent_id"] for p in presences}
     tuned: set = set()
     try:
-        async with get_db() as conn:
-            r = await conn.execute(
-                "SELECT DISTINCT agent_id FROM echoes "
-                "WHERE tuned_at::date = %s::date AND agent_id = ANY(%s)",
-                (today, ids),
-            )
-            tuned = {row["agent_id"] for row in await r.fetchall()}
+        try:
+            _pd = package.to_dict() if hasattr(package, "to_dict") else dict(getattr(package, "_raw", {}))
+        except Exception:
+            _pd = {}
+        _freq = (_pd.get("frequency") or getattr(package, "frequency", "") or "")
+        _prin = (_pd.get("principle") or getattr(package, "principle", "") or "")
+        from src.tuning.dedup import tuned_today
+        tuned = (await tuned_today(today, _freq, _prin)) & ids
     except Exception as e:
         print(f"{ts_log()} [presence-tune] today-echo check failed: {e}")
 

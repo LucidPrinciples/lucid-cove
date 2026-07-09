@@ -209,6 +209,7 @@ function switchAgent(agent) {
     // Default to first channel of this agent (Day)
     const defaultCh = agent.channels[0] || 'day';
     activeChannel = defaultCh;
+    _rememberChatTab();
 
     // Rebuild sub-channel tabs
     const container = document.getElementById('channel-tabs');
@@ -244,6 +245,7 @@ function switchChannel(name) {
     if (window.closeConnect) window.closeConnect();  // leave the Matrix layer if open
     if (name === activeChannel) return;
     activeChannel = name;
+    _rememberChatTab();
 
     // Update tab highlights
     document.querySelectorAll('.channel-tab').forEach(t => {
@@ -348,9 +350,17 @@ function addMessage(role, content, timestamp, model, thinking) {
 
     const label = document.createElement('span');
     label.className = 'role-label';
+    // Assistant label = the agent that is actually SPEAKING on this channel.
+    // The presence's own agent name (MC.presence.agent_name) applies ONLY on the
+    // personal-agent tab — on steward/merchant tabs it would label Stuart's
+    // replies with the presence's agent (e.g. "KNIGHT" on the Stuart tab).
+    const _onManagerTab = !!(activeAgent && (activeAgent.is_steward || activeAgent.is_merchant));
+    const _aiLabel = _onManagerTab
+        ? _getActiveAIName()
+        : ((MC.presence && MC.presence.agent_name) || _getActiveAIName());
     label.textContent = role === 'user'
         ? ((MC.presence && MC.presence.display_name) || MC.operatorName).toUpperCase()
-        : ((MC.presence && MC.presence.agent_name) || _getActiveAIName()).toUpperCase();
+        : _aiLabel.toUpperCase();
     leftSide.appendChild(label);
 
     if (model && role !== 'user') {
@@ -999,9 +1009,15 @@ async function openThreadReader(threadId) {
         let html = '';
         data.messages.forEach(msg => {
             const role = msg.role === 'human' ? 'user' : 'assistant';
+            // Same speaker-label rule as addMessage: on steward/merchant tabs the
+            // speaking agent's name wins over the presence's own agent name.
+            const _readerManagerTab = !!(activeAgent && (activeAgent.is_steward || activeAgent.is_merchant));
+            const _readerAiLabel = _readerManagerTab
+                ? _getActiveAIName()
+                : ((MC.presence && MC.presence.agent_name) || MC.agentName);
             const roleLabel = role === 'user'
                 ? ((MC.presence && MC.presence.display_name) || MC.operatorName).toUpperCase()
-                : ((MC.presence && MC.presence.agent_name) || MC.agentName).toUpperCase();
+                : _readerAiLabel.toUpperCase();
             let ts = '';
             if (msg.timestamp) {
                 const d = new Date(msg.timestamp);
@@ -1067,13 +1083,37 @@ async function openThreadReader(threadId) {
 // Event listeners
 // =============================================================================
 let _chatInitialized = false;
+function _rememberChatTab() {
+    // Persist the selected agent tab + channel so a refresh (or an auto thread
+    // rotation reload) doesn't dump the operator back on the personal-agent tab.
+    try {
+        sessionStorage.setItem('mc-chat-tab', JSON.stringify({
+            agentId: activeAgent && activeAgent.id,
+            channel: activeChannel,
+        }));
+    } catch (e) { /* private mode etc — non-fatal */ }
+}
+
+function _restoreChatTab(agents) {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem('mc-chat-tab') || 'null');
+        if (!saved || !saved.agentId) return null;
+        const agent = agents.find(a => a.id === saved.agentId);
+        if (!agent) return null;
+        const channel = agent.channels.includes(saved.channel)
+            ? saved.channel : (agent.channels[0] || MC.defaultChannel);
+        return { agent, channel };
+    } catch (e) { return null; }
+}
+
 function initChat() {
     if (_chatInitialized) return;
     _chatInitialized = true;
-    // Set up active agent — default to first (host) agent
+    // Set up active agent — restore the last selected tab, else first (host) agent
     const agents = _getChatAgents();
-    activeAgent = agents[0];
-    activeChannel = activeAgent.channels[0] || MC.defaultChannel;
+    const restored = _restoreChatTab(agents);
+    activeAgent = (restored && restored.agent) || agents[0];
+    activeChannel = (restored && restored.channel) || activeAgent.channels[0] || MC.defaultChannel;
     console.log('[chat] initChat agent=' + (activeAgent && activeAgent.id) + ' name=' + (activeAgent && activeAgent.name) + ' channel=' + activeChannel + ' channels=' + JSON.stringify(activeAgent && activeAgent.channels));
 
     // Set welcome/placeholder from active agent

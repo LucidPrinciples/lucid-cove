@@ -117,8 +117,23 @@ class TeamModelUpdate(BaseModel):
 
 @router.put("/api/settings/team-models/{agent_id}")
 async def update_team_model(agent_id: str, body: TeamModelUpdate):
-    """Set a build-team agent's primary/fallback model (Stuart-level). Writes cove.yaml."""
+    """Set a build-team agent's primary/fallback model (Stuart-level). Writes cove.yaml.
+
+    Model ids are validated against the registry (parity with
+    /api/agents/{id}/model-assignment). An unknown id here used to be written
+    verbatim into cove.yaml, and the provider resolver then INFERRED a backend
+    for it — 'kimi-k2.5' (no slash) became ollama/kimi-k2.5, a daily silent 404
+    with every tuning landing on the fallback model. Blank = inherit."""
     try:
+        from src.config import load_models_registry
+        valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
+        for field_name, v in (("primary", body.primary), ("fallback", body.fallback)):
+            v = (v or "").strip()
+            if v and v not in valid_ids:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Unknown model id '{v}' for {field_name} — "
+                                      "not in the model registry (config/models.yaml)."})
         ok = set_team_model(agent_id, primary=body.primary, fallback=body.fallback)
         if not ok:
             return JSONResponse(status_code=500, content={"error": "save failed"})

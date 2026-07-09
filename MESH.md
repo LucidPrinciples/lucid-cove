@@ -73,7 +73,7 @@ join code**, good for ~1 hour).
 - **Address claimed but HTTPS never issues** (browser warning, or your subdomains time out):
   your box gets its certificate via DNS-01 through the hub's challenge DNS, which must be
   reachable on **port 53** from the public internet. Test from any machine:
-  `dig +short acme.lucidcove.org @31.97.7.72` — a timeout means the hub side (or a firewall
+  `dig +short acme.lucidcove.org @<hub public IP>` — a timeout means the hub side (or a firewall
   in front of it) is blocking DNS, not your box. Your Cove's Caddy keeps retrying and picks
   up automatically once it clears. (Hub operators: allow TCP **and** UDP 53 to the acme-dns
   container — cloud-provider firewalls often block them by default.)

@@ -12,10 +12,14 @@ SCHED = Path(__file__).resolve().parents[1] / "src" / "utils" / "scheduler.py"
 
 def test_cove_self_tune_registered_at_0630():
     src = SCHED.read_text()
-    # The host self-tune registration must schedule _run_tuning_sweep at 06:30.
-    m = re.search(r'schedule\.every\(\)\.day\.at\("06:30",\s*tz\)\.do\(\s*'
-                  r'self\._schedule_async\(self\._run_tuning_sweep\)', src)
-    assert m, "Cove self-tune is not registered at 06:30"
+    # The host self-tune registers at 06:30 + a deterministic per-Cove jitter
+    # (0-25 min, so co-located Coves sharing one Ollama don't all fire at once):
+    # the registered time is built as "06:%02d" % (30 + _off), then scheduled.
+    m = re.search(r'_tune_at\s*=\s*"06:%02d"\s*%\s*\(30\s*\+\s*_off\)', src)
+    assert m, "Cove self-tune base time is not 06:30 (+ per-Cove jitter)"
+    m2 = re.search(r'schedule\.every\(\)\.day\.at\(_tune_at,\s*tz\)\.do\(\s*'
+                   r'self\._schedule_async\(self\._run_tuning_sweep\)', src)
+    assert m2, "Cove self-tune (_run_tuning_sweep) is not registered at _tune_at"
 
 
 def test_no_0700_self_tune_registration():

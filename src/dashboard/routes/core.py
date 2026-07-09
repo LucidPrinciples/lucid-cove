@@ -782,4 +782,28 @@ async def system_health():
     except Exception as e:
         results["nextcloud"] = f"error: {e}"
 
+    # Model chain: surface models that are failing REPEATEDLY. A misassigned
+    # primary (e.g. a registry-id typo resolved as an ollama tag) fails over to
+    # the fallback on every call — work completes, metrics look green, and the
+    # misconfig lives forever in the logs. 3+ failures in 48h = degraded, and
+    # we name the model so the operator can fix the assignment.
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            r = await conn.execute(
+                """SELECT model_used, COUNT(*) AS n FROM jw_metrics
+                   WHERE succeeded = FALSE
+                     AND recorded_at > NOW() - INTERVAL '48 hours'
+                   GROUP BY model_used HAVING COUNT(*) >= 3
+                   ORDER BY n DESC LIMIT 10""")
+            failing = [{"model": row["model_used"], "failures_48h": row["n"]}
+                       for row in await r.fetchall()]
+        if failing:
+            results["model_chain"] = "degraded"
+            results["model_chain_failing"] = failing
+        else:
+            results["model_chain"] = "ok"
+    except Exception as e:
+        results["model_chain"] = f"unknown: {e}"
+
     return results

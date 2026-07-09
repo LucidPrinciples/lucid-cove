@@ -27,8 +27,8 @@ The container image is generic and carries no source. Code is mounted at runtime
 ## Development
 
 ```bash
-git clone https://github.com/LucidPrinciples/lucid-cove-core.git cove-core
-cd cove-core
+git clone https://github.com/LucidPrinciples/lucid-cove.git
+cd lucid-cove
 pip install -e ".[dev]"     # installs pytest, ruff
 python -m pytest            # run the test suite
 ruff check .                # lint
