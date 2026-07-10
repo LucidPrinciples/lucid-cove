@@ -153,13 +153,25 @@ def _voice_on() -> bool:
     return bool((os.getenv("VOICE_PORT", "") or "").strip())
 
 
+def _caddy_admin_token() -> str:
+    """#D35: the shared secret for the token-gated admin proxy (empty when the gate
+    is off). Same env var the provisioner injects into the Caddy container."""
+    return (os.getenv("LP_CADDY_ADMIN_TOKEN", "") or "").strip()
+
+
 def _caddy_load(caddyfile_text: str) -> dict:
     """Push a full Caddyfile to the bundled Caddy admin API → live reload. Caddy adapts
     the text (Content-Type: text/caddyfile) and issues the cert immediately, no restart."""
     url = _admin_url() + "/load"
+    headers = {"Content-Type": "text/caddyfile"}
+    # #D35: when the admin proxy is token-gated, authenticate the /load. Harmless when
+    # the gate is off (a plain #D32 bridge admin ignores an unexpected auth header).
+    _tok = _caddy_admin_token()
+    if _tok:
+        headers["Authorization"] = f"Bearer {_tok}"
     req = urllib.request.Request(
         url, data=caddyfile_text.encode(),
-        headers={"Content-Type": "text/caddyfile"}, method="POST")
+        headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             r.read()

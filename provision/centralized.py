@@ -952,6 +952,10 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     restart: unless-stopped
     depends_on:
       - app
+    environment:
+      # #D35: same token that gates the admin proxy — the app authenticates its
+      # /load with it. Empty default = gate off (the #D32 bridge admin is used).
+      LP_CADDY_ADMIN_TOKEN: ${{LP_CADDY_ADMIN_TOKEN:-}}
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -1106,6 +1110,7 @@ services:
       NEXTCLOUD_ADMIN_USER: ${{NC_ADMIN_USER}}
       NEXTCLOUD_ADMIN_PASSWORD: ${{NC_ADMIN_PASSWORD}}
       OLLAMA_BASE_URL: ${{OLLAMA_BASE_URL:-http://host.docker.internal:11434}}
+      LP_CADDY_ADMIN_TOKEN: ${{LP_CADDY_ADMIN_TOKEN:-}}
       PORT: {app_port}{voice_env}{ltp_env}{caddy_app_env}{shared_app_env}
     volumes:
       - {core}:/cove-core:ro

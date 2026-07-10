@@ -87,10 +87,51 @@ SHARED_CADDY_ADMIN_IN_CONTAINER = "http://lucidcove-caddy:2019"  # admin API ove
 # The allowlist is env-overridable (LP_CADDY_ADMIN_ORIGINS, space-separated) so a box can
 # tighten/rotate it without a code change. Loopback origins are always included so a
 # terminal on the host (docker exec) keeps working.
-def render_admin_global_block(sanctioned_admin_host: str, *, indent: str = "    ") -> list:
-    """Lines for the `admin` global option with a hardened origin allowlist (#D32).
-    `sanctioned_admin_host` = the host:port the Cove app uses to reach this Caddy's
-    admin API (must be in the allowlist or Set-Address breaks)."""
+# ---------------------------------------------------------------------------
+# #D35 — Caddy admin API NETWORK isolation (finishing #D32)
+# ---------------------------------------------------------------------------
+# #D32 constrained the admin API with an `origins` allowlist + `enforce_origin`,
+# but that control is HOST-HEADER based: a co-tenant container on lucidcove-net
+# that spoofs `Host: lucidcove-caddy:2019` is still accepted, because the admin
+# endpoint is bound on the bridge. We close it at the NETWORK layer with a
+# shared-secret token gate (chosen over a unix socket or a dedicated admin
+# network — see the commit message for the justification):
+#   • the REAL admin API is moved to LOOPBACK ONLY (localhost:2018), so no
+#     container on the bridge can reach it directly at all;
+#   • a token-gated PROXY site listens on the bridge at :2019 (the address the
+#     app already posts to — no COVE_CADDY_ADMIN change) and forwards to the
+#     loopback admin ONLY when the request carries the correct bearer token.
+# A co-tenant on the bridge now needs the SECRET, not just the right Host header.
+# The token lives in the Caddy container's env ({$LP_CADDY_ADMIN_TOKEN}) — never
+# rendered into the Caddyfile — and the provisioner injects the same value into
+# the app's env so its /load POSTs authenticate. When no token is configured we
+# fall back to the #D32 behavior verbatim, so the gate is inert (no regression)
+# until the provisioner (or the operator) sets LP_CADDY_ADMIN_TOKEN on both sides.
+CADDY_ADMIN_LOOPBACK_PORT = 2018  # real admin, loopback-only, behind the token proxy
+
+
+def caddy_admin_token() -> str:
+    """The shared secret gating the bridge-facing admin proxy (#D35). Empty = the
+    gate is off and we keep the #D32 bridge-admin + origin allowlist."""
+    return (os.getenv("LP_CADDY_ADMIN_TOKEN", "") or "").strip()
+
+
+def render_admin_global_block(sanctioned_admin_host: str, *, indent: str = "    ",
+                              token: str = None) -> list:
+    """Lines for the `admin` global option. With a token (#D35) the real admin binds
+    LOOPBACK ONLY (behind render_admin_proxy_site); without one it keeps the #D32
+    bridge admin + host-origin allowlist. `sanctioned_admin_host` = the host:port the
+    app uses to reach this Caddy's admin (only relevant in the no-token #D32 path)."""
+    tok = caddy_admin_token() if token is None else token
+    if tok:
+        p = CADDY_ADMIN_LOOPBACK_PORT
+        origins = [f"localhost:{p}", f"127.0.0.1:{p}", f"[::1]:{p}"]
+        return [
+            f"{indent}admin localhost:{p} {{",
+            f"{indent}    origins {' '.join(origins)}",
+            f"{indent}    enforce_origin",
+            f"{indent}}}",
+        ]
     override = (os.getenv("LP_CADDY_ADMIN_ORIGINS", "") or "").strip()
     if override:
         origins = override.split()
@@ -103,6 +144,28 @@ def render_admin_global_block(sanctioned_admin_host: str, *, indent: str = "    
         f"{indent}    origins {' '.join(origins)}",
         f"{indent}    enforce_origin",
         f"{indent}}}",
+    ]
+
+
+def render_admin_proxy_site(*, token: str = None) -> list:
+    """#D35: the bridge-facing, token-gated admin proxy on :2019 → the loopback admin.
+    A request without `Authorization: Bearer <token>` gets 403 before it can touch the
+    admin API. Empty list when no token is configured (the #D32 bridge admin is used
+    instead). The token is read from the Caddy container env at adapt time, so it is
+    never written into the Caddyfile on disk."""
+    tok = caddy_admin_token() if token is None else token
+    if not tok:
+        return []
+    p = CADDY_ADMIN_LOOPBACK_PORT
+    return [
+        "# #D35 — token-gated admin proxy. The real admin is loopback-only; this is the",
+        "# ONLY bridge entrance to it, and it requires the shared secret (in Caddy's env).",
+        ":2019 {",
+        '\t@noauth not header Authorization "Bearer {$LP_CADDY_ADMIN_TOKEN}"',
+        "\trespond @noauth 403",
+        f"\treverse_proxy localhost:{p}",
+        "}",
+        "",
     ]
 
 
@@ -302,6 +365,8 @@ def build_selfhost_caddyfile(*, domain: str, app_port: int,
             "    }",
         ]
     lines += ["{", *glines, "}", ""]
+    # #D35: the token-gated admin proxy site (no-op when no token is configured).
+    lines += render_admin_proxy_site()
 
     # Domainless first-run (no address claimed yet): serve the MC on plain :80 so the
     # operator can reach it (over http) to claim an address. The admin API above lets that
@@ -387,6 +452,8 @@ def build_shared_caddy_base_caddyfile() -> str:
         *render_admin_global_block("lucidcove-caddy:2019"),
         "}",
         "",
+        # #D35: token-gated admin proxy (no-op when no token is configured).
+        *render_admin_proxy_site(),
         "# Per-Cove routing snippets. The provisioner / the Cove's in-browser address",
         "# claim writes conf.d/{cove_id}.caddy; this import wires them all in.",
         "import /etc/caddy/conf.d/*.caddy",
@@ -417,6 +484,11 @@ services:
     restart: unless-stopped
     networks:
       - {SHARED_NET}
+    environment:
+      # #D35: the token that gates the bridge-facing admin proxy. Read from a .env
+      # beside this compose (LP_CADDY_ADMIN_TOKEN=...). Empty default = the gate is
+      # off (the #D32 bridge admin is used) so this is inert until the token is set.
+      - LP_CADDY_ADMIN_TOKEN=${{LP_CADDY_ADMIN_TOKEN:-}}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./conf.d:/etc/caddy/conf.d:ro
