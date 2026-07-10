@@ -297,6 +297,20 @@ h1 {
 }
 .process-btn:active { background: #21262d; }
 .process-btn:disabled { opacity: .55; cursor: default; }
+/* ── Team queue (steward execution queue) ── */
+.tq { margin-bottom: 26px; }
+.tq .cards { border-left: 3px solid #2ea04360; padding-left: 12px; }
+.tq-chip { display:inline-block; font-size:10px; padding:1px 7px; border-radius:9px;
+  margin-right:6px; text-transform:uppercase; letter-spacing:.4px; }
+.tq-chip.queued { background:#d2992226; color:#d29922; }
+.tq-chip.assigned { background:#58a6ff26; color:#58a6ff; }
+.tq-chip.in_review { background:#bc8cff26; color:#bc8cff; }
+.tq-pr { font-size:11px; color:#58a6ff; text-decoration:none; margin-left:6px; }
+.tq-drop { float:right; font-size:10px; background:none; border:1px solid #f8514940;
+  color:#f85149; border-radius:5px; padding:1px 7px; cursor:pointer; }
+.flow-btn { float:right; font-size:10px; background:none; border:1px solid #2ea04360;
+  color:#3fb950; border-radius:5px; padding:1px 7px; cursor:pointer; }
+.flow-btn:disabled { opacity:.55; cursor:default; }
 </style>
 </head>
 <body>
@@ -306,6 +320,7 @@ h1 {
 
 <div id="stats-bar" class="stats-bar"></div>
 <div id="filters" class="filters"></div>
+<div id="team-queue"></div>
 <div id="board"><div class="loading">Loading backlog...</div></div>
 <button class="refresh-btn" id="refresh-btn" title="Refresh">↻</button>
 <button class="process-btn" id="process-btn" title="Process new jules recordings into this board">🎙 Process jules</button>
@@ -395,7 +410,13 @@ function render() {
         const descHtml = item.desc ? '<div class="card-desc">' + item.desc + '</div>' : "";
         const triggerHtml = item.trigger ? '<div class="project-trigger">Trigger: ' + item.trigger + '</div>' : "";
         const cardClass = "card" + (isDone || item.done ? " done-card" : "") + (isProject ? " project-card" : "");
+        const flowBtn = (isDone || item.done) ? '' :
+          '<button class="flow-btn" onclick="event.stopPropagation(); flowToTeam(this, ' +
+          JSON.stringify((item.num ? '#' + item.num : (item.source || ''))).replace(/"/g, '&quot;') + ', ' +
+          JSON.stringify(item.title).replace(/"/g, '&quot;') + ', ' +
+          JSON.stringify(item.desc || '').replace(/"/g, '&quot;') + ')">→ Team</button>';
         return '<div class="' + cardClass + '" onclick="this.classList.toggle(\'expanded\')">' +
+          flowBtn +
           (item.num ? '<span class="card-num">#' + item.num + '</span> ' : '') +
           '<div class="card-title">' + item.title + '</div>' +
           descHtml + triggerHtml +
@@ -422,6 +443,57 @@ function render() {
 
     board.appendChild(laneEl);
   });
+}
+
+async function loadTeamQueue() {
+  const el = document.getElementById('team-queue');
+  try {
+    const resp = await fetch('/api/steward-queue');
+    if (!resp.ok) { el.innerHTML = ''; return; }   // member view / not migrated
+    const data = await resp.json();
+    const items = data.items || [];
+    if (!items.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="lane tq">' +
+      '<div class="lane-header"><div class="lane-dot" style="background:#3fb950"></div>' +
+      '<span class="lane-title">Team Queue</span>' +
+      '<span class="lane-count">(' + items.length + ')</span></div>' +
+      '<div class="lane-desc">The steward\'s execution queue — items the team owns. Done = merged + deployed.</div>' +
+      '<div class="cards">' + items.map(q =>
+        '<div class="card">' +
+          '<button class="tq-drop" onclick="dropQueueItem(this, ' + q.id + ')">Drop</button>' +
+          '<span class="tq-chip ' + q.status + '">' + q.status.replace('_',' ') + '</span>' +
+          (q.source ? '<span class="card-num">' + q.source + '</span> ' : '') +
+          '<span class="card-title" style="display:inline">' + q.title + '</span>' +
+          (q.assignee ? '<span class="source" style="margin-left:8px">@' + q.assignee + '</span>' : '') +
+          (q.pr_url ? '<a class="tq-pr" href="' + q.pr_url + '" target="_blank">PR ↗</a>' : '') +
+        '</div>').join('') + '</div></div>';
+  } catch(e) { el.innerHTML = ''; }
+}
+
+async function flowToTeam(btn, source, title, detail) {
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const resp = await fetch('/api/steward-queue/add', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: source, title: title, detail: detail }),
+    });
+    const data = await resp.json();
+    btn.textContent = resp.ok ? (data.existing ? 'already queued' : '✓ queued') : 'failed';
+    if (resp.ok) loadTeamQueue();
+  } catch(e) { btn.textContent = 'failed'; }
+  setTimeout(() => { btn.textContent = '→ Team'; btn.disabled = false; }, 2500);
+}
+
+async function dropQueueItem(btn, id) {
+  if (!window.confirm('Drop this queue item? (Marks it dropped — the board item is untouched.)')) return;
+  btn.disabled = true;
+  try {
+    await fetch('/api/steward-queue/' + id + '/update', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'dropped' }),
+    });
+  } catch(e) {}
+  loadTeamQueue();
 }
 
 async function loadBacklog() {
@@ -483,6 +555,7 @@ document.getElementById("process-btn").addEventListener("click", async function(
 });
 
 loadBacklog();
+loadTeamQueue();
 </script>
 </body>
 </html>

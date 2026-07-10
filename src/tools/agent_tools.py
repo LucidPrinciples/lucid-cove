@@ -30,6 +30,7 @@ from src.tools.nextcloud_tools import ALL_NEXTCLOUD_TOOLS
 from src.tools.memory_tools import ALL_MEMORY_TOOLS
 from src.tools.monitoring_tools import ALL_MONITORING_TOOLS
 from src.tools.links_tools import ALL_LINKS_TOOLS
+from src.tools.steward_queue_tools import ALL_STEWARD_QUEUE_TOOLS
 
 # Surgical dev subsets for agents that need specific dev tools without the full suite
 from src.tools.dev_tools import db_query, check_syntax
@@ -90,6 +91,7 @@ def get_stuart_tools() -> list:
         + ALL_NEXTCLOUD_TOOLS
         + ALL_MEMORY_TOOLS
         + ALL_LINKS_TOOLS
+        + ALL_STEWARD_QUEUE_TOOLS
     )
 
 
