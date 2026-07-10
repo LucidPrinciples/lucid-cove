@@ -153,8 +153,11 @@
 <div class="section" data-role="presence" id="my-tools">
   <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>MY TOOLS</div>
   <div class="links" id="my-tools-links">
-    <div class="link-row"><span class="link-label">Backlog</span><a href="/backlog" target="_blank">My Backlog Board</a></div>
-    <div class="link-row"><span class="link-label">Jules</span><a href="/jules" target="_blank">Voice Notes</a></div>
+    <!-- #D29: Backlog + Jules are PRESENCE intake (personal board + voice notes).
+         A manager (steward/merchant) doesn't own personal intake, so these rows are
+         scoped out of the manager view — the manager gets the lane resources below. -->
+    <div class="link-row" data-scope="presence-intake"><span class="link-label">Backlog</span><a href="/backlog" target="_blank">My Backlog Board</a></div>
+    <div class="link-row" data-scope="presence-intake"><span class="link-label">Jules</span><a href="/jules" target="_blank">Voice Notes</a></div>
     <!-- Standard service links populated by JS from the Cove domain -->
   </div>
   <div class="claude-note"><strong>Standard tools.</strong> Service links are built from your Cove's domain (<code>cove.yaml → cove.domain</code>) using the standard subdomain convention (<code>cloud.</code>, <code>vault.</code>, <code>voice.</code>…). Set your domain to populate them; add or remove tools to fit your stack.</div>
@@ -207,6 +210,42 @@
   <div class="links">
     <div class="placeholder-label">Team agent status and tools will appear here.</div>
   </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!--  MANAGER LANE — a steward/merchant manager MC (host_context.kind    -->
+<!--  === "manager"). Their lane's resources, not personal intake (#D29). -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="role-divider" data-role="manager"><span>My Lane</span></div>
+
+<div class="section" data-role="manager" id="manager-lane">
+  <div class="section-header" onclick="toggleSection(this)"><span class="toggle">▼</span>MY LANE</div>
+
+  <div class="subsection">
+    <div class="subsection-header">Queue</div>
+    <div class="links">
+      <div class="link-row"><span class="link-label">Steward Queue</span><a href="/backlog?view=queue" target="_blank">Team Execution Queue</a></div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="subsection-header">Repos</div>
+    <div class="links" id="manager-repo-links">
+      <!-- Populated by JS from the Cove domain / repo config; placeholder until set. -->
+      <div class="placeholder-label">The repos your lane stewards (lucid-cove, ltp-core, ltp-drop) appear here.</div>
+    </div>
+  </div>
+
+  <div class="subsection">
+    <div class="subsection-header">Runbooks</div>
+    <div class="links" id="manager-runbook-links">
+      <div class="link-row"><span class="link-label">Runbooks</span><a href="/#system" target="_blank">System tab — ops runbooks</a></div>
+    </div>
+  </div>
+
+  <div class="claude-note"><strong>Your lane.</strong> A manager works the team queue, the repos your lane stewards, and the ops runbooks — not a personal Backlog/Jules intake (those are per-Presence).</div>
 </div>
 
 
@@ -282,6 +321,7 @@
 let instanceType = 'personal'; // default to Presence (safe fallback)
 let agentId = '';
 let coveDomain = '';
+let viewerKind = ''; // #D29: host_context.kind — 'manager' scopes the Links tab to the lane
 
 // Standard self-hosted service stack — the conventional subdomain set every
 // Cove ships with. URLs are built as https://{key}.{coveDomain}. Trim or
@@ -305,6 +345,7 @@ async function init() {
     instanceType = config.instance?.type || 'personal';
     agentId = config.instance?.agent_id || '';
     coveDomain = (config.domain || '').replace(/^\*?\.?/, ''); // strip wildcard prefix if present
+    viewerKind = (config.host_context && config.host_context.kind) || ''; // #D29
     setDeckIdentity(config); // #D19: fill the phone-shortcut name with this Cove's name
   } catch (e) {
     console.warn('Could not fetch /api/config, defaulting to Presence view');
@@ -374,11 +415,17 @@ function buildInfraLinks() {
 
 function applyRole() {
   const isAdmin = instanceType === 'admin';
+  // #D29: a manager MC (steward/merchant) is scoped to its LANE — it gets repos,
+  // queue, and runbooks, and does NOT show the per-Presence intake (Backlog/Jules).
+  const isManager = viewerKind === 'manager';
   const indicator = document.getElementById('role-indicator');
   const footerRole = document.getElementById('footer-role');
 
   // Role badge
-  if (isAdmin) {
+  if (isManager) {
+    indicator.innerHTML = '<span class="role-badge admin">Manager</span>';
+    footerRole.textContent = 'Viewing as: Manager (your lane: queue, repos, runbooks)';
+  } else if (isAdmin) {
     indicator.innerHTML = '<span class="role-badge admin">Operator / Admin</span>';
     footerRole.textContent = 'Viewing as: Admin (all sections visible)';
   } else {
@@ -386,9 +433,18 @@ function applyRole() {
     footerRole.textContent = 'Viewing as: Presence (personal sections only)';
   }
 
-  // Show/hide admin sections
+  // Admin sections: operator/admin only (a manager is not the Cove admin).
   document.querySelectorAll('[data-role="admin"]').forEach(el => {
     el.style.display = isAdmin ? '' : 'none';
+  });
+  // Manager-lane sections: manager only.
+  document.querySelectorAll('[data-role="manager"]').forEach(el => {
+    el.style.display = isManager ? '' : 'none';
+  });
+  // Presence-intake rows (personal Backlog/Jules): hidden for a manager, who
+  // works the lane queue instead. Presences + the operator/admin keep them.
+  document.querySelectorAll('[data-scope="presence-intake"]').forEach(el => {
+    el.style.display = isManager ? 'none' : '';
   });
 }
 
@@ -417,6 +473,7 @@ function buildDashboardLinks() {
 
 function buildJumpBar() {
   const isAdmin = instanceType === 'admin';
+  const isManager = viewerKind === 'manager';
   const bar = document.getElementById('jump-bar');
 
   // Presence links always shown
@@ -428,6 +485,10 @@ function buildJumpBar() {
     { href: '#my-flows', text: 'Flows' },
     { href: '#my-team', text: 'Team' },
   ];
+
+  if (isManager) {
+    links.push({ href: '#manager-lane', text: 'My Lane' });
+  }
 
   if (isAdmin) {
     links.push(
