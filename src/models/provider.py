@@ -115,6 +115,8 @@ MODEL_CONTEXT_LIMITS = {
     "kimi-k2.5": 128_000,
     "gemini-2.5-flash-preview-05-20": 1_000_000,
     "llama-3.3-70b-versatile": 128_000,
+    "deepseek/deepseek-v3.2": 64_000,
+    "deepseek-v3.2": 64_000,
     "qwen3:30b-a3b": 32_768,
     "qwen3:8b": 32_768,
     "qwen3:32b": 32_768,
@@ -122,6 +124,15 @@ MODEL_CONTEXT_LIMITS = {
 
 # Ollama num_ctx — explicit so we don't get silent truncation at 2048
 OLLAMA_NUM_CTX = 32_768
+
+# ── Fallback chain configuration (#D24) ─────────────────────────────────────
+# Cloud middle-hop: different upstream provider, no GPU cold-load, fast on
+# big prompts.  Used when primary (also OpenRouter) times out — gives us
+# a second cloud path before falling to the local heavyweight.
+CLOUD_FALLBACK_MODEL = "deepseek-v3.2"   # via openrouter, NOT the same upstream
+# Local fallback gets extra time — 20GB model cold-loading on 3090 + eval
+# of a 19k-token prompt can't finish inside 120s.  180s is still bounded.
+LOCAL_FALLBACK_TIMEOUT = 180
 
 # Warning thresholds (percentage of context used)
 CONTEXT_WARN_THRESHOLD = 0.70   # yellow
@@ -725,10 +736,48 @@ async def invoke_with_fallback(
             tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
         )
 
-    # ── Tier 2: Agent's fallback model ───────────────────────────────────────
+    # ── Tier 2: Cloud middle hop (different upstream, no GPU cold-load) ──────
+    # Proven live 2026-07-10: local qwen3:32b can't cold-load + eval a 19k-token
+    # delegation turn inside 120s.  A second cloud model (deepseek via openrouter)
+    # gives us a genuinely different path before the local last resort.
+    cloud_id = CLOUD_FALLBACK_MODEL
+    cloud_provider, cloud_model_str = _resolve_model_string(cloud_id)
+    t1 = time.monotonic()
+    try:
+        cloud = get_model_client(cloud_id, temperature=temperature)
+        response = await asyncio.wait_for(cloud.ainvoke(messages), timeout=timeout)
+        duration_ms = int((time.monotonic() - t1) * 1000)
+        content = (response.content or "").strip()
+        if content:
+            usage = getattr(response, "usage_metadata", {}) or {}
+            meta = getattr(response, "response_metadata", {}) or {}
+            await _write_jw_metric(
+                agent_id=agent_id, operation_type=operation_type, operation_label=label,
+                model_used=cloud_model_str, provider=cloud_provider,
+                tokens_in=usage.get("input_tokens") or meta.get("prompt_eval_count"),
+                tokens_out=usage.get("output_tokens") or meta.get("eval_count"),
+                duration_ms=duration_ms, succeeded=True,
+            )
+            print(f"[{label}] Completed via cloud fallback {cloud_provider}/{cloud_model_str} ({len(content)} chars)")
+            return content
+        print(f"[{label}] Cloud fallback {cloud_provider}/{cloud_model_str} returned empty — trying local")
+        await _write_jw_metric(
+            agent_id=agent_id, operation_type=operation_type, operation_label=label,
+            model_used=cloud_model_str, provider=cloud_provider,
+            tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
+        )
+    except Exception as e:
+        duration_ms = int((time.monotonic() - t1) * 1000)
+        print(f"[{label}] Cloud fallback {cloud_provider}/{cloud_model_str} failed ({type(e).__name__}: {e}) — trying local")
+        await _write_jw_metric(
+            agent_id=agent_id, operation_type=operation_type, operation_label=label,
+            model_used=cloud_model_str, provider=cloud_provider,
+            tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
+        )
+
+    # ── Tier 3: Local last resort (longer timeout for cold-load) ─────────────
     # No configured fallback? Resolve one from the best INSTALLED local model
-    # rather than dead-ending (#11/CF-106 — this is exactly the ezra ltp-dispatch
-    # "no fallback configured" class). Fail LOUD only when nothing is installed.
+    # rather than dead-ending (#11/CF-106).
     if not fallback_id:
         from src.models.local_fallback import resolve_local_fallback_model, LocalModelUnavailable
         try:
@@ -736,39 +785,42 @@ async def invoke_with_fallback(
             print(f"[{label}] No configured fallback — resolved installed local '{fallback_id}'")
         except LocalModelUnavailable as _le:
             raise RuntimeError(
-                f"[{label}] Primary model failed for {agent_id} and no fallback is "
+                f"[{label}] Primary + cloud fallback failed for {agent_id} and no local is "
                 f"available: {_le}"
             ) from _le
 
-    fallback_provider, fallback_model_str = _resolve_model_string(fallback_id)
-    t1 = time.monotonic()
+    local_provider, local_model_str = _resolve_model_string(fallback_id)
+    t2 = time.monotonic()
     try:
-        fallback = get_model_client(fallback_id, temperature=temperature)
-        response = await asyncio.wait_for(fallback.ainvoke(messages), timeout=timeout)
-        duration_ms = int((time.monotonic() - t1) * 1000)
+        local = get_model_client(fallback_id, temperature=temperature)
+        response = await asyncio.wait_for(
+            local.ainvoke(messages),
+            timeout=LOCAL_FALLBACK_TIMEOUT,
+        )
+        duration_ms = int((time.monotonic() - t2) * 1000)
         content = (response.content or "").strip()
         usage = getattr(response, "usage_metadata", {}) or {}
         meta = getattr(response, "response_metadata", {}) or {}
         await _write_jw_metric(
             agent_id=agent_id, operation_type=operation_type, operation_label=label,
-            model_used=fallback_model_str, provider=fallback_provider,
+            model_used=local_model_str, provider=local_provider,
             tokens_in=usage.get("input_tokens") or meta.get("prompt_eval_count"),
             tokens_out=usage.get("output_tokens") or meta.get("eval_count"),
             duration_ms=duration_ms, succeeded=bool(content),
         )
         if not content:
-            raise RuntimeError(f"[{label}] Both model tiers returned empty content for {agent_id}")
-        print(f"[{label}] Completed via {fallback_provider}/{fallback_model_str} ({len(content)} chars)")
+            raise RuntimeError(f"[{label}] All 3 model tiers returned empty content for {agent_id}")
+        print(f"[{label}] Completed via local fallback {local_provider}/{local_model_str} ({len(content)} chars)")
         return content
     except RuntimeError:
         raise
     except Exception as e:
-        duration_ms = int((time.monotonic() - t1) * 1000)
+        duration_ms = int((time.monotonic() - t2) * 1000)
         await _write_jw_metric(
             agent_id=agent_id, operation_type=operation_type, operation_label=label,
-            model_used=fallback_model_str, provider=fallback_provider,
+            model_used=local_model_str, provider=local_provider,
             tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
         )
         raise RuntimeError(
-            f"[{label}] Both model tiers failed for {agent_id}. Last: {type(e).__name__}: {e}"
+            f"[{label}] All 3 model tiers failed for {agent_id}. Last: {type(e).__name__}: {e}"
         ) from e
