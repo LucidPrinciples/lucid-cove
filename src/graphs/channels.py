@@ -519,6 +519,15 @@ def _channel_tool_modules(channel: str):
                     for m in ("tools.steward_queue_tools", "tools.delegation_tools"):
                         if m not in mods:
                             mods.append(m)
+                # #D17: the merchant's release lane needs READ-ONLY repo access (the
+                # code lives at /sites, reached via git_* — NC is the brain, not the
+                # code). Bind the safe read subset universally, same as the steward's
+                # universal modules, so a Cove whose cove.yaml predates this gets it on
+                # upgrade. NOT the full dev set — no push/PR for the merchant (he reports,
+                # the steward ships).
+                if mtype == 'merchant':
+                    if "tools.dev_read_tools" not in mods:
+                        mods.append("tools.dev_read_tools")
                 return mods
     except Exception:
         pass
