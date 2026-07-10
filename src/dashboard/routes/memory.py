@@ -178,10 +178,14 @@ async def thread_history(thread_id: str, limit: int = 200):
         from src.graphs.channels import get_channel_graph
         from src.memory.database import get_db
 
-        # Figure out what channel this thread belongs to
+        # Figure out what channel this thread belongs to. Pull summary + message_count
+        # too (#D25 c): an ARCHIVED thread's checkpointer state can be pruned/absent, and
+        # the reader used to render "0 MESSAGES" over a real past conversation. When there's
+        # no live state we fall back to the stored summary + counts on the thread row.
         async with get_db() as conn:
             result = await conn.execute(
-                "SELECT channel, title, status, created_at, archived_at "
+                "SELECT channel, title, status, summary, message_count, "
+                "       created_at, archived_at "
                 "FROM chat_threads WHERE thread_id = %s",
                 (thread_id,),
             )
@@ -194,6 +198,8 @@ async def thread_history(thread_id: str, limit: int = 200):
         thread_meta = {
             "title": row["title"],
             "status": row["status"],
+            "summary": row["summary"],
+            "message_count": row["message_count"],
             "created_at": str(row["created_at"]) if row["created_at"] else None,
             "archived_at": str(row["archived_at"]) if row["archived_at"] else None,
         }
@@ -204,8 +210,11 @@ async def thread_history(thread_id: str, limit: int = 200):
             snapshot = await graph.aget_state(config)
 
         if not snapshot or not snapshot.values:
+            # No live checkpointer state — surface the stored summary + count so the
+            # supervisory reader shows the archived conversation instead of "0 MESSAGES".
             return {"thread_id": thread_id, "channel": channel,
-                    "thread": thread_meta, "messages": []}
+                    "thread": thread_meta, "messages": [],
+                    "summary_only": bool(row["summary"])}
 
         all_messages = snapshot.values.get("messages", [])
 
@@ -341,6 +350,34 @@ async def thread_history(thread_id: str, limit: int = 200):
 # Supervisory Chat — Presence thread views for steward MC
 # =============================================================================
 
+ORPHANED_PRESENCE_KEY = "__orphaned__"
+
+
+def resolve_presence_key(meta, agent_id, accounts_by_id, accounts_by_name):
+    """(stable_key, display_name) for grouping a manager thread by presence (#D25 b).
+
+    Resolution order — explicit presence_id → agent_id-as-account → a UNIQUE active
+    operator_name → Orphaned. Only CURRENT active accounts resolve; anything else is
+    quarantined under ORPHANED_PRESENCE_KEY so a legacy/deleted-presence thread is never
+    shown as a raw UUID and never merged into a real person's tab.
+
+    accounts_by_id: {id(str): {"display_name","active",...}}
+    accounts_by_name: {display_name.lower(): rec or None if ambiguous}
+    """
+    meta = meta or {}
+    pid = str(meta.get("presence_id") or "").strip()
+    if pid and (accounts_by_id.get(pid) or {}).get("active"):
+        return pid, accounts_by_id[pid]["display_name"]
+    aid = str(agent_id or "").strip()
+    if aid and (accounts_by_id.get(aid) or {}).get("active"):
+        return aid, accounts_by_id[aid]["display_name"]
+    nm = str(meta.get("operator_name") or "").strip().lower()
+    rec = accounts_by_name.get(nm)
+    if rec:
+        return rec["id"], rec["display_name"]
+    return ORPHANED_PRESENCE_KEY, "Orphaned"
+
+
 @router.get("/api/threads/by-presence")
 async def threads_by_presence(limit: int = 50):
     """List manager channel threads grouped by Presence.
@@ -400,6 +437,18 @@ async def threads_by_presence(limit: int = 50):
         else:
             manager_channels = [f"{agent_name}-day", f"{agent_name}-deep"]
 
+    # #D25 (d) — PRIVACY BOUNDARY. Hard-exclude any channel that isn't a genuine
+    # manager (steward/merchant) channel. The candidate list above can pull in a
+    # personal-agent channel (the agent.yaml fallback on a personal instance, or config
+    # drift), and a personal-agent conversation must NEVER surface in this supervisory
+    # view. Filter through the authoritative classifier so the query is provably
+    # manager-only; if nothing survives, return empty rather than risk a leak.
+    from src.config import _is_steward_channel, _is_merchant_channel
+    manager_channels = [c for c in dict.fromkeys(manager_channels)
+                        if _is_steward_channel(c) or _is_merchant_channel(c)]
+    if not manager_channels:
+        return {"presences": []}
+
     try:
         async with get_db() as conn:
             placeholders = ", ".join(["%s"] * len(manager_channels))
@@ -417,44 +466,48 @@ async def threads_by_presence(limit: int = 50):
             )
             rows = await result.fetchall()
 
-        # Resolve display names so a Presence tab never shows a raw agent UUID. The
-        # metadata-less/legacy threads used to fall back to a titleized agent_id (an ugly
-        # UUID). Prefer the thread's tagged operator_name, then presence_agent_name, then
-        # the config agent name (id -> name), and only as a last resort a short label.
+        # #D25 (b) — group on a STABLE presence id (the account UUID), not a fragile
+        # operator_name/agent_id that fragments one person into ghost tabs ("Presence
+        # 6119", "Agent") and lets the live thread hide under a ghost key. Resolve every
+        # thread to a current account; rows that resolve to NO current account are
+        # quarantined under an explicit "Orphaned" group (#D25 a) — never shown as a raw
+        # UUID, never merged into a real person's tab.
+        accounts_by_id = {}
+        accounts_by_name = {}   # display_name(lower) -> rec, or None if ambiguous
         try:
-            from src.config import get_agents as _get_agents
-            _name_by_id = {str(a.get("id")): (a.get("name") or "").strip()
-                           for a in (_get_agents() or []) if a.get("id")}
+            async with get_db() as conn:
+                ares = await conn.execute(
+                    "SELECT id, display_name, agent_name, active FROM accounts")
+                for a in await ares.fetchall():
+                    aid = str(a["id"])
+                    rec = {"id": aid, "display_name": (a["display_name"] or "").strip(),
+                           "agent_name": (a["agent_name"] or "").strip(),
+                           "active": bool(a["active"])}
+                    accounts_by_id[aid] = rec
+                    nm = rec["display_name"].lower()
+                    if nm and rec["active"]:
+                        accounts_by_name[nm] = None if nm in accounts_by_name else rec
         except Exception:
-            _name_by_id = {}
+            pass
 
-        def _looks_uuid(s):
-            s = (str(s) or "").replace("-", "")
-            return len(s) >= 16 and all(c in "0123456789abcdef" for c in s.lower())
+        ORPHANED = ORPHANED_PRESENCE_KEY
 
-        # Group by Presence
+        # Group by resolved Presence
         import json
-        presence_map = {}  # key = operator_name or agent_id
+        presence_map = {}
         for row in rows:
             meta = row["metadata"] or {}
             if isinstance(meta, str):
                 meta = json.loads(meta)
 
-            operator_name = meta.get("operator_name", "")
-            agent_id = row["agent_id"]
-            presence_key = operator_name or agent_id
+            presence_key, display = resolve_presence_key(
+                meta, row["agent_id"], accounts_by_id, accounts_by_name)
 
             if presence_key not in presence_map:
-                display = (operator_name
-                           or (meta.get("presence_agent_name") or "").strip()
-                           or _name_by_id.get(str(agent_id), ""))
-                if not display:
-                    display = (f"Presence {str(agent_id)[-4:]}"
-                               if _looks_uuid(agent_id)
-                               else str(presence_key).replace("-", " ").title())
                 presence_map[presence_key] = {
                     "name": display,
-                    "agent_id": agent_id if agent_id != manager_agent_id else None,
+                    "presence_id": None if presence_key == ORPHANED else presence_key,
+                    "orphaned": presence_key == ORPHANED,
                     "presence_agent_name": meta.get("presence_agent_name", ""),
                     "threads": [],
                 }
@@ -474,10 +527,14 @@ async def threads_by_presence(limit: int = 50):
             }
             presence_map[presence_key]["threads"].append(thread_data)
 
-        # Sort presences: most recent activity first
+        # Sort presences: most recent activity first, but the Orphaned quarantine group
+        # always sorts last so it never crowds out real people.
+        def _recency(p):
+            return (p["threads"][0]["last_message_at"] or p["threads"][0]["created_at"]) \
+                if p["threads"] else ""
         presences = sorted(
             presence_map.values(),
-            key=lambda p: p["threads"][0]["last_message_at"] or p["threads"][0]["created_at"] if p["threads"] else "",
+            key=lambda p: (not p.get("orphaned"), _recency(p)),
             reverse=True,
         )
 

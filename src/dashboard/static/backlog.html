@@ -340,6 +340,14 @@ const LANE_META = {
 };
 const LANE_ORDER = ["now", "soon", "later", "projects", "done"];
 
+// #D20: escape ALL item-derived text before it goes into innerHTML. A ticket whose
+// title/desc/source/tag contained a literal '<' (e.g. a jules transcription, or text
+// referencing a <title> tag) was injected raw — it swallowed every card after it in
+// the lane (proven live 07-10) and is XSS-adjacent. Same shape as core.js/lp-colors.js ESC.
+const ESC = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 try {
   const saved = localStorage.getItem("bl-collapsed");
   if (saved) collapsedLanes = new Set(JSON.parse(saved));
@@ -405,10 +413,10 @@ function render() {
       cardsHtml = '<div class="empty-state">No items</div>';
     } else {
       cardsHtml = items.map(item => {
-        const tagsHtml = (item.tags || []).map(t => '<span class="tag">' + t + '</span>').join("");
-        const sourceHtml = item.source ? '<span class="source">' + item.source + '</span>' : "";
-        const descHtml = item.desc ? '<div class="card-desc">' + item.desc + '</div>' : "";
-        const triggerHtml = item.trigger ? '<div class="project-trigger">Trigger: ' + item.trigger + '</div>' : "";
+        const tagsHtml = (item.tags || []).map(t => '<span class="tag">' + ESC(t) + '</span>').join("");
+        const sourceHtml = item.source ? '<span class="source">' + ESC(item.source) + '</span>' : "";
+        const descHtml = item.desc ? '<div class="card-desc">' + ESC(item.desc) + '</div>' : "";
+        const triggerHtml = item.trigger ? '<div class="project-trigger">Trigger: ' + ESC(item.trigger) + '</div>' : "";
         const cardClass = "card" + (isDone || item.done ? " done-card" : "") + (isProject ? " project-card" : "");
         const flowBtn = (isDone || item.done) ? '' :
           '<button class="flow-btn" onclick="event.stopPropagation(); flowToTeam(this, ' +
@@ -417,8 +425,8 @@ function render() {
           JSON.stringify(item.desc || '').replace(/"/g, '&quot;') + ')">→ Team</button>';
         return '<div class="' + cardClass + '" onclick="this.classList.toggle(\'expanded\')">' +
           flowBtn +
-          (item.num ? '<span class="card-num">#' + item.num + '</span> ' : '') +
-          '<div class="card-title">' + item.title + '</div>' +
+          (item.num ? '<span class="card-num">#' + ESC(item.num) + '</span> ' : '') +
+          '<div class="card-title">' + ESC(item.title) + '</div>' +
           descHtml + triggerHtml +
           '<div class="card-meta">' + tagsHtml + sourceHtml + '</div></div>';
       }).join("");
@@ -461,11 +469,11 @@ async function loadTeamQueue() {
       '<div class="cards">' + items.map(q =>
         '<div class="card">' +
           '<button class="tq-drop" onclick="dropQueueItem(this, ' + q.id + ')">Drop</button>' +
-          '<span class="tq-chip ' + q.status + '">' + q.status.replace('_',' ') + '</span>' +
-          (q.source ? '<span class="card-num">' + q.source + '</span> ' : '') +
-          '<span class="card-title" style="display:inline">' + q.title + '</span>' +
-          (q.assignee ? '<span class="source" style="margin-left:8px">@' + q.assignee + '</span>' : '') +
-          (q.pr_url ? '<a class="tq-pr" href="' + q.pr_url + '" target="_blank">PR ↗</a>' : '') +
+          '<span class="tq-chip ' + ESC(q.status) + '">' + ESC(String(q.status).replace('_',' ')) + '</span>' +
+          (q.source ? '<span class="card-num">' + ESC(q.source) + '</span> ' : '') +
+          '<span class="card-title" style="display:inline">' + ESC(q.title) + '</span>' +
+          (q.assignee ? '<span class="source" style="margin-left:8px">@' + ESC(q.assignee) + '</span>' : '') +
+          (q.pr_url ? '<a class="tq-pr" href="' + ESC(q.pr_url) + '" target="_blank" rel="noopener noreferrer">PR ↗</a>' : '') +
         '</div>').join('') + '</div></div>';
   } catch(e) { el.innerHTML = ''; }
 }
@@ -501,7 +509,7 @@ async function loadBacklog() {
     const resp = await fetch("/api/backlog/items");
     const data = await resp.json();
     if (!data.ok) {
-      document.getElementById("board").innerHTML = '<div class="error">Could not load backlog: ' + (data.error || "unknown") + '</div>';
+      document.getElementById("board").innerHTML = '<div class="error">Could not load backlog: ' + ESC(data.error || "unknown") + '</div>';
       return;
     }
     if (data.empty) {
@@ -521,7 +529,7 @@ async function loadBacklog() {
 
     render();
   } catch(e) {
-    document.getElementById("board").innerHTML = '<div class="error">Failed to fetch backlog: ' + e.message + '</div>';
+    document.getElementById("board").innerHTML = '<div class="error">Failed to fetch backlog: ' + ESC(e.message) + '</div>';
   }
 }
 

@@ -70,6 +70,43 @@ SHARED_CADDY_ADMIN_IN_CONTAINER = "http://lucidcove-caddy:2019"  # admin API ove
 
 
 # ---------------------------------------------------------------------------
+# #D32 — Caddy admin API access control
+# ---------------------------------------------------------------------------
+# The admin API drives live config loads (the browser "Set Address" flow POSTs a
+# Caddyfile to :2019/load). A bare `admin :2019` binds it on every interface with
+# Caddy's permissive default, so any container on the box's Caddy network could load
+# arbitrary config — reconfiguring the box's TLS/routing. We keep the endpoint on the
+# bridge (the Set-Address POST comes from the Cove APP container, a different container,
+# so it can't be loopback-only) but constrain it with Caddy's native origin control:
+#   - `origins` — only requests whose Host is a sanctioned admin host are accepted, so
+#     a container hitting the bridge IP directly, or a cross-origin/DNS-rebinding client,
+#     is refused. The sanctioned hosts are exactly what the provisioner wires the app to
+#     (COVE_CADDY_ADMIN): `caddy:2019` (bundled) / `lucidcove-caddy:2019` (shared).
+#   - `enforce_origin` — make the Host check unconditional (Caddy can otherwise skip it),
+#     so the allowlist is authoritative on every admin request.
+# The allowlist is env-overridable (LP_CADDY_ADMIN_ORIGINS, space-separated) so a box can
+# tighten/rotate it without a code change. Loopback origins are always included so a
+# terminal on the host (docker exec) keeps working.
+def render_admin_global_block(sanctioned_admin_host: str, *, indent: str = "    ") -> list:
+    """Lines for the `admin` global option with a hardened origin allowlist (#D32).
+    `sanctioned_admin_host` = the host:port the Cove app uses to reach this Caddy's
+    admin API (must be in the allowlist or Set-Address breaks)."""
+    override = (os.getenv("LP_CADDY_ADMIN_ORIGINS", "") or "").strip()
+    if override:
+        origins = override.split()
+    else:
+        origins = ["localhost:2019", "127.0.0.1:2019", "[::1]:2019"]
+        if sanctioned_admin_host and sanctioned_admin_host not in origins:
+            origins.append(sanctioned_admin_host)
+    return [
+        f"{indent}admin :2019 {{",
+        f"{indent}    origins {' '.join(origins)}",
+        f"{indent}    enforce_origin",
+        f"{indent}}}",
+    ]
+
+
+# ---------------------------------------------------------------------------
 # #164 — Port preflight / auto-allocation
 # ---------------------------------------------------------------------------
 def _port_free(port: int, host: str = "127.0.0.1") -> bool:
@@ -246,7 +283,9 @@ def build_selfhost_caddyfile(*, domain: str, app_port: int,
     # moment the operator sets/changes the address from the browser (POST /load) — no
     # container restart, no terminal. It MUST be re-emitted on every render: a /load with
     # a config that omits `admin` would drop the API and we'd lose remote control.
-    glines = ["    admin :2019"]
+    # #D32: admin API restricted to the sanctioned app host (a bundled Caddy sits on the
+    # Cove's own compose network; the app reaches it at caddy:2019 per COVE_CADDY_ADMIN).
+    glines = render_admin_global_block("caddy:2019")
     if own_dns_provider and own_dns_token:
         # Self-hoster's OWN domain behind NAT: DNS-01 with THEIR own DNS token (e.g.
         # cloudflare). HTTP-01 can't work (no public :443), and acme-dns is for our
@@ -339,9 +378,13 @@ def build_shared_caddy_base_caddyfile() -> str:
     + its own TLS block) lives in its own conf.d/{cid}.caddy file — added/removed without
     touching this base. Re-emitting `admin` on every render is required so a /load that
     omitted it would never drop the API."""
+    # #D32: admin API restricted to the sanctioned app host (the shared Caddy sits on the
+    # lucidcove-net bridge with every Cove; the app reaches admin at lucidcove-caddy:2019
+    # per COVE_CADDY_ADMIN). The origin allowlist keeps that path working while refusing
+    # any other container that hits the bridge IP directly or cross-origin.
     return "\n".join([
         "{",
-        "    admin :2019",
+        *render_admin_global_block("lucidcove-caddy:2019"),
         "}",
         "",
         "# Per-Cove routing snippets. The provisioner / the Cove's in-browser address",

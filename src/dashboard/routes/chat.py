@@ -20,11 +20,19 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from langgraph.errors import GraphRecursionError
 
 from src.config import get_default_channel, get_primary_agent_id, get_operator_name, get_steward_channel_config
 from src.memory.database import channel_db_scope, enter_channel_db_scope, exit_channel_db_scope
 
 router = APIRouter()
+
+# #D26: the interactive chat turn ran on LangGraph's DEFAULT recursion_limit (25
+# super-steps ≈ 12 tool rounds) — nothing set it here, so a heavy tool-using turn hit
+# the ceiling and surfaced as a generic error (some "model errors" were really this).
+# Match delegation's ceiling (delegation_tools.DELEGATION_RECURSION_LIMIT = 100); the
+# turn timeout, not the step count, is the real runaway bound.
+CHAT_RECURSION_LIMIT = 100
 
 # Track running send tasks for cancellation — keyed by channel
 _running_tasks: dict[str, asyncio.Event] = {}
@@ -740,7 +748,8 @@ async def send_message(request: Request):
 
                 async with get_checkpointer() as checkpointer:
                     graph = await get_channel_graph(ch, checkpointer)
-                    cfg = {"configurable": {"thread_id": thread_id}}
+                    cfg = {"configurable": {"thread_id": thread_id},
+                           "recursion_limit": CHAT_RECURSION_LIMIT}  # #D26
                     # Include input_mode in the message metadata so the agent knows
                     # whether the operator is typing, dictating, or in voice mode.
                     # Voice/dictate → agent should respond more concisely (spoken output).
@@ -862,6 +871,14 @@ async def send_message(request: Request):
 
             except asyncio.CancelledError:
                 yield _sse({"type": "done", "data": {"response": "Stopped.", "cancelled": True}})
+            except GraphRecursionError:
+                # #D26: the turn genuinely hit the step ceiling — say so clearly instead
+                # of a generic error (which used to get misread as a model failure).
+                msg = ("This turn hit its step ceiling (too many tool rounds in one go). "
+                       "Continue, or split the ask into smaller steps.")
+                yield _sse({"type": "error", "message": msg, "code": "recursion_limit"})
+                yield _sse({"type": "done", "data": {"response": msg, "error": msg,
+                                                     "recursion_limit": True}})
             except Exception as e:
                 yield _sse({"type": "error", "message": str(e)})
                 yield _sse({"type": "done", "data": {"response": f"Error: {e}", "error": str(e)}})

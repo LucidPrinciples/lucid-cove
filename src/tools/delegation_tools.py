@@ -113,6 +113,10 @@ async def _run_agent_turn(channel: str, message: str, agent_label: str,
             "channel": channel,
             "input_mode": "text",
         }
+        # #D30: mark the task in_progress so a restart-orphaned turn is detectable.
+        # With done/blocked set on every normal exit below, 'in_progress' means exactly
+        # "running now, or crashed mid-turn" — the boot sweep + watcher key off that.
+        await _set_task_status(task_id, "in_progress")
         _say(f"{agent_label} starting delegated turn on {channel} (thread {thread_id})")
         async with get_checkpointer() as checkpointer:
             graph = await get_channel_graph(channel, checkpointer)
@@ -146,15 +150,18 @@ async def _run_agent_turn(channel: str, message: str, agent_label: str,
         except Exception:
             pass
 
+        await _set_task_status(task_id, "done")   # #D30: turn finished cleanly
         await _report_back(agent_label, task_id, reply)
         _say(f"{agent_label} completed a delegated turn on {channel} "
              f"({len(reply)} chars reply, task #{task_id} noted)")
     except asyncio.TimeoutError:
+        await _set_task_status(task_id, "blocked")  # #D30: didn't finish → terminal, not in_progress
         _say(f"{agent_label}'s turn TIMED OUT on {channel} — brief is in the "
              f"channel; it resumes on the agent's next turn")
         await _report_back(agent_label, task_id,
                            "(turn timed out — brief delivered, work resumes next turn)")
     except Exception as e:
+        await _set_task_status(task_id, "blocked")  # #D30: failed → terminal, not in_progress
         _say(f"background turn FAILED for {agent_label} on {channel}: {e} — "
              f"the task row still tracks the work")
         await _report_back(agent_label, task_id, f"(delegated turn failed: {e})")
@@ -208,6 +215,55 @@ async def _report_back(agent_label: str, task_id: int, reply: str) -> None:
         _say(f"report-back posted to {steward_channel}")
     except Exception as e:
         _say(f"steward-channel report-back failed: {e}")
+
+
+async def _set_task_status(task_id: int, status: str) -> None:
+    """Best-effort delegated-task status transition (#D30). Scoped to source='agent'
+    so it can only ever touch delegated task rows."""
+    if not task_id:
+        return
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            await conn.execute(
+                "UPDATE tasks SET status = %s, updated_at = NOW() "
+                "WHERE id = %s AND source = 'agent'",
+                (status, task_id))
+    except Exception as e:
+        _say(f"task status update ({status}) failed: {e}")
+
+
+async def sweep_orphaned_delegations() -> int:
+    """Boot-time recovery (#D30). A delegated background turn killed by a container
+    restart can't file its own failure report — its task row is left 'in_progress'
+    forever and looks alive. On startup, mark every agent-sourced in_progress task as
+    'blocked' (interrupted by restart) with a note, and best-effort report-back to the
+    steward channel so the loop closes. Returns the count swept. Never raises."""
+    from src.memory.database import get_db
+    note = ("\n[system] interrupted by a restart — the delegated turn did not finish; "
+            "status set to blocked. Re-delegate to resume.")
+    try:
+        async with get_db() as conn:
+            r = await conn.execute(
+                "UPDATE tasks SET status = 'blocked', "
+                "notes = left(coalesce(notes,'') || %s, 4000), updated_at = NOW() "
+                "WHERE source = 'agent' AND status = 'in_progress' "
+                "RETURNING id, assignee, title",
+                (note,))
+            rows = [dict(x) for x in await r.fetchall()]
+    except Exception as e:
+        _say(f"orphaned-delegation sweep failed: {e}")
+        return 0
+    for row in rows:
+        try:
+            await _report_back(
+                row.get("assignee") or "agent", row["id"],
+                "(interrupted by a restart — task marked blocked; re-delegate to resume)")
+        except Exception:
+            pass
+    if rows:
+        _say(f"swept {len(rows)} restart-orphaned delegation(s) → blocked")
+    return len(rows)
 
 
 @notify

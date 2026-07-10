@@ -378,68 +378,62 @@ async def _inject_approval_resolution_message(
         # Create a minimal request context to get the thread
         # This is best-effort; if we can't get the thread, we skip
         try:
-            # Try to get the active thread for the current presence
-            # We need a request context - use the global/default presence
-            from src.agents.identity import get_primary_agent_id
-            agent_id = await get_primary_agent_id()
-
             # Get the checkpointer and graph
             async with get_checkpointer() as checkpointer:
                 graph = await get_channel_graph(channel, checkpointer)
 
-                # We need to find the thread_id. Since we don't have request context,
-                # we look for recent threads with pending approvals for this agent.
-                # Alternative: use a well-known thread pattern or broadcast.
-                # For now, we use the agent's default thread for the channel.
-
-                # Get all thread IDs for this agent/channel from recent state
+                # #D23: the active thread(s) for this channel live in `chat_threads`, NOT
+                # the nonexistent `thread_state` table. The old query raised
+                # (relation "thread_state" does not exist) and the bare except swallowed
+                # it, so #D14's auto-continuation was a SILENT no-op — approvals never
+                # reached the agent. Same source of truth as delegation_tools._report_back.
                 from src.memory.database import get_db
                 async with get_db() as conn:
-                    # Find threads with recent activity from this agent
                     rows = await (await conn.execute(
-                        """SELECT thread_id FROM thread_state
-                           WHERE channel = %s
-                           AND state_json LIKE %s
-                           ORDER BY updated_at DESC LIMIT 5""",
-                        (channel, f'%"agent_id": "{agent_id}"%'),
+                        """SELECT thread_id FROM chat_threads
+                           WHERE channel = %s AND status = 'active'
+                           ORDER BY created_at DESC LIMIT 5""",
+                        (channel,),
                     )).fetchall()
 
                 if not rows:
-                    # No active thread found — can't inject
+                    print(f"[approval-inject] no active thread for channel {channel!r}; "
+                          f"resolution for {request_id} not delivered to the agent")
                     return
 
-                # Try each recent thread
+                # Inject into the active thread that actually holds this pending approval.
                 for row in rows:
                     thread_id = row["thread_id"]
                     config = {"configurable": {"thread_id": thread_id}}
-
                     try:
-                        # Check if this thread has the pending approval
                         state = await graph.aget_state(config)
                         if not state or not state.values:
                             continue
-
                         messages = list(state.values.get("messages") or [])
-                        # Look for a message mentioning this request_id
                         has_pending = any(
                             request_id in (getattr(m, "content", "") or "")
                             for m in messages[-10:]  # Check last 10 messages
                         )
-
                         if has_pending:
-                            # Found the right thread — inject the resolution
                             await graph.aupdate_state(
                                 config,
                                 {"messages": [SystemMessage(content=content)]},
                                 as_node="agent",
                             )
                             return
-                    except Exception:
+                    except Exception as e:
+                        print(f"[approval-inject] thread {thread_id} check failed: "
+                              f"{type(e).__name__}: {e}")
                         continue
 
-        except Exception:
-            # Best-effort: if injection fails, the operator can still manually continue
-            pass
+                print(f"[approval-inject] no active thread on {channel!r} referenced "
+                      f"{request_id}; resolution not delivered to the agent")
+
+        except Exception as e:
+            # #D23: no longer a silent swallow — surface the failure so a broken inject is
+            # visible in logs instead of approvals silently never reaching the agent.
+            print(f"[approval-inject] failed for {request_id} on {channel!r}: "
+                  f"{type(e).__name__}: {e}")
 
 
 @router.post("/api/bridge/approvals/{request_id}")

@@ -205,13 +205,33 @@ async function _openStewardThreadReader(threadId, presence, target) {
         // Read-only label — navigation is handled by the Presence / Stuart-Mercer /
         // Day-Deep tabs above, so no back button here.
         const meta = data.thread || {};
+        // #D25 (c): an archived thread whose checkpointer state was pruned returns no live
+        // messages. Show the stored message_count (the real length) when we have it, not 0.
+        const liveCount = data.messages ? data.messages.length : 0;
+        const shownCount = liveCount || (meta.message_count || 0);
         const readOnly = document.createElement('div');
         readOnly.className = 'steward-readonly-label';
-        readOnly.textContent = `Read-only · ${meta.status || 'active'} · ${data.messages ? data.messages.length : 0} messages`;
+        readOnly.textContent = `Read-only · ${meta.status || 'active'} · ${shownCount} messages`;
         box.appendChild(readOnly);
 
         // Messages
         if (!data.messages || data.messages.length === 0) {
+            // #D25 (c): fall back to the stored summary of the archived conversation
+            // instead of a bare "no messages" over a thread that clearly had some.
+            if (meta.summary) {
+                const sum = document.createElement('div');
+                sum.className = 'steward-thread-summary';
+                const h = document.createElement('div');
+                h.className = 'steward-summary-label';
+                h.textContent = 'Archived — summary of this conversation:';
+                const body = document.createElement('div');
+                body.className = 'steward-summary-body';
+                body.textContent = meta.summary;
+                sum.appendChild(h);
+                sum.appendChild(body);
+                box.appendChild(sum);
+                return;
+            }
             const empty = document.createElement('span');
             empty.className = 'empty';
             empty.textContent = 'No messages in this thread.';

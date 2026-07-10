@@ -211,6 +211,7 @@ cove:
       - tools.project_tools
       - tools.finance_tools
       - tools.calendar_notify
+      - tools.dev_read_tools        # #D17 — READ-ONLY repo access (release lane); no push/PR
     channels:
       day:
         description: "Business operations — products, listings, sales, marketing, what needs moving."
