@@ -992,7 +992,7 @@ async def agent_node(state: ChannelState) -> dict:
           f"{context_usage['percent']}% [{ctx_status}]) via {model_label}...")
 
     # D16: Shorter primary timeout for faster fallback rescue; fallback gets full timeout
-    _PRIMARY_TIMEOUT = 60   # Fail fast on hung cloud provider
+    _PRIMARY_TIMEOUT = 90   # Fail fast on hung cloud provider (was 120, 54s healthy turn observed)
     _FALLBACK_TIMEOUT = 120  # Local model gets more time if needed
     _t0 = time_module.monotonic()
 
