@@ -80,36 +80,87 @@ def _visible_to(audience: str, restricted: bool) -> bool:
 # of an empty string, so a copy-pasted command is never silently broken.
 
 def _host_paths() -> tuple[str, str]:
-    """(cove_dir, clone_dir) real host paths, or ("","") when unknown.
+    """(cove_dir, clone_dir) real host paths for THIS box, or ("","") when unknown.
 
-    COVE_HOST_DIR is the stack folder, laid out as <clone>/out/<id>-cove by both
-    install.sh and the manual provisioner, so the clone root is its grandparent.
+    Sources, in priority order (first non-empty wins per path), so a box whose layout
+    isn't the provisioner default (e.g. the migrated founder at ~/CoveCoveNew/...) can
+    still fill these instead of always showing a placeholder (#D27):
+      1. explicit env overrides COVE_CLONE_DIR / COVE_COVE_DIR
+      2. cove.yaml deploy.clone_dir / deploy.cove_dir
+      3. COVE_HOST_DIR — the stack folder, laid out as <clone>/out/<id>-cove by
+         install.sh + the manual provisioner, so the clone root is its grandparent.
     """
-    cove_dir = (env("COVE_HOST_DIR", "") or "").strip()
-    clone_dir = ""
-    if cove_dir:
-        p = Path(cove_dir)
-        if p.parent.name == "out":       # <clone>/out/<id>-cove -> clone root
-            clone_dir = str(p.parent.parent)
+    cove_dir = (env("COVE_COVE_DIR", "") or "").strip()
+    clone_dir = (env("COVE_CLONE_DIR", "") or "").strip()
+
+    if not (cove_dir and clone_dir):
+        try:
+            from src.config import load_cove_config
+            deploy = (load_cove_config().get("deploy") or {})
+            if isinstance(deploy, dict):
+                cove_dir = cove_dir or str(deploy.get("cove_dir") or "").strip()
+                clone_dir = clone_dir or str(deploy.get("clone_dir") or "").strip()
+        except Exception:
+            pass
+
+    host_dir = (env("COVE_HOST_DIR", "") or "").strip()
+    if host_dir:
+        cove_dir = cove_dir or host_dir
+        if not clone_dir:
+            p = Path(host_dir)
+            if p.parent.name == "out":       # <clone>/out/<id>-cove -> clone root
+                clone_dir = str(p.parent.parent)
     return cove_dir, clone_dir
 
 
+# Explicit, actionable hints for when a path can't be resolved for this box — never a
+# silent generic placeholder that reads as if it were filled (#D27).
+_COVE_DIR_HINT = "<set your Cove dir: COVE_COVE_DIR env or cove.yaml deploy.cove_dir>"
+_CLONE_DIR_HINT = "<set your clone dir: COVE_CLONE_DIR env or cove.yaml deploy.clone_dir>"
+
+
 def _fill_paths(data: dict) -> dict:
-    """Substitute {{COVE_DIR}} / {{CLONE_DIR}} in every step's command/note/label."""
+    """Substitute {{COVE_DIR}} / {{CLONE_DIR}} in every step's command/note/label with
+    this box's real host paths. When a path is unknown, substitute an explicit
+    'set this in Settings' hint (not a silent generic placeholder) and flag the step +
+    runbook so the UI can warn that a command needs a path before it will run (#D27)."""
     cove_dir, clone_dir = _host_paths()
-    cove_sub = cove_dir or "<your Cove folder — the one with docker-compose.yml>"
-    clone_sub = clone_dir or "<your lucid-cove clone>"
+    cove_sub = cove_dir or _COVE_DIR_HINT
+    clone_sub = clone_dir or _CLONE_DIR_HINT
 
     def sub(s):
         if not isinstance(s, str):
             return s
         return s.replace("{{COVE_DIR}}", cove_sub).replace("{{CLONE_DIR}}", clone_sub)
 
+    incomplete = False
     for step in data.get("steps", []):
-        if isinstance(step, dict):
-            for k in ("command", "note", "label"):
-                if k in step:
-                    step[k] = sub(step[k])
+        if not isinstance(step, dict):
+            continue
+        needs = set()
+        for k in ("command", "note", "label"):
+            if k not in step:
+                continue
+            if isinstance(step[k], str):
+                if not cove_dir and "{{COVE_DIR}}" in step[k]:
+                    needs.add("cove")
+                if not clone_dir and "{{CLONE_DIR}}" in step[k]:
+                    needs.add("clone")
+            step[k] = sub(step[k])
+        if needs:
+            incomplete = True
+            hints = []
+            if "clone" in needs:
+                hints.append("your lucid-cove clone dir (COVE_CLONE_DIR or "
+                             "cove.yaml deploy.clone_dir)")
+            if "cove" in needs:
+                hints.append("your Cove stack dir (COVE_COVE_DIR or "
+                             "cove.yaml deploy.cove_dir)")
+            step["path_hint"] = ("This box's paths aren't set yet — configure "
+                                 + " and ".join(hints)
+                                 + " so this command fills in automatically.")
+    if incomplete:
+        data["paths_incomplete"] = True
     return data
 
 

@@ -671,6 +671,7 @@ async function loadRunbookDetail(slug) {
                 <span class="runbook-cat" style="color:${catColor};">${ESC(rb.category || '')}</span>
             </div>
             ${rb.description ? `<div class="runbook-desc" style="margin:6px 0 10px;">${ESC(rb.description)}</div>` : ''}
+            ${rb.paths_incomplete ? `<div class="runbook-note" style="color:var(--courage);border-left:2px solid var(--courage);padding-left:6px;margin:0 0 10px;">⚠ Some commands need this box's paths set before they'll run — see the flagged steps below. Set COVE_CLONE_DIR / COVE_COVE_DIR (or cove.yaml deploy.clone_dir / deploy.cove_dir).</div>` : ''}
             <div class="runbook-steps">`;
 
         steps.forEach((step, i) => {
@@ -707,6 +708,12 @@ async function loadRunbookDetail(slug) {
 
             if (step.note) {
                 html += `<div class="runbook-note">${ESC(step.note)}</div>`;
+            }
+
+            // #D27: an explicit warning when a command still has an unfilled path for
+            // this box — never let a placeholder read as if it were filled in.
+            if (step.path_hint) {
+                html += `<div class="runbook-note" style="color:var(--courage);border-left:2px solid var(--courage);padding-left:6px;">⚠ ${ESC(step.path_hint)}</div>`;
             }
 
             if (step.branches) {
