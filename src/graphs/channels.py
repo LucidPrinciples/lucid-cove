@@ -16,7 +16,9 @@ Features (all from Stuart's proven implementation):
   - Primary → fallback model chain with empty content detection
 """
 
+import asyncio
 import logging
+import time as time_module
 from typing import TypedDict, Sequence, Optional, Annotated
 from operator import add
 
@@ -989,19 +991,20 @@ async def agent_node(state: ChannelState) -> dict:
           f"{_sent_count} sent, ~{tokens_used}/{token_limit} tokens = "
           f"{context_usage['percent']}% [{ctx_status}]) via {model_label}...")
 
-    import asyncio as _asyncio
-    import time as _time
-    _LLM_TIMEOUT = 120
-    _t0 = _time.monotonic()
+    # D16: Shorter primary timeout for faster fallback rescue; fallback gets full timeout
+    _PRIMARY_TIMEOUT = 60   # Fail fast on hung cloud provider
+    _FALLBACK_TIMEOUT = 120  # Local model gets more time if needed
+    _t0 = time_module.monotonic()
 
     try:
         tools = get_tools(_channel_tool_modules(channel))
         model_with_tools = model.bind_tools(tools)
 
-        response = await _asyncio.wait_for(
-            model_with_tools.ainvoke(full_messages), timeout=_LLM_TIMEOUT
+        # D16: Primary with shorter timeout for faster fallback on hung provider
+        response = await asyncio.wait_for(
+            model_with_tools.ainvoke(full_messages), timeout=_PRIMARY_TIMEOUT
         )
-        _duration_ms = int((_time.monotonic() - _t0) * 1000)
+        _duration_ms = int((time_module.monotonic() - _t0) * 1000)
 
         # Capture reasoning from provider hook
         try:
@@ -1090,14 +1093,17 @@ async def agent_node(state: ChannelState) -> dict:
                         HumanMessage(content=anchor_msg),
                     ]
                     try:
-                        regen_response = await _asyncio.wait_for(
-                            model_with_tools.ainvoke(regen_messages), timeout=_LLM_TIMEOUT
+                        # D16: Truth gate also needs timeout protection
+                        regen_response = await asyncio.wait_for(
+                            model_with_tools.ainvoke(regen_messages), timeout=_PRIMARY_TIMEOUT
                         )
                         from datetime import datetime, timezone
                         regen_response.additional_kwargs["created_at"] = datetime.now(timezone.utc).isoformat()
                         regen_response.additional_kwargs["truth_gate_regenerated"] = True
                         print(f"{ts_log()} [{label}] Truth Gate: REGENERATED response")
                         return {"messages": [regen_response], "context_usage": context_usage}
+                    except asyncio.TimeoutError as regen_te:
+                        print(f"{ts_log()} [{label}] Truth Gate regen TIMED OUT, using original: {regen_te}")
                     except Exception as regen_e:
                         print(f"{ts_log()} [{label}] Truth Gate regen failed, using original: {regen_e}")
             except Exception as gate_e:
@@ -1106,8 +1112,11 @@ async def agent_node(state: ChannelState) -> dict:
         return {"messages": [response], "context_usage": context_usage}
 
     except Exception as e:
-        _duration_ms = int((_time.monotonic() - _t0) * 1000)
-        print(f"{ts_log()} [{label}] PRIMARY FAILED: {type(e).__name__}: {e}")
+        _duration_ms = int((time_module.monotonic() - _t0) * 1000)
+        # D16: Log full error details to help diagnose fallback failures
+        err_type = type(e).__name__
+        err_msg = str(e) if str(e) else "(no error message)"
+        print(f"{ts_log()} [{label}] PRIMARY FAILED: {err_type}: {err_msg}")
         await _write_jw_metric(
             agent_id=agent_id, operation_type="channel",
             operation_label=f"channel-{channel}",
@@ -1116,21 +1125,25 @@ async def agent_node(state: ChannelState) -> dict:
             duration_ms=_duration_ms, succeeded=False,
         )
 
-        # Fallback to local Ollama
+        # Fallback to local Ollama (D16: different provider/model for rescue)
         try:
-            print(f"{ts_log()} [{label}] Falling back to local Ollama...")
-            _t1 = _time.monotonic()
+            print(f"{ts_log()} [{label}] Falling back to local Ollama (different provider)...")
+            _t1 = time_module.monotonic()
             local = get_local_model(temperature=0.7)
+            # D16: Log which model we're falling back to
+            print(f"{ts_log()} [{label}] Fallback target: {local.model}")
             try:
                 local_with_tools = local.bind_tools(get_tools(_channel_tool_modules(channel)))
-                response = await _asyncio.wait_for(
-                    local_with_tools.ainvoke(full_messages), timeout=_LLM_TIMEOUT
+                response = await asyncio.wait_for(
+                    local_with_tools.ainvoke(full_messages), timeout=_FALLBACK_TIMEOUT
                 )
-            except Exception:
-                response = await _asyncio.wait_for(
-                    local.ainvoke(full_messages), timeout=_LLM_TIMEOUT
+            except Exception as tool_e:
+                # D16: Log why tool-enabled call failed before trying plain
+                print(f"{ts_log()} [{label}] Tool-enabled fallback failed ({type(tool_e).__name__}), trying plain...")
+                response = await asyncio.wait_for(
+                    local.ainvoke(full_messages), timeout=_FALLBACK_TIMEOUT
                 )
-            _fb_duration_ms = int((_time.monotonic() - _t1) * 1000)
+            _fb_duration_ms = int((time_module.monotonic() - _t1) * 1000)
 
             from datetime import datetime, timezone
             response.additional_kwargs["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -1151,8 +1164,11 @@ async def agent_node(state: ChannelState) -> dict:
             return {"messages": [response], "context_usage": context_usage}
 
         except Exception as e2:
-            _fb_duration_ms = int((_time.monotonic() - _t1) * 1000)
-            print(f"{ts_log()} [{label}] FALLBACK ALSO FAILED: {type(e2).__name__}: {e2}")
+            _fb_duration_ms = int((time_module.monotonic() - _t1) * 1000)
+            # D16: Better error logging for fallback failures
+            fb_err_type = type(e2).__name__
+            fb_err_msg = str(e2) if str(e2) else "(no error message)"
+            print(f"{ts_log()} [{label}] FALLBACK ALSO FAILED: {fb_err_type}: {fb_err_msg}")
             await _write_jw_metric(
                 agent_id=agent_id, operation_type="channel",
                 operation_label=f"channel-{channel}",
@@ -1161,9 +1177,14 @@ async def agent_node(state: ChannelState) -> dict:
                 duration_ms=_fb_duration_ms, succeeded=False,
             )
 
+        # D16: Surface meaningful error to user (primary error dominates; fallback info if different)
+        primary_err = f"{err_type}: {err_msg}"
+        user_error_msg = f"I'm having trouble responding right now. Primary model failed ({primary_err})."
+        if 'fb_err_type' in locals():
+            user_error_msg += f" Fallback also failed ({fb_err_type}: {fb_err_msg})."
         return {
-            "messages": [AIMessage(content=f"I'm having trouble responding right now. Error: {str(e)}")],
-            "error": str(e),
+            "messages": [AIMessage(content=user_error_msg)],
+            "error": primary_err,
             "context_usage": context_usage,
         }
 
