@@ -88,6 +88,17 @@ async def test_first_claim_has_no_change_note(monkeypatch):
     monkeypatch.setattr(dom, "_is_admin_presence", _ok_admin)
     # runtime_address unavailable + no docker → host-caddy path; persist would run, so stub it.
     monkeypatch.setattr(dom, "save_cove_config", lambda *_a, **_k: True)
+    # #D31 — HERMETIC: this exercises domain_set, which falls through to the host-Caddy
+    # reconcile (ensure_dns + install_caddy_snippet → live caddy reload, NC occ, Matrix
+    # regen). That is EXACTLY the layer whose live side-effect took a production Cove down
+    # (incident 2026-07-10). Fake the whole netconfig layer so the test verifies the route's
+    # response shape without ever rendering/reloading a real caddy snippet or calling occ.
+    from provision import netconfig as _nc
+    monkeypatch.setattr(_nc, "ensure_dns", lambda *a, **k: {"ok": False, "reason": "mocked"})
+    monkeypatch.setattr(_nc, "install_caddy_snippet",
+                        lambda *a, **k: {"installed": False, "reloaded": False, "reason": "mocked"})
+    monkeypatch.setattr(_nc, "reconcile_nextcloud_https", lambda *a, **k: {"ok": False, "reason": "mocked"})
+    monkeypatch.setattr(_nc, "reconcile_matrix_identity", lambda *a, **k: {"ok": False, "reason": "mocked"})
     body = dom.DomainSet(domain="fresh.lucidcove.org")
     resp = await dom.domain_set(body, request=None)
     # dict return (host-caddy path) — no confirm_change, no change note injected
