@@ -439,6 +439,68 @@ def get_tools(modules=None) -> list:
     return _load_tools(modules)
 
 
+_team_tools_cache = {}
+
+
+def _team_agent_key(channel: str):
+    """If `channel` is a TEAM AGENT's channel ('archimedes-day' / 'gabe-deep'),
+    return the agent key — else None. Managers (steward/merchant) are handled
+    by their own config path; presence/app channels don't match the pattern."""
+    if "-" not in channel:
+        return None
+    key, _, sub = channel.rpartition("-")
+    if sub not in ("day", "deep") or not key:
+        return None
+    try:
+        if _is_manager_channel(channel):
+            return None
+        from src.tools.agent_tools import AGENT_TOOL_REGISTRY
+        if key in AGENT_TOOL_REGISTRY:
+            from src.agents.identity import load_agents_config
+            if key in load_agents_config():
+                return key
+    except Exception:
+        return None
+    return None
+
+
+def channel_tools(channel: str) -> list:
+    """The ONE channel→tools resolver (found live 2026-07-10: Archimedes took a
+    delegated dev brief but his channel bound only the app-default modules — he
+    searched Nextcloud for a repo that lives at /sites and asked for access he
+    already deserved). Resolution order:
+      1. manager channels → their cove.yaml module list (+ universal steward mods)
+      2. team-agent channels → the agent's ROLE toolset (agent_tools registry:
+         builder gets dev, scout gets research, ...) — the approval decorators
+         still gate every dangerous tool, so capability != permission
+      3. anything else → the app default modules (presences, single mode)"""
+    mods = _channel_tool_modules(channel)
+    if mods is not None:
+        return _load_tools(mods)
+    key = _team_agent_key(channel)
+    if key:
+        if key not in _team_tools_cache:
+            try:
+                from src.tools.agent_tools import get_agent_tools
+                tools = list(get_agent_tools(key))
+                # Universal skill tools ride along here too (parity with _load_tools).
+                try:
+                    from src.tools.skill_tools import list_skills, use_skill
+                    have = {getattr(t, "name", None) for t in tools}
+                    for t in (list_skills, use_skill):
+                        if getattr(t, "name", None) not in have:
+                            tools.append(t)
+                except Exception:
+                    pass
+                _team_tools_cache[key] = tools
+                print(f"{ts_log()} [tools] {channel}: bound {len(tools)} role tools for team agent '{key}'")
+            except Exception as e:
+                print(f"{ts_log()} [tools] role-toolset bind failed for {key}: {e} — app default")
+                return _load_tools(None)
+        return _team_tools_cache[key]
+    return _load_tools(None)
+
+
 def _channel_tool_modules(channel: str):
     """For a manager channel, return the manager's OWN tool modules so its tools fire
     even inside a Presence's MC (tools otherwise bind per-app). Else None = app default."""
@@ -1008,7 +1070,7 @@ async def agent_node(state: ChannelState) -> dict:
     _t0 = time_module.monotonic()
 
     try:
-        tools = get_tools(_channel_tool_modules(channel))
+        tools = channel_tools(channel)
         model_with_tools = model.bind_tools(tools)
 
         # D16: Primary with shorter timeout for faster fallback on hung provider
@@ -1144,7 +1206,7 @@ async def agent_node(state: ChannelState) -> dict:
             # D16: Log which model we're falling back to
             print(f"{ts_log()} [{label}] Fallback target: {local.model}")
             try:
-                local_with_tools = local.bind_tools(get_tools(_channel_tool_modules(channel)))
+                local_with_tools = local.bind_tools(channel_tools(channel))
                 response = await asyncio.wait_for(
                     local_with_tools.ainvoke(full_messages), timeout=_FALLBACK_TIMEOUT
                 )
@@ -1214,7 +1276,7 @@ async def tool_node(state: ChannelState) -> dict:
     if not last_message or not hasattr(last_message, 'tool_calls') or not last_message.tool_calls:
         return {"messages": []}
 
-    tools = get_tools(_channel_tool_modules(state.get("channel", "")))
+    tools = channel_tools(state.get("channel", ""))
     tool_map = {t.name: t for t in tools}
 
     tool_messages = []
