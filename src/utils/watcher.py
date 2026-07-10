@@ -43,7 +43,7 @@ TUNING_ALERT_HOUR = 8         # local hour after which missing tunings alert
 # The check categories this module owns — auto-resolve only touches these.
 CATEGORIES = (
     "approved-failed", "approval-stale", "queue-stuck",
-    "tuning-missing", "push-no-pr",
+    "tuning-missing", "push-no-pr", "steward-queue",
 )
 
 _ERROR_PATTERNS = (
@@ -227,6 +227,23 @@ async def _check_push_no_pr(conn) -> list[dict]:
     return alerts
 
 
+async def _check_steward_queue(conn) -> list[dict]:
+    """Assigned queue tickets nobody has touched in days — the steward (or the
+    operator) gets a nudge instead of the ticket quietly rotting (spec Pillar 3
+    ties into Pillar 1). in_review staleness is the PR-hygiene checks' domain."""
+    r = await conn.execute(
+        "SELECT id, title, assignee, updated_at FROM steward_queue "
+        "WHERE status = 'assigned' "
+        "AND updated_at < NOW() - INTERVAL '3 days'")
+    return [{
+        "alert_key": f"steward-queue-stale-{row['id']}",
+        "category": "steward-queue",
+        "title": f"Queue ticket [{row['id']}] assigned but untouched 3+ days",
+        "detail": _clip(f"{row['title']} — assignee {row['assignee'] or 'unset'}"),
+        "urgency": "normal",
+    } for row in await r.fetchall()]
+
+
 # ── The run ─────────────────────────────────────────────────────────────────
 
 _CHECKS = (
@@ -235,6 +252,7 @@ _CHECKS = (
     _check_queue_stuck,
     _check_tuning_missing,
     _check_push_no_pr,
+    _check_steward_queue,
 )
 
 
