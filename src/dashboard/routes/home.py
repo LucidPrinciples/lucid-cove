@@ -893,3 +893,43 @@ async def clear_notifications():
     from src.tools.approval import get_notifications
     cleared = get_notifications(clear=True)
     return {"cleared": len(cleared)}
+
+
+# =============================================================================
+# PR Review Card — diff endpoint for create_github_pr results (#D18)
+# =============================================================================
+
+@router.get("/api/pr/diff")
+async def get_pr_diff(repo: str = "", base: str = "main", head: str = ""):
+    """Get diff between two branches for PR review card display.
+    
+    Uses GitHub compare API to get file stats and patch data.
+    Requires the repo slug (owner/name) and branch names.
+    """
+    if not repo or not head:
+        return JSONResponse({"error": "repo and head parameters required"}, status_code=400)
+    
+    # Get GitHub PAT from feature flags
+    try:
+        from src.config import get_feature_flags
+        pat = get_feature_flags().get("github_pat", "")
+        if not pat:
+            return JSONResponse({"error": "GitHub PAT not configured"}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": f"Failed to get PAT: {e}"}, status_code=500)
+    
+    try:
+        from src.utils.github import github_get_compare
+        compare = await github_get_compare(repo, base, head, pat)
+        return {
+            "repo": repo,
+            "base": base,
+            "head": head,
+            "status": compare.get("status", ""),
+            "ahead_by": compare.get("ahead_by", 0),
+            "behind_by": compare.get("behind_by", 0),
+            "total_commits": compare.get("total_commits", 0),
+            "files": compare.get("files", []),
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=500)

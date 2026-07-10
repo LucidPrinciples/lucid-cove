@@ -443,8 +443,39 @@ async def create_github_pr(project: str, title: str, body: str = "",
 
     if resp.status_code == 201:
         data = resp.json()
-        return (f"PR CREATED: #{data.get('number')} {data.get('html_url')}\n"
-                f"'{title}' ({branch} -> {base}). Tell the operator the PR number.")
+        pr_number = data.get('number')
+        pr_url = data.get('html_url')
+        # Get comparison stats for the PR card
+        additions = 0
+        deletions = 0
+        try:
+            compare_resp = await client.get(
+                f"https://api.github.com/repos/{slug}/compare/{base}...{branch}",
+                headers={"Authorization": f"Bearer {token}",
+                         "Accept": "application/vnd.github+json"},
+            )
+            if compare_resp.status_code == 200:
+                compare_data = compare_resp.json()
+                additions = sum(f.get('additions', 0) for f in compare_data.get('files', []))
+                deletions = sum(f.get('deletions', 0) for f in compare_data.get('files', []))
+        except Exception:
+            pass  # Stats are nice-to-have, don't fail the PR creation
+
+        # Return structured JSON for PR review card
+        import json
+        return json.dumps({
+            "status": "created",
+            "pr_number": pr_number,
+            "pr_url": pr_url,
+            "title": title,
+            "branch": branch,
+            "base": base,
+            "repo": slug,
+            "additions": additions,
+            "deletions": deletions,
+            "message": f"PR CREATED: #{pr_number} {pr_url}\n'{title}' ({branch} -> {base})."
+        }, indent=2)
+
     if resp.status_code == 422 and "already exists" in resp.text:
         return f"A PR for {branch} -> {base} already exists: {resp.text[:200]}"
     return (f"Error: GitHub API returned {resp.status_code}: {resp.text[:300]}")
