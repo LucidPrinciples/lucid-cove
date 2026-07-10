@@ -197,6 +197,52 @@ def _resolve_local_fallback() -> str:
 
 _WARNED_UNKNOWN_MODELS: set = set()
 
+# #D38: bare (slash-free) model ids that name a CLOUD model family. A slash-free
+# unknown id is normally treated as a local Ollama tag — but a cloud family name
+# (e.g. 'kimi-k2.5', a typo for the registry's 'kimi-k2.5-openrouter') is NOT a
+# local tag, and asking Ollama for it is a guaranteed 404 on EVERY call. These
+# fragments let us recognise the misroute and keep it on a cloud path instead.
+_CLOUD_MODEL_FRAGMENTS = (
+    "kimi", "gemini", "gpt", "claude", "sonnet", "opus", "haiku",
+    "deepseek", "glm", "grok", "mistral", "command", "o1", "o3", "o4",
+    "llama-4", "llama4", "maverick", "qwen-max", "qwen-plus",
+)
+
+# Provider-suffix labels we append to registry ids (kimi-k2.5-openrouter); stripped
+# when matching a bare id back to its registry entry.
+_PROVIDER_SUFFIXES = ("-openrouter", "-google", "-groq", "-openai", "-direct", "-anthropic")
+
+
+def _looks_like_cloud_id(model_id: str) -> bool:
+    """A slash-free id that names a known cloud model family (so it is a
+    misconfiguration, never a local Ollama tag). Pure."""
+    mid = (model_id or "").lower()
+    return any(frag in mid for frag in _CLOUD_MODEL_FRAGMENTS)
+
+
+def _recover_cloud_model(model_id: str, registry: list) -> tuple[str, str] | None:
+    """Map a bare cloud id (a registry-id typo) back to its real registry entry
+    by matching its base against each CLOUD entry's id / de-suffixed id /
+    model_string / model_string's last path segment. Returns (provider,
+    model_string) or None. Pure — takes the registry list, loads nothing."""
+    want = (model_id or "").strip().lower()
+    if not want:
+        return None
+    for m in registry or []:
+        if (m.get("type") or "").lower() == "local" or m.get("provider") == "ollama":
+            continue
+        mid = (m.get("id") or "").lower()
+        mstr = (m.get("model_string") or "").lower()
+        base = mid
+        for suf in _PROVIDER_SUFFIXES:
+            if base.endswith(suf):
+                base = base[: -len(suf)]
+                break
+        candidates = {mid, base, mstr, mstr.rsplit("/", 1)[-1]}
+        if want in candidates:
+            return m.get("provider", "openrouter"), m.get("model_string", model_id)
+    return None
+
 
 def _resolve_model_string(model_id: str) -> tuple[str, str]:
     """Resolve a model registry ID to (provider, model_string).
@@ -207,12 +253,40 @@ def _resolve_model_string(model_id: str) -> tuple[str, str]:
     without registry ceremony) but it warns ONCE per unknown id — a typo'd
     registry id (e.g. 'kimi-k2.5' instead of 'kimi-k2.5-openrouter') otherwise
     becomes a silent daily ollama 404 with every call landing on the fallback.
+
+    #D38 guard: a slash-free id that names a cloud family is NEVER routed to the
+    Ollama provider (that's a guaranteed 404 on every call). We first try to
+    recover it to its real registry entry; failing that we keep it on OpenRouter
+    (the cloud path) rather than Ollama. Either way the misroute warns ONCE.
     """
     model_def = get_model_from_registry(model_id)
     if model_def:
         return model_def["provider"], model_def.get("model_string", model_id)
-    # Fallback: treat as raw model string, infer provider
-    provider = "openrouter" if "/" in model_id else "ollama"
+
+    # Explicit provider path ('deepseek/deepseek-v3.2') → openrouter, unchanged.
+    if "/" in model_id:
+        provider = "openrouter"
+    elif _looks_like_cloud_id(model_id):
+        # #D38: a cloud family name that isn't a registry id. Recover it to the
+        # real entry if we can; otherwise keep it on the cloud path, never Ollama.
+        recovered = _recover_cloud_model(model_id, load_models_registry())
+        if recovered:
+            if model_id not in _WARNED_UNKNOWN_MODELS:
+                _WARNED_UNKNOWN_MODELS.add(model_id)
+                print(f"[provider] recovered misrouted cloud id '{model_id}' → "
+                      f"{recovered[0]}/{recovered[1]} (registry-id typo). Fix the "
+                      f"assignment to '{recovered[1]}' or its registry id to silence this.")
+            return recovered
+        provider = "openrouter"
+        if model_id not in _WARNED_UNKNOWN_MODELS:
+            _WARNED_UNKNOWN_MODELS.add(model_id)
+            print(f"[provider] WARNING: cloud model id '{model_id}' is not in the "
+                  f"registry and has no exact match — routing to OpenRouter, NOT Ollama "
+                  f"(a cloud id on Ollama 404s every call). Add it to config/models.yaml.")
+        return provider, model_id
+    else:
+        provider = "ollama"
+
     if model_id not in _WARNED_UNKNOWN_MODELS:
         _WARNED_UNKNOWN_MODELS.add(model_id)
         print(f"[provider] WARNING: model id '{model_id}' is not in the registry "
