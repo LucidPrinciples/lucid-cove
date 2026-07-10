@@ -22,8 +22,15 @@ import logging
 
 from langchain_core.tools import tool
 from src.tools.approval import notify
+from src.utils.time_utils import ts_log
 
 log = logging.getLogger("delegation")
+
+
+def _say(msg: str) -> None:
+    """Docker-visible progress line (the app's loggers filter INFO; print is
+    the house style — see scheduler.py)."""
+    print(f"{ts_log()} [delegation] {msg}")
 
 DELEGATION_TURN_TIMEOUT = 900  # seconds — a background turn gets 15 minutes
 
@@ -60,10 +67,13 @@ def compose_brief(agent: str, brief: str, ticket_ref: str, task_id: int) -> str:
     )
 
 
-async def _run_agent_turn(channel: str, message: str, agent_label: str) -> None:
+async def _run_agent_turn(channel: str, message: str, agent_label: str,
+                          task_id: int = 0) -> None:
     """Background: deliver the brief as a human turn in the agent's channel and
-    run the agent's graph once. Best-effort — on any failure the brief is still
-    queued as a task and the channel history explains the state."""
+    run the agent's graph once, then REPORT BACK — the agent's reply lands in
+    the task notes and in the steward's channel (spec Pillar 2 completion:
+    the steward monitors with eyes, not guesses). Best-effort — on any failure
+    the brief is still queued as a task and the channel history explains."""
     try:
         from langchain_core.messages import HumanMessage
         from datetime import datetime, timezone
@@ -101,19 +111,94 @@ async def _run_agent_turn(channel: str, message: str, agent_label: str) -> None:
             "channel": channel,
             "input_mode": "text",
         }
+        _say(f"{agent_label} starting delegated turn on {channel} (thread {thread_id})")
         async with get_checkpointer() as checkpointer:
             graph = await get_channel_graph(channel, checkpointer)
             cfg = {"configurable": {"thread_id": thread_id}}
-            await asyncio.wait_for(graph.ainvoke(graph_input, config=cfg),
-                                   timeout=DELEGATION_TURN_TIMEOUT)
-        log.info(f"[delegation] {agent_label} completed a delegated turn on {channel}")
+            result = await asyncio.wait_for(graph.ainvoke(graph_input, config=cfg),
+                                            timeout=DELEGATION_TURN_TIMEOUT)
+
+        # Extract the agent's final reply for the report-back.
+        reply = ""
+        try:
+            msgs = (result or {}).get("messages") or []
+            for m in reversed(msgs):
+                if getattr(m, "type", "") == "ai" and (getattr(m, "content", "") or "").strip():
+                    reply = m.content.strip()
+                    break
+        except Exception:
+            pass
+
+        # Keep the thread's stats honest (message_count feeds the MC thread list).
+        try:
+            from src.memory.threads import update_thread_stats
+            msgs = (result or {}).get("messages") or []
+            await update_thread_stats(thread_id, message_count=len(msgs))
+        except Exception:
+            pass
+
+        await _report_back(agent_label, task_id, reply)
+        _say(f"{agent_label} completed a delegated turn on {channel} "
+             f"({len(reply)} chars reply, task #{task_id} noted)")
     except asyncio.TimeoutError:
-        log.warning(f"[delegation] {agent_label}'s turn timed out on {channel} "
-                    f"— brief is in the channel; it resumes on the next turn")
+        _say(f"{agent_label}'s turn TIMED OUT on {channel} — brief is in the "
+             f"channel; it resumes on the agent's next turn")
+        await _report_back(agent_label, task_id,
+                           "(turn timed out — brief delivered, work resumes next turn)")
     except Exception as e:
-        log.warning(f"[delegation] background turn failed for {agent_label} "
-                    f"on {channel}: {e} — brief delivery may be incomplete; "
-                    f"the task row still tracks the work")
+        _say(f"background turn FAILED for {agent_label} on {channel}: {e} — "
+             f"the task row still tracks the work")
+        await _report_back(agent_label, task_id, f"(delegated turn failed: {e})")
+
+
+async def _report_back(agent_label: str, task_id: int, reply: str) -> None:
+    """Land the delegate's reply where the steward can SEE it: the task notes
+    + a system note in the steward's own day channel. Best-effort each."""
+    summary = (reply or "(no reply captured)").strip()
+    clipped = summary[:800] + ("…" if len(summary) > 800 else "")
+
+    if task_id:
+        try:
+            from src.memory.database import get_db
+            async with get_db() as conn:
+                await conn.execute(
+                    "UPDATE tasks SET notes = left(coalesce(notes,'') || %s, 4000), "
+                    "updated_at = NOW() WHERE id = %s",
+                    (f"\n[{agent_label} reply] {clipped}", task_id))
+        except Exception as e:
+            _say(f"task-note report-back failed: {e}")
+
+    # Steward channel note — same injection pattern as #D14 (as_node='agent').
+    try:
+        from langchain_core.messages import SystemMessage
+        from src.config import get_steward_channel_config
+        from src.memory.checkpointer import get_checkpointer
+        from src.memory.database import get_db
+        from src.graphs.channels import get_channel_graph
+
+        sc = get_steward_channel_config()
+        if not sc:
+            return
+        steward_channel = f"{(sc.get('name') or 'stuart').lower()}-day"
+        async with get_db() as conn:
+            r = await conn.execute(
+                "SELECT thread_id FROM chat_threads WHERE channel = %s "
+                "AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+                (steward_channel,))
+            row = await r.fetchone()
+        if not row:
+            return
+        note = (f"[SYSTEM: delegation report — {agent_label} replied on their "
+                f"delegated task #{task_id}: {clipped}]")
+        async with get_checkpointer() as checkpointer:
+            graph = await get_channel_graph(steward_channel, checkpointer)
+            await graph.aupdate_state(
+                {"configurable": {"thread_id": row["thread_id"]}},
+                {"messages": [SystemMessage(content=note)]},
+                as_node="agent")
+        _say(f"report-back posted to {steward_channel}")
+    except Exception as e:
+        _say(f"steward-channel report-back failed: {e}")
 
 
 @notify
@@ -175,7 +260,7 @@ async def delegate_task(agent: str, brief: str, ticket_ref: str = "") -> str:
     channel = f"{target}-day"
     message = compose_brief(target, brief, ticket_ref, task_id)
     asyncio.get_event_loop().create_task(
-        _run_agent_turn(channel, message, target))
+        _run_agent_turn(channel, message, target, task_id))
 
     return (f"Delegated to {target}: task #{task_id} created, brief delivered "
             f"to {channel}, and {target} is starting now (background turn, "
