@@ -87,6 +87,93 @@ class _ReplayRequest:
         return getattr(self._request, name)
 
 
+# ── #D39: durability ─────────────────────────────────────────────────────────
+# The in-memory registry lost in-flight jobs on any restart, so a job that
+# finished in pipecat showed the browser an error at the end (its id 404'd after
+# the restart). We mirror each job's lightweight STATE to the video_jobs table
+# (never the result payload) and, on boot, orphan-mark still-running rows to
+# 'failed' so a polling browser gets the truth. All best-effort — a DB hiccup
+# must never break the pipeline hot path.
+
+_PERSIST_COLS = ("state", "phase", "kind", "error",
+                 "created_at", "started_at", "finished_at")
+
+
+async def _persist_job(job_id: str) -> None:
+    """Best-effort upsert of an in-memory job's state to the durable table."""
+    job = _JOBS.get(job_id)
+    if not job:
+        return
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            await conn.execute(
+                """INSERT INTO video_jobs
+                       (job_id, kind, state, phase, error,
+                        created_at, started_at, finished_at, updated_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s, NOW())
+                   ON CONFLICT (job_id) DO UPDATE SET
+                       kind=EXCLUDED.kind, state=EXCLUDED.state,
+                       phase=EXCLUDED.phase, error=EXCLUDED.error,
+                       started_at=EXCLUDED.started_at,
+                       finished_at=EXCLUDED.finished_at, updated_at=NOW()""",
+                (job_id, job.get("kind") or "", job.get("state") or "queued",
+                 job.get("phase") or "queued", str(job.get("error") or ""),
+                 job.get("created_at"), job.get("started_at"),
+                 job.get("finished_at")))
+    except Exception as e:
+        log.debug("video job persist failed for %s: %s", job_id, e)
+
+
+def _persist_soon(job_id: str) -> None:
+    """Fire-and-forget persist from a sync context (never awaited)."""
+    try:
+        asyncio.create_task(_persist_job(job_id))
+    except RuntimeError:
+        pass  # no running loop (e.g. under sync tests) — nothing in flight to lose
+
+
+async def _load_job_row(job_id: str) -> dict | None:
+    """Read a durable job row (post-restart fallback). Best-effort → None."""
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            r = await conn.execute(
+                "SELECT state, phase, kind, error, created_at, started_at, "
+                "finished_at FROM video_jobs WHERE job_id = %s", (job_id,))
+            row = await r.fetchone()
+        return dict(row) if row else None
+    except Exception as e:
+        log.debug("video job load failed for %s: %s", job_id, e)
+        return None
+
+
+async def sweep_orphaned_video_jobs() -> int:
+    """Boot recovery (#D39). A background job killed by THIS restart can't finish
+    or report — its durable row is left queued/running and the browser polls it
+    forever. Mark every such row 'failed' with an honest error so the UI stops
+    waiting on a job that will never complete. Returns the count. Never raises."""
+    from src.memory.database import get_db
+    msg = ("interrupted by a restart — the app stopped mid-job; the output may "
+           "still have been produced, re-run if it is missing")
+    try:
+        async with get_db() as conn:
+            r = await conn.execute(
+                "UPDATE video_jobs SET state = 'failed', phase = 'failed', "
+                "error = CASE WHEN error IS NULL OR error = '' THEN %s ELSE error END, "
+                "finished_at = COALESCE(finished_at, extract(epoch from now())), "
+                "updated_at = NOW() "
+                "WHERE state IN ('queued','running') RETURNING job_id",
+                (msg,))
+            rows = [x["job_id"] for x in await r.fetchall()]
+    except Exception as e:
+        log.warning("orphaned video-job sweep failed: %s", e)
+        return 0
+    if rows:
+        log.info("swept %d restart-orphaned video job(s) -> failed", len(rows))
+    return len(rows)
+
+
 def _prune():
     if len(_JOBS) <= _MAX_JOBS:
         return
@@ -121,6 +208,7 @@ async def _execute(job_id: str, handler, request: Request, body: dict):
     job["state"] = "running"
     job["phase"] = _KIND_START_PHASE.get(job.get("kind"), "queued")
     job["started_at"] = time.time()
+    await _persist_job(job_id)  # #D39: durable 'running' so a restart can orphan-mark it
     try:
         resp = await handler(_ReplayRequest(request, body))
         status = getattr(resp, "status_code", 200)
@@ -140,6 +228,7 @@ async def _execute(job_id: str, handler, request: Request, body: dict):
         job["error"] = str(e)
     finally:
         job["finished_at"] = time.time()
+        await _persist_job(job_id)  # #D39: durable terminal state (done/failed)
 
 
 def _spawn(request: Request, body: dict, handler, kind: str) -> dict:
@@ -149,6 +238,7 @@ def _spawn(request: Request, body: dict, handler, kind: str) -> dict:
         "created_at": time.time(), "started_at": None, "finished_at": None,
     }
     _prune()
+    _persist_soon(job_id)  # #D39: durable 'queued' before the turn starts
     asyncio.create_task(_execute(job_id, handler, request, body))
     return {"job_id": job_id, "state": "queued"}
 
@@ -180,7 +270,14 @@ async def start_analyze(request: Request):
 async def job_status(job_id: str, request: Request):
     """Poll a job. Returns its state (+ result when done, + error when failed)."""
     job = _JOBS.get(job_id)
-    if not job:
-        return JSONResponse({"error": "unknown job_id"}, status_code=404)
-    return {"job_id": job_id, **{k: job.get(k) for k in (
-        "state", "phase", "kind", "result", "error", "created_at", "started_at", "finished_at")}}
+    if job:
+        return {"job_id": job_id, **{k: job.get(k) for k in (
+            "state", "phase", "kind", "result", "error",
+            "created_at", "started_at", "finished_at")}}
+    # #D39: in-memory job gone (app restarted mid-poll). Fall back to the durable
+    # row so the browser gets an honest state — the boot sweep has already turned a
+    # killed job into 'failed' — instead of a 404 that reads as "job vanished".
+    row = await _load_job_row(job_id)
+    if row:
+        return {"job_id": job_id, "result": None, "persisted": True, **row}
+    return JSONResponse({"error": "unknown job_id"}, status_code=404)
