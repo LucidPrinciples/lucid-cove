@@ -707,6 +707,7 @@ function _buildDetailPanels() {
             <div class="card"><h2>Tools</h2><div id="agp-tools"><span class="empty">Loading...</span></div></div>
             <div class="card"><h2>Channels</h2><div id="agp-channels"><span class="empty">Loading...</span></div></div>
             <div class="card"><h2>Pending Tasks</h2><div id="agp-tasks"><span class="empty">Loading...</span></div></div>
+            <div class="card"><h2>Activity</h2><div id="agp-activity"><span class="empty">Loading...</span></div></div>
         </div>`;
         container.appendChild(agp);
 

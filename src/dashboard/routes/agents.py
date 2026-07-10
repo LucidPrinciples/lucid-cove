@@ -689,3 +689,117 @@ async def get_agent_detail(agent_id: str):
         }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+def _delegation_phase(status: str) -> str:
+    """#D22: map a delegated task's lifecycle status to a plain report phase.
+    'done' = the agent replied; 'blocked' = the turn failed/timed out; anything
+    else (in_progress/pending) = still dispatched. Pure."""
+    s = (status or "").lower()
+    if s == "done":
+        return "replied"
+    if s == "blocked":
+        return "failed"
+    return "dispatched"
+
+
+def _extract_report_back(notes: str) -> str:
+    """Pull the delegate's report-back out of a task's notes. _report_back appends
+    '[<agent> reply] …'; return the last such segment (trimmed). Pure."""
+    if not notes:
+        return ""
+    marker = " reply] "
+    idx = notes.rfind(marker)
+    if idx == -1:
+        return ""
+    return notes[idx + len(marker):].strip()[:400]
+
+
+@router.get("/api/agents/{agent_id}/activity")
+async def get_agent_activity(agent_id: str):
+    """#D22: a read-only ACTIVITY PROFILE for a build-team agent, assembled from
+    EXISTING tables — current tasks (tasks.assignee), assigned steward-queue items,
+    last turn (chat_threads), today's echo (echoes), and recent delegations (the
+    brief received + the report-back). No writes; every section best-effort so one
+    empty/missing table never blanks the whole feed. Legibility, not a chat tab."""
+    from src.memory.database import get_db
+
+    out = {"agent_id": agent_id, "tasks": [], "queue": [],
+           "last_turn": None, "echo_today": None, "delegations": []}
+
+    def _iso(v):
+        return v.isoformat() if hasattr(v, "isoformat") else (str(v) if v else None)
+
+    try:
+        async with get_db() as conn:
+            # Current tasks assigned to this agent (open only).
+            try:
+                r = await conn.execute(
+                    "SELECT id, title, status, priority, updated_at FROM tasks "
+                    "WHERE assignee = %s AND status IN ('pending','in_progress') "
+                    "ORDER BY updated_at DESC LIMIT 10", (agent_id,))
+                out["tasks"] = [{"id": x["id"], "title": x["title"], "status": x["status"],
+                                 "priority": x.get("priority"),
+                                 "updated_at": _iso(x.get("updated_at"))}
+                                for x in await r.fetchall()]
+            except Exception:
+                pass
+
+            # Steward-queue items assigned to this agent (still in flight).
+            try:
+                r = await conn.execute(
+                    "SELECT id, source, title, status, pr_url, updated_at FROM steward_queue "
+                    "WHERE assignee = %s AND status IN ('assigned','in_review') "
+                    "ORDER BY updated_at DESC LIMIT 10", (agent_id,))
+                out["queue"] = [{"id": x["id"], "source": x.get("source"), "title": x["title"],
+                                 "status": x["status"], "pr_url": x.get("pr_url"),
+                                 "updated_at": _iso(x.get("updated_at"))}
+                                for x in await r.fetchall()]
+            except Exception:
+                pass
+
+            # Last turn: most recent thread activity + its step count (message_count,
+            # kept honest for background delegated turns via update_thread_stats).
+            try:
+                r = await conn.execute(
+                    "SELECT last_message_at, message_count FROM chat_threads "
+                    "WHERE agent_id = %s ORDER BY last_message_at DESC NULLS LAST LIMIT 1",
+                    (agent_id,))
+                row = await r.fetchone()
+                if row:
+                    out["last_turn"] = {"at": _iso(row.get("last_message_at")),
+                                        "steps": row.get("message_count")}
+            except Exception:
+                pass
+
+            # Today's echo status.
+            try:
+                r = await conn.execute(
+                    "SELECT frequency, love_equation, echo_num, tuned_at FROM echoes "
+                    "WHERE agent_id = %s AND tuned_at::date = CURRENT_DATE "
+                    "ORDER BY tuned_at DESC LIMIT 1", (agent_id,))
+                row = await r.fetchone()
+                if row:
+                    out["echo_today"] = {"frequency": row.get("frequency"),
+                                         "love_equation": row.get("love_equation"),
+                                         "echo_num": row.get("echo_num"),
+                                         "tuned_at": _iso(row.get("tuned_at"))}
+            except Exception:
+                pass
+
+            # Recent delegations to this agent — brief received + report-back phase.
+            try:
+                r = await conn.execute(
+                    "SELECT id, title, status, notes, created_at FROM tasks "
+                    "WHERE assignee = %s AND source = 'agent' "
+                    "ORDER BY created_at DESC LIMIT 5", (agent_id,))
+                out["delegations"] = [{"id": x["id"], "brief": x["title"],
+                                       "phase": _delegation_phase(x.get("status")),
+                                       "report_back": _extract_report_back(x.get("notes") or ""),
+                                       "created_at": _iso(x.get("created_at"))}
+                                      for x in await r.fetchall()]
+            except Exception:
+                pass
+    except Exception as e:
+        return JSONResponse({"error": str(e), **out}, status_code=200)
+    return out
