@@ -1400,7 +1400,7 @@ async def finalize_setup(request: Request):
     return {"ok": True, "redirect": "/", "agent_identity": agent_identity, "nc": nc_result}
 
 
-_KNOWN_PROVIDERS = {"openrouter", "openai", "google", "groq", "ollama"}
+_KNOWN_PROVIDERS = {"openrouter", "openai", "google", "groq", "ollama"}  # moonshot retired
 
 
 async def _verify_model_key(provider: str, api_key: str):
@@ -1465,6 +1465,36 @@ async def save_model_key(request: Request):
     # probe (Add-Intelligence), so the brain runs a model that's actually installed instead
     # of a hardcoded guess. Optional: omitted → the provider's default (prior behavior).
     model = (body.get("model") or "").strip()
+    disconnect = body.get("disconnect") is True
+
+    if disconnect:
+        # Clear BYOK — fall back to Cove default
+        ac = p.get("agent_config") or {}
+        if isinstance(ac, str):
+            try:
+                ac = json.loads(ac) or {}
+            except Exception:
+                ac = {}
+        ac = dict(ac)
+        ac.pop("model_provider", None)
+        ac.pop("model_api_key", None)
+        ac.pop("model_name", None)
+        ac.pop("intelligence_configured", None)
+        try:
+            from src.memory.database import get_db
+            async with get_db() as conn:
+                cur = await conn.execute(
+                    "UPDATE accounts SET agent_config = %s, updated_at = NOW() WHERE id = %s",
+                    (json.dumps(ac), str(p["id"])),
+                )
+                rows = getattr(cur, "rowcount", None)
+        except Exception as e:
+            log.error("Disconnect model key failed: %s", e)
+            raise HTTPException(500, "Couldn't disconnect right now.")
+        if rows == 0:
+            return JSONResponse({"ok": False, "error": "Couldn't disconnect — your account wasn't found. Try reloading."}, status_code=200)
+        print(f"[model-key] DISCONNECT account={p.get('id')} rows={rows}")
+        return {"ok": True, "provider": "", "has_key": False, "verified": False}
 
     if provider and provider.lower() not in _KNOWN_PROVIDERS:
         return JSONResponse({"ok": False, "error": f"Unknown provider '{provider}'."}, status_code=200)

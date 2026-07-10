@@ -176,7 +176,11 @@ async function loadSettingsMyModel() {
                 ${provOpt('ollama', 'Ollama (local — no key)')}
             </select>
             <input id="byok-key" class="settings-input" placeholder="${mk.has_key ? '••• key set — type to replace' : 'API key (blank for Ollama)'}" style="margin-top:6px;width:100%;">
-            <div style="margin-top:6px;"><button class="btn-sm" onclick="saveSettingsModelKey()">Save provider</button> <span id="byok-status" style="font-size:0.7rem;color:var(--dim);"></span></div>
+            <div style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button class="btn-sm" onclick="saveSettingsModelKey()">Save provider</button>
+                ${hasProvider ? `<button class="btn-sm" style="background:transparent;border:1px solid var(--border);color:var(--dim);" onclick="disconnectBYOK(this)">Use Cove default (disconnect)</button>` : ''}
+                <span id="byok-status" style="font-size:0.7rem;color:var(--dim);"></span>
+            </div>
         </div>`;
         el.innerHTML = banner + byok +
             `<div style="margin-bottom:8px;font-size:0.7rem;color:var(--dim);">Pick a specific model, or leave on "Cove default" to inherit <strong style="color:var(--text);">${ESC(defaultStr)}</strong>.</div>
@@ -247,4 +251,21 @@ async function saveSettingsModelKey() {
         if (status) { status.textContent = d.verified ? 'connected ✓' : 'saved'; status.style.color = 'var(--green)'; }
         loadSettingsMyModel();
     } catch (e) { alert('Could not save: ' + e.message); }
+}
+
+// Disconnect BYOK — fall back to Cove default model.
+async function disconnectBYOK(btn) {
+    const status = document.getElementById('byok-status');
+    if (btn) { btn.disabled = true; }
+    if (status) { status.textContent = 'Disconnecting…'; status.style.color = 'var(--dim)'; }
+    try {
+        const r = await fetch('/api/settings/model-key', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ disconnect: true }),
+        });
+        const d = await r.json();
+        if (!r.ok || d.error || d.ok === false) { alert(d.error || 'Could not disconnect.'); if (btn) btn.disabled = false; return; }
+        if (status) { status.textContent = 'disconnected — using Cove default'; status.style.color = 'var(--green)'; }
+        loadSettingsMyModel();
+    } catch (e) { alert('Could not disconnect: ' + e.message); if (btn) btn.disabled = false; }
 }
