@@ -439,6 +439,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"{ts()} [app] first-boot carry not scheduled: {e}")
 
+    # #D30: a delegated background turn killed by THIS restart can't file its own
+    # failure report — its task row is left in_progress and looks alive forever. Sweep
+    # those to 'blocked' with a report-back at boot. Best-effort, off the hot path.
+    async def _delegation_sweep():
+        try:
+            from src.tools.delegation_tools import sweep_orphaned_delegations
+            n = await sweep_orphaned_delegations()
+            if n:
+                print(f"{ts()} [app] swept {n} restart-orphaned delegation(s) → blocked.")
+        except Exception as e:
+            print(f"{ts()} [app] orphaned-delegation sweep error: {e}")
+    deleg_sweep_task = asyncio.create_task(_delegation_sweep())
+
     yield
 
     if _brain_task and not _brain_task.done():

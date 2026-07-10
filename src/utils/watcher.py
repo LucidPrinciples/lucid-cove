@@ -17,6 +17,8 @@ Checks (each isolated — one broken check never kills the run):
                     echo (the 07-08 team_missing deadlock, surfaced not logged)
   push-no-pr        an approved git_push with no create_github_pr requested
                     afterwards (the #D9 gap: a pushed branch is NOT done)
+  delegation-stale  a delegated agent task stuck in_progress >30m — an orphaned
+                    turn a restart's boot sweep didn't catch (#D30)
   proxy-drift       the Caddy proxy config changed since the last sweep (#D33 —
                     unexpected reconfigure of the box's TLS/routing)
   cert-expiry       a Caddy-served TLS cert is within CERT_EXPIRY_DAYS of expiry
@@ -48,7 +50,7 @@ TUNING_ALERT_HOUR = 8         # local hour after which missing tunings alert
 CATEGORIES = (
     "approved-failed", "approval-stale", "queue-stuck",
     "tuning-missing", "push-no-pr", "steward-queue",
-    "proxy-drift", "cert-expiry",
+    "proxy-drift", "cert-expiry", "delegation-stale",
 )
 
 _ERROR_PATTERNS = (
@@ -230,6 +232,25 @@ async def _check_push_no_pr(conn) -> list[dict]:
             "urgency": "normal",
         })
     return alerts
+
+
+async def _check_delegation_stale(conn) -> list[dict]:
+    """A delegated agent turn (task source='agent') stuck 'in_progress' well past the
+    turn cap → it was orphaned (a crash the boot sweep didn't catch, or a worker death
+    between restarts). ~30 min is safely beyond the 15-min delegation turn cap, so a
+    live turn never trips this. Pairs with the boot-time sweep (#D30)."""
+    r = await conn.execute(
+        "SELECT id, title, assignee, updated_at FROM tasks "
+        "WHERE source = 'agent' AND status = 'in_progress' "
+        "AND updated_at < NOW() - INTERVAL '30 minutes'")
+    return [{
+        "alert_key": f"delegation-stale-{row['id']}",
+        "category": "delegation-stale",
+        "title": f"Delegated task #{row['id']} stuck in progress >30m",
+        "detail": _clip(f"{_clip(row['title'], 80)} — assignee {row['assignee'] or 'unset'}. "
+                        f"Likely an interrupted turn; re-delegate or mark blocked."),
+        "urgency": "normal",
+    } for row in await r.fetchall()]
 
 
 async def _check_steward_queue(conn) -> list[dict]:
@@ -427,6 +448,7 @@ _CHECKS = (
     _check_tuning_missing,
     _check_push_no_pr,
     _check_steward_queue,
+    _check_delegation_stale,
     _check_proxy_drift,
     _check_cert_expiry,
 )
