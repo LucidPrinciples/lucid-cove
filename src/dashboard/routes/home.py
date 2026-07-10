@@ -136,6 +136,40 @@ async def get_bridge_approvals():
     return await get_approvals()
 
 
+@router.get("/api/approvals/recent")
+async def get_recent_approvals(limit: int = 20):
+    """Recently resolved approvals with results — for agent context."""
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT request_id, tool_name, description, status, result,
+                          resolved_at, resolved_by
+                   FROM approval_requests
+                   WHERE status IN ('approved', 'denied')
+                   ORDER BY resolved_at DESC
+                   LIMIT %s""",
+                (limit,),
+            )
+            rows = await result.fetchall()
+        return {
+            "approvals": [
+                {
+                    "request_id": r["request_id"],
+                    "tool_name": r["tool_name"],
+                    "description": r["description"],
+                    "status": r["status"],
+                    "result": r["result"],
+                    "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
+                    "resolved_by": r["resolved_by"],
+                }
+                for r in rows
+            ]
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @router.post("/api/approvals/{request_id}")
 async def respond_to_approval(request_id: str, request: Request):
     """Approve or deny a pending tool request.
