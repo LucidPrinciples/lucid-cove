@@ -1066,18 +1066,20 @@ async function respondApproval(requestId, approved, btnEl) {
         const data = await res.json();
 
         if (approved && data.executed !== undefined) {
-            // Show execution result
+            // Show execution result — detect error text even when executed===true
             const list = document.getElementById('approvalsList');
             const resultDiv = document.createElement('div');
             resultDiv.className = 'approval-result';
-            if (data.executed) {
-                resultDiv.innerHTML = `<span style="color:var(--green,#4ade80);">Executed successfully.</span> <span class="dim">${esc((data.result || '').substring(0, 200))}</span>`;
+            const resultText = (data.result || '').substring(0, 400);
+            const hasError = /Error:|\[exit:\s*\d+\]|FAILED|Traceback/.test(resultText);
+            if (data.executed && !hasError) {
+                resultDiv.innerHTML = `<span style="color:var(--green,#4ade80);">Executed successfully.</span> <span class="dim">${esc(resultText)}</span>`;
             } else {
-                resultDiv.innerHTML = `<span style="color:var(--red,#f87171);">Execution failed:</span> ${esc((data.result || '').substring(0, 200))}`;
+                resultDiv.innerHTML = `<span style="color:var(--red,#f87171);">FAILED — ${data.executed ? 'tool ran but returned error' : 'execution blocked'}:</span> <pre style="margin:4px 0;background:rgba(248,113,113,0.1);padding:6px;border-radius:4px;font-size:0.85em;white-space:pre-wrap;">${esc(resultText)}</pre>`;
             }
             list.prepend(resultDiv);
-            // Clear result after 8s
-            setTimeout(() => { if (resultDiv.parentNode) resultDiv.remove(); }, 8000);
+            // Clear result after 12s (longer for errors)
+            setTimeout(() => { if (resultDiv.parentNode) resultDiv.remove(); }, hasError ? 12000 : 8000);
         }
 
         loadApprovals();

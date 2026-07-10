@@ -795,6 +795,32 @@ async def agent_node(state: ChannelState) -> dict:
         except ImportError:
             pass  # Approval module not present — skip
 
+    # Surface recently resolved approvals so the agent can see execution results
+    resolved_note = ""
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT request_id, tool_name, description, status, result
+                   FROM approval_requests
+                   WHERE status IN ('approved', 'denied') AND resolved_at > NOW() - INTERVAL '5 minutes'
+                   ORDER BY resolved_at DESC
+                   LIMIT 5"""
+            )
+            rows = await result.fetchall()
+        if rows:
+            items = "\n".join(
+                f"  - [{r['request_id']}] {r['tool_name']}: {r['status']}"
+                f"{(' — RESULT: ' + str(r['result'])[:200]) if r['result'] else ''}"
+                for r in rows
+            )
+            resolved_note = (
+                f"\n\n## Recently Resolved Approvals ({len(rows)})\n"
+                f"These were just approved/denied — check results for errors:\n{items}"
+            )
+    except Exception:
+        pass  # Non-critical — skip if DB unavailable
+
     # Extract last human message for semantic searches (used by both KB and memory search)
     last_human = ""
     if messages:
@@ -888,7 +914,7 @@ async def agent_node(state: ChannelState) -> dict:
             "their phrasing may be less precise than typed input.\n"
         )
 
-    full_system = system_prompt + date_context + channel_addition + crossfeed + vault_context + knowledge_context + semantic_context + approval_note + input_mode_note
+    full_system = system_prompt + date_context + channel_addition + crossfeed + vault_context + knowledge_context + semantic_context + approval_note + resolved_note + input_mode_note
 
     # Trim old tool calls/results before sending to model
     trimmed = trim_messages_for_context(messages, keep_recent_turns=3)
