@@ -47,7 +47,7 @@ def _lenient_component(parse_src: str, name_pat: str):
     0.7", "Receptivity — 0.85") that the strict symbol patterns miss. Matches
     the named component followed by a number within 16 non-digit chars —
     section-scoped by the caller, always the AGENT's own numbers, never LT's."""
-    m = re.search(name_pat + r'[^0-9\n]{0,16}([0-9]*\.?[0-9]+)',
+    m = re.search(name_pat + r'[^0-9\n]{0,16}?([0-9]*\.?[0-9]+)',
                   parse_src, re.IGNORECASE)
     try:
         return float(m.group(1)) if m else None
