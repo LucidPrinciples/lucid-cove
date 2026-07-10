@@ -143,14 +143,16 @@ async function loadHomeApprovals() {
     try {
         // First-run onboarding cards live here too — they sit until done, the same
         // way agent-activity approvals do.
-        const [obData, data] = await Promise.all([
+        const [obData, data, watchData] = await Promise.all([
             fetch('/api/onboarding/items').then(r => r.json()).catch(() => ({ items: [] })),
             fetch('/api/bridge/approvals').then(r => r.json()).catch(() => ({ approvals: [] })),
+            fetch('/api/watcher/alerts').then(r => r.ok ? r.json() : { alerts: [] }).catch(() => ({ alerts: [] })),
         ]);
         const steps = obData.steps || [];
         const showSetup = steps.length > 0 && !obData.complete;
         const approvals = data.approvals || [];
-        const total = (showSetup ? 1 : 0) + approvals.length;
+        const watcherAlerts = watchData.alerts || [];
+        const total = (showSetup ? 1 : 0) + approvals.length + watcherAlerts.length;
 
         if (!total) {
             // Nothing needs approval. Operators (who have a calendar) get their next
@@ -166,6 +168,13 @@ async function loadHomeApprovals() {
         }
 
         const obHtml = showSetup ? _renderSetup(obData) : '';
+        const watchHtml = watcherAlerts.map(w => `<div class="home-approval watcher-alert">
+                <div class="approval-tool">${w.urgency === 'high' ? '\u26a0 ' : ''}${ESC(w.title)}</div>
+                <div class="approval-desc">${ESC(w.detail || '')}</div>
+                <div class="approval-actions">
+                    <button class="btn-deny" onclick="dismissWatcherAlert('${ESC(w.alert_key)}', this)">Dismiss</button>
+                </div>
+            </div>`).join('');
         const apHtml = approvals.map(a => {
             const isSiteEdit = a.tool_name === 'site_edit_file' || a.tool_name === 'site_create_file' || a.tool_name === 'site_patch_file';
             const args = a.args || {};
@@ -202,11 +211,25 @@ async function loadHomeApprovals() {
                 </div>
             </div>`;
         }).join('');
-        el.innerHTML = obHtml + apHtml;
+        el.innerHTML = obHtml + watchHtml + apHtml;
     } catch {
         el.innerHTML = '<span class="empty-msg">Approvals unavailable</span>';
         if (badge) badge.classList.add('hidden');
     }
+}
+
+// Watcher alert dismiss — the alert stays dismissed even if the condition
+// persists (the operator has seen it; auto-resolve handles the rest).
+async function dismissWatcherAlert(alertKey, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Dismissing\u2026'; }
+    try {
+        await fetch('/api/watcher/alerts/dismiss', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alert_key: alertKey }),
+        });
+    } catch { /* reload re-renders the truth either way */ }
+    loadHomeApprovals();
 }
 
 // ── First-run onboarding cards (persistent until done) ───────────────────────

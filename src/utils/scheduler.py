@@ -263,6 +263,18 @@ class AgentScheduler:
         except Exception as e:
             print(f"{ts_log()} [scheduler] Boot catch-up error: {e}")
 
+    async def _run_watcher(self):
+        """Background watcher (steward-unit spec Pillar 3) — cheap DB-fact checks
+        so nothing fails silently: approved-but-failed tools, stale approvals,
+        stuck queues, missed tunings, pushes with no PR. Findings land in
+        watcher_alerts and render as Attention cards. See src/utils/watcher.py."""
+        try:
+            from src.utils.watcher import run_watcher
+            return await run_watcher()
+        except Exception as e:
+            print(f"{ts_log()} [scheduler] watcher failed: {e}")
+            return {"status": "error", "error": str(e)[:200]}
+
     async def _run_kb_sync(self):
         """Pull the canonical Knowledge Base from the hub into the steward's space
         (read-only mirror). The KB is the single source of truth; this writes only
@@ -1000,6 +1012,13 @@ class AgentScheduler:
                 self._schedule_async(self._run_sweep_window)
             )
             print("[scheduler]   07:00–midnight — safety sweep every 10m (spec §6, no-op when settled)")
+            # Watcher — steward-unit spec Pillar 3. Cheap DB facts every 15 minutes;
+            # anything failing silently becomes an Attention card. Host-only (one
+            # watcher per Cove), same guard as the self-tune.
+            schedule.every(15).minutes.do(
+                self._schedule_async(self._run_watcher)
+            )
+            print("[scheduler]   every 15m — watcher (silent-failure monitor, Attention cards)")
 
         # YouTube queue processor — every 15 minutes (skips silently if no YOUTUBE_CLIENT_ID)
         schedule.every(15).minutes.do(
