@@ -227,12 +227,21 @@ async def git_add(project: str, files: str = ".") -> str:
 async def git_commit(project: str, message: str) -> str:
     """Commit staged changes. Refuses to commit on main.
 
+    Git workflow order: git_add → git_commit → git_push → create_github_pr
+
     Args:
         project: Project name or path
         message: Commit message
     """
     repo = _resolve_repo(project)
     branch = await _run_git("branch --show-current", repo)
+
+    # PRE-CHECK: Something must be staged before committing
+    # Use diff --cached to check if there's staged content (read-only check)
+    staged_diff = await _run_git("diff --cached", repo)
+    if not staged_diff or staged_diff == "(no output)":
+        return "REFUSED: Nothing staged. Run git_add first."
+
     # Sites repos deploy from main — no branch workflow needed
     is_site = str(repo).startswith(str(SITES_DIR))
     if branch.strip() in ("main", "master") and not is_site:
@@ -290,6 +299,8 @@ async def git_revert_file(project: str, path: str, to_branch: str = "main") -> s
 async def git_push(project: str, branch: str = "") -> str:
     """Push branch to remote. Requires approval.
 
+    Git workflow order: git_add → git_commit → git_push → create_github_pr
+
     Args:
         project: Project name or path
         branch: Branch to push (default: current branch)
@@ -297,6 +308,29 @@ async def git_push(project: str, branch: str = "") -> str:
     repo = _resolve_repo(project)
     if not branch:
         branch = await _run_git("branch --show-current", repo)
+
+    # PRE-CHECK: Must have unpushed commits before requesting push approval
+    # Explicitly handle: (1) existing branch with upstream, (2) new branch without upstream
+    upstream_exists = await _run_git(f"rev-parse --verify origin/{branch}", repo)
+    if upstream_exists and not upstream_exists.startswith("fatal:"):
+        # Upstream exists — check if there are unpushed commits
+        ahead_count = await _run_git(f"rev-list --count origin/{branch}..{branch}", repo)
+        try:
+            if int(ahead_count.strip()) == 0:
+                return "REFUSED: No unpushed commits. Stage and commit first."
+        except (ValueError, TypeError):
+            return f"REFUSED: Could not verify commit count. Git output: {ahead_count}"
+    else:
+        # No upstream — new branch. Verify it has commits.
+        commit_count = await _run_git(f"rev-list --count {branch}", repo)
+        try:
+            if int(commit_count.strip()) == 0:
+                return "REFUSED: Branch has no commits. Stage and commit first."
+            # New branch with commits → allow push approval
+        except (ValueError, TypeError):
+            return f"REFUSED: Could not verify branch state. Git output: {commit_count}"
+
+    # If we reach here: either upstream exists with unpushed commits, OR new branch with commits
     return await _run_git(f"push origin {shlex.quote(branch)}", repo)
 
 
@@ -367,6 +401,8 @@ async def create_github_pr(project: str, title: str, body: str = "",
     execution for days (unescaped title/body shell-split; and gh isn't in the
     container image) while the approval card showed green — the LOOP-1 ghost.
 
+    Git workflow order: git_add → git_commit → git_push → create_github_pr
+
     Args:
         project: Project name or path
         title: PR title
@@ -379,6 +415,12 @@ async def create_github_pr(project: str, title: str, body: str = "",
         return f"Error: could not determine current branch in {repo}: {branch}"
     if branch in ("main", "master"):
         return "REFUSED: you are on main — create the PR from your feature branch."
+
+    # PRE-CHECK: Branch must exist on origin before creating PR
+    # This prevents 422 head-invalid errors after operator approval
+    remote_check = await _run_git(f"ls-remote --heads origin {shlex.quote(branch)}", repo)
+    if not remote_check or remote_check == "(no output)":
+        return "REFUSED: Branch not pushed to origin. Run git_push first."
 
     rt = _github_repo_and_token(repo)
     if not rt:
