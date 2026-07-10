@@ -17,6 +17,10 @@ Checks (each isolated — one broken check never kills the run):
                     echo (the 07-08 team_missing deadlock, surfaced not logged)
   push-no-pr        an approved git_push with no create_github_pr requested
                     afterwards (the #D9 gap: a pushed branch is NOT done)
+  proxy-drift       the Caddy proxy config changed since the last sweep (#D33 —
+                    unexpected reconfigure of the box's TLS/routing)
+  cert-expiry       a Caddy-served TLS cert is within CERT_EXPIRY_DAYS of expiry
+                    (#D33 — both filesystem checks no-op if the path isn't mounted)
 
 Delivery: alerts upsert into watcher_alerts (migration 030) keyed on a stable
 alert_key, so a persisting condition is ONE card, not one per run. Open alerts
@@ -44,6 +48,7 @@ TUNING_ALERT_HOUR = 8         # local hour after which missing tunings alert
 CATEGORIES = (
     "approved-failed", "approval-stale", "queue-stuck",
     "tuning-missing", "push-no-pr", "steward-queue",
+    "proxy-drift", "cert-expiry",
 )
 
 _ERROR_PATTERNS = (
@@ -244,6 +249,175 @@ async def _check_steward_queue(conn) -> list[dict]:
     } for row in await r.fetchall()]
 
 
+# ── Infra-drift checks (#D33) ───────────────────────────────────────────────
+# These read the FILESYSTEM (Caddy config + cert store), not the DB. The watcher
+# runs inside the Cove app container, where those paths may not be mounted — every
+# helper here MUST no-op cleanly (return nothing) rather than raise/spam when a path
+# is absent or unreadable. The pure decision logic is factored out and unit-tested.
+
+CERT_EXPIRY_DAYS = 14         # served-name TLS cert with ≤ this many days left → alert
+
+
+def _caddy_config_paths() -> list:
+    """Candidate Caddy config artifacts to watch for drift. Env-overridable
+    (LP_WATCHER_CADDY_PATHS, colon-separated). Defaults cover the paths the app
+    container actually has in the shared-Caddy (conf.d) and bundled-Caddy layouts;
+    non-existent ones are simply ignored by max_mtime()."""
+    import os
+    override = (os.getenv("LP_WATCHER_CADDY_PATHS", "") or "").strip()
+    if override:
+        return [p for p in override.split(":") if p]
+    confd = os.getenv("COVE_SHARED_CONFD", "/app/shared-caddy-confd")
+    docker_dir = os.getenv("COVE_DOCKER_DIR", "/app/cove-docker")
+    return [confd, os.path.join(docker_dir, "Caddyfile"),
+            "/data/caddy/autosave.json"]
+
+
+def max_mtime(paths: list) -> "float | None":
+    """Newest mtime across the given files/dirs (dirs scanned one level deep so a
+    new/changed conf.d snippet is seen). Pure over the filesystem; returns None when
+    nothing exists — the drift check reads that as 'not reachable here, no-op'."""
+    import os
+    newest = None
+    for p in paths or []:
+        try:
+            if not os.path.exists(p):
+                continue
+            newest = max(newest or 0.0, os.path.getmtime(p))
+            if os.path.isdir(p):
+                for name in os.listdir(p):
+                    fp = os.path.join(p, name)
+                    try:
+                        newest = max(newest, os.path.getmtime(fp))
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return newest
+
+
+async def _watcher_state_get(conn, key: str):
+    try:
+        r = await conn.execute("SELECT value FROM watcher_state WHERE key = %s", (key,))
+        row = await r.fetchone()
+        return row["value"] if row else None
+    except Exception:
+        return None   # table missing / unreadable → treat as no prior state
+
+
+async def _watcher_state_set(conn, key: str, value: str) -> None:
+    try:
+        await conn.execute(
+            "INSERT INTO watcher_state (key, value, updated_at) VALUES (%s, %s, NOW()) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+            (key, value))
+    except Exception:
+        pass   # never let a state-write failure spam / kill the check
+
+
+async def _check_proxy_drift(conn) -> list[dict]:
+    """Caddy proxy config changed since the last sweep → a heads-up card. The first
+    observation just establishes a baseline (no card); a later change fires one card
+    (single alert_key) that auto-resolves once the config is stable again. If no Caddy
+    config path is reachable in this container, no-op."""
+    cur = max_mtime(_caddy_config_paths())
+    if cur is None:
+        return []
+    last = await _watcher_state_get(conn, "proxy_config_mtime")
+    await _watcher_state_set(conn, "proxy_config_mtime", repr(cur))
+    if last is None:
+        return []   # baseline only
+    try:
+        last_f = float(last)
+    except (TypeError, ValueError):
+        return []
+    if cur <= last_f + 1.0:   # 1s guard for filesystem mtime granularity
+        return []
+    from datetime import datetime, timezone
+    when = datetime.fromtimestamp(cur, tz=timezone.utc).isoformat()
+    return [{
+        "alert_key": "proxy-drift",
+        "category": "proxy-drift",
+        "title": "Proxy (Caddy) config changed",
+        "detail": _clip(f"Caddy config artifacts changed at {when}. Expected after a "
+                        f"Set-Address or deploy; otherwise check who reloaded the proxy."),
+        "urgency": "normal",
+    }]
+
+
+def _caddy_cert_dir() -> str:
+    import os
+    return (os.getenv("LP_WATCHER_CADDY_CERT_DIR", "") or "").strip() or \
+        "/data/caddy/certificates"
+
+
+def _read_caddy_certs(cert_dir: str = "") -> list:
+    """[(served_name, not_after_datetime)] from Caddy's cert store. Best-effort:
+    returns [] when the dir isn't mounted here or cryptography is unavailable — the
+    watcher runs in-container where /data/caddy may not exist, and must never spam."""
+    import os
+    cert_dir = cert_dir or _caddy_cert_dir()
+    if not cert_dir or not os.path.isdir(cert_dir):
+        return []
+    try:
+        from cryptography import x509
+    except Exception:
+        return []
+    out = []
+    for root, _dirs, files in os.walk(cert_dir):
+        for fn in files:
+            if not fn.endswith(".crt"):
+                continue
+            path = os.path.join(root, fn)
+            try:
+                cert = x509.load_pem_x509_certificate(open(path, "rb").read())
+                try:
+                    not_after = cert.not_valid_after_utc
+                except AttributeError:   # older cryptography → naive UTC
+                    from datetime import timezone
+                    not_after = cert.not_valid_after.replace(tzinfo=timezone.utc)
+                out.append((fn[:-4], not_after))
+            except Exception:
+                continue   # unparseable cert file — skip, don't spam
+    return out
+
+
+def certs_expiring_within(certs: list, now, days: int) -> list:
+    """Pure: [(name, days_left)] for certs whose not_after is within `days` (already
+    expired = negative days_left). Sorted soonest-first. Unit-testable without any I/O."""
+    out = []
+    for name, not_after in certs or []:
+        if not_after is None:
+            continue
+        days_left = (not_after - now).total_seconds() / 86400.0
+        if days_left <= days:
+            out.append((name, int(days_left) if days_left >= 0 else -((-int(days_left)) or 1)))
+    return sorted(out, key=lambda t: t[1])
+
+
+async def _check_cert_expiry(conn) -> list[dict]:
+    """Served-name TLS cert expiring within CERT_EXPIRY_DAYS. No-op when the cert
+    store isn't reachable in this container (the common case) — never error-spam."""
+    certs = _read_caddy_certs()
+    if not certs:
+        return []
+    from datetime import datetime, timezone
+    alerts = []
+    for name, days_left in certs_expiring_within(certs, datetime.now(timezone.utc),
+                                                 CERT_EXPIRY_DAYS):
+        expired = days_left < 0
+        alerts.append({
+            "alert_key": f"cert-expiry-{name}",
+            "category": "cert-expiry",
+            "title": (f"TLS cert for {name} EXPIRED" if expired
+                      else f"TLS cert for {name} expires in {days_left}d"),
+            "detail": _clip(f"Caddy-served name {name}: renew before HTTPS breaks."
+                            + (" Cert is already past its expiry." if expired else "")),
+            "urgency": "high" if (expired or days_left <= 3) else "normal",
+        })
+    return alerts
+
+
 # ── The run ─────────────────────────────────────────────────────────────────
 
 _CHECKS = (
@@ -253,6 +427,8 @@ _CHECKS = (
     _check_tuning_missing,
     _check_push_no_pr,
     _check_steward_queue,
+    _check_proxy_drift,
+    _check_cert_expiry,
 )
 
 
