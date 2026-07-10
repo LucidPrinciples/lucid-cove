@@ -1,9 +1,10 @@
-"""Characterization of the CLI provisioner (provision/provision.py) — the second
-half of the #99 safety net.
+"""Tests for the centralized provisioner CLI (centralized.py) — #D2.
 
-Pins what generate_personal_agent produces TODAY (a different file set than the
-dashboard's generate_overlay) so the template consolidation can be proven not to
-change the CLI's output. Pure generation — no DB, no network.
+Rewritten from the legacy per-agent provisioner tests. The centralized model
+produces a single-stack Cove with all presences in one container, added later
+via the admin UI (magic link), not as separate containers at provision time.
+
+Pure generation — no DB, no network.
 """
 import pathlib
 import sys
@@ -13,182 +14,247 @@ import yaml
 # The CLI lives outside src/; make it importable.
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "provision"))
-import provision as cli  # noqa: E402
-
-_CONFIG = yaml.safe_load((_ROOT / "provision" / "family.config.example.yaml").read_text())
+import centralized as cli  # noqa: E402
 
 
-def _pa() -> dict:
-    """First personal agent from the example config + the allocations main() adds."""
-    pa = dict(_CONFIG["personal_agents"][0])
-    pa.setdefault("port", 8201)
-    pa.setdefault("db_port", 5435)
-    pa.setdefault("proxy_ip", "172.30.0.11")
-    return pa
+_CONFIG = yaml.safe_load((_ROOT / "provision" / "cove.config.example.yaml").read_text())
 
 
-class TestCliPersonalAgent:
+def _minimal_config() -> dict:
+    """Return a minimal valid config for testing."""
+    return {
+        "cove": {
+            "id": "testcove",
+            "name": "Test Cove",
+            "domain": "",
+        },
+        "operator": {
+            "name": "Test Operator",
+            "handle": "testop",
+            "email": "",
+            "token": "",
+        },
+        "team": "off",  # solo for faster tests
+        "model_providers": ["openrouter"],
+        "deploy": {
+            "target": "standalone",
+            "lucid_cove_path": "/tmp/test-lucid-cove",
+            "app_port": 8200,
+            "nextcloud_port": 8080,
+        },
+        "affiliate": {"referred_by": ""},
+        "ltp": {"dry_run": True, "kb_public_key": ""},
+        "matrix": {"enabled": False},
+    }
+
+
+class TestCliGenerateCove:
+    """Characterization of generate_cove — the centralized provisioner's main entry."""
+
     def test_exact_file_set(self, tmp_path):
-        cli.generate_personal_agent(_CONFIG, _pa(), tmp_path)
-        root = next(tmp_path.iterdir())
+        """Produces the expected set of files for a minimal Cove."""
+        cfg = _minimal_config()
+        cli.generate_cove(cfg, tmp_path)
+        root = tmp_path / "testcove-cove"
         produced = {str(f.relative_to(root)) for f in root.rglob("*") if f.is_file()}
-        assert produced == {
-            "Caddyfile.snippet",
+        expected = {
+            "docker-compose.yml",
+            ".env",
+            ".gitignore",
+            "config/cove.yaml",
             "config/agent.yaml",
-            "config/personas/atlas.md",
-            "deploy-to-p620.sh",
-            "docker/.env",
-            "docker/docker-compose.yml",
-            "docker/init.sql",
-            "setup-backup.sh",
-            "src/.gitkeep",
+            "docker/init-nextcloud-db.sql",
+            "docker/operator-seed.sql",
+            "docker/nc-hooks/post-installation/20-apps.sh",
+            "NEXT_STEPS.md",
+            "connect-mesh.sh",
         }
+        assert produced == expected, f"Extra/missing: {produced.symmetric_difference(expected)}"
 
-    def test_env_is_real_with_steward_routing(self, tmp_path):
-        cli.generate_personal_agent(_CONFIG, _pa(), tmp_path)
-        root = next(tmp_path.iterdir())
-        env = (root / "docker" / ".env").read_text()
-        # CLI writes a real .env (not a template) and wires steward DB routing
-        assert "STEWARD_DATABASE_URL=" in env
-        assert "AtlasCove" in env
+    def test_env_has_required_vars(self, tmp_path):
+        """.env contains the critical variables for a working Cove."""
+        cfg = _minimal_config()
+        cli.generate_cove(cfg, tmp_path)
+        env_path = tmp_path / "testcove-cove" / ".env"
+        env_text = env_path.read_text()
+        # Core identity and config
+        assert "COVE_ID=" in env_text
+        assert "COVE_NAME=" in env_text
+        assert "POSTGRES_USER=" in env_text
+        assert "POSTGRES_PASSWORD=" in env_text
+        assert "POSTGRES_DB=" in env_text
+        # Generated secrets, not placeholders
+        assert "NC_ADMIN_PASSWORD=" in env_text
+        assert "SHARED_CONTAINER_SECRET=" in env_text
+        assert "PIPECAT_INTERNAL_SECRET=" in env_text
+        # No unsubstituted tokens
+        assert "__" not in env_text
 
-    def test_compose_mounts_shared_framework(self, tmp_path):
-        cli.generate_personal_agent(_CONFIG, _pa(), tmp_path)
-        root = next(tmp_path.iterdir())
-        compose = (root / "docker" / "docker-compose.yml").read_text()
-        assert "atlas" in compose.lower()
-        assert "FRAMEWORK_DIR" in compose  # CLI mounts the shared framework
+    def test_compose_is_valid_yaml(self, tmp_path):
+        """docker-compose.yml parses as valid YAML with expected services."""
+        cfg = _minimal_config()
+        cli.generate_cove(cfg, tmp_path)
+        compose_path = tmp_path / "testcove-cove" / "docker-compose.yml"
+        compose = yaml.safe_load(compose_path.read_text())
+        assert "services" in compose
+        services = compose["services"]
+        # Core services always present
+        assert "app" in services
+        assert "postgres" in services
+        assert "redis" in services
+        assert "nextcloud" in services
 
-    def test_setup_backup_script_targets_agent(self, tmp_path):
-        cli.generate_personal_agent(_CONFIG, _pa(), tmp_path)
-        root = next(tmp_path.iterdir())
-        s = (root / "setup-backup.sh").read_text()
-        assert "github-atlas-code" in s            # per-repo deploy-key alias
-        assert 'AGENT="AtlasCove"' in s             # correct repo name
-        assert 'ORG="LucidTunerAI"' in s            # correct org
-        assert "docker/.env" in s                   # gitignores secrets
-        assert "__AGENT_ID__" not in s              # all tokens substituted
+    def test_cove_yaml_has_identity(self, tmp_path):
+        """config/cove.yaml captures the Cove identity and operator."""
+        cfg = _minimal_config()
+        cli.generate_cove(cfg, tmp_path)
+        cove_yaml_path = tmp_path / "testcove-cove" / "config" / "cove.yaml"
+        cove_cfg = yaml.safe_load(cove_yaml_path.read_text())
+        assert cove_cfg["cove"]["id"] == "testcove"
+        assert cove_cfg["cove"]["name"] == "Test Cove"
+        assert cove_cfg["cove"]["operator"]["handle"] == "testop"
+        assert cove_cfg["cove"]["operator"]["name"] == "Test Operator"
 
-    def test_compose_external_family_scoped_volumes(self, tmp_path):
-        cli.generate_personal_agent(_CONFIG, _pa(), tmp_path)
-        root = next(tmp_path.iterdir())
-        compose = (root / "docker" / "docker-compose.yml").read_text()
-        assert "name: atlas-cove-postgres-data" in compose  # {agent_id}-{family}-*
-        assert "external: true" in compose
-        assert "STUART_MC_URL" in compose                   # steward bridge universal
+    def test_agent_yaml_has_team_when_enabled(self, tmp_path):
+        """config/agent.yaml includes team when team: on."""
+        cfg = _minimal_config()
+        cfg["team"] = "on"
+        cli.generate_cove(cfg, tmp_path)
+        agent_yaml_path = tmp_path / "testcove-cove" / "config" / "agent.yaml"
+        agent_cfg = yaml.safe_load(agent_yaml_path.read_text())
+        assert "agents" in agent_cfg
+        agent_ids = {a["id"] for a in agent_cfg["agents"]}
+        # Standard team members present
+        assert "stuart" in agent_ids
+        assert "mercer" in agent_ids
+        assert "vera" in agent_ids
 
-    def test_agent_yaml_canonical_and_tools_fixed(self, tmp_path):
-        # The CLI used to emit a broken agent.yaml: tool prefix `src.tools.`
-        # (the loader prepends `src.`, so it became `src.src.tools.` and failed),
-        # a nonexistent `system_tools` module, and no routes. Adopting the shared
-        # canonical builder fixes all three. Lock that here.
-        cli.generate_personal_agent(_CONFIG, _pa(), tmp_path)
-        root = next(tmp_path.iterdir())
-        ay = (root / "config" / "agent.yaml").read_text()
-        assert "tools.memory_tools" in ay          # correct prefix (loader adds src.)
-        assert "src.tools." not in ay              # the double-prefix bug is gone
-        assert "system_tools" not in ay            # nonexistent module no longer referenced
-        assert "routes:" in ay                     # routes now present
-        assert "Does not access other family members' private data." in ay
+    def test_agent_yaml_solo_when_team_off(self, tmp_path):
+        """config/agent.yaml has minimal config when team: off."""
+        cfg = _minimal_config()
+        cfg["team"] = "off"
+        cli.generate_cove(cfg, tmp_path)
+        agent_yaml_path = tmp_path / "testcove-cove" / "config" / "agent.yaml"
+        agent_cfg = yaml.safe_load(agent_yaml_path.read_text())
+        # Solo mode: just operator's personal agent (no team, no stuart)
+        agent_ids = {a["id"] for a in agent_cfg["agents"]}
+        assert "agent" in agent_ids
+        # No team members
+        assert "stuart" not in agent_ids
+        assert "mercer" not in agent_ids
+
+    def test_nextcloud_db_init_has_role(self, tmp_path):
+        """docker/init-nextcloud-db.sql creates the Nextcloud DB role."""
+        cfg = _minimal_config()
+        cli.generate_cove(cfg, tmp_path)
+        sql_path = tmp_path / "testcove-cove" / "docker" / "init-nextcloud-db.sql"
+        sql = sql_path.read_text()
+        assert "CREATE ROLE nextcloud" in sql or "CREATE USER nextcloud" in sql
+        assert "CREATE DATABASE nextcloud" in sql
+
+    def test_next_steps_documented(self, tmp_path):
+        """NEXT_STEPS.md exists and contains deployment instructions."""
+        cfg = _minimal_config()
+        cli.generate_cove(cfg, tmp_path)
+        steps_path = tmp_path / "testcove-cove" / "NEXT_STEPS.md"
+        steps = steps_path.read_text()
+        assert "docker-compose" in steps.lower() or "docker compose" in steps.lower()
+        assert "deploy" in steps.lower() or "start" in steps.lower()
+
+    def test_port_collision_handling(self, tmp_path):
+        """App and Nextcloud ports are wired through to the compose."""
+        cfg = _minimal_config()
+        cfg["deploy"]["app_port"] = 9999
+        cfg["deploy"]["nextcloud_port"] = 9998
+        cli.generate_cove(cfg, tmp_path)
+        compose_path = tmp_path / "testcove-cove" / "docker-compose.yml"
+        compose = yaml.safe_load(compose_path.read_text())
+        # Ports are published on the host
+        app_ports = compose["services"]["app"].get("ports", [])
+        nc_ports = compose["services"]["nextcloud"].get("ports", [])
+        assert any("9999" in str(p) for p in app_ports)
+        assert any("9998" in str(p) for p in nc_ports)
+
+    def test_matrix_enabled_adds_homeserver(self, tmp_path):
+        """matrix.enabled: true adds Dendrite services and config."""
+        cfg = _minimal_config()
+        cfg["matrix"] = {"enabled": True}
+        cli.generate_cove(cfg, tmp_path)
+        compose_path = tmp_path / "testcove-cove" / "docker-compose.yml"
+        compose = yaml.safe_load(compose_path.read_text())
+        assert "dendrite" in compose["services"]
+        # Matrix config file generated in docker/
+        matrix_config = tmp_path / "testcove-cove" / "docker" / "dendrite.yaml"
+        assert matrix_config.exists()
+
+    def test_matrix_disabled_no_dendrite(self, tmp_path):
+        """matrix.enabled: false does not include Dendrite."""
+        cfg = _minimal_config()
+        cfg["matrix"] = {"enabled": False}
+        cli.generate_cove(cfg, tmp_path)
+        compose_path = tmp_path / "testcove-cove" / "docker-compose.yml"
+        compose = yaml.safe_load(compose_path.read_text())
+        assert "dendrite" not in compose["services"]
 
 
-class TestCliAdminAgent:
-    """Smoke characterization of generate_admin_agent — the steward/family path.
-    The personal-agent tests don't exercise this code, so a shared-template change
-    can silently break it (it did once: a removed module template left a dangling
-    reference). These guard that the whole admin generation path runs end-to-end.
-    """
+class TestCliWithDomain:
+    """Tests for domain configuration and DNS/Caddy handling."""
 
-    def test_generates_key_files_without_error(self, tmp_path):
-        cli.generate_admin_agent(_CONFIG, tmp_path)
-        root = next(tmp_path.iterdir())
-        produced = {str(f.relative_to(root)) for f in root.rglob("*") if f.is_file()}
-        for required in (
-            "docker/.env", "docker/docker-compose.yml", "docker/init.sql",
-            "config/agent.yaml", "config/family.yaml",
-            "Caddyfile.snippet", "deploy-to-p620.sh",
-        ):
-            assert required in produced, f"admin overlay missing {required}"
-
-    def test_caddy_snippet_well_formed(self, tmp_path):
-        cli.generate_admin_agent(_CONFIG, tmp_path)
-        root = next(tmp_path.iterdir())
-        caddy = (root / "Caddyfile.snippet").read_text()
-        assert "reverse_proxy" in caddy
-        assert caddy.strip().endswith("}")
+    def test_domain_empty_uses_localhost(self, tmp_path):
+        """Empty domain produces localhost-only configuration."""
+        cfg = _minimal_config()
+        cfg["cove"]["domain"] = ""
+        cli.generate_cove(cfg, tmp_path)
+        env_path = tmp_path / "testcove-cove" / ".env"
+        env_text = env_path.read_text()
+        # No domain means no external DNS/Caddy
+        assert "NEXTCLOUD_TRUSTED_DOMAIN=localhost" in env_text
 
 
-class TestCliMatrixHomeserver:
-    """Characterization of generate_matrix_homeserver (#127) — the per-machine
-    Dendrite overlay. One homeserver per machine, keyed to the family domain,
-    with real generated secrets (no placeholders) and bots derived from agents.
-    """
+class TestCliModelProviders:
+    """Tests for model provider configuration."""
 
-    def test_exact_file_set(self, tmp_path):
-        cli.generate_matrix_homeserver(_CONFIG, tmp_path)
-        md = tmp_path / "Matrix"
-        produced = {f.name for f in md.iterdir() if f.is_file()}
-        assert produced == {
-            ".env", "Caddyfile.snippet", "dendrite.yaml",
-            "docker-compose.yml", "register.sh", "setup.sh",
-            "matrix-cove-setup.py",
-        }
+    def test_openrouter_wired(self, tmp_path):
+        """OpenRouter provider creates placeholder in .env."""
+        cfg = _minimal_config()
+        cfg["model_providers"] = ["openrouter"]
+        cli.generate_cove(cfg, tmp_path)
+        env_path = tmp_path / "testcove-cove" / ".env"
+        env_text = env_path.read_text()
+        assert "OPENROUTER_API_KEY" in env_text
 
-    def test_cove_setup_substituted(self, tmp_path):
-        cli.generate_matrix_homeserver(_CONFIG, tmp_path)
-        txt = (tmp_path / "Matrix" / "matrix-cove-setup.py").read_text()
-        # Operator owns the Space; server + cove name + agent invites are baked in.
-        assert 'OPERATOR = "jason"' in txt
-        assert 'SERVER_NAME = "matrix.cove.lucidcove.org"' in txt
-        assert 'COVE_NAME = "Cove"' in txt
-        assert '"atlas-cove"' in txt          # an agent invited into the Cove Space
-        assert "__OPERATOR__" not in txt        # no unsubstituted tokens
-        assert "__INVITE_LIST__" not in txt
+    def test_google_wired(self, tmp_path):
+        """Google provider creates placeholder in .env."""
+        cfg = _minimal_config()
+        cfg["model_providers"] = ["google"]
+        cli.generate_cove(cfg, tmp_path)
+        env_path = tmp_path / "testcove-cove" / ".env"
+        env_text = env_path.read_text()
+        assert "GOOGLE_API_KEY" in env_text
 
-    def test_server_name_and_bots_from_config(self, tmp_path):
-        cli.generate_matrix_homeserver(_CONFIG, tmp_path)
-        dy = yaml.safe_load((tmp_path / "Matrix" / "dendrite.yaml").read_text())
-        assert dy["global"]["server_name"] == "matrix.cove.lucidcove.org"
-        exempt = dy["client_api"]["rate_limiting"]["exempt_user_ids"]
-        # Cove-qualified per the identity model: steward + team + personal agents
-        assert "@stuart-cove:matrix.cove.lucidcove.org" in exempt   # steward
-        assert "@mercer-cove:matrix.cove.lucidcove.org" in exempt   # team
-        assert "@gabe-cove:matrix.cove.lucidcove.org" in exempt     # team
-        assert "@atlas-cove:matrix.cove.lucidcove.org" in exempt    # personal
-        # bare (unqualified) names must NOT appear — they'd collide across Coves
-        assert "@stuart:matrix.cove.lucidcove.org" not in exempt
-        assert "@lt:matrix.cove.lucidcove.org" not in exempt
+    def test_multiple_providers(self, tmp_path):
+        """Multiple providers all get placeholders."""
+        cfg = _minimal_config()
+        cfg["model_providers"] = ["openrouter", "google", "groq"]
+        cli.generate_cove(cfg, tmp_path)
+        env_path = tmp_path / "testcove-cove" / ".env"
+        env_text = env_path.read_text()
+        assert "OPENROUTER_API_KEY" in env_text
+        assert "GOOGLE_API_KEY" in env_text
+        assert "GROQ_API_KEY" in env_text
 
-    def test_secrets_generated_not_placeholders_and_matched(self, tmp_path):
-        cli.generate_matrix_homeserver(_CONFIG, tmp_path)
-        md = tmp_path / "Matrix"
-        dy = yaml.safe_load((md / "dendrite.yaml").read_text())
-        env = (md / ".env").read_text()
-        pw = [l.split("=", 1)[1] for l in env.splitlines()
-              if l.startswith("POSTGRES_PASSWORD=")][0]
-        assert pw and pw != "changeme_use_strong_password"
-        assert pw in dy["global"]["database"]["connection_string"]  # yaml == .env
-        assert dy["client_api"]["registration_shared_secret"] != "cove-dendrite-setup-2026"
 
-    def test_compose_valid_and_register_fixed(self, tmp_path):
-        cli.generate_matrix_homeserver(_CONFIG, tmp_path)
-        md = tmp_path / "Matrix"
-        comp = yaml.safe_load((md / "docker-compose.yml").read_text())
-        assert comp["services"]["app"]["networks"]["cove-proxy"]["ipv4_address"] == "172.30.0.17"
-        assert comp["networks"]["cove-proxy"]["external"] is True
-        reg = (md / "register.sh").read_text()
-        assert "-it" not in reg                      # the bug that broke account creation
-        assert "matrix.cove.lucidcove.org" in reg    # correct server_name (not the stale one)
-        caddy = (md / "Caddyfile.snippet").read_text()
-        assert "matrix.cove.lucidcove.org {" in caddy and "reverse_proxy 172.30.0.17:8008" in caddy
+class TestCliExampleConfig:
+    """Tests that the example config in the repo works."""
 
-    def test_caddy_is_federation_ready(self, tmp_path):
-        cli.generate_matrix_homeserver(_CONFIG, tmp_path)
-        caddy = (tmp_path / "Matrix" / "Caddyfile.snippet").read_text()
-        # .well-known server discovery (lets other machines federate over :443)
-        assert "/.well-known/matrix/server" in caddy
-        assert '"m.server": "matrix.cove.lucidcove.org:443"' in caddy
-        # .well-known client discovery (auto base_url for clients)
-        assert "/.well-known/matrix/client" in caddy
-        assert '"base_url": "https://matrix.cove.lucidcove.org"' in caddy
-        assert "__" not in caddy  # all tokens substituted
+    def test_example_config_loads(self):
+        """The example cove.config.example.yaml is valid YAML."""
+        assert _CONFIG is not None
+        assert "cove" in _CONFIG
+        assert "operator" in _CONFIG
+
+    def test_example_config_has_required_sections(self):
+        """Example config has all required top-level sections."""
+        required = ["cove", "operator", "team", "model_providers", "deploy", "affiliate", "ltp", "matrix"]
+        for key in required:
+            assert key in _CONFIG, f"Missing required section: {key}"
