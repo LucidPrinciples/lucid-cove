@@ -177,17 +177,20 @@ async def respond_to_approval(request_id: str, request: Request):
     Standard tools: re-runs the tool with stored args on approve.
     Site edits: merges the branch to main on approve (change already committed).
     Deny: marks denied + cleans up (deletes branch for site edits).
+
+    #D14: After approval execution, inject a system message into the channel thread
+    to trigger the agent's next turn automatically (the agent sees the resolution).
     """
     import json as _json
     from src.tools.approval import respond_to_approval as _respond, execute_approved_tool
     body = await request.json()
     approved = body.get("approved", False)
 
-    # Load the approval record before responding (need tool_name + args)
+    # Load the approval record before responding (need tool_name + args + channel)
     from src.memory.database import get_db
     async with get_db() as conn:
         row = await (await conn.execute(
-            "SELECT tool_name, args FROM approval_requests WHERE request_id = %s",
+            "SELECT tool_name, args, channel FROM approval_requests WHERE request_id = %s",
             (request_id,),
         )).fetchone()
 
@@ -199,6 +202,7 @@ async def respond_to_approval(request_id: str, request: Request):
 
     tool_name = row["tool_name"]
     tool_args = row["args"] if isinstance(row["args"], dict) else _json.loads(row["args"] or "{}")
+    channel = row["channel"] or "day"
     is_site_edit = tool_name in ("site_edit_file", "site_create_file", "site_patch_file", "site_deploy")
 
     # Mark as approved/denied in DB
@@ -213,27 +217,65 @@ async def respond_to_approval(request_id: str, request: Request):
         if is_site_edit:
             # Site edits: merge the branch (change is already committed)
             result = await _execute_site_approval(request_id, tool_args)
-            return {
-                "request_id": request_id,
-                "status": "approved",
-                "executed": result.get("merged", False),
-                "result": result.get("message", result.get("error", "")),
-                "site_edit": True,
-            }
+            exec_success = result.get("merged", False)
+            exec_result_text = result.get("message", result.get("error", ""))
         else:
             # Standard tools: re-run with stored args
             exec_result = await execute_approved_tool(request_id)
+            exec_success = exec_result.get("success", False)
+            exec_result_text = exec_result.get("result", exec_result.get("error", ""))
+
+        # #D14: Inject system message into channel thread to trigger agent continuation
+        if channel:
+            try:
+                await _inject_approval_resolution_message(
+                    channel=channel,
+                    request_id=request_id,
+                    tool_name=tool_name,
+                    approved=True,
+                    result=exec_result_text,
+                    success=exec_success,
+                )
+            except Exception as e:
+                # Best-effort: don't fail the approval if message injection fails
+                import logging
+                logging.getLogger("approval").warning(f"Failed to inject resolution message: {e}")
+
+        if is_site_edit:
             return {
                 "request_id": request_id,
                 "status": "approved",
-                "executed": exec_result.get("success", False),
-                "result": exec_result.get("result", exec_result.get("error", "")),
+                "executed": exec_success,
+                "result": exec_result_text,
+                "site_edit": True,
+            }
+        else:
+            return {
+                "request_id": request_id,
+                "status": "approved",
+                "executed": exec_success,
+                "result": exec_result_text,
             }
 
     # Denied
     if is_site_edit:
         # Clean up: delete the branch
         await _deny_site_approval(tool_args)
+
+    # #D14: Also notify on denial so agent knows the operator declined
+    if channel:
+        try:
+            await _inject_approval_resolution_message(
+                channel=channel,
+                request_id=request_id,
+                tool_name=tool_name,
+                approved=False,
+                result="Operator denied the request",
+                success=False,
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger("approval").warning(f"Failed to inject denial message: {e}")
 
     return {"request_id": request_id, "status": "denied"}
 
@@ -301,6 +343,103 @@ async def _deny_site_approval(args: dict) -> None:
             await github_delete_branch(repo, branch, pat)
     except Exception:
         pass  # Non-critical — branch cleanup is best-effort
+
+
+async def _inject_approval_resolution_message(
+    channel: str,
+    request_id: str,
+    tool_name: str,
+    approved: bool,
+    result: str,
+    success: bool,
+) -> None:
+    """Inject a system message into the channel thread to trigger agent continuation.
+
+    #D14: After approval resolution, the agent needs to know the result so it can
+    continue its work. This injects a message as the "agent" node so the next
+    turn sees the resolution context.
+    """
+    from datetime import datetime, timezone
+    from langchain_core.messages import SystemMessage
+    from src.memory.checkpointer import get_checkpointer
+    from src.graphs.channels import get_channel_graph
+    from src.memory.database import channel_db_scope
+    from src.dashboard.routes.chat import _get_active_thread_id
+
+    status = "approved and executed" if approved else "denied by operator"
+    content = (
+        f"[SYSTEM: Approval {request_id} for {tool_name} was {status}. "
+        f"Result: {result[:200] if result else 'No result'}]"
+    )
+
+    async with channel_db_scope(channel):
+        # Use a default thread ID for the channel (active thread)
+        from fastapi import Request
+        # Create a minimal request context to get the thread
+        # This is best-effort; if we can't get the thread, we skip
+        try:
+            # Try to get the active thread for the current presence
+            # We need a request context - use the global/default presence
+            from src.agents.identity import get_primary_agent_id
+            agent_id = await get_primary_agent_id()
+
+            # Get the checkpointer and graph
+            async with get_checkpointer() as checkpointer:
+                graph = await get_channel_graph(channel, checkpointer)
+
+                # We need to find the thread_id. Since we don't have request context,
+                # we look for recent threads with pending approvals for this agent.
+                # Alternative: use a well-known thread pattern or broadcast.
+                # For now, we use the agent's default thread for the channel.
+
+                # Get all thread IDs for this agent/channel from recent state
+                from src.memory.database import get_db
+                async with get_db() as conn:
+                    # Find threads with recent activity from this agent
+                    rows = await (await conn.execute(
+                        """SELECT thread_id FROM thread_state
+                           WHERE channel = %s
+                           AND state_json LIKE %s
+                           ORDER BY updated_at DESC LIMIT 5""",
+                        (channel, f'%"agent_id": "{agent_id}"%'),
+                    )).fetchall()
+
+                if not rows:
+                    # No active thread found — can't inject
+                    return
+
+                # Try each recent thread
+                for row in rows:
+                    thread_id = row["thread_id"]
+                    config = {"configurable": {"thread_id": thread_id}}
+
+                    try:
+                        # Check if this thread has the pending approval
+                        state = await graph.aget_state(config)
+                        if not state or not state.values:
+                            continue
+
+                        messages = list(state.values.get("messages") or [])
+                        # Look for a message mentioning this request_id
+                        has_pending = any(
+                            request_id in (getattr(m, "content", "") or "")
+                            for m in messages[-10:]  # Check last 10 messages
+                        )
+
+                        if has_pending:
+                            # Found the right thread — inject the resolution
+                            await graph.aupdate_state(
+                                config,
+                                {"messages": [SystemMessage(content=content)]},
+                                as_node="agent",
+                            )
+                            return
+                    except Exception:
+                        continue
+
+        except Exception:
+            # Best-effort: if injection fails, the operator can still manually continue
+            pass
 
 
 @router.post("/api/bridge/approvals/{request_id}")
