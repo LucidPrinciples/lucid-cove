@@ -442,9 +442,20 @@ def _channel_tool_modules(channel: str):
     even inside a Presence's MC (tools otherwise bind per-app). Else None = app default."""
     try:
         if _is_manager_channel(channel):
-            mgr_cfg, _ = _get_manager_config(channel)
+            mgr_cfg, mtype = _get_manager_config(channel)
             if mgr_cfg and mgr_cfg.get("tools"):
-                return list(mgr_cfg["tools"])
+                mods = list(mgr_cfg["tools"])
+                # The steward's coordination surface is UNIVERSAL (like skill
+                # tools): queue + delegation ship with the steward role itself,
+                # not with an instance's tool list — a Cove provisioned before
+                # these existed still gets them on upgrade without touching its
+                # cove.yaml. (Found live 2026-07-10: Stuart had no queue tools
+                # because the instance list predated Pillar 1.)
+                if mtype == 'steward':
+                    for m in ("tools.steward_queue_tools", "tools.delegation_tools"):
+                        if m not in mods:
+                            mods.append(m)
+                return mods
     except Exception:
         pass
     return None

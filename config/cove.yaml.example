@@ -147,6 +147,8 @@ cove:
       - tools.comms_tools
       - tools.calendar_notify
       - tools.site_tools
+      - tools.steward_queue_tools   # Pillar 1 — the execution queue
+      - tools.delegation_tools      # Pillar 2 — delegate_task
     channels:
       day:
         description: "Daily family coordination — tasks, schedules, delegation, what needs handling."

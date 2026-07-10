@@ -185,3 +185,4 @@ async def delegate_task(agent: str, brief: str, ticket_ref: str = "") -> str:
 
 
 ALL_DELEGATION_TOOLS = [delegate_task]
+TOOLS = ALL_DELEGATION_TOOLS  # channel loader entry point (_load_tools)

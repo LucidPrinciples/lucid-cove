@@ -150,3 +150,4 @@ async def _update(item_id: int, status: str = "", assignee: str = "",
 
 
 ALL_STEWARD_QUEUE_TOOLS = [queue_list, queue_take, queue_update]
+TOOLS = ALL_STEWARD_QUEUE_TOOLS  # channel loader entry point (_load_tools)
