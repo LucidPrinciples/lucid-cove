@@ -310,15 +310,27 @@ async def git_push(project: str, branch: str = "") -> str:
         branch = await _run_git("branch --show-current", repo)
 
     # PRE-CHECK: Must have unpushed commits before requesting push approval
-    # Check if there are commits ahead of upstream (read-only check)
-    ahead_count = await _run_git(f"rev-list --count origin/{branch}..{branch}", repo)
-    try:
-        if not ahead_count or ahead_count == "(no output)" or int(ahead_count.strip()) == 0:
-            return "REFUSED: No unpushed commits. Stage and commit first."
-    except (ValueError, TypeError):
-        # If we can't parse the count, assume there might be commits and let git fail naturally
-        pass
+    # Explicitly handle: (1) existing branch with upstream, (2) new branch without upstream
+    upstream_exists = await _run_git(f"rev-parse --verify origin/{branch}", repo)
+    if upstream_exists and not upstream_exists.startswith("fatal:"):
+        # Upstream exists — check if there are unpushed commits
+        ahead_count = await _run_git(f"rev-list --count origin/{branch}..{branch}", repo)
+        try:
+            if int(ahead_count.strip()) == 0:
+                return "REFUSED: No unpushed commits. Stage and commit first."
+        except (ValueError, TypeError):
+            return f"REFUSED: Could not verify commit count. Git output: {ahead_count}"
+    else:
+        # No upstream — new branch. Verify it has commits.
+        commit_count = await _run_git(f"rev-list --count {branch}", repo)
+        try:
+            if int(commit_count.strip()) == 0:
+                return "REFUSED: Branch has no commits. Stage and commit first."
+            # New branch with commits → allow push approval
+        except (ValueError, TypeError):
+            return f"REFUSED: Could not verify branch state. Git output: {commit_count}"
 
+    # If we reach here: either upstream exists with unpushed commits, OR new branch with commits
     return await _run_git(f"push origin {shlex.quote(branch)}", repo)
 
 
