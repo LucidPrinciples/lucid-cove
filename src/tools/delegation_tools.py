@@ -33,6 +33,8 @@ def _say(msg: str) -> None:
     print(f"{ts_log()} [delegation] {msg}")
 
 DELEGATION_TURN_TIMEOUT = 900  # seconds — a background turn gets 15 minutes
+DELEGATION_RECURSION_LIMIT = 100  # graph super-steps (~50 tool rounds); the
+                                  # wall-clock timeout is the real runaway bound
 
 
 def resolve_agent(name: str, known: set[str]) -> str | None:
@@ -114,7 +116,14 @@ async def _run_agent_turn(channel: str, message: str, agent_label: str,
         _say(f"{agent_label} starting delegated turn on {channel} (thread {thread_id})")
         async with get_checkpointer() as checkpointer:
             graph = await get_channel_graph(channel, checkpointer)
-            cfg = {"configurable": {"thread_id": thread_id}}
+            # A delegated dev turn legitimately runs MANY agent->tool rounds
+            # (investigate, read, edit, commit). LangGraph's default
+            # recursion_limit of 25 super-steps guillotined Archimedes' first
+            # clean run mid-work ("Recursion limit of 25 reached", 2026-07-10)
+            # — there was no loop, just real work hitting a default ceiling.
+            # The wall-clock timeout stays the true bound on a runaway turn.
+            cfg = {"configurable": {"thread_id": thread_id},
+                   "recursion_limit": DELEGATION_RECURSION_LIMIT}
             result = await asyncio.wait_for(graph.ainvoke(graph_input, config=cfg),
                                             timeout=DELEGATION_TURN_TIMEOUT)
 
