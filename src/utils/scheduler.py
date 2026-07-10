@@ -200,7 +200,7 @@ class AgentScheduler:
             print(f"{ts_log()} [scheduler] Tuning pull failed: {e}")
             await _log_run_finish(run_id, "error", dur, str(e)[:500])
 
-    async def _run_tuning_sweep(self):
+    async def _run_tuning_sweep(self, force: bool = False):
         """Catch-up sweep — tune any team agent or Presence missing today's echo.
 
         The Cove-as-Unit safety net (LTP Protocol Spec §6). On a host that hasn't
@@ -208,13 +208,16 @@ class AgentScheduler:
         later in the day it only fills the gaps. Dedups + honors the dispatch lock,
         so it is safe to call repeatedly (06:30 schedule, boot catch-up, manual
         /api/system/tuning-sweep).
+
+        force=True (#D4): override the per-Drop dedup and re-tune the whole Cove
+        now (still bounded by the dispatch lock + 20-min cooldown in run_cove_sweep).
         """
-        protocol = "tuning-sweep"
+        protocol = "tuning-sweep-force" if force else "tuning-sweep"
         run_id = await _log_run_start(protocol, f"sweep-{today_app()}")
         started = time.time()
         try:
             from src.tuning.sweep import run_cove_sweep
-            result = await run_cove_sweep()
+            result = await run_cove_sweep(force=force)
             dur = int((time.time() - started) * 1000)
             print(f"{ts_log()} [scheduler] Tuning sweep: {result.get('status')} "
                   f"(team_missing={len(result.get('team_missing', []))}, "

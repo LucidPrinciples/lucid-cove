@@ -1,0 +1,31 @@
+{
+  "id": "health-checks",
+  "num": 6,
+  "title": "Health checks",
+  "when": "You want to confirm the Cove's moving parts are working: delegated turns, the watcher, approvals, and this morning's tuning.",
+  "category": "ops",
+  "audience": "steward",
+  "description": "Quick read-only checks — none of these change anything. They use your Cove's docker compose services (app, postgres) and read the DB user/name from inside the postgres container, so they work on any box without knowing the container names. Run them from your Cove folder. The founder's filled reference is RB16 in the vault Ops-Reference.",
+  "steps": [
+    {
+      "label": "Did a delegated agent's turn run? (last 2h)",
+      "command": "cd {{COVE_DIR}} && docker compose logs app --since 2h 2>&1 | grep -i delegation | tail -5",
+      "note": "\"completed a delegated turn\" = the agent worked (check its tab). A warning = the turn failed but the brief was still delivered. Nothing = the delegate_task tool never fired."
+    },
+    {
+      "label": "Watcher alerts (look for status = open)",
+      "command": "cd {{COVE_DIR}} && docker compose exec -T postgres sh -c 'PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB psql -c \"SELECT alert_key, status, last_seen::time FROM watcher_alerts ORDER BY last_seen DESC LIMIT 10\"'",
+      "note": "The 10 most recent alerts. Any row with status=open needs attention; all resolved (or no rows) = a quiet Attention home. The user/db are read from inside the postgres container, so they're always right for this box."
+    },
+    {
+      "label": "Recent approval executions + results",
+      "command": "cd {{COVE_DIR}} && docker compose exec -T postgres sh -c 'PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB psql -c \"SELECT request_id, tool_name, status, left(result, 120) AS result FROM approval_requests ORDER BY created_at DESC LIMIT 6\"'",
+      "note": "What the operator approved and whether it executed cleanly (result blank = not yet run / no output)."
+    },
+    {
+      "label": "This morning's tuning",
+      "command": "cd {{COVE_DIR}} && docker compose logs app --since 8h 2>&1 | grep -iE 'ltp-dispatch|Tuning sweep' | tail -12",
+      "note": "Confirms the team tuned off today's Drop. Empty = nothing tuned in the last 8h (check the schedule, or run the tuning sweep)."
+    }
+  ]
+}

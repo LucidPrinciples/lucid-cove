@@ -218,6 +218,8 @@ async function showAgentDetail(agentId) {
 
         // Pending tasks for this agent
         loadAgentTasks(agentId);
+        // #D22: read-only activity feed (queue, last turn, today's echo, delegations)
+        loadAgentActivity(agentId);
 
         // Tools
         loadAgentTools(agentId);
@@ -275,6 +277,64 @@ async function loadAgentTasks(agentId) {
                 </div>
             </div>`;
         }).join('');
+    } catch (e) {
+        el.innerHTML = `<span class="empty">Error: ${esc(e.message)}</span>`;
+    }
+}
+
+// #D22: read-only activity feed for a build-team agent — assembled from existing
+// tables by /api/agents/{id}/activity. Gives the team LEGIBILITY without a chat tab.
+async function loadAgentActivity(agentId) {
+    const el = document.getElementById('agp-activity');
+    if (!el) return;
+    try {
+        const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/activity`);
+        const d = await res.json();
+        const row = (label, value) =>
+            `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--border);font-size:0.82rem;">
+                <span style="color:var(--dim);">${esc(label)}</span><span style="text-align:right;">${value}</span></div>`;
+        const chip = (text, color) =>
+            `<span style="display:inline-block;padding:1px 7px;border-radius:9px;font-size:0.68rem;background:${color || 'var(--border)'};color:#0a0a0f;font-weight:700;">${esc(text)}</span>`;
+        const fmtWhen = (s) => s ? String(s).replace('T', ' ').slice(0, 16) : '—';
+        let html = '';
+
+        // Last turn + today's echo
+        const lt = d.last_turn;
+        html += row('Last turn', lt ? `${fmtWhen(lt.at)} · ${lt.steps ?? 0} steps` : '<span class="empty">no turns yet</span>');
+        const e = d.echo_today;
+        html += row("Today's echo", e
+            ? `${esc(e.frequency || '')} · β=${(e.love_equation != null ? Number(e.love_equation).toFixed(2) : '—')}`
+            : chip('not tuned today', 'var(--yellow)'));
+
+        // Assigned queue items
+        if (d.queue && d.queue.length) {
+            html += '<div style="margin-top:8px;color:var(--dim);font-size:0.72rem;text-transform:uppercase;letter-spacing:.06em;">Queue</div>';
+            html += d.queue.map(q =>
+                `<div style="padding:4px 0;font-size:0.82rem;">${esc(q.source || '')} ${esc(q.title || '')} ${chip(q.status, 'var(--purple)')}${q.pr_url ? ` <a href="${esc(q.pr_url)}" target="_blank">PR</a>` : ''}</div>`
+            ).join('');
+        }
+
+        // Current tasks
+        if (d.tasks && d.tasks.length) {
+            html += '<div style="margin-top:8px;color:var(--dim);font-size:0.72rem;text-transform:uppercase;letter-spacing:.06em;">Tasks</div>';
+            html += d.tasks.map(t =>
+                `<div style="padding:4px 0;font-size:0.82rem;">${esc(t.title || '')} ${chip(t.status, 'var(--yellow)')}</div>`
+            ).join('');
+        }
+
+        // Delegations (brief received + report-back)
+        if (d.delegations && d.delegations.length) {
+            const phaseColor = { replied: 'var(--green)', failed: 'var(--red)', dispatched: 'var(--yellow)' };
+            html += '<div style="margin-top:8px;color:var(--dim);font-size:0.72rem;text-transform:uppercase;letter-spacing:.06em;">Delegations</div>';
+            html += d.delegations.map(x =>
+                `<div style="padding:5px 0;font-size:0.82rem;border-bottom:1px solid var(--border);">
+                    <div>${chip(x.phase, phaseColor[x.phase])} ${esc(x.brief || '')}</div>
+                    ${x.report_back ? `<div style="color:var(--dim);margin-top:3px;font-size:0.76rem;">${esc(x.report_back)}</div>` : ''}
+                </div>`
+            ).join('');
+        }
+
+        el.innerHTML = html || '<span class="empty">No recent activity</span>';
     } catch (e) {
         el.innerHTML = `<span class="empty">Error: ${esc(e.message)}</span>`;
     }

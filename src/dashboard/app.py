@@ -452,6 +452,19 @@ async def lifespan(app: FastAPI):
             print(f"{ts()} [app] orphaned-delegation sweep error: {e}")
     deleg_sweep_task = asyncio.create_task(_delegation_sweep())
 
+    # #D39: an async video job killed by THIS restart leaves a durable row stuck
+    # 'running' while the browser keeps polling. Orphan-mark those to 'failed' so
+    # the UI reports honestly instead of spinning on a job that will never finish.
+    async def _video_job_sweep():
+        try:
+            from src.dashboard.routes.video_jobs import sweep_orphaned_video_jobs
+            n = await sweep_orphaned_video_jobs()
+            if n:
+                print(f"{ts()} [app] swept {n} restart-orphaned video job(s) → failed.")
+        except Exception as e:
+            print(f"{ts()} [app] orphaned video-job sweep error: {e}")
+    video_sweep_task = asyncio.create_task(_video_job_sweep())
+
     yield
 
     if _brain_task and not _brain_task.done():

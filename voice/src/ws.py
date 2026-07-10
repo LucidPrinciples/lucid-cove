@@ -32,6 +32,16 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             message = await websocket.receive()
 
+            # #D39: the low-level receive() yields the ASGI disconnect message
+            # ONCE; if we don't detect it and loop, the next receive() raises
+            # RuntimeError('Cannot call "receive" once a disconnect message has
+            # been received') which fell through to the generic handler and logged
+            # an ERROR for every page close — flooding the voice-container logs.
+            # Treat it as the normal end of the connection.
+            if message.get("type") == "websocket.disconnect":
+                logger.info(f"Client {client_id} disconnected")
+                break
+
             if "bytes" in message:
                 audio_data = message["bytes"]
                 manager.process_audio_frame(client_id, audio_data)

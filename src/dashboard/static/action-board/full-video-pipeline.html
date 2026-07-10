@@ -46,7 +46,11 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 
 .status-label { font-size: 11px; color: #888; }
 
+.video-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
 .video-action { font-size: 12px; color: #5ce1e6; font-weight: 600; flex-shrink: 0; padding: 4px 10px; border: 1px solid rgba(92,225,230,0.3); border-radius: 5px; background: rgba(92,225,230,0.08); }
+/* #D5: secondary "Skip moments" action — muted so it reads as the shortcut, not the primary step. */
+.video-action.skip-moments { color: #9a9aa8; font-weight: 500; border-color: #2a2a38; background: rgba(255,255,255,0.02); }
+.video-action.skip-moments:hover { color: #cfcfe0; border-color: #444; }
 
 .empty-state { padding: 40px; text-align: center; color: #555; font-size: 13px; line-height: 1.6; }
 .empty-state strong { color: #5ce1e6; }
@@ -426,6 +430,16 @@ async function init() {
             actionUrl = `/static/action-board/video-transcript-editor.html?stem=${v.stem}${embParam}`;
         }
 
+        // #D5: once a video is transcribed, offer a "Skip moments" shortcut that
+        // treats the WHOLE video as one clip and jumps straight to caption/crop/
+        // distribute — for a short video you don't need moment-finding at all.
+        const canSkipMoments = (v.status === 'transcribed' || v.has_moments);
+        const skipAction = canSkipMoments
+            ? `<div class="video-action skip-moments" data-action="Skip moments"
+                    title="Use the whole video as one clip — skip moment-finding"
+                    onclick="event.stopPropagation(); skipMoments('${esc(v.stem)}')">Skip moments</div>`
+            : '';
+
         html += `
         <div class="video-card" onclick="openVideo('${esc(v.stem)}', '${esc(v.filename)}', '${v.status}', ${v.has_moments}, this)" data-stem="${esc(v.stem)}">
             <div class="video-icon">🎬</div>
@@ -437,7 +451,10 @@ async function init() {
                 <div class="status-dot ${statusClass}"></div>
                 <span class="status-label">${statusLabel(v.status, v.has_moments)}</span>
             </div>
-            <div class="video-action" data-action="${actionLabel}">${actionLabel}</div>
+            <div class="video-actions">
+                ${skipAction}
+                <div class="video-action" data-action="${actionLabel}">${actionLabel}</div>
+            </div>
         </div>`;
     }
     html += '</div>';
@@ -506,6 +523,14 @@ async function openVideo(stem, filename, status, hasMoments, card) {
         url = `/static/action-board/video-transcript-editor.html?stem=${stem}${embParam}`;
     }
     window.location.href = url;
+}
+
+// #D5: skip moment-finding and take the whole video straight to the
+// caption/crop/distribute step (whole=1 tells that page to make one full clip).
+function skipMoments(stem) {
+    window.location.href =
+        `/static/action-board/video-crop-position.html?stem=${stem}&whole=1` +
+        (embParam || '');
 }
 
 function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }

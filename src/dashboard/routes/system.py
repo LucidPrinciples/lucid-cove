@@ -599,17 +599,29 @@ async def trigger_tuning_sweep(request: Request):
     Checks which team agents have echoes for today. Any agent without an echo
     gets re-dispatched using the same cached package from this morning.
 
+    Body (optional): {"force": true} (#D4) — re-tune the WHOLE Cove NOW off the
+    current Drop, overriding the per-Drop dedup (e.g. after a model misconfig
+    burned the morning run and every agent has a bad echo for today's key). The
+    dispatch lock and the 20-minute cooldown still apply and are NOT overridable.
+
     Returns immediately. The sweep runs in the background.
     Check protocol_runs or tail logs for progress.
     """
     _require_system_secret(request)
     import asyncio
 
+    force = False
+    try:
+        body = await request.json()
+        force = bool(body.get("force")) if isinstance(body, dict) else False
+    except Exception:
+        force = False  # empty / non-JSON body → normal catch-up sweep
+
     async def _run_in_background():
         try:
             from src.utils.scheduler import AgentScheduler
             s = AgentScheduler()
-            result = await s._run_tuning_sweep()
+            result = await s._run_tuning_sweep(force=force)
             print(f"[tuning-sweep] Result: {result}")
         except Exception as e:
             print(f"[tuning-sweep] Manual sweep failed: {e}")
@@ -619,7 +631,10 @@ async def trigger_tuning_sweep(request: Request):
     asyncio.create_task(_run_in_background())
     return {
         "status": "started",
-        "message": "Tuning sweep triggered. Check logs for progress.",
+        "forced": force,
+        "message": ("Forced Cove re-tune triggered (dedup overridden; dispatch "
+                    "lock + 20-min cooldown still apply)." if force else
+                    "Tuning sweep triggered. Check logs for progress."),
     }
 
 

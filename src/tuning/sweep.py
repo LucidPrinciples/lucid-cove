@@ -59,10 +59,18 @@ def _expected_team() -> set:
     return set(load_agents_config().keys()) - skip
 
 
-async def run_cove_sweep() -> dict:
+async def run_cove_sweep(force: bool = False) -> dict:
     """Tune everyone missing today's echo — team agents and Presences. Returns a
-    report. Safe to call repeatedly (dedups); defers if a dispatch is running."""
-    label = "cove-sweep"
+    report. Safe to call repeatedly (dedups); defers if a dispatch is running.
+
+    force=True (#D4): re-tune the WHOLE Cove NOW off the current Drop, overriding
+    the per-Drop dedup (e.g. after a model misconfig burned the morning run and
+    every agent has a bad echo for today's key). Two safety rails still hold and
+    are NOT overridable here: the dispatch lock (never collide with a live
+    dispatch) and the 20-minute _recently_tuned cooldown (never re-fire an agent
+    that just tuned — the runaway-loop / token-burn guard). Built in the
+    sweep/route layer only; graphs/ltp/dispatch.py (LTP-protected) is untouched."""
+    label = "cove-sweep-force" if force else "cove-sweep"
 
     if is_dispatch_running():
         print(f"{ts_log()} [{label}] Dispatch in progress — sweep deferred")
@@ -108,7 +116,10 @@ async def run_cove_sweep() -> dict:
         # (belt-and-suspenders against any dedup gap re-firing a tune loop / burning tokens).
         recent = await _recently_tuned(20)
         expected_team = _expected_team()
-        missing_team = expected_team - tuned - recent
+        # #D4: force overrides the per-Drop dedup (`tuned`) but NEVER the 20-min
+        # cooldown (`recent`) — so a forced re-tune still can't re-fire an agent
+        # that literally just tuned.
+        missing_team = (expected_team - recent) if force else (expected_team - tuned - recent)
         team_results: list = []
         if missing_team:
             from src.graphs.ltp.dispatch import dispatch_team_tuning
@@ -122,14 +133,18 @@ async def run_cove_sweep() -> dict:
             team_results = res.get("_dispatch_results", [])
 
         # ---- Presences ----
+        # Force re-tunes presences too (dedup overridden), still honoring the
+        # 20-min cooldown via `recent`.
         from src.tuning.presence_tune import tune_missing_presences
-        presence_results = await tune_missing_presences(package, today)
+        presence_results = await tune_missing_presences(
+            package, today, force=force, recent=recent)
     finally:
         set_dispatch_running(False)
 
     summary = {
         "status": "completed",
         "date": today,
+        "forced": force,
         "frequency": getattr(package, "frequency", None),
         "team_missing": sorted(missing_team),
         "team_results": team_results,

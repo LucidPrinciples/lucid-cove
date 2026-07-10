@@ -45,6 +45,42 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# #D19: the Links/resource-hub page ("Deck") doubles as a phone home-screen
+# shortcut. Serve it a DEDICATED web-app manifest with the Cove's own name filled
+# in, so an add-to-home shortcut defaults to a telling "{CoveName} Deck" instead of
+# a generic one. Cove-name templated → every Cove inherits its own. The suffix lives
+# in one constant so a rename ("Deck" is proposed, not locked) is a one-word change.
+DECK_LABEL = "Deck"
+
+
+@router.get("/deck-manifest.webmanifest")
+async def deck_manifest():
+    """Per-page manifest for links.html (the Deck). short_name = '{CoveName} Deck'."""
+    name = ""
+    try:
+        from src.config import get_instance
+        inst = get_instance()
+        name = (inst.get("family_name") or inst.get("name") or "").strip()
+    except Exception:
+        name = ""
+    label = f"{name} {DECK_LABEL}".strip() if name else DECK_LABEL
+    return JSONResponse(
+        {
+            "name": f"{label} — Lucid Cove",
+            "short_name": label,
+            "start_url": "/static/action-board/links.html",
+            "display": "standalone",
+            "background_color": "#0a0a0f",
+            "theme_color": "#0a0a0f",
+            "icons": [
+                {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            ],
+        },
+        media_type="application/manifest+json",
+    )
+
+
 async def _acting_presence_id(request) -> str | None:
     """CF-1 strict self-scope helper for youtube_queue / social_queue UI surfaces.
 

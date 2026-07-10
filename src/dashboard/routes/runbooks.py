@@ -164,15 +164,105 @@ def _fill_paths(data: dict) -> dict:
     return data
 
 
-@router.get("/api/runbooks")
-async def list_runbooks(request: Request):
-    """List runbooks with metadata (no steps), scoped to the caller's role (CF-35)."""
-    _ensure_dir()
-    restricted = await _is_restricted_presence(request)
-    runbooks = []
+# ── #D28: custom runbooks from the operator's NC space ───────────────────────
+# Beside the baked-in seeds (/app/data/runbooks, editable only via the API), read
+# the operator's own AgentSkills/Ops/runbooks/*.json over WebDAV. That folder syncs
+# to the operator's machine (NC desktop) and mounts into the Cowork bridge, so a
+# runbook becomes a FILE the operator and the agent edit locally and the MC renders
+# everywhere — the ops hub lives INSIDE the Cove, not beside it. Best-effort: NC
+# down / not configured → we just show the seeds. NC WINS on an id/slug collision
+# (the operator's copy overrides a seed of the same id).
+
+NC_RUNBOOKS_DIR = "AgentSkills/Ops/runbooks"
+
+
+async def _nc_runbooks(request: Request) -> dict:
+    """{slug: data} for every *.json under the operator's NC AgentSkills/Ops/runbooks.
+    Best-effort — any failure (no creds, NC down, bad JSON) yields {} / skips the file."""
+    if request is None:
+        return {}
+    try:
+        from src.dashboard.routes.nextcloud import get_nc_creds
+        nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    except Exception:
+        return {}
+    if not (nc_url and nc_user and nc_pass):
+        return {}
+
+    import httpx
+    import xml.etree.ElementTree as ET
+    from urllib.parse import quote, unquote
+
+    base = f"{nc_url}/remote.php/dav/files/{nc_user}"
+    folder_url = f"{base}/{quote(NC_RUNBOOKS_DIR, safe='/')}/"
+    propfind = ('<?xml version="1.0" encoding="UTF-8"?>'
+                '<d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>')
+    out: dict = {}
+    try:
+        async with httpx.AsyncClient(auth=(nc_user, nc_pass), timeout=10) as client:
+            resp = await client.request(
+                "PROPFIND", folder_url,
+                headers={"Depth": "1", "Content-Type": "application/xml"},
+                content=propfind)
+            if resp.status_code != 207:
+                return {}  # 404 = folder doesn't exist yet (fine), anything else = skip
+            names = []
+            for r in ET.fromstring(resp.text).findall(".//{DAV:}response"):
+                href = (r.findtext("{DAV:}href") or "").rstrip("/")
+                name = unquote(href.split("/")[-1])
+                if name.lower().endswith(".json"):
+                    names.append(name)
+            for name in names:
+                try:
+                    fr = await client.get(f"{base}/{quote(NC_RUNBOOKS_DIR, safe='/')}/{quote(name)}")
+                    if fr.status_code != 200:
+                        continue
+                    data = json.loads(fr.text)
+                    if not isinstance(data, dict) or "steps" not in data:
+                        continue
+                    # Key by the FILE stem — the same identifier space as the seeds,
+                    # so an NC file named like a seed (e.g. 01-update-cove.json)
+                    # overrides it, and get_runbook(slug)/update_runbook stay
+                    # consistent. A new name (e.g. 90-my-ops.json) just adds one.
+                    slug = name[:-5]
+                    data["source"] = "nc"
+                    out[slug] = data
+                except Exception:
+                    continue
+    except Exception:
+        return {}
+    return out
+
+
+def _seed_runbooks() -> dict:
+    """{slug: data} for the baked-in seed runbooks in RUNBOOKS_DIR."""
+    out: dict = {}
     for f in sorted(RUNBOOKS_DIR.glob("*.json")):
         try:
-            data = json.loads(f.read_text())
+            out[f.stem] = json.loads(f.read_text())
+        except Exception:
+            continue
+    return out
+
+
+def _merge_runbooks(seed: dict, nc: dict) -> dict:
+    """Seed runbooks overlaid with the operator's NC runbooks — NC wins on an id
+    collision (#D28). Pure."""
+    merged = dict(seed)
+    merged.update(nc)  # NC overrides same-slug seeds
+    return merged
+
+
+@router.get("/api/runbooks")
+async def list_runbooks(request: Request):
+    """List runbooks with metadata (no steps), scoped to the caller's role (CF-35).
+    Merges the baked-in seeds with the operator's NC runbooks (NC wins, #D28)."""
+    _ensure_dir()
+    restricted = await _is_restricted_presence(request)
+    merged = _merge_runbooks(_seed_runbooks(), await _nc_runbooks(request))
+    runbooks = []
+    for slug, data in merged.items():
+        try:
             audience = _runbook_audience(data)
             if not _visible_to(audience, restricted):
                 continue
@@ -180,31 +270,39 @@ async def list_runbooks(request: Request):
             num = data.get("num", data.get("order", 99))
             order = num if isinstance(num, int) else 99
             runbooks.append({
-                "slug": f.stem,
+                "slug": slug,
                 "order": order,
                 "num": num,
-                "name": data.get("title", data.get("name", f.stem)),
+                "name": data.get("title", data.get("name", slug)),
                 "category": data.get("category", "general"),
                 "audience": audience,
+                "source": data.get("source", "seed"),
                 "description": data.get("description", ""),
                 "step_count": len(data.get("steps", [])),
                 "updated_at": data.get("updated_at", ""),
             })
         except Exception:
             continue
-    runbooks.sort(key=lambda r: r["order"])
+    runbooks.sort(key=lambda r: (r["order"], r["slug"]))
     return {"runbooks": runbooks}
 
 
 @router.get("/api/runbooks/{slug}")
 async def get_runbook(slug: str, request: Request):
-    """Get a full runbook with all steps (role-scoped, CF-35)."""
+    """Get a full runbook with all steps (role-scoped, CF-35). An operator's NC
+    runbook of the same slug wins over the seed (#D28)."""
     _ensure_dir()
-    path = RUNBOOKS_DIR / f"{slug}.json"
-    if not path.exists():
-        return JSONResponse({"error": f"Runbook '{slug}' not found"}, status_code=404)
+    # #D28: the operator's NC copy overrides a seed of the same slug.
+    data = (await _nc_runbooks(request)).get(slug)
+    if data is None:
+        path = RUNBOOKS_DIR / f"{slug}.json"
+        if not path.exists():
+            return JSONResponse({"error": f"Runbook '{slug}' not found"}, status_code=404)
+        try:
+            data = json.loads(path.read_text())
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
     try:
-        data = json.loads(path.read_text())
         if not _visible_to(_runbook_audience(data), await _is_restricted_presence(request)):
             return JSONResponse(
                 {"error": "Runbook not available for this role"}, status_code=403

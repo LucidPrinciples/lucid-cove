@@ -233,6 +233,40 @@ async def _set_task_status(task_id: int, status: str) -> None:
         _say(f"task status update ({status}) failed: {e}")
 
 
+async def link_or_create_queue_row(conn, ticket_ref: str, target: str,
+                                   brief: str) -> str:
+    """Link a delegation to its steward_queue row, CREATING one if none exists
+    (#D37). Returns a short note for the delegate_task reply ("" if no ref).
+
+    The 07-10 miss: #D15 was delegated directly (never flowed through the board's
+    → Team button), so no steward_queue row existed. The old link was UPDATE-only
+    (`WHERE source = %s`) and silently no-op'd, leaving the queue blind to
+    delegated work (Stuart: 'Queue #D15 does not exist' — correct). Now a
+    delegation with a ref is queue-visible from birth: claim an open row if one
+    exists, else INSERT one (source=ref, title from the brief, status=assigned)."""
+    ref = (ticket_ref or "").strip()
+    if not ref:
+        return ""
+    # Claim an existing OPEN row first (the → Team flow already created it).
+    r = await conn.execute(
+        "UPDATE steward_queue SET status = 'assigned', assignee = %s, "
+        "updated_at = NOW() WHERE source = %s "
+        "AND status IN ('queued','assigned') RETURNING id",
+        (target, ref))
+    qrow = await r.fetchone()
+    if qrow:
+        return f" Queue item [{qrow['id']}] → assigned."
+    # #D37: no open row — the delegation bypassed → Team. Create one so the
+    # queue is never blind to delegated work.
+    title = (brief or "").strip()[:70] or ref
+    r = await conn.execute(
+        "INSERT INTO steward_queue (source, title, status, assignee) "
+        "VALUES (%s, %s, 'assigned', %s) RETURNING id",
+        (ref, title, target))
+    qrow = await r.fetchone()
+    return f" Queue item [{qrow['id']}] created + assigned." if qrow else ""
+
+
 async def sweep_orphaned_delegations() -> int:
     """Boot-time recovery (#D30). A delegated background turn killed by a container
     restart can't file its own failure report — its task row is left 'in_progress'
@@ -306,20 +340,17 @@ async def delegate_task(agent: str, brief: str, ticket_ref: str = "") -> str:
              brief, target))
         task_id = (await r.fetchone())["id"]
 
-        # 2. Queue link (best-effort): a ref like '#D15' matches steward_queue.source
-        queue_note = ""
-        if ticket_ref:
-            try:
-                r = await conn.execute(
-                    "UPDATE steward_queue SET status = 'assigned', assignee = %s, "
-                    "updated_at = NOW() WHERE source = %s "
-                    "AND status IN ('queued','assigned') RETURNING id",
-                    (target, ticket_ref.strip()))
-                qrow = await r.fetchone()
-                if qrow:
-                    queue_note = f" Queue item [{qrow['id']}] → assigned."
-            except Exception:
-                pass
+    # 2. Queue link (#D37) — own transaction so a queue hiccup can never roll back
+    # the task insert. UPSERT: claim an open row, else create one (queue-visible
+    # from birth, even for a direct delegation that skipped the → Team button).
+    queue_note = ""
+    if ticket_ref:
+        try:
+            async with get_db() as conn:
+                queue_note = await link_or_create_queue_row(
+                    conn, ticket_ref, target, brief)
+        except Exception as e:
+            _say(f"queue link/create failed for {ticket_ref}: {e}")
 
     # 3+4. Deliver the brief + start the turn, in the background.
     channel = f"{target}-day"

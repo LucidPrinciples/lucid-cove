@@ -1552,6 +1552,34 @@ function _showcaseHead(label) {
 function _showcaseGrid(cards) {
     return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px;margin-bottom:16px;">' + cards.join('') + '</div>';
 }
+// #D6: a small round avatar (initial + optional image), reused by the Presence pair.
+function _miniAvatar(ini, avatarUrl) {
+    const av = avatarUrl
+        ? '<img src="' + avatarUrl + '" alt="" style="position:absolute;inset:0;width:38px;height:38px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\'">'
+        : '';
+    return '<div style="position:relative;width:38px;height:38px;margin:0 auto 6px;">' +
+        '<div style="position:absolute;inset:0;border-radius:50%;background:#2a2d3a;color:#cfcfe0;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">' + esc(ini) + '</div>' + av +
+    '</div>';
+}
+// #D6: an operator + their agent shown SIDE BY SIDE as ONE Presence (icon + name,
+// agent next to them) — replaces the flat one-card-per-person grid.
+function _presencePairCard(personName, personAvatar, agentName, agentSub, agentAvatar) {
+    const cell = (name, sub, avatar) =>
+        '<div style="text-align:center;min-width:64px;">' +
+            _miniAvatar((String(name)[0] || '?').toUpperCase(), avatar) +
+            '<div style="font-size:12px;font-weight:600;color:#e1e4ea;">' + esc(name) + '</div>' +
+            (sub ? '<div style="font-size:10px;color:#999;margin-top:1px;">' + esc(sub) + '</div>' : '') +
+        '</div>';
+    return '<div style="background:#14141c;border:1px solid #24242f;border-radius:12px;padding:12px 16px;display:inline-flex;align-items:center;gap:12px;">' +
+        cell(personName || 'You', '', personAvatar) +
+        '<div style="color:#4a4a58;font-size:13px;">&#43;</div>' +
+        cell(agentName, agentSub, agentAvatar) +
+    '</div>';
+}
+// #D6: centered wrap so one or many Presence cards sit centered, not left-aligned.
+function _showcaseCenter(cards) {
+    return '<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:12px;margin-bottom:16px;">' + cards.join('') + '</div>';
+}
 async function loadTeamShowcase() {
     if (_teamLoaded) return;
     const el = document.getElementById('team-showcase');
@@ -1577,9 +1605,10 @@ async function loadTeamShowcase() {
             const _agentName = _titleCaseName((selectedName || (document.getElementById('custom-name')?.value || '')).trim());
             if (_agentName) {
                 const _newAvatar = (agentIdentity && agentIdentity.avatar) || '';
-                html += _showcaseHead('joining now') + _showcaseGrid([
-                    _showcaseCard((_agentName[0] || '?').toUpperCase(), _agentName,
-                                  _meName ? ('for ' + _meName) : 'your new presence', _newAvatar),
+                // #D6: the new Presence = the person + their agent, side by side, centered.
+                html += _showcaseHead('joining now') + _showcaseCenter([
+                    _presencePairCard(_meName || 'You', '', _agentName,
+                                      'your new presence', _newAvatar),
                 ]);
             }
 
@@ -1590,14 +1619,20 @@ async function loadTeamShowcase() {
                 const members = (fd.members || []).filter(m => m && (m.name || m.display_name)
                     && ((m.username || '').replace(/^@/, '').toLowerCase() !== _meHandle));
                 if (members.length) {
+                    // #D6: each existing member as a paired Presence (operator + agent
+                    // side by side), centered. A member without an agent shows their role.
                     const cards = members.map(m => {
                         const pn = String(m.name || m.display_name || '').trim();
                         const ag = String((m.personal_agent && m.personal_agent.name) || m.agent_name || '').split(' ')[0].trim();
-                        const sub = ag ? ('with ' + ag) : (m.role || 'Presence');
-                        const avatar = m.avatar_url || (m.personal_agent && m.personal_agent.avatar) || '';
-                        return _showcaseCard((pn[0] || '?').toUpperCase(), pn, sub, avatar);
+                        const personAvatar = m.avatar_url || '';
+                        const agentAvatar = (m.personal_agent && m.personal_agent.avatar) || '';
+                        if (ag) {
+                            return _presencePairCard(pn, personAvatar, ag, '', agentAvatar);
+                        }
+                        // No agent on record — show the person alone with their role.
+                        return _showcaseCard((pn[0] || '?').toUpperCase(), pn, m.role || 'Presence', personAvatar);
                     });
-                    html += _showcaseHead("who's already in the Cove") + _showcaseGrid(cards);
+                    html += _showcaseHead("who's already in the Cove") + _showcaseCenter(cards);
                 }
             } catch (e) { /* presences best-effort */ }
         }

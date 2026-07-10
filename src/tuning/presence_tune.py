@@ -190,33 +190,44 @@ First person, 2-4 sentences, no headers or labels."""
         return {"agent_id": agent_id, "status": "error", "error": str(e)[:200]}
 
 
-async def tune_missing_presences(package, today: str) -> list[dict]:
+async def tune_missing_presences(package, today: str, *, force: bool = False,
+                                 recent: set | None = None) -> list[dict]:
     """Tune every Presence that has no echo for `today` OFF THE CURRENT Drop.
     Dedup shares the sweep/dispatch definition (src/tuning/dedup.py): keyed to
     the package's frequency/principle, so a Presence tuned earlier today off a
     STALE Drop (post-midnight catch-up before the real Drop published) is NOT
     counted as done and re-tunes off today's real key. Safe on re-runs (sweep,
-    boot catch-up) — never double-tunes off the same Drop."""
+    boot catch-up) — never double-tunes off the same Drop.
+
+    force=True (#D4): re-tune every Presence NOW off the current Drop, overriding
+    the per-Drop dedup — EXCEPT any in `recent` (the sweep's 20-min cooldown set),
+    which are still skipped so a forced run can't re-fire a just-tuned Presence."""
     results: list[dict] = []
     presences = await list_presences()
     if not presences:
         return results
 
+    recent = recent or set()
     ids = {p["agent_id"] for p in presences}
     tuned: set = set()
-    try:
+    if not force:
         try:
-            _pd = package.to_dict() if hasattr(package, "to_dict") else dict(getattr(package, "_raw", {}))
-        except Exception:
-            _pd = {}
-        _freq = (_pd.get("frequency") or getattr(package, "frequency", "") or "")
-        _prin = (_pd.get("principle") or getattr(package, "principle", "") or "")
-        from src.tuning.dedup import tuned_today
-        tuned = (await tuned_today(today, _freq, _prin)) & ids
-    except Exception as e:
-        print(f"{ts_log()} [presence-tune] today-echo check failed: {e}")
+            try:
+                _pd = package.to_dict() if hasattr(package, "to_dict") else dict(getattr(package, "_raw", {}))
+            except Exception:
+                _pd = {}
+            _freq = (_pd.get("frequency") or getattr(package, "frequency", "") or "")
+            _prin = (_pd.get("principle") or getattr(package, "principle", "") or "")
+            from src.tuning.dedup import tuned_today
+            tuned = (await tuned_today(today, _freq, _prin)) & ids
+        except Exception as e:
+            print(f"{ts_log()} [presence-tune] today-echo check failed: {e}")
 
     for p in presences:
+        if p["agent_id"] in recent:
+            # 20-min cooldown wins even under force (runaway/token guard).
+            results.append({"agent_id": p["agent_id"], "status": "cooldown"})
+            continue
         if p["agent_id"] in tuned:
             results.append({"agent_id": p["agent_id"], "status": "already_tuned"})
             continue

@@ -148,6 +148,12 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 <script>
 const params = new URLSearchParams(window.location.search);
 const stem = params.get('stem') || '';
+// #D5: "Skip moments — use whole video". The pipeline page sends whole=1 so a
+// short video goes transcribe → caption + crop → schedule directly, with the
+// entire video as ONE clip instead of moment-finding. We synthesize that single
+// clip once videoInfo (the duration) is known, so the redirect-to-moments guard
+// below is bypassed in this mode.
+const wholeVideo = params.get('whole') === '1';
 
 const FRAME_W = 270, FRAME_H = 480;
 
@@ -235,9 +241,12 @@ const FREQ_COLORS = [
 // fall back to loading ALL moments from API (from Action Board card)
 try { clips = JSON.parse(sessionStorage.getItem('approved_moments') || '[]'); } catch(e) { clips = []; }
 
-// Set back link to moments review
+// Set back link — to moments review normally, but to the pipeline page in
+// whole-video mode (#D5), which skipped moments entirely.
 document.getElementById('back-link').href =
-    `/static/action-board/video-moments-review.html?stem=${stem}` +
+    (wholeVideo
+        ? `/static/action-board/full-video-pipeline.html?stem=${stem}`
+        : `/static/action-board/video-moments-review.html?stem=${stem}`) +
     (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
 
 function videoWindowHeight() {
@@ -248,8 +257,10 @@ async function init() {
     const container = document.getElementById('main-content');
     if (!stem) { container.innerHTML = '<div class="loading">No video stem.</div>'; return; }
 
-    // If no approved moments, redirect to moments review to make selections
-    if (clips.length === 0 && stem) {
+    // If no approved moments, redirect to moments review to make selections —
+    // UNLESS we're in whole-video mode (#D5), where the single clip is the video
+    // itself and is synthesized below once we know the duration.
+    if (clips.length === 0 && stem && !wholeVideo) {
         const momentsUrl = `/static/action-board/video-moments-review.html?stem=${stem}` +
             (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
         window.location.href = momentsUrl;
@@ -265,6 +276,20 @@ async function init() {
         if (!videoInfo) { container.innerHTML = '<div class="loading">Video not found.</div>'; return; }
     } else {
         videoInfo = await infoResp.json();
+    }
+
+    // #D5: whole-video mode — the single clip IS the full video (0 → duration).
+    // Drops straight into the normal crop / caption / distribute flow below.
+    if (wholeVideo && clips.length === 0 && videoInfo && videoInfo.duration) {
+        const dur = Math.round(videoInfo.duration * 10) / 10;
+        clips = [{
+            clip_type: 'story',
+            clip_label: 'Full video',
+            start_seconds: 0,
+            end_seconds: dur,
+            duration_seconds: dur,
+            whole_video: true,
+        }];
     }
 
     // Initial zoom: fill video window width
