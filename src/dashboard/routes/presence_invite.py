@@ -242,6 +242,8 @@ async def open_invite(token: str, request: Request):
     q = {"invite": token, "role": inv["role"], "self": "1", "join": "1"}
     if inv.get("reserved_handle"):
         q["handle"] = inv["reserved_handle"]
+    if inv.get("invited_label"):
+        q["for"] = inv["invited_label"]
     wizard = "%s?%s" % (_WIZARD_COVE, urlencode(q))
 
     # Seed the invitee as a full operator and sign them in (mirror the founder). After this

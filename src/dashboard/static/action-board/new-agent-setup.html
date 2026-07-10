@@ -755,6 +755,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const coveName = urlParams.get('cove') || '';
 const memberIdParam = urlParams.get('member') || '';
 const memberNameParam = urlParams.get('name') || '';
+const forLabelParam = urlParams.get('for') || '';
 // The Cove name the operator just chose in new-cove-setup (threaded through
 // agent-setup as ?cove_name). It is the agent's LAST NAME. During first-run the
 // Cove isn't saved to cove.yaml yet, so /api/settings still returns the seed
@@ -1885,7 +1886,7 @@ async function provisionAgent() {
                 await _runWake(data.door || '/', false);
                 return;
             }
-            const forWhom = personParam || memberNameParam || name;
+            const forWhom = forLabelParam || personParam || memberNameParam || name;
             // Build the existing signin-link result (shown after the wake, or now
             // if there's no usable presence id to wake under).
             const resultHTML = `<div class="provision-status">

@@ -167,7 +167,13 @@ async function loadTeam() {
                 <button class="btn btn-subtle family-add-btn" onclick="window.location.href='/static/action-board/agent-setup.html'">+ Add a Presence</button>
                 <button class="btn btn-subtle family-add-btn" onclick="invitePresence()">Invite by link</button>
             </div>
-            <div id="invite-presence-box"></div>`;
+            <div id="invite-presence-box"></div>
+            <div id="pending-invites-box"></div>`;
+        }
+
+        // Load pending invites asynchronously after render
+        if (canEdit || viewMode === 'operator') {
+            loadPendingInvites();
         }
 
         // ── Haven ─────────────────────────────────────────────────────────
@@ -690,6 +696,48 @@ function copyInviteLink(ev) {
     try { navigator.clipboard.writeText(el.value); } catch (e) { try { document.execCommand('copy'); } catch (_) {} }
     const btn = ev && ev.target;
     if (btn) { const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = t; }, 1500); }
+}
+
+// ── Pending invites list (rendered after the team grid) ─────────────────────
+async function loadPendingInvites() {
+    const box = document.getElementById('pending-invites-box');
+    if (!box) return;
+    try {
+        const res = await fetch('/api/presence/invites');
+        if (!res.ok) return;  // silently skip on auth/perms errors
+        const data = await res.json();
+        const invites = data.invites || [];
+        if (!invites.length) return;
+
+        const rows = invites.map(inv => {
+            const label = inv.invited_label ? esc(inv.invited_label) : '<span style="color:var(--dim);font-style:italic;">no label</span>';
+            const roleBadge = inv.role === 'admin'
+                ? '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--warn);">admin</span>'
+                : '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--dim);">member</span>';
+            const exp = inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : '—';
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#0e0e14;border:1px solid #1a1a24;border-radius:6px;margin-bottom:6px;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span style="font-size:0.85rem;font-weight:500;">${label}</span>
+                    ${roleBadge}
+                    <span style="font-size:0.65rem;color:var(--dim);">expires ${esc(exp)}</span>
+                </div>
+                <button class="btn btn-sm" style="font-size:0.65rem;padding:2px 8px;" onclick="revokeInvite('${esc(inv.id)}')">Revoke</button>
+            </div>`;
+        }).join('');
+
+        box.innerHTML = `<div class="team-section-header" style="margin-top:14px;">Pending invites</div>${rows}`;
+    } catch (e) {
+        // silently skip — this is a nice-to-have, not a blocker
+    }
+}
+
+async function revokeInvite(inviteId) {
+    try {
+        const res = await fetch(`/api/presence/invite/${encodeURIComponent(inviteId)}/revoke`, { method: 'POST' });
+        if (res.ok && typeof loadPendingInvites === 'function') loadPendingInvites();
+    } catch (e) {
+        // silently fail
+    }
 }
 
 async function loadFamilyMemberTasks(memberId) {
