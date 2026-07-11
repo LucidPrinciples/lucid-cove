@@ -78,14 +78,31 @@ async def _run_cmd(cmd: str, cwd: str = None, timeout: int = 60) -> str:
 def _resolve_repo(project: str) -> str:
     """Resolve a project name to its repo directory.
 
-    Checks: absolute paths, /sites/{name}, PROJECTS_DIR/{name}.
+    Checks: /sites/{name}, PROJECTS_DIR/{name}.
     Site repos (one folder per domain) live in /sites/.
     Code repos: lucid-cove, ltp-core, ltp-drop at PROJECTS_DIR (/app/data/projects/).
+
+    HARD BOUNDARY: Absolute paths outside the canonical roots are rejected.
+    Path traversal (..) is rejected. Missing workspace = report, don't improvise.
     """
     from pathlib import Path
     p = Path(project)
-    if p.is_absolute() and p.exists():
+
+    # Reject path traversal attempts
+    if ".." in str(p):
+        return f"Error: Path traversal ('..') not allowed in repo name: {project}"
+
+    # If absolute path, verify it's under allowed roots
+    CANONICAL_ROOTS = [PROJECTS_DIR, SITES_DIR]
+    if p.is_absolute():
+        if not any(str(p).startswith(str(root)) for root in CANONICAL_ROOTS):
+            allowed = [str(r) for r in CANONICAL_ROOTS]
+            return (f"Error: Repo path '{project}' is outside allowed directories. "
+                    f"Allowed roots: {', '.join(allowed)}")
+        if not p.exists():
+            return f"Error: Repo path '{project}' does not exist."
         return str(p)
+
     # Check sites directory first (website repos)
     site_candidate = SITES_DIR / project
     if site_candidate.exists():
@@ -94,11 +111,15 @@ def _resolve_repo(project: str) -> str:
     candidate = PROJECTS_DIR / project
     if candidate.exists():
         return str(candidate)
-    # Miss: return error with actual repo list
+
+    # Miss: return error with actual repo list and allowed roots
     found = []
     if PROJECTS_DIR.exists():
         found = [d.name for d in PROJECTS_DIR.iterdir() if d.is_dir() and (d / ".git").exists()]
-    return f"Error: Repo '{project}' not found. Available repos: {', '.join(found) if found else 'none found at ' + str(PROJECTS_DIR)}"
+    allowed_roots = f"{PROJECTS_DIR}, {SITES_DIR}"
+    return (f"Error: Repo '{project}' not found. Available repos: {', '.join(found) if found else 'none found'}. "
+            f"Allowed directories: {allowed_roots}. "
+            f"If a repo is missing, REPORT it — do not improvise a clone.")
 
 
 # =============================================================================

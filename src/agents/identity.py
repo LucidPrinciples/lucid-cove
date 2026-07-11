@@ -319,6 +319,13 @@ def _dev_workflow_block(agent: dict) -> str:
         "branch-protected and you push with a non-admin token, so nothing lands without the "
         "operator's merge. Use the `git_*` / `create_github_pr` tools — never raw shell for git."
     )
+    lines.append(
+        "\n**HARD BOUNDARY**: You only operate within the canonical mounted workspaces: "
+        f"/app/data/projects/ (code repos: {_repo_list or 'none found'}), /sites (website repos). "
+        "If a repo is missing from these locations, REPORT it — never improvise by cloning to "
+        "a temp directory or using run_shell for git. A capability you don't have is a "
+        "reportable fact, never something to simulate."
+    )
     return "\n".join(lines)
 
 

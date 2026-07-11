@@ -884,6 +884,9 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     _ltp = (deploy.get("ltp_core_path") or "").strip()
     ltp_mount = f"\n      - {_ltp}/src:/opt/ltp-core-src:ro" if _ltp else ""
     ltp_env = "\n      PYTHONPATH: /opt/ltp-core-src" if _ltp else ""
+    # Sites: canonical durable workspace for website repos (GitHub → Cloudflare Pages).
+    # Mounts the sites subdir of app_data to /sites so container recreates don't lose repos.
+    sites_mount = f"\n      - {_stg_src['app_data']}/sites:/sites"
     # Local CPU voice (jules dictation + Piper TTS). faster-whisper downloads its STT
     # model on first boot; voice_cache persists it across recreates. The browser reaches
     # voice on this published port (same host as the app); the app's transcribe proxy
@@ -1115,7 +1118,7 @@ services:
     volumes:
       - {core}:/cove-core:ro
       - ./config:/app/config   # rw: runtime settings (domain, compute) persist to cove.yaml
-      - {_stg_src["app_data"]}:/app/data{ltp_mount}{caddy_app_vol}{shared_app_vol}
+      - {_stg_src["app_data"]}:/app/data{sites_mount}{ltp_mount}{caddy_app_vol}{shared_app_vol}
     ports:
       - "{bind}{app_port}:{app_port}"{svc_nets}
 {voice_services}{dendrite_services}{caddy_services}
