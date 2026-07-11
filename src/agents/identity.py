@@ -283,6 +283,14 @@ def _dev_workflow_block(agent: dict) -> str:
     role_text = f"{agent.get('archetype', '')} {agent.get('role', '')} {agent.get('name', '')}".lower()
     is_steward = bool(agent.get("can_delegate_to")) or "steward" in role_text
 
+    # Discover actual repos at runtime
+    from pathlib import Path as _P
+    _projects_dir = _P("/app/data/projects")
+    _repos = []
+    if _projects_dir.exists():
+        _repos = [d.name for d in _projects_dir.iterdir() if d.is_dir() and (d / ".git").exists()]
+    _repo_list = ", ".join(_repos) if _repos else "none found"
+
     lines = ["\n## How You Ship Code\n"]
     if is_steward:
         lines.append(
@@ -296,6 +304,7 @@ def _dev_workflow_block(agent: dict) -> str:
             "the team. You don't take those on alone."
         )
     lines.append(
+        f"The Cove repos available: {_repo_list} (at /app/data/projects/). "
         "The flow, always: work on a branch -> `git_push` (this reaches the operator as an "
         "approval with the diff) -> open a PR with `create_github_pr` -> the operator reviews "
         "and merges. A pushed branch is NOT done until the PR is merged. `main` is "

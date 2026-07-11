@@ -6,10 +6,10 @@ this safe subset — the @auto (no-approval) git READ tools from dev_tools — a
 full dev set (no git_push / create_github_pr / commit / db_execute). Capability still
 respects the approval decorators; this module simply never includes a gated tool.
 
-Brain geography (the thing Mercer didn't know): the code repos live at paths resolved
-by _resolve_repo (checking /sites, /data/projects/, etc.); Nextcloud is the BRAIN
-(docs/memory), not the code. A release-role agent asking Nextcloud for a repo path is
-looking in the wrong place — these tools are the repo surface.
+Brain geography: the code repos live at PROJECTS_DIR (/app/data/projects/) containing
+three Cove repos: lucid-cove, ltp-core, ltp-drop. Nextcloud is the BRAIN (docs/memory),
+not the code. A release-role agent asking Nextcloud for a repo path is looking in the
+wrong place — these tools are the repo surface.
 
 Bound two ways (same pattern as the steward's universal queue/delegation modules):
 listed in cove.yaml.example's merchant_channel.tools for fresh installs, AND appended
@@ -49,7 +49,7 @@ async def read_file(path: str, max_chars: int = 50000) -> str:
     """
     # Security: reject absolute paths — only project/relative/path form allowed
     if path.startswith("/"):
-        return "Error: Absolute paths not allowed. Use project/relative/path form."
+        return "Error: Absolute paths not allowed. Use project/relative/path form (e.g. lucid-cove/src/config.py). Allowed repos: lucid-cove, ltp-core, ltp-drop"
 
     # Security: reject explicit path traversal attempts
     if ".." in path:
@@ -75,7 +75,7 @@ async def read_file(path: str, max_chars: int = 50000) -> str:
         try:
             file_path.resolve().relative_to(repo_root.resolve())
         except ValueError:
-            return "Error: Path escapes repository root."
+            return "Error: Path escapes repository root. Allowed repos: lucid-cove, ltp-core, ltp-drop at /app/data/projects/"
 
         # Check file exists and is a file
         if not file_path.exists():
