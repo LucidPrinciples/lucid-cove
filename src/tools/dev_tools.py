@@ -344,7 +344,17 @@ async def git_push(project: str, branch: str = "") -> str:
             return f"REFUSED: Could not verify branch state. Git output: {commit_count}"
 
     # If we reach here: either upstream exists with unpushed commits, OR new branch with commits
-    return await _run_git(f"push origin {shlex.quote(branch)}", repo)
+    result = await _run_git(f"push origin {shlex.quote(branch)}", repo)
+    
+    # POST-CHECK: Verify the remote ref actually exists after push
+    # This catches credential/auth failures that report success but don't push
+    remote_ref_check = await _run_git(f"ls-remote --heads origin {shlex.quote(branch)}", repo)
+    if not remote_ref_check or remote_ref_check == "(no output)":
+        return f"FAILED: Push reported success but branch '{branch}' not found on origin.\n" \
+               f"Likely cause: no push credentials configured.\n" \
+               f"Git output: {result}"
+    
+    return result
 
 
 @approve
@@ -458,6 +468,27 @@ async def create_github_pr(project: str, title: str, body: str = "",
         data = resp.json()
         pr_number = data.get('number')
         pr_url = data.get('html_url')
+        
+        # POST-CHECK: Verify PR was actually created and is reachable
+        if not pr_number or not pr_url:
+            return (f"FAILED: GitHub API returned 201 but PR data incomplete.\n"
+                    f"Response: {data}")
+        
+        # Verify PR exists by fetching it back
+        try:
+            verify_resp = await client.get(
+                f"https://api.github.com/repos/{slug}/pulls/{pr_number}",
+                headers={"Authorization": f"Bearer {token}",
+                         "Accept": "application/vnd.github+json"},
+            )
+            if verify_resp.status_code != 200:
+                return (f"FAILED: PR creation reported success but verification failed.\n"
+                        f"PR URL: {pr_url}\n"
+                        f"Verify response: {verify_resp.status_code}")
+        except Exception as e:
+            return (f"FAILED: PR created but verification error: {e}\n"
+                    f"PR URL: {pr_url}")
+        
         # Get comparison stats for the PR card
         additions = 0
         deletions = 0
