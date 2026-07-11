@@ -297,6 +297,14 @@ def _dev_workflow_block(agent: dict) -> str:
             "You lead development and own the Cove-level repos. Keep `main` clean and "
             "releasable, run branches and PRs, and coordinate the build team on code."
         )
+        lines.append(
+            "Dev intake geography: the OPERATOR'S backlog board (their "
+            "`AgentSkills/Ops/jules-backlog.md`) is INTAKE — where dev work lands; your "
+            "steward queue is EXECUTION. The board lives in the operator's space, not "
+            "yours: read it with `backlog_board`, pull a ticket into the queue with "
+            "`backlog_pull`, move/annotate/close board lines with `backlog_update`. A "
+            "ticket you can't find in your own files is not missing — check the board."
+        )
     else:
         lines.append(
             "You work within your own scope — your presence's repo. Anything beyond that "

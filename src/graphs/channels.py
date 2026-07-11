@@ -516,7 +516,13 @@ def _channel_tool_modules(channel: str):
                 # cove.yaml. (Found live 2026-07-10: Stuart had no queue tools
                 # because the instance list predated Pillar 1.)
                 if mtype == 'steward':
-                    for m in ("tools.steward_queue_tools", "tools.delegation_tools"):
+                    # backlog_tools rides here too (2026-07-11, Chords): the
+                    # operator's intake board is the steward's work SOURCE —
+                    # read it, pull tickets to the queue, update lines — and it
+                    # lives across the NC user-scope boundary, so it must ship
+                    # with the role, not with an instance's tool list.
+                    for m in ("tools.steward_queue_tools", "tools.delegation_tools",
+                              "tools.backlog_tools"):
                         if m not in mods:
                             mods.append(m)
                 # #D17: the merchant's release lane needs READ-ONLY repo access (the
