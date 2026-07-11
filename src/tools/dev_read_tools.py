@@ -7,9 +7,10 @@ full dev set (no git_push / create_github_pr / commit / db_execute). Capability 
 respects the approval decorators; this module simply never includes a gated tool.
 
 Brain geography: the code repos live at PROJECTS_DIR (/app/data/projects/) containing
-three Cove repos: lucid-cove, ltp-core, ltp-drop. Nextcloud is the BRAIN (docs/memory),
-not the code. A release-role agent asking Nextcloud for a repo path is looking in the
-wrong place — these tools are the repo surface.
+the three Cove repos: lucid-cove, ltp-core, ltp-drop. Website repos (per-domain) live
+at /sites/. Nextcloud is the BRAIN (docs/memory), not the code. A release-role agent
+asking Nextcloud for a repo path is looking in the wrong place — these tools are the
+repo surface.
 
 Bound two ways (same pattern as the steward's universal queue/delegation modules):
 listed in cove.yaml.example's merchant_channel.tools for fresh installs, AND appended

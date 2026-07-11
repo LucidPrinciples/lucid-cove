@@ -526,8 +526,9 @@ def _channel_tool_modules(channel: str):
                         if m not in mods:
                             mods.append(m)
                 # #D17: the merchant's release lane needs READ-ONLY repo access (the
-                # code lives at /sites, reached via git_* — NC is the brain, not the
-                # code). Bind the safe read subset universally, same as the steward's
+                # code lives at PROJECTS_DIR /app/data/projects/, reached via git_* —
+                # NC is the brain, not the code). Bind the safe read subset universally,
+                # same as the steward's
                 # universal modules, so a Cove whose cove.yaml predates this gets it on
                 # upgrade. NOT the full dev set — no push/PR for the merchant (he reports,
                 # the steward ships).
