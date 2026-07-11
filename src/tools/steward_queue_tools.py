@@ -20,7 +20,9 @@ a branch → gated git_push → create_github_pr → queue_update(id, status
 'in_review', pr_url) → operator merges → queue_update(id, 'done').
 """
 
+import asyncio
 import json
+import logging
 
 from langchain_core.tools import tool
 from src.tools.approval import auto, notify
@@ -111,6 +113,32 @@ async def queue_update(item_id: int, status: str = "", pr_url: str = "",
     return await _update(item_id, status=status, pr_url=pr_url, note=note)
 
 
+async def _sync_board_on_done(source: str, pr_url: str):
+    """When a queue item reaches done, sync the board: move to COMPLETED,
+    mark done, add PR ref. Fire-and-forget: failures are logged, not fatal."""
+    if not source.startswith("board:"):
+        return  # only board-sourced items sync back
+    ticket = source[6:]  # strip 'board:' prefix
+    try:
+        from src.tools.backlog_tools import _board_get, _board_put
+        from src.tools.backlog_tools import move_ticket_lane, mark_ticket_done, annotate_ticket
+        text, label = await _board_get()
+        # Move to COMPLETED lane
+        text, msg1 = move_ticket_lane(text, ticket, "completed")
+        # Mark checkbox done
+        text, msg2 = mark_ticket_done(text, ticket)
+        # Annotate with PR ref
+        if pr_url:
+            text, msg3 = annotate_ticket(text, ticket, f"merged {pr_url}")
+        else:
+            msg3 = ""
+        await _board_put(text)
+    except Exception as e:
+        # Log but don't fail the queue update — board sync is best-effort
+        logging.getLogger(__name__).warning(
+            f"Board sync failed for {ticket}: {e}")
+
+
 async def _update(item_id: int, status: str = "", assignee: str = "",
                   pr_url: str = "", note: str = "") -> str:
     from src.memory.database import get_db
@@ -119,7 +147,7 @@ async def _update(item_id: int, status: str = "", assignee: str = "",
         return f"Invalid status '{status}'. Valid: {', '.join(VALID_STATUSES)}"
     async with get_db() as conn:
         r = await conn.execute(
-            "SELECT id, status, notes FROM steward_queue WHERE id = %s", (item_id,))
+            "SELECT id, status, notes, source, pr_url FROM steward_queue WHERE id = %s", (item_id,))
         row = await r.fetchone()
         if not row:
             return f"No queue item with id {item_id} — run queue_list first."
@@ -146,6 +174,9 @@ async def _update(item_id: int, status: str = "", assignee: str = "",
             "SELECT id, source, title, status, assignee, pr_url FROM steward_queue WHERE id = %s",
             (item_id,))
         updated = await r.fetchone()
+    # Fire board sync when reaching done (best-effort, non-blocking)
+    if status == "done":
+        asyncio.create_task(_sync_board_on_done(row["source"], row["pr_url"] or pr_url))
     return f"Updated: {_fmt_row(updated)}"
 
 
