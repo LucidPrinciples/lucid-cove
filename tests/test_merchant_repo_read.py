@@ -65,15 +65,15 @@ def test_steward_channel_does_not_get_merchant_read_module():
 
 @pytest.mark.asyncio
 async def test_read_file_rejects_path_traversal():
-    result = await dev_read_tools.read_file("lucid-cove/../../../etc/passwd")
+    result = await dev_read_tools.read_file.ainvoke({"path": "lucid-cove/../../../etc/passwd"})
     assert "Error: Path traversal" in result
 
 
 @pytest.mark.asyncio
-async def test_read_file_rejects_absolute_path_escaping_repo():
-    # Absolute path that would resolve outside any repo
-    result = await dev_read_tools.read_file("/etc/passwd")
-    assert "Error" in result  # Either not found or escapes root
+async def test_read_file_rejects_absolute_path():
+    # Absolute paths must be rejected outright — only project/relative/path form allowed
+    result = await dev_read_tools.read_file.ainvoke({"path": "/etc/passwd"})
+    assert "Error: Absolute paths not allowed" in result
 
 
 @pytest.mark.asyncio
@@ -90,13 +90,13 @@ async def test_read_file_reads_valid_repo_file(tmp_path, monkeypatch):
         lambda p: str(mock_repo) if p == "mock-repo" else str(tmp_path / p)
     )
 
-    result = await dev_read_tools.read_file("mock-repo/test.txt")
+    result = await dev_read_tools.read_file.ainvoke({"path": "mock-repo/test.txt"})
     assert result == "Hello, World!"
 
 
 @pytest.mark.asyncio
 async def test_read_file_not_found():
-    result = await dev_read_tools.read_file("nonexistent-repo/no-such-file.txt")
+    result = await dev_read_tools.read_file.ainvoke({"path": "nonexistent-repo/no-such-file.txt"})
     assert "Error: File not found" in result
 
 
@@ -112,7 +112,7 @@ async def test_read_file_respects_size_cap(tmp_path, monkeypatch):
         lambda p: str(mock_repo) if p == "mock-repo" else str(tmp_path / p)
     )
 
-    result = await dev_read_tools.read_file("mock-repo/large.txt", max_chars=50_000)
+    result = await dev_read_tools.read_file.ainvoke({"path": "mock-repo/large.txt", "max_chars": 50_000})
     assert len(result) <= 50_000 + 100  # Content + truncation marker
     assert "[...truncated" in result
     assert "total size: 100000 chars" in result
@@ -121,8 +121,9 @@ async def test_read_file_respects_size_cap(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_read_file_no_gated_tools_in_module():
     """The module invariant: zero gated/write tools, only @auto read tools."""
+    from src.tools.approval import get_tier, Tier
+
     for tool in dev_read_tools.ALL_DEV_READ_TOOLS:
         # Check tool has auto approval tier (not notify/approve)
-        from src.tools.approval import _get_tool_tier
-        tier = _get_tool_tier(tool)
-        assert tier == "auto", f"Tool {tool.name} has tier {tier}, expected 'auto'"
+        tier = get_tier(tool)
+        assert tier == Tier.AUTO, f"Tool {tool.name} has tier {tier}, expected {Tier.AUTO}"

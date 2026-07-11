@@ -35,42 +35,41 @@ async def read_file(path: str, max_chars: int = 50000) -> str:
     """Read a text file from within a repository. Read-only, @auto tier.
 
     Path resolution:
-      - Project names resolve via _resolve_repo (checks /sites, /data/projects/, etc.)
-      - Relative paths resolve within the repo root
-      - Rejects: .. path traversal, absolute paths escaping repo roots
+      - Accepts ONLY project/relative/path form (e.g. 'lucid-cove/src/tools/dev_tools.py')
+      - Project name resolves via _resolve_repo to known repo directories
+      - Rejects: absolute paths, .. path traversal
 
     Args:
-        path: File path (e.g. 'lucid-cove/src/tools/dev_tools.py' or absolute repo path)
+        path: File path in project/relative/path form (e.g. 'lucid-cove/src/config.py')
         max_chars: Maximum characters to return (default 50KB). Larger files truncated
                    with a marker indicating total size.
 
     Returns:
         File contents, or error message if path invalid/inaccessible.
     """
+    # Security: reject absolute paths — only project/relative/path form allowed
+    if path.startswith("/"):
+        return "Error: Absolute paths not allowed. Use project/relative/path form."
+
     # Security: reject explicit path traversal attempts
     if ".." in path:
         return "Error: Path traversal (..) not allowed."
 
     try:
-        # Resolve the repo root using the shared resolver
-        # For paths like "lucid-cove/src/tools/dev_tools.py", extract project name
+        # Extract project name (first component) and remaining path
         repo_path = Path(path)
-        if not repo_path.is_absolute():
-            # Extract first component as project name
-            parts = repo_path.parts
-            if not parts:
-                return "Error: Empty path."
-            project_name = parts[0]
-            repo_root = Path(_resolve_repo(project_name))
-            # Remaining path within repo
-            if len(parts) > 1:
-                file_path = repo_root.joinpath(*parts[1:])
-            else:
-                file_path = repo_root
+        parts = repo_path.parts
+        if not parts:
+            return "Error: Empty path."
+
+        project_name = parts[0]
+        repo_root = Path(_resolve_repo(project_name))
+
+        # Remaining path within repo
+        if len(parts) > 1:
+            file_path = repo_root.joinpath(*parts[1:])
         else:
-            # Absolute path - validate it resolves within a known repo
-            repo_root = Path(_resolve_repo(str(repo_path)))
-            file_path = repo_path
+            file_path = repo_root
 
         # Security: ensure resolved path stays within repo root
         try:
