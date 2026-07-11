@@ -143,16 +143,23 @@ async function loadHomeApprovals() {
     try {
         // First-run onboarding cards live here too — they sit until done, the same
         // way agent-activity approvals do.
-        const [obData, data, watchData] = await Promise.all([
+        // #D18: Also fetch recent approvals to show PR review cards for create_github_pr results
+        const [obData, data, watchData, recentData] = await Promise.all([
             fetch('/api/onboarding/items').then(r => r.json()).catch(() => ({ items: [] })),
             fetch('/api/bridge/approvals').then(r => r.json()).catch(() => ({ approvals: [] })),
             fetch('/api/watcher/alerts').then(r => r.ok ? r.json() : { alerts: [] }).catch(() => ({ alerts: [] })),
+            fetch('/api/approvals/recent?limit=10').then(r => r.json()).catch(() => ({ approvals: [] })),
         ]);
         const steps = obData.steps || [];
         const showSetup = steps.length > 0 && !obData.complete;
         const approvals = data.approvals || [];
         const watcherAlerts = watchData.alerts || [];
-        const total = (showSetup ? 1 : 0) + approvals.length + watcherAlerts.length;
+        
+        // #D18: Build PR review cards from recent create_github_pr approvals
+        const recentApprovals = recentData.approvals || [];
+        const prCards = _buildPRCards(recentApprovals);
+        
+        const total = (showSetup ? 1 : 0) + approvals.length + watcherAlerts.length + prCards.length;
 
         if (!total) {
             // Nothing needs approval. Operators (who have a calendar) get their next
@@ -211,7 +218,8 @@ async function loadHomeApprovals() {
                 </div>
             </div>`;
         }).join('');
-        el.innerHTML = obHtml + watchHtml + apHtml;
+        const prHtml = prCards.join('');
+        el.innerHTML = obHtml + watchHtml + apHtml + prHtml;
     } catch {
         el.innerHTML = '<span class="empty-msg">Approvals unavailable</span>';
         if (badge) badge.classList.add('hidden');
@@ -1057,6 +1065,108 @@ async function loadSiteDiff(repo, branch, containerId) {
     el.innerHTML = '<span style="color:var(--dim);font-size:0.75rem;">Loading diff...</span>';
     try {
         const res = await fetch(`/api/sites/github/diff?repo=${encodeURIComponent(repo)}&head=${encodeURIComponent(branch)}`);
+        const data = await res.json();
+        if (data.error) {
+            el.innerHTML = `<span style="color:var(--red);font-size:0.75rem;">${ESC(data.error)}</span>`;
+            return;
+        }
+        const files = data.files || [];
+        if (!files.length) {
+            el.innerHTML = '<span style="color:var(--dim);font-size:0.75rem;">No changes found.</span>';
+            return;
+        }
+        let html = '';
+        files.forEach(f => {
+            const statusColor = f.status === 'added' ? 'var(--green)' : f.status === 'removed' ? 'var(--red)' : 'var(--accent)';
+            html += `<div class="diff-file">
+                <div class="diff-file-header">
+                    <span style="color:${statusColor}">${ESC(f.status)}</span>
+                    <span>${ESC(f.filename)}</span>
+                    <span style="color:var(--dim);font-size:0.65rem;">+${f.additions} -${f.deletions}</span>
+                </div>
+                ${f.patch ? `<pre class="diff-patch">${ESC(f.patch)}</pre>` : ''}
+            </div>`;
+        });
+        el.innerHTML = html;
+    } catch (e) {
+        el.innerHTML = `<span style="color:var(--red);font-size:0.75rem;">Failed to load diff</span>`;
+    }
+}
+
+// #D18: PR Review Card helpers
+function _buildPRCards(recentApprovals) {
+    // Build PR review cards from recent create_github_pr approvals.
+    const cards = [];
+    for (const a of recentApprovals) {
+        if (a.tool_name !== 'create_github_pr' || a.status !== 'approved') continue;
+        if (!a.result) continue;
+        
+        // Try to parse the JSON result
+        let prData;
+        try {
+            prData = JSON.parse(a.result);
+        } catch (e) {
+            // Fallback: try to extract from old format string
+            const match = a.result.match(/PR CREATED: #(\d+) (https:\/\/github\.com\/[^\s]+)/);
+            if (!match) continue;
+            prData = {
+                pr_number: parseInt(match[1]),
+                pr_url: match[2],
+                title: a.description || 'PR',
+                branch: '',
+                base: 'main',
+                repo: '',
+                additions: 0,
+                deletions: 0
+            };
+        }
+        
+        if (!prData || prData.status !== 'created') continue;
+        
+        const prNumber = prData.pr_number;
+        const prUrl = prData.pr_url;
+        const title = prData.title || 'Pull Request';
+        const branch = prData.branch || '';
+        const base = prData.base || 'main';
+        const repo = prData.repo || '';
+        const additions = prData.additions || 0;
+        const deletions = prData.deletions || 0;
+        
+        // Extract ticket ref from title (e.g., "#D18: ...")
+        const ticketMatch = title.match(/#([A-Z]*\d+)/);
+        const ticketRef = ticketMatch ? ticketMatch[1] : '';
+        
+        const diffId = `pr-diff-${a.request_id}`;
+        
+        const cardHtml = `<div class="home-approval pr-review-card">
+            <div class="approval-tool">PR #${prNumber}${ticketRef ? ` — ${ESC(ticketRef)}` : ''}</div>
+            <div class="approval-desc"><b>${ESC(title)}</b></div>
+            <div class="approval-file"><code>${ESC(branch)}</code> → <code>${ESC(base)}</code></div>
+            <div class="approval-stats" style="font-size:0.75rem;color:var(--dim);margin:4px 0;">
+                <span style="color:var(--green)">+${additions}</span> / <span style="color:var(--red)">-${deletions}</span>
+            </div>
+            ${repo && branch ? `<div class="approval-diff-toggle">
+                <a href="#" onclick="loadPRDiff('${ESC(repo)}', '${ESC(base)}', '${ESC(branch)}', '${diffId}'); return false;">View Diff ▼</a>
+            </div>
+            <div id="${diffId}" class="approval-diff" style="display:none;"></div>` : ''}
+            <div class="approval-actions">
+                <a href="${ESC(prUrl)}" target="_blank" rel="noopener" class="btn-approve" style="text-decoration:none;">Open on GitHub ↗</a>
+            </div>
+        </div>`;
+        
+        cards.push(cardHtml);
+    }
+    return cards;
+}
+
+async function loadPRDiff(repo, base, head, containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.innerHTML = '<span style="color:var(--dim);font-size:0.75rem;">Loading diff...</span>';
+    try {
+        const res = await fetch(`/api/pr/diff?repo=${encodeURIComponent(repo)}&base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}`);
         const data = await res.json();
         if (data.error) {
             el.innerHTML = `<span style="color:var(--red);font-size:0.75rem;">${ESC(data.error)}</span>`;
