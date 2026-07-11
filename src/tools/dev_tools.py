@@ -11,6 +11,7 @@ Tier assignments:
 
 import asyncio
 import os
+import re
 from src.env import env
 from pathlib import Path
 import shlex
@@ -310,9 +311,15 @@ async def git_push(project: str, branch: str = "") -> str:
         branch = await _run_git("branch --show-current", repo)
 
     # PRE-CHECK: Must have unpushed commits before requesting push approval
-    # Explicitly handle: (1) existing branch with upstream, (2) new branch without upstream
-    upstream_exists = await _run_git(f"rev-parse --verify origin/{branch}", repo)
-    if upstream_exists and not upstream_exists.startswith("fatal:"):
+    # Explicitly handle: (1) existing branch with upstream, (2) new branch without upstream.
+    # _run_git reports failures as "Error (exit N): fatal: ..." — the old "fatal:" prefix
+    # sniff missed that wrapper, so a MISSING upstream looked like an existing one and
+    # every first push of a new branch was refused (exit-128 on rev-list). Only an actual
+    # 40-hex commit sha counts as proof the upstream exists.
+    upstream_sha = await _run_git(
+        f"rev-parse --verify --quiet origin/{shlex.quote(branch)}", repo
+    )
+    if re.fullmatch(r"[0-9a-f]{40}", upstream_sha.strip()):
         # Upstream exists — check if there are unpushed commits
         ahead_count = await _run_git(f"rev-list --count origin/{branch}..{branch}", repo)
         try:
