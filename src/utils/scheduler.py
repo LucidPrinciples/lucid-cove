@@ -278,6 +278,18 @@ class AgentScheduler:
             print(f"{ts_log()} [scheduler] watcher failed: {e}")
             return {"status": "error", "error": str(e)[:200]}
 
+    async def _run_merge_feedback(self):
+        """#D49 — merge-feedback: a PR merged on GitHub → annotate its steward_queue
+        row (merged != deployed) + drop a note to the agent. Read-only vs GitHub;
+        the only writes are the shared queue annotation + a best-effort channel
+        note. See src/tools/merge_feedback.py."""
+        try:
+            from src.tools.merge_feedback import sync_merged_prs
+            return await sync_merged_prs()
+        except Exception as e:
+            print(f"{ts_log()} [scheduler] merge-feedback failed: {e}")
+            return {"status": "error", "error": str(e)[:200]}
+
     async def _run_kb_sync(self):
         """Pull the canonical Knowledge Base from the hub into the steward's space
         (read-only mirror). The KB is the single source of truth; this writes only
@@ -1022,6 +1034,12 @@ class AgentScheduler:
                 self._schedule_async(self._run_watcher)
             )
             print("[scheduler]   every 15m — watcher (silent-failure monitor, Attention cards)")
+            # #D49 merge-feedback — PR merged on GitHub → annotate the steward_queue
+            # row (merged != deployed) + tell the agent. Host-only, same cadence.
+            schedule.every(15).minutes.do(
+                self._schedule_async(self._run_merge_feedback)
+            )
+            print("[scheduler]   every 15m — merge-feedback (#D49: merged PR → queue note + agent)")
 
         # YouTube queue processor — every 15 minutes (skips silently if no YOUTUBE_CLIENT_ID)
         schedule.every(15).minutes.do(
