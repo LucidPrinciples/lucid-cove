@@ -9,6 +9,7 @@ Handles:
 Token cache lives in app data volume (survives recreates), never in repo/logs.
 """
 
+import asyncio
 import json
 import os
 import time
@@ -195,10 +196,23 @@ async def refresh_access_token(refresh_token: str) -> dict:
         )
 
     if resp.status_code == 400:
-        data = resp.json()
-        error = data.get("error")
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        error = data.get("error") if isinstance(data, dict) else None
         if error == "invalid_grant":
-            # Refresh token expired or revoked — need re-auth
+            # AUDIT-F1: before wiping the cache, check whether another refresher (e.g.
+            # a second process sharing the token volume) rotated the token underneath
+            # us. If the on-disk refresh_token differs from the one we just presented,
+            # a valid newer token exists — reuse it instead of deleting and forcing a
+            # needless re-auth. Only a genuine expiry/revoke (token unchanged) clears
+            # the cache. The in-process single-flight lock (below) already prevents our
+            # own coroutines from racing here.
+            current = _load_cached_tokens() or {}
+            disk_refresh = current.get("refresh_token")
+            if disk_refresh and disk_refresh != refresh_token:
+                return current
             _delete_cached_tokens()
             raise ValueError("Re-authentication required (invalid_grant). Device-code flow needed.")
         raise RuntimeError(f"Token refresh error: {error}")
@@ -219,6 +233,43 @@ async def refresh_access_token(refresh_token: str) -> dict:
     return data
 
 
+# AUDIT-F1: serialize refreshes. Without this, two concurrent callers both see the
+# token inside the expiry buffer, both POST the SAME refresh_token, and a rotating
+# server rejects the second as invalid_grant — which used to wipe the cache and wedge
+# the (primary) provider until a manual device-code re-auth. The lock makes refresh
+# single-flight; waiters reuse the fresh token instead of presenting a consumed one.
+_refresh_lock = asyncio.Lock()
+
+
+async def _refresh_single_flight(failed_token: str | None = None) -> str:
+    """Return a valid access token, refreshing at most once across concurrent callers.
+
+    failed_token is None  -> proactive path (token near expiry): inside the lock,
+                             reuse the cached token if it is genuinely still valid.
+    failed_token set      -> reactive path (a request just got 401): inside the lock,
+                             reuse the cached token if it DIFFERS from the one that
+                             failed (someone already refreshed), else refresh now.
+    """
+    async with _refresh_lock:
+        tokens = _load_cached_tokens() or {}
+        cached_access = tokens.get("access_token")
+
+        if failed_token is not None:
+            if cached_access and cached_access != failed_token:
+                return cached_access
+        else:
+            expires_at = tokens.get("expires_at")
+            if cached_access and expires_at and time.time() < (expires_at - 300):
+                return cached_access
+
+        refresh_token = tokens.get("refresh_token")
+        if not refresh_token:
+            raise ValueError("Access token expired and no refresh token available. Re-authentication required.")
+
+        new_tokens = await refresh_access_token(refresh_token)
+        return new_tokens["access_token"]
+
+
 async def get_valid_access_token() -> str:
     """Get valid access token, refreshing if needed.
 
@@ -230,19 +281,13 @@ async def get_valid_access_token() -> str:
 
     access_token = tokens.get("access_token")
     expires_at = tokens.get("expires_at")
-    refresh_token = tokens.get("refresh_token")
 
-    # Check if still valid (with 5-minute buffer)
+    # Fast path: still valid (with 5-minute buffer), no lock needed.
     if expires_at and time.time() < (expires_at - 300):
         return access_token
 
-    # Needs refresh
-    if not refresh_token:
-        raise ValueError("Access token expired and no refresh token available. Re-authentication required.")
-
-    # Attempt refresh
-    new_tokens = await refresh_access_token(refresh_token)
-    return new_tokens["access_token"]
+    # Needs refresh — go through the single-flight lock so concurrent callers coalesce.
+    return await _refresh_single_flight()
 
 
 async def revoke_tokens():
@@ -336,13 +381,13 @@ class ChatXAI(BaseChatModel):
                 json=payload,
             )
 
-        # Handle 401 — try refresh once
+        # Handle 401 — try refresh once (single-flight; concurrent 401s coalesce onto
+        # one refresh instead of each presenting the same soon-consumed token). AUDIT-F1
         if resp.status_code == 401:
             tokens = _load_cached_tokens()
             if tokens and tokens.get("refresh_token"):
                 try:
-                    new_tokens = await refresh_access_token(tokens["refresh_token"])
-                    access_token = new_tokens["access_token"]
+                    access_token = await _refresh_single_flight(failed_token=access_token)
                     # Retry with new token
                     async with httpx.AsyncClient(timeout=self.timeout) as client:
                         resp = await client.post(
