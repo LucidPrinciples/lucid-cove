@@ -9,6 +9,7 @@ Handles:
 Token cache lives in app data volume (survives recreates), never in repo/logs.
 """
 
+import asyncio
 import json
 import os
 import time
@@ -20,11 +21,12 @@ import httpx
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
+    AIMessageChunk,
     BaseMessage,
     HumanMessage,
     SystemMessage,
 )
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
 from src.env import env
 
@@ -154,7 +156,7 @@ async def poll_for_token(device_code: str) -> dict | None:
         if error == "authorization_pending":
             return None  # Keep polling
         elif error == "slow_down":
-            time.sleep(5)  # Back off
+            await asyncio.sleep(5)  # Back off — AUDIT-F4: never block the event loop
             return None
         elif error == "expired_token":
             raise RuntimeError("Device code expired. Start new flow.")
@@ -195,10 +197,23 @@ async def refresh_access_token(refresh_token: str) -> dict:
         )
 
     if resp.status_code == 400:
-        data = resp.json()
-        error = data.get("error")
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        error = data.get("error") if isinstance(data, dict) else None
         if error == "invalid_grant":
-            # Refresh token expired or revoked — need re-auth
+            # AUDIT-F1: before wiping the cache, check whether another refresher (e.g.
+            # a second process sharing the token volume) rotated the token underneath
+            # us. If the on-disk refresh_token differs from the one we just presented,
+            # a valid newer token exists — reuse it instead of deleting and forcing a
+            # needless re-auth. Only a genuine expiry/revoke (token unchanged) clears
+            # the cache. The in-process single-flight lock (below) already prevents our
+            # own coroutines from racing here.
+            current = _load_cached_tokens() or {}
+            disk_refresh = current.get("refresh_token")
+            if disk_refresh and disk_refresh != refresh_token:
+                return current
             _delete_cached_tokens()
             raise ValueError("Re-authentication required (invalid_grant). Device-code flow needed.")
         raise RuntimeError(f"Token refresh error: {error}")
@@ -219,6 +234,43 @@ async def refresh_access_token(refresh_token: str) -> dict:
     return data
 
 
+# AUDIT-F1: serialize refreshes. Without this, two concurrent callers both see the
+# token inside the expiry buffer, both POST the SAME refresh_token, and a rotating
+# server rejects the second as invalid_grant — which used to wipe the cache and wedge
+# the (primary) provider until a manual device-code re-auth. The lock makes refresh
+# single-flight; waiters reuse the fresh token instead of presenting a consumed one.
+_refresh_lock = asyncio.Lock()
+
+
+async def _refresh_single_flight(failed_token: str | None = None) -> str:
+    """Return a valid access token, refreshing at most once across concurrent callers.
+
+    failed_token is None  -> proactive path (token near expiry): inside the lock,
+                             reuse the cached token if it is genuinely still valid.
+    failed_token set      -> reactive path (a request just got 401): inside the lock,
+                             reuse the cached token if it DIFFERS from the one that
+                             failed (someone already refreshed), else refresh now.
+    """
+    async with _refresh_lock:
+        tokens = _load_cached_tokens() or {}
+        cached_access = tokens.get("access_token")
+
+        if failed_token is not None:
+            if cached_access and cached_access != failed_token:
+                return cached_access
+        else:
+            expires_at = tokens.get("expires_at")
+            if cached_access and expires_at and time.time() < (expires_at - 300):
+                return cached_access
+
+        refresh_token = tokens.get("refresh_token")
+        if not refresh_token:
+            raise ValueError("Access token expired and no refresh token available. Re-authentication required.")
+
+        new_tokens = await refresh_access_token(refresh_token)
+        return new_tokens["access_token"]
+
+
 async def get_valid_access_token() -> str:
     """Get valid access token, refreshing if needed.
 
@@ -230,19 +282,13 @@ async def get_valid_access_token() -> str:
 
     access_token = tokens.get("access_token")
     expires_at = tokens.get("expires_at")
-    refresh_token = tokens.get("refresh_token")
 
-    # Check if still valid (with 5-minute buffer)
+    # Fast path: still valid (with 5-minute buffer), no lock needed.
     if expires_at and time.time() < (expires_at - 300):
         return access_token
 
-    # Needs refresh
-    if not refresh_token:
-        raise ValueError("Access token expired and no refresh token available. Re-authentication required.")
-
-    # Attempt refresh
-    new_tokens = await refresh_access_token(refresh_token)
-    return new_tokens["access_token"]
+    # Needs refresh — go through the single-flight lock so concurrent callers coalesce.
+    return await _refresh_single_flight()
 
 
 async def revoke_tokens():
@@ -287,9 +333,23 @@ class ChatXAI(BaseChatModel):
         run_manager: Any | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Sync generation — delegates to async."""
-        import asyncio
-        return asyncio.run(self._acall(messages, stop, run_manager, **kwargs))
+        """Sync generation — bridges to the async path safely.
+
+        AUDIT-F5: the old body called `asyncio.run(...)` unconditionally, which raises
+        `RuntimeError: asyncio.run() cannot be called from a running event loop` whenever
+        a sync LangChain path (.invoke) is reached from inside this async app. Detect a
+        running loop and, if present, run the coroutine on its own loop in a worker
+        thread instead of blowing up.
+        """
+        coro_factory = lambda: self._agenerate(messages, stop, run_manager, **kwargs)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro_factory())
+        # Already inside a running loop — offload to a thread with its own loop.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(coro_factory())).result()
 
     def _convert_messages(self, messages: list[BaseMessage]) -> list[dict]:
         """Convert LangChain messages to xAI Responses-API format."""
@@ -306,14 +366,15 @@ class ChatXAI(BaseChatModel):
                 converted.append({"role": "user", "content": str(msg.content)})
         return converted
 
-    async def _acall(
+    async def _agenerate(
         self,
         messages: list[BaseMessage],
         stop: list[str] | None = None,
         run_manager: Any | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Async call to xAI Responses-API."""
+        """Async call to xAI Responses-API. AUDIT-F5: this is the canonical async method
+        LangChain invokes for .ainvoke (was `_acall`, which LangChain never called)."""
         access_token = await get_valid_access_token()
 
         payload = {
@@ -336,13 +397,13 @@ class ChatXAI(BaseChatModel):
                 json=payload,
             )
 
-        # Handle 401 — try refresh once
+        # Handle 401 — try refresh once (single-flight; concurrent 401s coalesce onto
+        # one refresh instead of each presenting the same soon-consumed token). AUDIT-F1
         if resp.status_code == 401:
             tokens = _load_cached_tokens()
             if tokens and tokens.get("refresh_token"):
                 try:
-                    new_tokens = await refresh_access_token(tokens["refresh_token"])
-                    access_token = new_tokens["access_token"]
+                    access_token = await _refresh_single_flight(failed_token=access_token)
                     # Retry with new token
                     async with httpx.AsyncClient(timeout=self.timeout) as client:
                         resp = await client.post(
@@ -359,9 +420,19 @@ class ChatXAI(BaseChatModel):
                     raise
 
         if resp.status_code == 403:
-            # Standard tier error — surface honestly
-            data = resp.json()
-            error_msg = data.get("error", {}).get("message", "Access denied")
+            # Standard tier error — surface honestly. AUDIT-F3: a subscription/gateway
+            # 403 often returns HTML or an empty body, and the token endpoints return
+            # `error` as a STRING, not a dict — so parse defensively and never let a
+            # JSONDecodeError/AttributeError mask the honest 403 message.
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            err = data.get("error") if isinstance(data, dict) else None
+            if isinstance(err, dict):
+                error_msg = err.get("message") or "Access denied"
+            else:
+                error_msg = err or resp.text or "Access denied"
             if "subscription" in error_msg.lower() or "premium" in error_msg.lower():
                 raise RuntimeError(
                     f"xAI 403: {error_msg}. "
@@ -399,12 +470,13 @@ class ChatXAI(BaseChatModel):
         stop: list[str] | None = None,
         run_manager: Any | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[ChatGeneration, None]:
-        """Async streaming not implemented — xAI Responses-API may not support it."""
-        # For now, just call non-streaming and yield once
-        result = await self._acall(messages, stop=stop, run_manager=run_manager, **kwargs)
+    ) -> AsyncGenerator[ChatGenerationChunk, None]:
+        """Async streaming not implemented — xAI Responses-API may not support it.
+        Fall back to non-streaming and yield a single chunk. AUDIT-F5: BaseChatModel
+        requires ChatGenerationChunk here, not ChatGeneration."""
+        result = await self._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         for gen in result.generations:
-            yield gen
+            yield ChatGenerationChunk(message=AIMessageChunk(content=gen.message.content))
 
 
 

@@ -484,76 +484,80 @@ async def create_github_pr(project: str, title: str, body: str = "",
     slug, token = rt
 
     import httpx
+    import json
+    # AUDIT-F2: the verify + compare GETs below MUST run inside this `async with`
+    # block. Previously the context manager wrapped only the POST, so `client` was
+    # already closed by the time verification ran — every real 201 fell into the
+    # "FAILED: PR created but verification error" branch (closed-client RuntimeError),
+    # reporting FAILED on a genuine success and inviting a duplicate-PR retry.
+    _hdr = {"Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json"}
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 f"https://api.github.com/repos/{slug}/pulls",
-                headers={"Authorization": f"Bearer {token}",
-                         "Accept": "application/vnd.github+json"},
+                headers=_hdr,
                 json={"title": title, "body": body, "head": branch, "base": base},
             )
+
+            if resp.status_code == 201:
+                data = resp.json()
+                pr_number = data.get('number')
+                pr_url = data.get('html_url')
+
+                # POST-CHECK: Verify PR was actually created and is reachable
+                if not pr_number or not pr_url:
+                    return (f"FAILED: GitHub API returned 201 but PR data incomplete.\n"
+                            f"Response: {data}")
+
+                # Verify PR exists by fetching it back (same live client)
+                try:
+                    verify_resp = await client.get(
+                        f"https://api.github.com/repos/{slug}/pulls/{pr_number}",
+                        headers=_hdr,
+                    )
+                    if verify_resp.status_code != 200:
+                        return (f"FAILED: PR creation reported success but verification failed.\n"
+                                f"PR URL: {pr_url}\n"
+                                f"Verify response: {verify_resp.status_code}")
+                except Exception as e:
+                    return (f"FAILED: PR created but verification error: {e}\n"
+                            f"PR URL: {pr_url}")
+
+                # Get comparison stats for the PR card
+                additions = 0
+                deletions = 0
+                try:
+                    compare_resp = await client.get(
+                        f"https://api.github.com/repos/{slug}/compare/{base}...{branch}",
+                        headers=_hdr,
+                    )
+                    if compare_resp.status_code == 200:
+                        compare_data = compare_resp.json()
+                        additions = sum(f.get('additions', 0) for f in compare_data.get('files', []))
+                        deletions = sum(f.get('deletions', 0) for f in compare_data.get('files', []))
+                except Exception:
+                    pass  # Stats are nice-to-have, don't fail the PR creation
+
+                # Return structured JSON for PR review card
+                return json.dumps({
+                    "status": "created",
+                    "pr_number": pr_number,
+                    "pr_url": pr_url,
+                    "title": title,
+                    "branch": branch,
+                    "base": base,
+                    "repo": slug,
+                    "additions": additions,
+                    "deletions": deletions,
+                    "message": f"PR CREATED: #{pr_number} {pr_url}\n'{title}' ({branch} -> {base})."
+                }, indent=2)
+
+            if resp.status_code == 422 and "already exists" in resp.text:
+                return f"A PR for {branch} -> {base} already exists: {resp.text[:200]}"
+            return (f"Error: GitHub API returned {resp.status_code}: {resp.text[:300]}")
     except Exception as e:
         return f"Error: PR request failed to send: {e}"
-
-    if resp.status_code == 201:
-        data = resp.json()
-        pr_number = data.get('number')
-        pr_url = data.get('html_url')
-        
-        # POST-CHECK: Verify PR was actually created and is reachable
-        if not pr_number or not pr_url:
-            return (f"FAILED: GitHub API returned 201 but PR data incomplete.\n"
-                    f"Response: {data}")
-        
-        # Verify PR exists by fetching it back
-        try:
-            verify_resp = await client.get(
-                f"https://api.github.com/repos/{slug}/pulls/{pr_number}",
-                headers={"Authorization": f"Bearer {token}",
-                         "Accept": "application/vnd.github+json"},
-            )
-            if verify_resp.status_code != 200:
-                return (f"FAILED: PR creation reported success but verification failed.\n"
-                        f"PR URL: {pr_url}\n"
-                        f"Verify response: {verify_resp.status_code}")
-        except Exception as e:
-            return (f"FAILED: PR created but verification error: {e}\n"
-                    f"PR URL: {pr_url}")
-        
-        # Get comparison stats for the PR card
-        additions = 0
-        deletions = 0
-        try:
-            compare_resp = await client.get(
-                f"https://api.github.com/repos/{slug}/compare/{base}...{branch}",
-                headers={"Authorization": f"Bearer {token}",
-                         "Accept": "application/vnd.github+json"},
-            )
-            if compare_resp.status_code == 200:
-                compare_data = compare_resp.json()
-                additions = sum(f.get('additions', 0) for f in compare_data.get('files', []))
-                deletions = sum(f.get('deletions', 0) for f in compare_data.get('files', []))
-        except Exception:
-            pass  # Stats are nice-to-have, don't fail the PR creation
-
-        # Return structured JSON for PR review card
-        import json
-        return json.dumps({
-            "status": "created",
-            "pr_number": pr_number,
-            "pr_url": pr_url,
-            "title": title,
-            "branch": branch,
-            "base": base,
-            "repo": slug,
-            "additions": additions,
-            "deletions": deletions,
-            "message": f"PR CREATED: #{pr_number} {pr_url}\n'{title}' ({branch} -> {base})."
-        }, indent=2)
-
-    if resp.status_code == 422 and "already exists" in resp.text:
-        return f"A PR for {branch} -> {base} already exists: {resp.text[:200]}"
-    return (f"Error: GitHub API returned {resp.status_code}: {resp.text[:300]}")
 
 
 # =============================================================================
