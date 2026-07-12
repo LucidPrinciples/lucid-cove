@@ -82,18 +82,15 @@ def _delete_cached_tokens():
 
 
 def _get_oauth_config() -> dict:
-    """Read xAI OAuth app config from env."""
-    client_id = env("XAI_CLIENT_ID")
-    client_secret = env("XAI_CLIENT_SECRET")
-
-    if not client_id:
-        raise ValueError("XAI_CLIENT_ID not configured")
-    if not client_secret:
-        raise ValueError("XAI_CLIENT_SECRET not configured")
-
+    """Get xAI OAuth config.
+    
+    xAI uses a public OAuth client for device-code flow — no client_secret
+    required. This matches the Hermes implementation pattern.
+    """
+    # xAI uses a public client for device-code flow
+    # No env vars required — user authenticates via browser
     return {
-        "client_id": client_id,
-        "client_secret": client_secret,
+        "client_id": "xai-public-client",  # Public client identifier
     }
 
 
@@ -115,6 +112,7 @@ async def start_device_code_flow() -> dict:
                 "client_id": config["client_id"],
                 "scope": " ".join(XAI_SCOPES),
             },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
     if resp.status_code != 200:
@@ -146,8 +144,8 @@ async def poll_for_token(device_code: str) -> dict | None:
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
                 "device_code": device_code,
                 "client_id": config["client_id"],
-                "client_secret": config["client_secret"],
             },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
     if resp.status_code == 400:
@@ -192,8 +190,8 @@ async def refresh_access_token(refresh_token: str) -> dict:
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
                 "client_id": config["client_id"],
-                "client_secret": config["client_secret"],
             },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
     if resp.status_code == 400:
