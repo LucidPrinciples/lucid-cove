@@ -27,6 +27,7 @@ from src.tools.comms_tools import ALL_COMMS_TOOLS
 from src.tools.finance_tools import ALL_FINANCE_TOOLS
 from src.tools.calendar_tools import ALL_CALENDAR_TOOLS
 from src.tools.nextcloud_tools import ALL_NEXTCLOUD_TOOLS
+from src.tools.image_tools import ALL_IMAGE_TOOLS
 from src.tools.memory_tools import ALL_MEMORY_TOOLS
 from src.tools.monitoring_tools import ALL_MONITORING_TOOLS
 from src.tools.links_tools import ALL_LINKS_TOOLS
@@ -90,6 +91,7 @@ def get_stuart_tools() -> list:
         + ALL_FINANCE_TOOLS
         + ALL_CALENDAR_TOOLS
         + ALL_NEXTCLOUD_TOOLS
+        + ALL_IMAGE_TOOLS
         + ALL_MEMORY_TOOLS
         + ALL_LINKS_TOOLS
         + ALL_STEWARD_QUEUE_TOOLS
@@ -110,6 +112,7 @@ def get_mercer_tools() -> list:
         + ALL_COMMS_TOOLS
         + ALL_FINANCE_TOOLS
         + ALL_NEXTCLOUD_TOOLS
+        + ALL_IMAGE_TOOLS
         + ALL_MEMORY_TOOLS
     )
 
@@ -149,7 +152,7 @@ def get_scout_tools() -> list:
 
 def get_keeper_tools() -> list:
     """Memory + Nextcloud + project tools for Ezra — maintains institutional knowledge."""
-    return ALL_MEMORY_TOOLS + ALL_NEXTCLOUD_TOOLS + ALL_PROJECT_TOOLS + ALL_RESEARCH_TOOLS
+    return ALL_MEMORY_TOOLS + ALL_NEXTCLOUD_TOOLS + ALL_IMAGE_TOOLS + ALL_PROJECT_TOOLS + ALL_RESEARCH_TOOLS
 
 
 # =============================================================================
@@ -165,6 +168,7 @@ def get_scribe_tools() -> list:
         + ALL_RESEARCH_TOOLS
         + ALL_COMMS_TOOLS
         + ALL_NEXTCLOUD_TOOLS
+        + ALL_IMAGE_TOOLS
     )
 
 
@@ -175,7 +179,7 @@ def get_scribe_tools() -> list:
 def get_advocate_tools() -> list:
     """Comms + nextcloud + project + memory tools for Iris — manages external
     relationships, recalls past correspondence and commitments."""
-    return ALL_COMMS_TOOLS + ALL_NEXTCLOUD_TOOLS + ALL_PROJECT_TOOLS + ALL_MEMORY_TOOLS
+    return ALL_COMMS_TOOLS + ALL_NEXTCLOUD_TOOLS + ALL_IMAGE_TOOLS + ALL_PROJECT_TOOLS + ALL_MEMORY_TOOLS
 
 
 # =============================================================================

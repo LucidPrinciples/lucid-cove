@@ -28,6 +28,8 @@ dependencies = [
     "python-multipart>=0.0.9",
     "requests-oauthlib>=2.0",
     "cryptography>=42.0",
+    "pillow>=10.4",
+    "pillow-heif>=0.18",
 ]
 
 [project.optional-dependencies]
