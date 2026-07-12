@@ -170,29 +170,69 @@ def _dav_url(nc_url: str, nc_user: str) -> str:
     return f"{nc_url}/remote.php/dav/files/{nc_user}/{quote(BOARD_RELPATH)}"
 
 
+# WebDAV codes worth retrying: 423 = a transient Nextcloud transactional lock
+# (normally clears in ms; an orphaned one from a timed-out PUT is what wedged the
+# board on 07-12), 429/5xx = momentary server hiccups. Everything else (auth, 404,
+# size) fails fast. Backoff totals ~6s across the retries.
+_TRANSIENT_DAV = {423, 429, 500, 502, 503, 504}
+_RETRY_DELAYS = (0.4, 0.8, 1.6, 3.2)
+
+
 async def _board_get():
-    """Returns (text, provenance_label). Raises with a plain message on failure."""
+    """Returns (text, provenance_label). Retries a transient WebDAV lock (423)
+    before giving up. Raises with a plain message on real failure."""
+    import asyncio
     import httpx
     nc_url, nc_user, nc_pass, label = await _intake_creds()
+    url = _dav_url(nc_url, nc_user)
+    last = "no response"
     async with httpx.AsyncClient(timeout=20, auth=(nc_user, nc_pass)) as client:
-        resp = await client.get(_dav_url(nc_url, nc_user))
-    if resp.status_code == 404:
-        raise RuntimeError(f"No board file yet at {nc_user}:{BOARD_RELPATH}")
-    if resp.status_code != 200:
-        raise RuntimeError(f"Board read failed (HTTP {resp.status_code})")
-    return resp.text, f"{label or nc_user}'s board ({nc_user}:{BOARD_RELPATH})"
+        for delay in (0.0, *_RETRY_DELAYS):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                resp = await client.get(url)
+            except httpx.TimeoutException as e:
+                last = f"timeout: {e}"
+                continue
+            if resp.status_code == 200:
+                return resp.text, f"{label or nc_user}'s board ({nc_user}:{BOARD_RELPATH})"
+            if resp.status_code == 404:
+                raise RuntimeError(f"No board file yet at {nc_user}:{BOARD_RELPATH}")
+            last = f"HTTP {resp.status_code}"
+            if resp.status_code not in _TRANSIENT_DAV:
+                break
+    raise RuntimeError(f"Board read failed ({last})")
 
 
 async def _board_put(text: str):
+    """Write the board via WebDAV, retrying a transient Nextcloud lock (423) with
+    backoff. Last-writer-wins is intentional (see module doc); this only makes the
+    write survive a momentary lock instead of hard-failing the whole board on the
+    first 423 — the failure mode that wedged it."""
+    import asyncio
     import httpx
     if len(text.encode("utf-8")) > MAX_BOARD_BYTES:
         raise RuntimeError("Refusing write: board text exceeds size guard")
     nc_url, nc_user, nc_pass, _ = await _intake_creds()
-    async with httpx.AsyncClient(timeout=20, auth=(nc_user, nc_pass)) as client:
-        resp = await client.put(_dav_url(nc_url, nc_user),
-                                content=text.encode("utf-8"))
-    if resp.status_code not in (200, 201, 204):
-        raise RuntimeError(f"Board write failed (HTTP {resp.status_code})")
+    url = _dav_url(nc_url, nc_user)
+    body = text.encode("utf-8")
+    last = "no response"
+    async with httpx.AsyncClient(timeout=30, auth=(nc_user, nc_pass)) as client:
+        for delay in (0.0, *_RETRY_DELAYS):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                resp = await client.put(url, content=body)
+            except httpx.TimeoutException as e:
+                last = f"timeout: {e}"
+                continue
+            if resp.status_code in (200, 201, 204):
+                return
+            last = f"HTTP {resp.status_code}"
+            if resp.status_code not in _TRANSIENT_DAV:
+                break
+    raise RuntimeError(f"Board write failed ({last} after retries)")
 
 
 async def _insert_queue_row(source: str, title: str, assignee: str) -> int:
