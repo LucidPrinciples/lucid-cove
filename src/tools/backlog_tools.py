@@ -20,9 +20,14 @@ Tier assignments:
 The intake owner defaults to the Cove's admin operator (cove_role='admin');
 override with the `dev_intake_account_id` setting. Writes go through WebDAV as
 the intake owner (same path the jules processor writes), so NC versioning and
-file ownership stay correct. v1 is read-modify-write without a lock — the board
-is a low-traffic markdown file; last-writer-wins is acceptable and NC keeps
-versions.
+file ownership stay correct.
+
+CONCURRENCY (OPS-5b, 2026-07-12): board writes are CONDITIONAL — every PUT
+carries the ETag of the read it was based on (`If-Match`), so a writer holding
+stale content gets HTTP 412 instead of silently overwriting someone else's
+edit (the "stomper" class: a stale client restored an old byte-identical copy
+over a fresh edit). On 412 the tools re-read, re-apply their edit to the FRESH
+text, and try once more; a second 412 is reported honestly, never forced.
 """
 
 import re
@@ -178,9 +183,15 @@ _TRANSIENT_DAV = {423, 429, 500, 502, 503, 504}
 _RETRY_DELAYS = (0.4, 0.8, 1.6, 3.2)
 
 
+class BoardStale(RuntimeError):
+    """The board changed since our read (WebDAV 412 on a conditional PUT).
+    Re-read, re-apply the edit to fresh text, and try again — never force."""
+
+
 async def _board_get():
-    """Returns (text, provenance_label). Retries a transient WebDAV lock (423)
-    before giving up. Raises with a plain message on real failure."""
+    """Returns (text, provenance_label, etag). Retries a transient WebDAV lock
+    (423) before giving up. Raises with a plain message on real failure. The
+    etag feeds _board_put's If-Match so stale writers can't stomp (OPS-5b)."""
     import asyncio
     import httpx
     nc_url, nc_user, nc_pass, label = await _intake_creds()
@@ -196,7 +207,9 @@ async def _board_get():
                 last = f"timeout: {e}"
                 continue
             if resp.status_code == 200:
-                return resp.text, f"{label or nc_user}'s board ({nc_user}:{BOARD_RELPATH})"
+                return (resp.text,
+                        f"{label or nc_user}'s board ({nc_user}:{BOARD_RELPATH})",
+                        resp.headers.get("etag", ""))
             if resp.status_code == 404:
                 raise RuntimeError(f"No board file yet at {nc_user}:{BOARD_RELPATH}")
             last = f"HTTP {resp.status_code}"
@@ -205,11 +218,12 @@ async def _board_get():
     raise RuntimeError(f"Board read failed ({last})")
 
 
-async def _board_put(text: str):
-    """Write the board via WebDAV, retrying a transient Nextcloud lock (423) with
-    backoff. Last-writer-wins is intentional (see module doc); this only makes the
-    write survive a momentary lock instead of hard-failing the whole board on the
-    first 423 — the failure mode that wedged it."""
+async def _board_put(text: str, etag: str = ""):
+    """Write the board via WebDAV. CONDITIONAL when an etag is given (If-Match):
+    a 412 means the board changed since our read → raise BoardStale so the
+    caller re-reads and re-applies instead of stomping (OPS-5b). Transient
+    Nextcloud locks (423) retry with backoff — the failure mode that wedged
+    the board on 07-12."""
     import asyncio
     import httpx
     if len(text.encode("utf-8")) > MAX_BOARD_BYTES:
@@ -217,22 +231,48 @@ async def _board_put(text: str):
     nc_url, nc_user, nc_pass, _ = await _intake_creds()
     url = _dav_url(nc_url, nc_user)
     body = text.encode("utf-8")
+    headers = {"If-Match": etag} if etag else {}
     last = "no response"
     async with httpx.AsyncClient(timeout=30, auth=(nc_user, nc_pass)) as client:
         for delay in (0.0, *_RETRY_DELAYS):
             if delay:
                 await asyncio.sleep(delay)
             try:
-                resp = await client.put(url, content=body)
+                resp = await client.put(url, content=body, headers=headers)
             except httpx.TimeoutException as e:
                 last = f"timeout: {e}"
                 continue
             if resp.status_code in (200, 201, 204):
                 return
+            if resp.status_code == 412:
+                raise BoardStale("board changed since read (ETag mismatch)")
             last = f"HTTP {resp.status_code}"
             if resp.status_code not in _TRANSIENT_DAV:
                 break
     raise RuntimeError(f"Board write failed ({last} after retries)")
+
+
+async def _cas_edit(apply_fn, attempts: int = 2):
+    """Read → edit → CONDITIONAL write, with one stale retry.
+
+    apply_fn(text) -> (new_text, msgs: list[str]) must be a pure function of the
+    board text so it can be safely re-applied to fresh content after a 412.
+    Returns (msgs, label, saved: bool)."""
+    msgs, label = [], ""
+    for attempt in range(1, attempts + 1):
+        text, label, etag = await _board_get()
+        new_text, msgs = apply_fn(text)
+        if new_text == text:
+            return msgs, label, True  # nothing to write (e.g. ticket not found)
+        try:
+            await _board_put(new_text, etag)
+            return msgs, label, True
+        except BoardStale:
+            if attempt == attempts:
+                return (msgs + ["NOT SAVED: the board changed underneath us "
+                                "twice (concurrent writer) — re-run the edit"],
+                        label, False)
+    return msgs, label, False
 
 
 async def _insert_queue_row(source: str, title: str, assignee: str) -> int:
@@ -274,7 +314,7 @@ async def backlog_board(lane: str = "") -> str:
         lane: optional lane filter (now/soon/later/projects/completed/...)
     """
     try:
-        text, label = await _board_get()
+        text, label, _etag = await _board_get()
     except Exception as e:
         return f"Board unavailable: {e}"
     if lane:
@@ -306,7 +346,7 @@ async def backlog_pull(ticket: str, assignee: str = "") -> str:
         assignee: who takes it now (your agent id) — optional, else it queues
     """
     try:
-        text, label = await _board_get()
+        text, label, _etag = await _board_get()
     except Exception as e:
         return f"Board unavailable: {e}"
     idx, lane = find_ticket(text, ticket)
@@ -320,10 +360,14 @@ async def backlog_pull(ticket: str, assignee: str = "") -> str:
         qid = await _insert_queue_row(f"board:{ticket}", title, assignee.strip())
     except Exception as e:
         return f"Queue insert failed (board untouched): {e}"
-    new_text, msg = annotate_ticket(text, ticket, f"→ queue#{qid}")
+
+    def _apply(t):
+        nt, m = annotate_ticket(t, ticket, f"→ queue#{qid}")
+        return nt, [m]
+
     try:
-        await _board_put(new_text)
-        board_note = msg
+        msgs, _lbl, saved = await _cas_edit(_apply)
+        board_note = " ".join(msgs) if saved else " ".join(msgs)
     except Exception as e:
         board_note = f"queue row created but board annotate failed: {e}"
     return (f"Pulled {ticket} ('{title}') from {lane or '?'} lane into the queue "
@@ -346,26 +390,28 @@ async def backlog_update(ticket: str, lane: str = "", note: str = "",
     """
     if not (lane or note or done):
         return "Nothing to do — pass lane, note, and/or done."
+
+    def _apply(t):
+        msgs = []
+        if lane:
+            t, m = move_ticket_lane(t, ticket, lane)
+            msgs.append(m)
+        if done:
+            t, m = mark_ticket_done(t, ticket)
+            msgs.append(m)
+        if note:
+            t, m = annotate_ticket(t, ticket, note)
+            msgs.append(m)
+        return t, msgs
+
     try:
-        text, label = await _board_get()
-    except Exception as e:
-        return f"Board unavailable: {e}"
-    msgs = []
-    if lane:
-        text, m = move_ticket_lane(text, ticket, lane)
-        msgs.append(m)
-    if done:
-        text, m = mark_ticket_done(text, ticket)
-        msgs.append(m)
-    if note:
-        text, m = annotate_ticket(text, ticket, note)
-        msgs.append(m)
-    if all(("not found" in m) for m in msgs):
-        return f"Ticket {ticket} not found on {label}."
-    try:
-        await _board_put(text)
+        msgs, label, saved = await _cas_edit(_apply)
     except Exception as e:
         return f"Board write failed, nothing saved: {e}"
+    if msgs and all(("not found" in m) for m in msgs):
+        return f"Ticket {ticket} not found on {label}."
+    if not saved:
+        return " ".join(msgs)
     return " ".join(msgs) + f" (on {label})"
 
 
