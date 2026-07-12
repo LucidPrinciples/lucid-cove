@@ -134,12 +134,31 @@ def test_reconcile_open_pr_tracked_by_queue_is_clean():
     assert ov.reconcile({"tickets": []}, queue, github) == []
 
 
-def test_reconcile_board_done_untracked():
-    """Board claims done, neither queue nor GitHub can confirm it."""
-    board = {"tickets": [{"id": "#D99", "title": "phantom", "lane": "Completed", "done": True}]}
+def test_reconcile_board_done_in_active_lane_untracked():
+    """Checked done but STILL in an active lane, unconfirmed = the real signal."""
+    board = {"tickets": [{"id": "#D99", "title": "phantom", "lane": "Now", "done": True}]}
     out = ov.reconcile(board, {"items": []}, {"repos": []})
     assert len(out) == 1 and out[0]["type"] == "board_ticket_untracked"
     assert out[0]["id"] == "#D99"
+
+
+def test_reconcile_completed_lane_done_is_not_a_mismatch():
+    """A ticket already archived to Completed is expected-closed, NOT noise. This
+    is the fix for the 16-of-17 banner noise seen live on 2026-07-12."""
+    board = {"tickets": [
+        {"id": "#D46", "title": "old done thing", "lane": "Completed", "done": True},
+        {"id": "#61", "title": "ancient", "lane": "Done", "done": True},
+    ]}
+    assert ov.reconcile(board, {"items": []}, {"repos": []}) == []
+
+
+def test_reconcile_active_lane_done_but_confirmed_is_clean():
+    """Checked done in an active lane BUT a merged PR confirms it — not flagged."""
+    board = {"tickets": [{"id": "#D40", "title": "role kits", "lane": "Now", "done": True}]}
+    github = {"repos": [{"repo": "lucid-cove", "open_prs": [],
+                         "merged": [{"number": 70, "title": "#D40: scoped read_file",
+                                     "head": "stuart/d40"}]}]}
+    assert ov.reconcile(board, {"items": []}, github) == []
 
 
 def test_reconcile_board_not_done_is_normal_intake():
@@ -154,7 +173,7 @@ def test_reconcile_empty_inputs():
 
 
 def test_reconcile_multiple_mismatches_across_sources():
-    board = {"tickets": [{"id": "#D99", "title": "phantom", "lane": "Completed", "done": True}]}
+    board = {"tickets": [{"id": "#D99", "title": "phantom", "lane": "Now", "done": True}]}
     queue = {"items": [{"id": 5, "source": "board:#D18", "title": "card",
                         "status": "done", "pr_url": ""}]}
     github = {"repos": [{"repo": "lucid-cove", "merged": [],
