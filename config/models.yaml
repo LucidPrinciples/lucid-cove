@@ -68,6 +68,32 @@ models:
     context_window: 200000
     notes: "Quality ceiling benchmark ($3/$15 per M). Premium tier — test to set the bar, not for default production."
 
+  # ── xAI Grok models (OAuth2 subscription path) ────────────────────────────
+
+  - id: grok-build
+    name: "Grok Build 0.1 (xAI OAuth)"
+    provider: xai-oauth
+    model_string: "grok-build-0.1"
+    type: cloud
+    context_window: 128000
+    notes: "xAI Grok via OAuth2. Requires SuperGrok/X-Premium+ subscription. Device-code auth on first use."
+
+  - id: grok-4-3
+    name: "Grok 4.3 (xAI OAuth)"
+    provider: xai-oauth
+    model_string: "grok-4.3"
+    type: cloud
+    context_window: 128000
+    notes: "xAI Grok variant. Requires SuperGrok/X-Premium+ subscription."
+
+  - id: grok-4-20
+    name: "Grok 4.20 (xAI OAuth)"
+    provider: xai-oauth
+    model_string: "grok-4.20"
+    type: cloud
+    context_window: 128000
+    notes: "xAI Grok variant. Requires SuperGrok/X-Premium+ subscription."
+
   # ── Local models (Ollama on P620 RTX 3090) ──────────────────────────────────
 
   - id: qwen3-30b-moe
