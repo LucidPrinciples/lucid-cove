@@ -93,10 +93,13 @@ async def team_models():
 
 
 @router.post("/api/settings/reload")
-async def reload_config():
+async def reload_config(request: Request):
     """Clear cached config so edits (cove.yaml, models.yaml) take effect without a
     container restart. A restart is only needed when a brand-new provider's API key
-    must be loaded from the environment for the first time."""
+    must be loaded from the environment for the first time. ADMIN PRESENCE ONLY."""
+    gate = await _admin_gate(request)
+    if gate:
+        return gate
     cleared = []
     try:
         import src.config as _cfg
@@ -116,14 +119,18 @@ class TeamModelUpdate(BaseModel):
 
 
 @router.put("/api/settings/team-models/{agent_id}")
-async def update_team_model(agent_id: str, body: TeamModelUpdate):
+async def update_team_model(agent_id: str, body: TeamModelUpdate, request: Request):
     """Set a build-team agent's primary/fallback model (Stuart-level). Writes cove.yaml.
+    ADMIN PRESENCE ONLY (AUDIT-F6).
 
     Model ids are validated against the registry (parity with
     /api/agents/{id}/model-assignment). An unknown id here used to be written
     verbatim into cove.yaml, and the provider resolver then INFERRED a backend
     for it — 'kimi-k2.5' (no slash) became ollama/kimi-k2.5, a daily silent 404
     with every tuning landing on the fallback model. Blank = inherit."""
+    gate = await _admin_gate(request)
+    if gate:
+        return gate
     try:
         from src.config import load_models_registry
         valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
@@ -154,6 +161,23 @@ async def _is_admin_presence(request: Request) -> bool:
         return (p.get("cove_role") or "") == "admin"
     except Exception:
         return False
+
+
+async def _admin_gate(request: Request):
+    """AUDIT-F6: gate cove-wide admin mutations. Returns a 403 JSONResponse when the
+    caller may NOT perform them, else None.
+
+    Trust model mirrors OperatorAuthMiddleware: SINGLE mode is mesh-trusted (the
+    network perimeter is the boundary — there is no Presence to check, and
+    get_current_presence returns None there), so it passes. MULTI mode (the shared
+    app) admits any authenticated Presence at the middleware, so cove-wide writes
+    MUST re-check for an Admin Presence here — otherwise any signed-up MEMBER could
+    repoint agents, flip features, or rewrite cove.yaml."""
+    if env("COVE_MODE", "single") != "multi":
+        return None
+    if await _is_admin_presence(request):
+        return None
+    return JSONResponse(status_code=403, content={"error": "Admin Presence only"})
 
 
 @router.get("/api/settings/compute")
@@ -382,11 +406,15 @@ class CoveSettingsUpdate(BaseModel):
 
 
 @router.put("/api/settings/cove")
-async def update_cove_settings(update: CoveSettingsUpdate):
+async def update_cove_settings(update: CoveSettingsUpdate, request: Request):
     """Update Cove settings. Partial merge — only include fields to change.
+    ADMIN PRESENCE ONLY (AUDIT-F6).
 
     Writes to config/cove.yaml and clears the config cache.
     """
+    gate = await _admin_gate(request)
+    if gate:
+        return gate
     # Build update dict from non-None fields
     changes = {k: v for k, v in update.model_dump().items() if v is not None}
 
@@ -423,8 +451,11 @@ class FeatureFlagsUpdate(BaseModel):
 
 
 @router.put("/api/settings/features")
-async def update_features(update: FeatureFlagsUpdate):
-    """Update feature flags. Partial — only include flags to change."""
+async def update_features(update: FeatureFlagsUpdate, request: Request):
+    """Update feature flags. Partial — only include flags to change. ADMIN PRESENCE ONLY (AUDIT-F6)."""
+    gate = await _admin_gate(request)
+    if gate:
+        return gate
     changes = {k: v for k, v in update.model_dump().items() if v is not None}
 
     if not changes:
@@ -474,7 +505,14 @@ async def patch_features(request: Request):
     # file in BOTH modes but NEVER per-presence prefs. So persist github_pat to the
     # overrides file regardless of mode — otherwise in multi mode it lands in presence
     # prefs where no reader looks and deploy keeps failing "github_pat not set".
+    # AUDIT-F6: github_pat is a Cove-level credential (written to the overrides file
+    # below, in BOTH modes — not per-presence). In multi mode only an Admin Presence
+    # may set it; otherwise any authenticated member could overwrite the Cove's
+    # GitHub token. The per-presence feature flags further down stay member-writable.
     if "github_pat" in changes:
+        gate = await _admin_gate(request)
+        if gate:
+            return gate
         pat_val = changes.pop("github_pat")
         # Ignore empty / masked values so an echoed GET (which redacts to "********")
         # can never clobber a real saved token.
