@@ -20,7 +20,7 @@ Environment variables required (in docker/.env):
 import os
 from src.env import env
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 from langchain_core.tools import tool
@@ -147,7 +147,7 @@ async def nextcloud_list(path: str = "/") -> str:
             items = []
             for response in root.findall(".//d:response", ns):
                 href = response.findtext("d:href", namespaces=ns) or ""
-                name = href.rstrip("/").split("/")[-1]
+                name = unquote(href.rstrip("/").split("/")[-1])
                 if not name:
                     continue
                 resource_type = response.find(".//d:resourcetype/d:collection", ns)
@@ -222,7 +222,7 @@ async def nextcloud_search(query: str, path: str = "/") -> str:
                 name = href.rstrip("/").split("/")[-1]
                 if name:
                     # Strip the WebDAV prefix to get readable path
-                    readable = href.replace(f"/remote.php/dav/files/{nc_user}", "")
+                    readable = unquote(href.replace(f"/remote.php/dav/files/{nc_user}", ""))
                     results.append(readable)
             if results:
                 return f"Search results for '{query}':\n" + "\n".join(results)
