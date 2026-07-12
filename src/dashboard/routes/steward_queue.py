@@ -90,6 +90,16 @@ async def add_item(request: Request):
     return {"item": _row_dict(row), "existing": False}
 
 
+@router.post("/api/steward-queue/sync-merges")
+async def sync_merges(request: Request):
+    """#D49 — on-demand merge-feedback pass: find in-flight rows whose PR merged
+    on GitHub, annotate them (merged != deployed) + tell the agent. Read-only vs
+    GitHub; scheduled every 15 min, this endpoint is for manual runs + tests."""
+    await _require_operator(request)
+    from src.tools.merge_feedback import sync_merged_prs
+    return await sync_merged_prs()
+
+
 @router.post("/api/steward-queue/{item_id}/update")
 async def update_item(item_id: int, request: Request):
     await _require_operator(request)
