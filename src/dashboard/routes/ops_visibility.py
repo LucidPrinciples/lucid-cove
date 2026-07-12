@@ -85,6 +85,19 @@ def _norm_id(raw: str) -> str:
     return "#" + t if t else ""
 
 
+# A board ticket sitting in one of these lanes is EXPECTED-archived: done work
+# that was legitimately closed out (often before the PR loop, or non-dev intake
+# like docs/decisions) belongs here and is NOT a disagreement. board_ticket_
+# untracked only fires for a ticket checked done while still parked in an ACTIVE
+# lane — that's the real inconsistency (marked done but never reconciled/moved).
+_ARCHIVED_LANES = ("completed", "done", "shipped", "archived", "archive", "closed")
+
+
+def _is_archived_lane(lane: str) -> bool:
+    l = (lane or "").strip().lower()
+    return any(l.startswith(a) for a in _ARCHIVED_LANES)
+
+
 def ids_in_text(text: str) -> set:
     """All ticket ids mentioned in free text (titles, bodies, queue sources)."""
     if not text:
@@ -186,9 +199,15 @@ def reconcile(board: dict, queue: dict, github: dict) -> list:
                 "sources": ["github", "db:steward_queue"],
             })
 
-    # 3) board_ticket_untracked — the board claims done, nothing confirms it.
+    # 3) board_ticket_untracked — a ticket checked done while STILL in an active
+    #    lane, with nothing in the queue or GitHub to confirm it. Tickets already
+    #    moved to an archived lane (Completed/Done/...) are expected-closed and
+    #    are NOT flagged — the whole Completed archive is not a pile of
+    #    disagreements. The signal here is "marked done but never reconciled".
     for t in board_tickets:
         if not t.get("done"):
+            continue
+        if _is_archived_lane(t.get("lane", "")):
             continue
         tid = _norm_id(t.get("id", "")) if t.get("id") else ""
         ids = {tid} if tid else ids_in_text(t.get("title", ""))
@@ -200,9 +219,10 @@ def reconcile(board: dict, queue: dict, github: dict) -> list:
                 "type": "board_ticket_untracked",
                 "id": tid or next(iter(ids), None),
                 "title": t.get("title", ""),
-                "detail": (f"Board ticket {tid or t.get('title','')} in lane "
-                           f"'{t.get('lane','?')}' is marked done, but neither the "
-                           f"queue nor GitHub has any record of it."),
+                "detail": (f"Board ticket {tid or t.get('title','')} is checked done "
+                           f"but still in active lane '{t.get('lane','?')}', and "
+                           f"neither the queue nor GitHub confirms it — move it to "
+                           f"Completed or reconcile it."),
                 "sources": ["nc:jules-backlog.md", "db:steward_queue", "github"],
             })
 
