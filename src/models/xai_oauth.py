@@ -29,9 +29,12 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from src.env import env
 
 # xAI OAuth2 endpoints
-XAI_AUTH_URL = "https://accounts.x.ai/device/code"
-XAI_TOKEN_URL = "https://accounts.x.ai/token"
-XAI_TOKEN_VERIFY_URL = "https://accounts.x.ai/introspect"
+# Auth server (from Hermes docs: https://accounts.x.ai)
+XAI_AUTH_URL = "https://accounts.x.ai/oauth2/device/code"
+XAI_TOKEN_URL = "https://accounts.x.ai/oauth2/token"
+XAI_TOKEN_VERIFY_URL = "https://accounts.x.ai/oauth2/introspect"
+# User verification URL (where they enter the code)
+XAI_VERIFY_URL = "https://accounts.x.ai"
 
 # xAI Responses-API endpoint
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
@@ -121,7 +124,7 @@ async def start_device_code_flow() -> dict:
     return {
         "device_code": data["device_code"],
         "user_code": data["user_code"],
-        "verification_uri": data.get("verification_uri", "https://accounts.x.ai"),
+        "verification_uri": data.get("verification_uri", XAI_VERIFY_URL),
         "expires_in": data.get("expires_in", 1800),
         "interval": data.get("interval", 5),  # polling interval in seconds
     }
