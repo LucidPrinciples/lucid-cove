@@ -21,11 +21,12 @@ import httpx
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
+    AIMessageChunk,
     BaseMessage,
     HumanMessage,
     SystemMessage,
 )
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
 from src.env import env
 
@@ -155,7 +156,7 @@ async def poll_for_token(device_code: str) -> dict | None:
         if error == "authorization_pending":
             return None  # Keep polling
         elif error == "slow_down":
-            time.sleep(5)  # Back off
+            await asyncio.sleep(5)  # Back off — AUDIT-F4: never block the event loop
             return None
         elif error == "expired_token":
             raise RuntimeError("Device code expired. Start new flow.")
@@ -332,9 +333,23 @@ class ChatXAI(BaseChatModel):
         run_manager: Any | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Sync generation — delegates to async."""
-        import asyncio
-        return asyncio.run(self._acall(messages, stop, run_manager, **kwargs))
+        """Sync generation — bridges to the async path safely.
+
+        AUDIT-F5: the old body called `asyncio.run(...)` unconditionally, which raises
+        `RuntimeError: asyncio.run() cannot be called from a running event loop` whenever
+        a sync LangChain path (.invoke) is reached from inside this async app. Detect a
+        running loop and, if present, run the coroutine on its own loop in a worker
+        thread instead of blowing up.
+        """
+        coro_factory = lambda: self._agenerate(messages, stop, run_manager, **kwargs)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro_factory())
+        # Already inside a running loop — offload to a thread with its own loop.
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(coro_factory())).result()
 
     def _convert_messages(self, messages: list[BaseMessage]) -> list[dict]:
         """Convert LangChain messages to xAI Responses-API format."""
@@ -351,14 +366,15 @@ class ChatXAI(BaseChatModel):
                 converted.append({"role": "user", "content": str(msg.content)})
         return converted
 
-    async def _acall(
+    async def _agenerate(
         self,
         messages: list[BaseMessage],
         stop: list[str] | None = None,
         run_manager: Any | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        """Async call to xAI Responses-API."""
+        """Async call to xAI Responses-API. AUDIT-F5: this is the canonical async method
+        LangChain invokes for .ainvoke (was `_acall`, which LangChain never called)."""
         access_token = await get_valid_access_token()
 
         payload = {
@@ -404,9 +420,19 @@ class ChatXAI(BaseChatModel):
                     raise
 
         if resp.status_code == 403:
-            # Standard tier error — surface honestly
-            data = resp.json()
-            error_msg = data.get("error", {}).get("message", "Access denied")
+            # Standard tier error — surface honestly. AUDIT-F3: a subscription/gateway
+            # 403 often returns HTML or an empty body, and the token endpoints return
+            # `error` as a STRING, not a dict — so parse defensively and never let a
+            # JSONDecodeError/AttributeError mask the honest 403 message.
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            err = data.get("error") if isinstance(data, dict) else None
+            if isinstance(err, dict):
+                error_msg = err.get("message") or "Access denied"
+            else:
+                error_msg = err or resp.text or "Access denied"
             if "subscription" in error_msg.lower() or "premium" in error_msg.lower():
                 raise RuntimeError(
                     f"xAI 403: {error_msg}. "
@@ -444,12 +470,13 @@ class ChatXAI(BaseChatModel):
         stop: list[str] | None = None,
         run_manager: Any | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[ChatGeneration, None]:
-        """Async streaming not implemented — xAI Responses-API may not support it."""
-        # For now, just call non-streaming and yield once
-        result = await self._acall(messages, stop=stop, run_manager=run_manager, **kwargs)
+    ) -> AsyncGenerator[ChatGenerationChunk, None]:
+        """Async streaming not implemented — xAI Responses-API may not support it.
+        Fall back to non-streaming and yield a single chunk. AUDIT-F5: BaseChatModel
+        requires ChatGenerationChunk here, not ChatGeneration."""
+        result = await self._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         for gen in result.generations:
-            yield gen
+            yield ChatGenerationChunk(message=AIMessageChunk(content=gen.message.content))
 
 
 
