@@ -2,23 +2,18 @@
 
 Tests cover:
   - Token caching (load/save/delete)
-  - OAuth config validation
+  - OAuth config (public client, no env vars needed)
   - Message conversion to xAI format
   - Provider dispatch integration
 """
 
 import json
-import os
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-
-# Import after env setup
-os.environ["XAI_CLIENT_ID"] = "test-client-id"
-os.environ["XAI_CLIENT_SECRET"] = "test-client-secret"
 
 from src.models import xai_oauth
 from src.models.xai_oauth import (
@@ -71,27 +66,13 @@ class TestTokenCache:
 
 
 class TestOAuthConfig:
-    """Test OAuth configuration."""
+    """Test OAuth configuration (public client, no env vars needed)."""
 
-    def test_get_oauth_config_success(self):
-        """Valid config returns expected dict."""
+    def test_get_oauth_config_returns_public_client(self):
+        """Config returns public client identifier."""
         config = _get_oauth_config()
-        assert config["client_id"] == "test-client-id"
-        assert config["client_secret"] == "test-client-secret"
-
-    def test_get_oauth_config_missing_client_id(self, monkeypatch):
-        """Missing client_id raises ValueError."""
-        monkeypatch.delenv("XAI_CLIENT_ID", raising=False)
-        with pytest.raises(ValueError) as exc:
-            _get_oauth_config()
-        assert "XAI_CLIENT_ID" in str(exc.value)
-
-    def test_get_oauth_config_missing_secret(self, monkeypatch):
-        """Missing client_secret raises ValueError."""
-        monkeypatch.delenv("XAI_CLIENT_SECRET", raising=False)
-        with pytest.raises(ValueError) as exc:
-            _get_oauth_config()
-        assert "XAI_CLIENT_SECRET" in str(exc.value)
+        assert config["client_id"] == "xai-public-client"
+        # No client_secret for public OAuth flow
 
 
 class TestMessageConversion:
