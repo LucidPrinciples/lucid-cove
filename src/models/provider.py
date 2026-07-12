@@ -10,6 +10,7 @@ Supported providers:
   - google: Google Gemini models via google-generativeai SDK
   - groq: Groq inference API
   - ollama: Local models on P620 RTX 3090
+  - xai-oauth: xAI Grok via device-code OAuth2 (Responses-API)
 
 Agent → model mapping is in agent.yaml (model_primary, model_fallback).
 Model definitions are in config/models.yaml.
@@ -27,6 +28,8 @@ import httpx
 
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+
+from src.models.xai_oauth import _xai_oauth_client
 
 from src.config import (
     get_instance, get_primary_agent_id,
@@ -567,6 +570,8 @@ def _client_for(provider: str, model_string: str, temperature: float, key: str =
         return _google_client(model_string, temperature, key=key)
     elif provider == "groq":
         return _groq_client(model_string, temperature, key=key)
+    elif provider == "xai-oauth":
+        return _xai_oauth_client(model_string, temperature)
     else:
         raise RuntimeError(f"Unknown provider '{provider}'")
 
