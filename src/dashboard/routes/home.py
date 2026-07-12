@@ -909,14 +909,23 @@ async def get_pr_diff(repo: str = "", base: str = "main", head: str = ""):
     if not repo or not head:
         return JSONResponse({"error": "repo and head parameters required"}, status_code=400)
     
-    # Get GitHub PAT from feature flags
+    # GitHub PAT — Companion A: read the SAME source create_github_pr uses so the
+    # card never renders "PAT not configured / +0−0" while the push loop works.
+    # Feature-flag PAT first (operator-set override), then the shared GH_TOKEN chain.
+    pat = ""
     try:
         from src.config import get_feature_flags
-        pat = get_feature_flags().get("github_pat", "")
-        if not pat:
-            return JSONResponse({"error": "GitHub PAT not configured"}, status_code=400)
-    except Exception as e:
-        return JSONResponse({"error": f"Failed to get PAT: {e}"}, status_code=500)
+        pat = get_feature_flags().get("github_pat", "") or ""
+    except Exception:
+        pat = ""
+    if not pat:
+        try:
+            from src.tools.dev_tools import _github_token
+            pat = _github_token()
+        except Exception:
+            pat = ""
+    if not pat:
+        return JSONResponse({"error": "GitHub PAT not configured"}, status_code=400)
     
     try:
         from src.utils.github import github_get_compare

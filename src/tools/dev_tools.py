@@ -395,12 +395,34 @@ async def git_delete_branch(project: str, branch: str, remote: bool = False) -> 
     return result
 
 
+def _github_token() -> str:
+    """The GitHub PAT create_github_pr authenticates with — GH_TOKEN/GITHUB_TOKEN
+    env, else the ~/.git-credentials token the clone pushes with. The ONE token
+    source (Companion A): the PR-review diff route resolves the PAT through here
+    too, so the card can never render 'PAT not configured' while pushes work."""
+    import re
+    tok = env("GH_TOKEN") or env("GITHUB_TOKEN") or ""
+    if tok:
+        return tok
+    try:
+        from pathlib import Path as _P
+        cred = _P(env("HOME", "/root")) / ".git-credentials"
+        if cred.exists():
+            for line in cred.read_text().splitlines():
+                m = re.search(r"https://(?:[^:@/]+:)?(?P<tok>[^@/]+)@github\.com", line)
+                if m:
+                    return m.group("tok")
+    except Exception:
+        pass
+    return ""
+
+
 def _github_repo_and_token(repo: str) -> tuple[str, str] | None:
     """(owner/name, token) for this clone's origin, or None.
 
-    Token sources, in order: embedded in the remote URL, GH_TOKEN/GITHUB_TOKEN
-    env, ~/.git-credentials (the same PAT the clone pushes with). No gh CLI,
-    no shell parsing of user text — this feeds the REST call below."""
+    Token sources, in order: embedded in the remote URL, then the shared
+    _github_token() chain (GH_TOKEN/GITHUB_TOKEN env, ~/.git-credentials). No
+    gh CLI, no shell parsing of user text — this feeds the REST call below."""
     import re
     import subprocess
     try:
@@ -418,19 +440,7 @@ def _github_repo_and_token(repo: str) -> tuple[str, str] | None:
     if m2 and not m2.group("tok").startswith("github.com"):
         tok = m2.group("tok")
     if not tok:
-        tok = env("GH_TOKEN") or env("GITHUB_TOKEN") or ""
-    if not tok:
-        try:
-            from pathlib import Path as _P
-            cred = _P(env("HOME", "/root")) / ".git-credentials"
-            if cred.exists():
-                for line in cred.read_text().splitlines():
-                    m3 = re.search(r"https://(?:[^:@/]+:)?(?P<tok>[^@/]+)@github\.com", line)
-                    if m3:
-                        tok = m3.group("tok")
-                        break
-        except Exception:
-            pass
+        tok = _github_token()
     return (slug, tok) if tok else None
 
 

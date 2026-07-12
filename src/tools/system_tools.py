@@ -70,6 +70,51 @@ SHELL_BLOCKED_PATTERNS = [
 
 
 # =============================================================================
+# Credential redaction (Companion B) — never echo a secret into a tool result
+# =============================================================================
+# On 2026-07-11 a run_shell that catted ~/.git-credentials printed the push PAT
+# into the chat. Any tool that returns command output OR file contents runs its
+# text through redact_credentials() before returning, so a secret that lands in
+# stdout/a file is masked in the surface even when the underlying file isn't.
+import re as _re
+
+_REDACT_PATTERNS = [
+    # GitHub tokens (classic, fine-grained, oauth, app, refresh).
+    _re.compile(r"gh[pousr]_[A-Za-z0-9]{20,255}"),
+    _re.compile(r"github_pat_[A-Za-z0-9_]{20,255}"),
+    # A credential URL: https://user:TOKEN@host  → mask the secret half.
+    _re.compile(r"(https?://)([^:@/\s]+):([^@/\s]+)@"),
+    # KEY=secret / KEY: secret for anything that looks like a secret var.
+    _re.compile(r"(?im)^([ \t]*(?:export[ \t]+)?[A-Z0-9_]*"
+                r"(?:TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|PAT)[A-Z0-9_]*)"
+                r"([ \t]*[:=][ \t]*)(\S+)"),
+    # Authorization: Bearer/Basic <blob>.
+    _re.compile(r"(?i)(Authorization\s*:\s*(?:Bearer|Basic|token)\s+)(\S+)"),
+    # AWS access key ids + generic long hex/secret blobs in *_TOKEN= handled above.
+    _re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+]
+
+_REDACTED = "«REDACTED»"
+
+
+def redact_credentials(text: str) -> str:
+    """Mask known credential shapes (github_pat_*, gh*_ tokens, *_TOKEN=/SECRET=,
+    user:pass@ URLs, Authorization: headers, AWS keys) in returned text. Pure +
+    idempotent — safe to run on any tool output. Preserves the key name so the
+    output stays readable ('GH_TOKEN=«REDACTED»')."""
+    if not text:
+        return text
+    s = text
+    s = _REDACT_PATTERNS[0].sub(_REDACTED, s)
+    s = _REDACT_PATTERNS[1].sub(_REDACTED, s)
+    s = _REDACT_PATTERNS[2].sub(lambda m: f"{m.group(1)}{m.group(2)}:{_REDACTED}@", s)
+    s = _REDACT_PATTERNS[3].sub(lambda m: f"{m.group(1)}{m.group(2)}{_REDACTED}", s)
+    s = _REDACT_PATTERNS[4].sub(lambda m: f"{m.group(1)}{_REDACTED}", s)
+    s = _REDACT_PATTERNS[5].sub(_REDACTED, s)
+    return s
+
+
+# =============================================================================
 # Path validation
 # =============================================================================
 
@@ -138,7 +183,8 @@ async def read_file(path: str, max_chars: int = 15000) -> str:
         lines = content.count("\n") + 1
         if len(content) > max_chars:
             content = content[:max_chars] + f"\n\n... [truncated — {lines} lines, {len(content)} chars total]"
-        return f"FILE: {resolved} ({lines} lines)\n\n{content}"
+        # Companion B: mask credential shapes if this file contains any.
+        return redact_credentials(f"FILE: {resolved} ({lines} lines)\n\n{content}")
     except Exception as e:
         return f"Error reading {path}: {e}"
 
@@ -432,7 +478,9 @@ async def run_shell(command: str, cwd: str = "/app/data", timeout: int = 60) -> 
             result = result[:15000] + "\n\n... [truncated]"
 
         exit_info = f" [exit: {proc.returncode}]" if proc.returncode != 0 else ""
-        return f"SHELL{exit_info}: {command}\n\n{result}"
+        # Companion B: mask any credential the command echoed (e.g. a cat of
+        # ~/.git-credentials) before it reaches the chat surface.
+        return redact_credentials(f"SHELL{exit_info}: {command}\n\n{result}")
     except Exception as e:
         return f"Error: {e}"
 

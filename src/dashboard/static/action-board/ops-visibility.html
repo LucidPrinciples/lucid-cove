@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ops Visibility</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #1c2230; --border: #30363d;
+  --text: #e6edf3; --text-dim: #8b949e; --text-faint: #484f58;
+  --now: #f85149; --soon: #d29922; --later: #58a6ff; --projects: #bc8cff; --done: #3fb950;
+  --github: #58a6ff; --queue: #d29922; --intake: #3fb950; --vault: #bc8cff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg); color: var(--text); padding: 16px; padding-bottom: 80px;
+  line-height: 1.5; -webkit-font-smoothing: antialiased;
+}
+h1 { font-size: 20px; font-weight: 700; margin-bottom: 2px; }
+.subtitle { font-size: 12px; color: var(--text-dim); margin-bottom: 14px; }
+a { color: var(--later); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 11px; }
+
+/* Header strip */
+.stats-bar { display: flex; gap: 8px; margin-bottom: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: wrap; }
+.stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; min-width: 64px; flex-shrink: 0; }
+.stat-num { font-size: 18px; font-weight: 700; }
+.stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.stat.warn .stat-num { color: var(--now); }
+
+/* Mismatch banner */
+.banner { display: none; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px;
+  background: #f8514918; border: 1px solid #f8514960; }
+.banner.show { display: block; }
+.banner h2 { font-size: 13px; color: var(--now); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .04em; }
+.mismatch { font-size: 13px; padding: 6px 0; border-top: 1px solid #f8514922; }
+.mismatch:first-of-type { border-top: none; }
+.mismatch .mtype { display: inline-block; font-size: 10px; font-weight: 700; color: var(--now);
+  background: #f8514922; border-radius: 4px; padding: 1px 6px; margin-right: 6px; text-transform: uppercase; }
+.banner.clean { background: #3fb95012; border-color: #3fb95044; display: block; }
+.banner.clean h2 { color: var(--done); }
+
+/* Columns */
+.cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+@media (max-width: 1100px) { .cols { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 680px) { .cols { grid-template-columns: 1fr; } }
+.col { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; min-width: 0; }
+.col h2 { font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 2px; }
+.col.intake h2 { color: var(--intake); }
+.col.queue h2 { color: var(--queue); }
+.col.github h2 { color: var(--github); }
+.col.vault h2 { color: var(--vault); }
+.prov { font-size: 10px; color: var(--text-faint); margin-bottom: 10px; word-break: break-all; }
+.prov .err { color: var(--now); }
+.unavail { font-size: 12px; color: var(--now); background: #f8514912; border: 1px solid #f8514933;
+  border-radius: 6px; padding: 8px; }
+
+/* Cards / rows */
+.lane { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim);
+  margin: 10px 0 4px; font-weight: 700; }
+.item { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 7px 9px; margin-bottom: 6px; font-size: 12px; }
+.item .tid { font-family: 'SF Mono', ui-monospace, monospace; font-weight: 700; color: var(--later); font-size: 11px; }
+.item.done { opacity: .55; }
+.item.done .ttl { text-decoration: line-through; }
+.badge { display: inline-block; font-size: 9px; font-weight: 700; border-radius: 4px; padding: 1px 5px;
+  text-transform: uppercase; letter-spacing: .03em; }
+.b-status { background: #d2992222; color: var(--soon); }
+.b-done { background: #3fb95022; color: var(--done); }
+.b-open { background: #58a6ff22; color: var(--later); }
+.meta { color: var(--text-faint); font-size: 10px; margin-top: 3px; }
+.empty { color: var(--text-faint); font-size: 12px; font-style: italic; padding: 6px 0; }
+.vault-pre { white-space: pre-wrap; font-family: 'SF Mono', ui-monospace, monospace; font-size: 10.5px;
+  color: var(--text-dim); max-height: 340px; overflow-y: auto; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+.loading { text-align: center; padding: 40px; color: var(--text-dim); }
+.foot { margin-top: 16px; font-size: 11px; color: var(--text-faint); text-align: center; }
+.refresh-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--done); margin-right: 5px; }
+</style>
+</head>
+<body>
+  <h1>Ops Visibility</h1>
+  <div class="subtitle">Verified state only. Every claim fetched from the system that owns it &mdash; nothing agent-narrated. Read-only.</div>
+
+  <div id="stats" class="stats-bar"></div>
+  <div id="banner" class="banner"></div>
+  <div id="root"><div class="loading">Loading verified state&hellip;</div></div>
+  <div class="foot"><span class="refresh-dot"></span><span id="foot-txt">&mdash;</span></div>
+
+<script>
+const esc = s => (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ago = iso => {
+  if(!iso) return '';
+  const t = typeof iso==='number' ? iso*1000 : Date.parse(iso);
+  if(isNaN(t)) return '';
+  const s = Math.max(0, (Date.now()-t)/1000);
+  if(s<60) return Math.floor(s)+'s ago';
+  if(s<3600) return Math.floor(s/60)+'m ago';
+  if(s<86400) return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago';
+};
+const provLine = (src, fetched, err) =>
+  `<div class="prov">source: <code>${esc(src||'?')}</code> &middot; ${esc(ago(fetched))||'now'}` +
+  (err ? ` &middot; <span class="err">${esc(err)}</span>` : '') + `</div>`;
+
+function renderHeader(d){
+  const h = d.header||{}, mm = d.mismatches||[];
+  const repos = (h.repos||[]).map(r =>
+    `<div class="stat"><div class="stat-num">${r.error?'&mdash;':('<code>'+esc(r.main_sha||'?')+'</code>')}</div><div class="stat-label">${esc(r.repo)} main</div></div>`).join('');
+  document.getElementById('stats').innerHTML =
+    `<div class="stat ${mm.length?'warn':''}"><div class="stat-num">${mm.length}</div><div class="stat-label">Mismatches</div></div>` +
+    `<div class="stat ${h.watcher_open?'warn':''}"><div class="stat-num">${h.watcher_open==null?'&mdash;':h.watcher_open}</div><div class="stat-label">Watcher open</div></div>` +
+    repos;
+
+  const b = document.getElementById('banner');
+  if(mm.length){
+    b.className = 'banner show';
+    b.innerHTML = `<h2>${mm.length} source disagreement${mm.length>1?'s':''}</h2>` +
+      mm.map(m => `<div class="mismatch"><span class="mtype">${esc(m.type.replace(/_/g,' '))}</span>${esc(m.detail)}</div>`).join('');
+  } else {
+    b.className = 'banner clean';
+    b.innerHTML = `<h2>&#10003; All sources in agreement</h2>`;
+  }
+}
+
+function renderIntake(x){
+  if(x.error && (!x.tickets||!x.tickets.length))
+    return provLine(x.source,x.fetched_at,x.error)+`<div class="unavail">Board unavailable.</div>`;
+  const lanes = {};
+  (x.tickets||[]).forEach(t => { (lanes[t.lane] = lanes[t.lane]||[]).push(t); });
+  let html = provLine(x.source, x.fetched_at, x.error);
+  const keys = Object.keys(lanes);
+  if(!keys.length) html += `<div class="empty">No tickets on the board.</div>`;
+  keys.forEach(lane => {
+    html += `<div class="lane">${esc(lane)}</div>`;
+    lanes[lane].forEach(t => {
+      html += `<div class="item ${t.done?'done':''}">` +
+        (t.id?`<span class="tid">${esc(t.id)}</span> `:'') +
+        `<span class="ttl">${esc(t.title)}</span></div>`;
+    });
+  });
+  return html;
+}
+
+function renderQueue(x){
+  if(x.error) return provLine(x.source,x.fetched_at,x.error)+`<div class="unavail">Queue unavailable.</div>`;
+  let html = provLine(x.source, x.fetched_at, x.error);
+  const items = x.items||[];
+  if(!items.length) html += `<div class="empty">Queue empty.</div>`;
+  items.forEach(it => {
+    const done = ['done','dropped'].includes((it.status||'').toLowerCase());
+    html += `<div class="item ${done?'done':''}">` +
+      `<span class="badge b-status">${esc(it.status)}</span> ` +
+      `<span class="ttl">${esc(it.title)}</span>` +
+      `<div class="meta">[${esc(it.id)}] <code>${esc(it.source||'')}</code>` +
+      (it.assignee?` &middot; ${esc(it.assignee)}`:'') +
+      (it.pr_url?` &middot; <a href="${esc(it.pr_url)}" target="_blank">PR</a>`:'') +
+      (it.updated_at?` &middot; ${esc(ago(it.updated_at))}`:'') + `</div></div>`;
+  });
+  if(x.approvals && x.approvals.length){
+    html += `<div class="lane">Recent approvals</div>`;
+    x.approvals.forEach(a => {
+      html += `<div class="item"><span class="badge ${a.status==='approved'?'b-done':'b-status'}">${esc(a.status)}</span> ` +
+        `<code>${esc(a.tool_name)}</code><div class="meta">${esc(a.result||'')}</div></div>`;
+    });
+  }
+  return html;
+}
+
+function renderGithub(x){
+  if(x.error && (!x.repos||!x.repos.length))
+    return provLine('github',x.fetched_at,x.error)+`<div class="unavail">GitHub unavailable: ${esc(x.error)}</div>`;
+  let html = provLine('github ('+esc(x.owner||'?')+')', x.fetched_at, x.error);
+  (x.repos||[]).forEach(r => {
+    html += `<div class="lane">${esc(r.repo)} ${r.main_sha?'<code>@'+esc(r.main_sha)+'</code>':''}</div>`;
+    if(r.error){ html += `<div class="unavail">${esc(r.error)}</div>`; return; }
+    if(!r.open_prs.length && !r.merged.length) html += `<div class="empty">No open PRs.</div>`;
+    r.open_prs.forEach(pr => {
+      html += `<div class="item"><span class="badge b-open">open</span> ` +
+        `<a href="${esc(pr.html_url)}" target="_blank">#${esc(pr.number)}</a> ${esc(pr.title)}` +
+        `<div class="meta"><code>${esc(pr.head)}</code>${pr.author?' &middot; '+esc(pr.author):''}${pr.mergeable_state?' &middot; '+esc(pr.mergeable_state):''}</div></div>`;
+    });
+    (r.merged||[]).slice(0,5).forEach(pr => {
+      html += `<div class="item done"><span class="badge b-done">merged</span> ` +
+        `<a href="${esc(pr.html_url)}" target="_blank">#${esc(pr.number)}</a> ${esc(pr.title)}` +
+        `<div class="meta">${esc(ago(pr.merged_at))}</div></div>`;
+    });
+    if(r.branches && r.branches.length)
+      html += `<div class="meta" style="margin:2px 0 8px">branches: ${r.branches.map(b=>'<code>'+esc(b)+'</code>').join(', ')}</div>`;
+  });
+  return html;
+}
+
+function renderVault(x){
+  if(!x.available) return provLine('vault',x.fetched_at,x.error)+`<div class="empty">${esc(x.error||'No vault mounted.')}</div>`;
+  let html = '';
+  if(x.memory){
+    html += provLine(x.memory.path, x.fetched_at, x.error);
+    html += `<div class="lane">Memory.md &middot; top ${x.memory.text.split('\n').length}/${x.memory.total_lines} lines</div>`;
+    html += `<div class="vault-pre">${esc(x.memory.text)}</div>`;
+  }
+  if(x.handoff){
+    html += `<div class="lane">${esc(x.handoff.path)}${x.handoff.truncated?' (truncated)':''}</div>`;
+    html += `<div class="vault-pre">${esc(x.handoff.text)}</div>`;
+  }
+  if(!x.memory && !x.handoff) html += `<div class="empty">Vault mounted but no Memory.md / handoff found.</div>`;
+  return html;
+}
+
+async function load(){
+  try{
+    const res = await fetch('/api/ops/state', {headers:{'Accept':'application/json'}});
+    if(res.status===403){ document.getElementById('root').innerHTML = `<div class="unavail">Admin / operator access only.</div>`; return; }
+    const d = await res.json();
+    if(!d.ok){ document.getElementById('root').innerHTML = `<div class="unavail">${esc(d.error||'Failed to load.')}</div>`; return; }
+    renderHeader(d);
+    document.getElementById('root').innerHTML =
+      `<div class="cols">` +
+      `<div class="col intake"><h2>Intake</h2>${renderIntake(d.intake||{})}</div>` +
+      `<div class="col queue"><h2>Queue</h2>${renderQueue(d.queue||{})}</div>` +
+      `<div class="col github"><h2>GitHub</h2>${renderGithub(d.github||{})}</div>` +
+      `<div class="col vault"><h2>Vault</h2>${renderVault(d.vault||{})}</div>` +
+      `</div>`;
+    document.getElementById('foot-txt').textContent = 'Last refresh ' + new Date().toLocaleTimeString() + ' · auto every 60s';
+  }catch(e){
+    document.getElementById('root').innerHTML = `<div class="unavail">Load error: ${esc(e.message||e)}</div>`;
+  }
+}
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>
