@@ -29,11 +29,11 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from src.env import env
 
 # xAI OAuth2 endpoints
-# Auth server (from Hermes docs: https://accounts.x.ai)
-# Standard OAuth2 device-code endpoints
-XAI_AUTH_URL = "https://accounts.x.ai/device/code"
-XAI_TOKEN_URL = "https://accounts.x.ai/token"
-XAI_TOKEN_VERIFY_URL = "https://accounts.x.ai/introspect"
+# Auth API server (device-code + token endpoints)
+# From Hermes docs: auth.x.ai is the API server, accounts.x.ai is the user-facing verification URL
+XAI_AUTH_URL = "https://auth.x.ai/oauth2/device/code"
+XAI_TOKEN_URL = "https://auth.x.ai/oauth2/token"
+XAI_TOKEN_VERIFY_URL = "https://auth.x.ai/oauth2/introspect"
 # User verification URL (where they enter the code)
 XAI_VERIFY_URL = "https://accounts.x.ai"
 
@@ -86,13 +86,21 @@ def _delete_cached_tokens():
 def _get_oauth_config() -> dict:
     """Get xAI OAuth config.
     
-    xAI uses a public OAuth client for device-code flow — no client_secret
-    required. This matches the Hermes implementation pattern.
+    xAI device-code OAuth requires a registered OAuth app client_id.
+    No client_secret is needed (public client), but you must register
+    an app at https://x.ai/api to get a client_id.
     """
-    # xAI uses a public client for device-code flow
-    # No env vars required — user authenticates via browser
+    client_id = env("XAI_CLIENT_ID", default="")
+    
+    if not client_id:
+        raise ValueError(
+            "XAI_CLIENT_ID not configured. "
+            "Register an OAuth app at https://x.ai/api to get a client_id, "
+            "then set XAI_CLIENT_ID in your environment."
+        )
+    
     return {
-        "client_id": "xai-public-client",  # Public client identifier
+        "client_id": client_id,
     }
 
 
