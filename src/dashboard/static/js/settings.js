@@ -182,24 +182,10 @@ async function loadSettingsMyModel() {
                 <span id="byok-status" style="font-size:0.7rem;color:var(--dim);"></span>
             </div>
         </div>`;
-        // xAI OAuth section — device-code flow for Grok models
-        const xaiStatus = await fetch('/api/xai/auth/status').then(r => r.json()).catch(() => ({authorized: false}));
-        const xaiSection = `<div style="margin:10px 0;padding:10px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border);">
-            <div style="font-size:0.75rem;color:var(--text);margin-bottom:6px;"><strong>xAI (Grok)</strong> — OAuth connection</div>
-            <div id="xai-auth-container">
-                ${xaiStatus.authorized
-                    ? `<div style="font-size:0.7rem;color:var(--green);">✓ Authorized ${xaiStatus.has_refresh_token ? '(with refresh)' : ''}</div>
-                       <button class="btn-sm" style="margin-top:6px;background:transparent;border:1px solid var(--border);color:var(--dim);" onclick="revokeXAIAuth(this)">Disconnect xAI</button>`
-                    : `<div style="font-size:0.7rem;color:var(--dim);margin-bottom:6px;">Not connected. Authorize to use Grok models.</div>
-                       <button class="btn-sm" onclick="startXAIAuth(this)">Connect xAI</button>
-                       <div id="xai-auth-pending" style="display:none;margin-top:8px;">
-                           <div style="font-size:0.7rem;color:var(--text);">Go to <a id="xai-verify-link" href="#" target="_blank" style="color:var(--accent);">x.ai</a> and enter:</div>
-                           <div id="xai-user-code" style="font-family:monospace;font-size:1.1rem;margin:6px 0;padding:8px 12px;background:#0e0e16;border-radius:4px;border:1px solid var(--border);color:var(--accent);letter-spacing:2px;"></div>
-                           <div style="font-size:0.65rem;color:var(--dim);">Waiting for authorization…</div>
-                       </div>
-                       <div id="xai-auth-error" style="display:none;margin-top:6px;font-size:0.7rem;color:#ff6b6b;"></div>`}
-            </div>
-        </div>`;
+        // xAI OAuth section — DISABLED 2026-07-12 (Chords). xAI subscription-
+        // OAuth is unofficial/allowlisted; Grok stays available via OpenRouter.
+        // Backend routes (xai_auth) left dormant. Re-enable: restore from git.
+        const xaiSection = '';
 
         el.innerHTML = banner + byok + xaiSection +
             `<div style="margin-bottom:8px;font-size:0.7rem;color:var(--dim);">Pick a specific model, or leave on "Cove default" to inherit <strong style="color:var(--text);">${ESC(defaultStr)}</strong>.</div>
