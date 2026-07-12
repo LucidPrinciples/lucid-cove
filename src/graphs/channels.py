@@ -425,6 +425,19 @@ def _load_tools(modules=None) -> list:
     except Exception as e:
         print(f"{ts_log()} [tools] skill tools unavailable: {e}")
 
+    # Image viewing is UNIVERSAL — every agent gets view_image so a screenshot or
+    # photo (incl. iPhone HEIC) dropped in the Inbox is readable, regardless of the
+    # instance's configured tool modules. Same rationale as skill tools above:
+    # ships with the role, not the instance list, so older Coves get it on upgrade.
+    try:
+        from src.tools.image_tools import ALL_IMAGE_TOOLS
+        have = {getattr(t, "name", None) for t in all_tools}
+        for t in ALL_IMAGE_TOOLS:
+            if getattr(t, "name", None) not in have:
+                all_tools.append(t)
+    except Exception as e:
+        print(f"{ts_log()} [tools] image tools unavailable: {e}")
+
     if use_default:
         _tool_cache = all_tools
     else:
