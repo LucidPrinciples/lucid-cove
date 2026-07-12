@@ -120,19 +120,21 @@ async def _sync_board_on_done(source: str, pr_url: str):
         return  # only board-sourced items sync back
     ticket = source[6:]  # strip 'board:' prefix
     try:
-        from src.tools.backlog_tools import _board_get, _board_put
+        from src.tools.backlog_tools import _cas_edit
         from src.tools.backlog_tools import move_ticket_lane, mark_ticket_done, annotate_ticket
-        text, label = await _board_get()
-        # Move to COMPLETED lane
-        text, msg1 = move_ticket_lane(text, ticket, "completed")
-        # Mark checkbox done
-        text, msg2 = mark_ticket_done(text, ticket)
-        # Annotate with PR ref
-        if pr_url:
-            text, msg3 = annotate_ticket(text, ticket, f"merged {pr_url}")
-        else:
-            msg3 = ""
-        await _board_put(text)
+
+        def _apply(t):
+            t, msg1 = move_ticket_lane(t, ticket, "completed")
+            t, msg2 = mark_ticket_done(t, ticket)
+            if pr_url:
+                t, msg3 = annotate_ticket(t, ticket, f"merged {pr_url}")
+            return t, [msg1, msg2]
+
+        # Conditional write (If-Match) with one stale retry — a concurrent
+        # editor can no longer be stomped by this sync (OPS-5b).
+        msgs, _label, saved = await _cas_edit(_apply)
+        if not saved:
+            raise RuntimeError("; ".join(msgs) or "stale board, not saved")
     except Exception as e:
         # Log but don't fail the queue update — board sync is best-effort
         logging.getLogger(__name__).warning(

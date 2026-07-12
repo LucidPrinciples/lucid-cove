@@ -87,11 +87,12 @@ def _wire(monkeypatch, board=BOARD, qid=7, fail_put=False):
     saved = _Saved()
 
     async def fake_get():
-        return board, "knight's board (jag:AgentSkills/Ops/jules-backlog.md)"
+        return board, "knight's board (jag:AgentSkills/Ops/jules-backlog.md)", 'W/"etag-1"'
 
-    async def fake_put(text):
+    async def fake_put(text, etag=""):
         if fail_put:
             raise RuntimeError("Board write failed (HTTP 507)")
+        saved.etag = etag
         saved.text = text
 
     async def fake_insert(source, title, assignee):
@@ -187,3 +188,58 @@ def test_steward_prompt_includes_intake_geography():
     assert "backlog_board" in block and "backlog_pull" in block
     member = _dev_workflow_block({"archetype": "companion", "name": "atlas"})
     assert "backlog_pull" not in member
+
+
+# =============================================================================
+# OPS-5b — conditional writes (compare-and-swap): stale writers cannot stomp
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_writes_are_conditional_on_the_read_etag(monkeypatch):
+    saved = _wire(monkeypatch)
+    await bt.backlog_update.coroutine("#D50", note="x")
+    assert saved.etag == 'W/"etag-1"'  # the PUT carried the read's etag
+
+
+@pytest.mark.asyncio
+async def test_stale_write_rereads_and_reapplies(monkeypatch):
+    """First PUT hits 412 (board changed under us) → the edit re-applies to the
+    FRESH board content and the second PUT succeeds."""
+    saved = _Saved()
+    calls = {"get": 0, "put": 0}
+    fresh_board = BOARD.replace("Cards vs GitHub.", "Cards vs GitHub (fresh).")
+
+    async def fake_get():
+        calls["get"] += 1
+        text = BOARD if calls["get"] == 1 else fresh_board
+        return text, "b", f'W/"etag-{calls["get"]}"'
+
+    async def fake_put(text, etag=""):
+        calls["put"] += 1
+        if calls["put"] == 1:
+            raise bt.BoardStale("etag mismatch")
+        saved.text, saved.etag = text, etag
+
+    monkeypatch.setattr(bt, "_board_get", fake_get)
+    monkeypatch.setattr(bt, "_board_put", fake_put)
+
+    out = await bt.backlog_update.coroutine("#D50", note="retry-note")
+    assert "retry-note" in out
+    assert "(fresh)" in saved.text          # edit landed on the FRESH content
+    assert saved.etag == 'W/"etag-2"'       # conditional on the re-read
+    assert calls["get"] == 2 and calls["put"] == 2
+
+
+@pytest.mark.asyncio
+async def test_stale_twice_reports_honestly_never_forces(monkeypatch):
+    async def fake_get():
+        return BOARD, "b", 'W/"e"'
+
+    async def fake_put(text, etag=""):
+        raise bt.BoardStale("etag mismatch")
+
+    monkeypatch.setattr(bt, "_board_get", fake_get)
+    monkeypatch.setattr(bt, "_board_put", fake_put)
+
+    out = await bt.backlog_update.coroutine("#D50", note="x")
+    assert "NOT SAVED" in out and "concurrent writer" in out

@@ -15,12 +15,15 @@ from src.tools.steward_queue_tools import _sync_board_on_done, _update
 @pytest.fixture
 def mock_board_tools():
     """Patch the backlog_tools functions used by _sync_board_on_done."""
-    with patch("src.tools.backlog_tools._board_get") as get, \
+    async def _fake_cas(apply_fn, attempts=2):
+        new_text, msgs = apply_fn("board text")
+        return msgs, "test-board", True
+
+    with patch("src.tools.backlog_tools._cas_edit", side_effect=_fake_cas) as get, \
          patch("src.tools.backlog_tools._board_put") as put, \
          patch("src.tools.backlog_tools.move_ticket_lane") as move, \
          patch("src.tools.backlog_tools.mark_ticket_done") as mark, \
          patch("src.tools.backlog_tools.annotate_ticket") as ann:
-        get.return_value = ("board text", "test-board")
         move.return_value = ("moved text", "moved")
         mark.return_value = ("marked text", "marked")
         ann.return_value = ("annotated text", "annotated")
@@ -60,15 +63,21 @@ async def test_sync_board_on_done_skips_non_board_source(mock_board_tools):
 
 @pytest.mark.asyncio
 async def test_sync_board_on_done_writes_board(mock_board_tools):
+    """The write goes through the CAS seam (conditional If-Match, OPS-5b)."""
     await _sync_board_on_done("board:#D52", "https://github.com/org/repo/pull/65")
-    mock_board_tools["put"].assert_called_once()
+    mock_board_tools["get"].assert_called_once()  # "get" now = the _cas_edit seam
 
 
 @pytest.mark.asyncio
-async def test_sync_board_on_done_logs_failure_no_raise(mock_board_tools, caplog):
-    """Board sync failures are logged, not raised."""
-    mock_board_tools["put"].side_effect = Exception("WebDAV 500")
-    await _sync_board_on_done("board:#D52", "")
+async def test_sync_board_on_done_logs_failure_no_raise(caplog):
+    """Board sync failures (incl. persistent stale) are logged, not raised."""
+    from unittest.mock import patch as _patch
+
+    async def _boom(apply_fn, attempts=2):
+        raise Exception("WebDAV 500")
+
+    with _patch("src.tools.backlog_tools._cas_edit", side_effect=_boom):
+        await _sync_board_on_done("board:#D52", "")
     assert "Board sync failed" in caplog.text
     assert "WebDAV 500" in caplog.text
 

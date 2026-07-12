@@ -262,7 +262,7 @@ async def _fetch_intake() -> dict:
     A failing board is 'unavailable', never a silently-empty column."""
     try:
         from src.tools.backlog_tools import _board_get
-        text, label = await _board_get()
+        text, label, _etag = await _board_get()
         return {"tickets": parse_board(text), "source": label,
                 "fetched_at": time.time(), "error": None}
     except Exception as e:
