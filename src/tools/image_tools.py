@@ -24,7 +24,7 @@ from langchain_core.tools import tool
 
 from src.env import env
 from src.tools.approval import auto
-from src.tools.nextcloud_tools import _auth, _webdav_url
+from src.tools.nextcloud_tools import _auth, _find_sibling_by_ws, _webdav_url
 
 # Formats the vision API accepts directly (no conversion needed)
 _DIRECT_MIME = {
@@ -82,6 +82,10 @@ async def view_image(path: str, question: str = "") -> str:
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
             resp = await client.get(url)
+            if resp.status_code == 404:
+                alt = await _find_sibling_by_ws(path)
+                if alt:
+                    resp = await client.get(_webdav_url(alt)); path = alt
     except Exception as e:
         return f"Error fetching {path}: {e}"
     if resp.status_code == 404:

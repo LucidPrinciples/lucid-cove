@@ -18,6 +18,7 @@ Environment variables required (in docker/.env):
 """
 
 import os
+import unicodedata
 from src.env import env
 from typing import Optional
 from urllib.parse import quote, unquote
@@ -109,6 +110,47 @@ def _webdav_url(path: str) -> str:
     return f"{_webdav_base()}/{quote(path, safe='/')}"
 
 
+def _norm_ws(s: str) -> str:
+    """Collapse every Unicode space separator (regular, U+00A0, and the U+202F
+    narrow no-break space macOS screenshot filenames embed) to a plain space, so
+    a name a model retyped with an ordinary space still matches the real file."""
+    return "".join(" " if unicodedata.category(c) == "Zs" else c for c in (s or ""))
+
+
+async def _find_sibling_by_ws(path: str) -> Optional[str]:
+    """On a 404, find the real sibling of `path` whose filename matches after
+    whitespace normalization. macOS screenshots ("...at 3.40.42<U+202F>PM.png")
+    fail otherwise because the model passes back a normal space. Returns the
+    corrected path or None. Only called on the miss path, so no extra latency
+    on the common case."""
+    p = (path or "").rstrip("/")
+    parent, _, base = p.rpartition("/")
+    if not base:
+        return None
+    want = _norm_ws(base)
+    body = ('<?xml version="1.0"?><d:propfind xmlns:d="DAV:">'
+            '<d:prop><d:displayname/></d:prop></d:propfind>')
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=15) as client:
+            resp = await client.request(
+                "PROPFIND", _webdav_url(parent or "/"),
+                headers={"Depth": "1", "Content-Type": "application/xml"},
+                content=body)
+        if resp.status_code != 207:
+            return None
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(resp.text)
+        ns = {"d": "DAV:"}
+        for r in root.findall(".//d:response", ns):
+            href = r.findtext("d:href", namespaces=ns) or ""
+            name = unquote(href.rstrip("/").split("/")[-1])
+            if name and name != base and _norm_ws(name) == want:
+                return f"{parent}/{name}" if parent else f"/{name}"
+    except Exception:
+        return None
+    return None
+
+
 # =============================================================================
 # File Tools — AUTO (reads)
 # =============================================================================
@@ -173,6 +215,10 @@ async def nextcloud_read(path: str) -> str:
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=15) as client:
             resp = await client.get(url)
+            if resp.status_code == 404:
+                alt = await _find_sibling_by_ws(path)
+                if alt:
+                    resp = await client.get(_webdav_url(alt)); path = alt
         if resp.status_code == 200:
             content = resp.text
             if len(content) > 8000:
@@ -300,6 +346,10 @@ async def nextcloud_download(path: str, local_path: str) -> str:
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=60) as client:
             resp = await client.get(url)
+            if resp.status_code == 404:
+                alt = await _find_sibling_by_ws(path)
+                if alt:
+                    resp = await client.get(_webdav_url(alt)); path = alt
         if resp.status_code == 200:
             import os
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
