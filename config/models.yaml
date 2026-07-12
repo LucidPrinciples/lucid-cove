@@ -77,6 +77,16 @@ models:
   # provider dispatch) left dormant. Re-enable: restore these entries from git
   # history and wire XAI_CLIENT_ID.
 
+  # ── GLM 5.2 via Featherless (flat-rate subscription) ─────────────────────────
+
+  - id: glm-5.2
+    name: "GLM 5.2 (Featherless)"
+    provider: featherless
+    model_string: "zai-org/GLM-5.2"
+    type: cloud
+    context_window: 256000
+    notes: "753B reasoning + tool-calling model on a FLAT Featherless subscription (no per-token). Scope to Stuart/Mercer/personal agents; team stays on Kimi. Needs FEATHERLESS_API_KEY. $25 tier = 4 concurrent — pair with a Kimi fallback so overflow degrades, not stalls."
+
   # ── Local models (Ollama on P620 RTX 3090) ──────────────────────────────────
 
   - id: qwen3-30b-moe

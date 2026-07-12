@@ -107,6 +107,7 @@ REGISTRY: list[EnvVar] = [
                 "own key or Ollama. Lets a keyless self-hoster try Guided on LP's dime."),
     EnvVar("OPENROUTER_BASE_URL", "", "str", "Models", desc="Override OpenRouter base (optional)."),
     EnvVar("MOONSHOT_API_KEY", "", "str", "Models", secret=True),
+    EnvVar("FEATHERLESS_API_KEY", "", "str", "Models", secret=True, desc="Featherless flat-rate subscription (GLM 5.2 etc.)."),
     EnvVar("GOOGLE_API_KEY", "", "str", "Models", secret=True),
     EnvVar("GROQ_API_KEY", "", "str", "Models", secret=True),
     EnvVar("OPENAI_API_KEY", "", "str", "Models", secret=True),

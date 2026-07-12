@@ -135,11 +135,12 @@ def build_init_sql(*, title: str, description: str, agent_id: str,
 MODEL_PROVIDERS = {
     "openrouter": "OPENROUTER_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
+    "featherless": "FEATHERLESS_API_KEY",
     "google": "GOOGLE_API_KEY",
     "groq": "GROQ_API_KEY",
 }
 DEFAULT_MODEL_PROVIDERS = ("openrouter",)
-FOUNDER_MODEL_PROVIDERS = ("moonshot", "google", "groq", "openrouter")
+FOUNDER_MODEL_PROVIDERS = ("moonshot", "featherless", "google", "groq", "openrouter")
 
 
 def model_env_keys(providers) -> str:

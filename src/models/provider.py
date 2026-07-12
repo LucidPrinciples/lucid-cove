@@ -450,6 +450,24 @@ def _moonshot_client(model_string: str, temperature: float, key: str = None):
     )
 
 
+def _featherless_client(model_string: str, temperature: float, key: str = None):
+    """Featherless — OpenAI-compatible, FLAT-RATE subscription inference (no per-token
+    bills). The sanctioned way to run big open models like GLM 5.2 on a fixed monthly
+    fee. Requires FEATHERLESS_API_KEY. The $25 tier allows 4 concurrent requests, so
+    scope this to a few presences (steward/merchant/personal) and keep a fallback."""
+    api_key = key or env("FEATHERLESS_API_KEY")
+    if not api_key:
+        raise RuntimeError("FEATHERLESS_API_KEY not configured")
+    return ChatOpenAI(
+        model=model_string,
+        api_key=api_key,
+        base_url="https://api.featherless.ai/v1",
+        temperature=temperature,
+        timeout=120,
+        max_retries=0,
+    )
+
+
 # ── BYOK (#121): request-scoped operator model creds ────────────────────────
 # The chat handler sets the operator's chosen provider + key for the duration of a
 # request; the deep model factory reads it here. Server-side only (a contextvar is
@@ -466,6 +484,7 @@ BYOK_DEFAULT_MODEL = {
     "google": "gemini-2.0-flash",
     "groq": "llama-3.3-70b-versatile",
     "moonshot": "kimi-k2.5",  # Kimi K2.5 (128k) — the real brain; NOT the weak 8k base
+    "featherless": "zai-org/GLM-5.2",
     "ollama": _DEFAULT_LOCAL_MODEL,
 }
 
@@ -473,6 +492,7 @@ BYOK_DEFAULT_MODEL = {
 _PROVIDER_ENV_VAR = {
     "openrouter": "OPENROUTER_API_KEY", "openai": "OPENAI_API_KEY",
     "google": "GOOGLE_API_KEY", "groq": "GROQ_API_KEY", "moonshot": "MOONSHOT_API_KEY",
+    "featherless": "FEATHERLESS_API_KEY",
 }
 
 # The Cove's BRAIN — the provider+model the admin connected via "Add Intelligence". Set
@@ -570,6 +590,8 @@ def _client_for(provider: str, model_string: str, temperature: float, key: str =
         return _google_client(model_string, temperature, key=key)
     elif provider == "groq":
         return _groq_client(model_string, temperature, key=key)
+    elif provider == "featherless":
+        return _featherless_client(model_string, temperature, key=key)
     elif provider == "xai-oauth":
         return _xai_oauth_client(model_string, temperature)
     else:
