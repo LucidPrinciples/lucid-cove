@@ -30,9 +30,10 @@ from src.env import env
 
 # xAI OAuth2 endpoints
 # Auth server (from Hermes docs: https://accounts.x.ai)
-XAI_AUTH_URL = "https://accounts.x.ai/oauth2/device/code"
-XAI_TOKEN_URL = "https://accounts.x.ai/oauth2/token"
-XAI_TOKEN_VERIFY_URL = "https://accounts.x.ai/oauth2/introspect"
+# Standard OAuth2 device-code endpoints
+XAI_AUTH_URL = "https://accounts.x.ai/device/code"
+XAI_TOKEN_URL = "https://accounts.x.ai/token"
+XAI_TOKEN_VERIFY_URL = "https://accounts.x.ai/introspect"
 # User verification URL (where they enter the code)
 XAI_VERIFY_URL = "https://accounts.x.ai"
 
