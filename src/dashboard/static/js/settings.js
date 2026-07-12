@@ -182,7 +182,26 @@ async function loadSettingsMyModel() {
                 <span id="byok-status" style="font-size:0.7rem;color:var(--dim);"></span>
             </div>
         </div>`;
-        el.innerHTML = banner + byok +
+        // xAI OAuth section — device-code flow for Grok models
+        const xaiStatus = await fetch('/api/xai/auth/status').then(r => r.json()).catch(() => ({authorized: false}));
+        const xaiSection = `<div style="margin:10px 0;padding:10px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border);">
+            <div style="font-size:0.75rem;color:var(--text);margin-bottom:6px;"><strong>xAI (Grok)</strong> — OAuth connection</div>
+            <div id="xai-auth-container">
+                ${xaiStatus.authorized
+                    ? `<div style="font-size:0.7rem;color:var(--green);">✓ Authorized ${xaiStatus.has_refresh_token ? '(with refresh)' : ''}</div>
+                       <button class="btn-sm" style="margin-top:6px;background:transparent;border:1px solid var(--border);color:var(--dim);" onclick="revokeXAIAuth(this)">Disconnect xAI</button>`
+                    : `<div style="font-size:0.7rem;color:var(--dim);margin-bottom:6px;">Not connected. Authorize to use Grok models.</div>
+                       <button class="btn-sm" onclick="startXAIAuth(this)">Connect xAI</button>
+                       <div id="xai-auth-pending" style="display:none;margin-top:8px;">
+                           <div style="font-size:0.7rem;color:var(--text);">Go to <a id="xai-verify-link" href="#" target="_blank" style="color:var(--accent);">x.ai</a> and enter:</div>
+                           <div id="xai-user-code" style="font-family:monospace;font-size:1.1rem;margin:6px 0;padding:8px 12px;background:#0e0e16;border-radius:4px;border:1px solid var(--border);color:var(--accent);letter-spacing:2px;"></div>
+                           <div style="font-size:0.65rem;color:var(--dim);">Waiting for authorization…</div>
+                       </div>
+                       <div id="xai-auth-error" style="display:none;margin-top:6px;font-size:0.7rem;color:#ff6b6b;"></div>`}
+            </div>
+        </div>`;
+
+        el.innerHTML = banner + byok + xaiSection +
             `<div style="margin-bottom:8px;font-size:0.7rem;color:var(--dim);">Pick a specific model, or leave on "Cove default" to inherit <strong style="color:var(--text);">${ESC(defaultStr)}</strong>.</div>
             <div class="settings-row" style="align-items:center;gap:8px;">
                 <span class="settings-label" style="flex:0 0 90px;">Primary</span>
@@ -269,3 +288,92 @@ async function disconnectBYOK(btn) {
         loadSettingsMyModel();
     } catch (e) { alert('Could not disconnect: ' + e.message); if (btn) btn.disabled = false; }
 }
+
+
+// ── xAI OAuth device-code flow handlers ─────────────────────────────────────
+
+let _xaiPollInterval = null;
+
+async function startXAIAuth(btn) {
+    if (_xaiPollInterval) {
+        clearInterval(_xaiPollInterval);
+        _xaiPollInterval = null;
+    }
+    btn.disabled = true;
+    const errorEl = document.getElementById('xai-auth-error');
+    const pendingEl = document.getElementById('xai-auth-pending');
+    if (errorEl) errorEl.style.display = 'none';
+    
+    try {
+        const r = await fetch('/api/xai/auth/start', {method: 'POST'});
+        const d = await r.json();
+        if (!r.ok || d.error) {
+            throw new Error(d.error || 'Failed to start OAuth flow');
+        }
+        
+        // Show the code and link
+        const codeEl = document.getElementById('xai-user-code');
+        const linkEl = document.getElementById('xai-verify-link');
+        if (codeEl) codeEl.textContent = d.user_code || '';
+        if (linkEl) linkEl.href = d.verification_uri || '#';
+        if (pendingEl) pendingEl.style.display = 'block';
+        
+        // Start polling
+        _xaiPollInterval = setInterval(() => pollXAIAuth(), (d.interval || 5) * 1000);
+        
+    } catch (e) {
+        if (errorEl) {
+            errorEl.textContent = e.message;
+            errorEl.style.display = 'block';
+        }
+        btn.disabled = false;
+    }
+}
+
+async function pollXAIAuth() {
+    try {
+        const r = await fetch('/api/xai/auth/poll', {method: 'POST'});
+        const d = await r.json();
+        
+        if (d.status === 'authorized') {
+            // Success — clear polling and reload
+            if (_xaiPollInterval) {
+                clearInterval(_xaiPollInterval);
+                _xaiPollInterval = null;
+            }
+            await loadSettingsMyModel();
+        } else if (d.status === 'no_flow') {
+            // Flow was cleared or expired
+            if (_xaiPollInterval) {
+                clearInterval(_xaiPollInterval);
+                _xaiPollInterval = null;
+            }
+        }
+        // pending — keep polling
+    } catch (e) {
+        // Network errors — keep polling unless it's a terminal error
+        console.warn('xAI poll error:', e);
+    }
+}
+
+async function revokeXAIAuth(btn) {
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/xai/auth/revoke', {method: 'POST'});
+        const d = await r.json();
+        if (d.status === 'revoked') {
+            await loadSettingsMyModel();
+        }
+    } catch (e) {
+        console.warn('xAI revoke error:', e);
+        btn.disabled = false;
+    }
+}
+
+// Clean up polling on page unload
+window.addEventListener('beforeunload', () => {
+    if (_xaiPollInterval) {
+        clearInterval(_xaiPollInterval);
+        _xaiPollInterval = null;
+    }
+});
