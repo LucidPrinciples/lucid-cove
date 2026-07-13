@@ -55,11 +55,17 @@ _LANE_ALIASES = {
 # =============================================================================
 
 def _ticket_pattern(ticket: str) -> re.Pattern:
-    """Match a ticket id like '#D52' or '#1626' as a whole token."""
-    t = ticket.strip()
-    if not t.startswith("#"):
-        t = "#" + t
-    return re.compile(r"(^|[^\w#])" + re.escape(t) + r"(?![\w])")
+    """Match a ticket id as a whole token, with or without a leading '#'.
+
+    Ids come in mixed shapes: '#1626' / '#D52' are written WITH the hash, but
+    'JL-2' / 'CF-5' style ids appear BARE on the board. The old code force-
+    prepended '#', turning 'JL-2' into '#JL-2', which never matched the board's
+    'JL-2' — so those tickets couldn't be pulled or ticked. Take the bare form
+    and match an OPTIONAL leading '#'. Case-insensitive so 'jl-2' also resolves.
+    Whole-token via boundaries, so 'JL-2' never matches inside 'JL-20'.
+    """
+    bare = ticket.strip().lstrip("#").strip()
+    return re.compile(r"(^|[^\w#])#?" + re.escape(bare) + r"(?![\w])", re.IGNORECASE)
 
 
 def find_ticket(text: str, ticket: str):
