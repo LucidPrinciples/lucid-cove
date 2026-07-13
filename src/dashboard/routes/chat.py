@@ -618,6 +618,16 @@ async def send_message(request: Request):
     except Exception as _e:
         print(f"[chat] presence identity resolve failed (non-fatal): {_e}")
 
+    # #121 fix: the operator's PERSONAL model creds power their OWN agent only. On a
+    # manager channel (steward/merchant) the acting agent is a shared Cove agent
+    # (Stuart/Mercer) with its OWN model assignment (e.g. Stuart = Grok), which must
+    # win. Applying the operator BYOK here silently overrode that with the operator's
+    # provider default (openrouter -> openrouter/auto), so Stuart ran on the OpenRouter
+    # lottery instead of its assigned Grok. Skip the operator BYOK on manager channels.
+    from src.config import _is_steward_channel, _is_merchant_channel
+    if _byok_provider and (_is_steward_channel(ch) or _is_merchant_channel(ch)):
+        _byok_provider = _byok_key = ""
+
     if not user_message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
 
