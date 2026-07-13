@@ -568,6 +568,92 @@ async def _resolve_a(host: str, timeout: float = 3.0) -> str:
         return ""
 
 
+def _diagnosis_task(raw_error: str, step_context: str) -> str:
+    """#1628 — the framed prompt handed to the agent to diagnose a set-address failure.
+    Pure + unit-testable (no I/O)."""
+    return (
+        "The operator just tried to set this Cove's address and it FAILED. The raw error is "
+        "below. Diagnose it for them in a few plain sentences: what most likely went wrong, "
+        "what you would check, and the exact next step (or precisely what to paste where). "
+        "Never leave them at a dead end -- if you cannot be certain, say what to check and "
+        "why. Be concise and warm; no preamble.\n\n"
+        f"STEP: {step_context}\nRAW ERROR:\n{raw_error}"
+    )
+
+
+def _clean_reply(text: str) -> str:
+    """Strip <think>...</think> scaffolding and trim. Pure + unit-testable."""
+    return re.sub(r"<think>.*?</think>", "", (text or ""), flags=re.DOTALL).strip()
+
+
+@router.post("/api/domain/diagnose-error")
+async def diagnose_domain_error(request: Request):
+    """#1628 — when set-address fails, the operator's agent diagnoses it automatically.
+
+    Standing product principle (2026-07-10): a connected intelligence steps in on errors
+    without being asked. EPHEMERAL, synchronous one-shot -- no chat thread, no tools, no
+    history -- so a retry loop never clutters the operator's chat. Returns the agent's
+    plain-language diagnosis as JSON for the failed-step card to render inline.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    raw_error = (body.get("raw_error") or "").strip()[:2000]
+    step_context = (body.get("step_context") or "set the Cove address").strip()[:500]
+    if not raw_error:
+        return JSONResponse({"error": "no error text to diagnose"}, status_code=400)
+
+    presence_identity = None
+    agent_name = ""
+    try:
+        if env("COVE_MODE", "single") == "multi":
+            from src.dashboard.routes.presence import get_current_presence
+            _p = await get_current_presence(request)
+            if _p and _p.get("agent_identity"):
+                presence_identity = _p["agent_identity"]
+                agent_name = (presence_identity.get("name") or "").strip()
+    except Exception as e:
+        log.warning("diagnose-error: presence resolve failed (non-fatal): %s", e)
+
+    try:
+        from src.dashboard.routes.chat import _personal_agent_id
+        agent_id = await _personal_agent_id(request)
+    except Exception:
+        agent_id = "agent"
+
+    try:
+        from src.agents.identity import build_system_prompt
+        from src.models.provider import get_primary_model
+        from langchain_core.messages import SystemMessage, HumanMessage
+        sys_prompt = build_system_prompt(agent_id, agent_identity=presence_identity)
+        model = get_primary_model(temperature=0.3)
+    except Exception as e:
+        log.warning("diagnose-error: agent/model unavailable: %s", e)
+        return JSONResponse({"error": "agent unavailable"}, status_code=503)
+
+    try:
+        resp = await asyncio.wait_for(
+            model.ainvoke([
+                SystemMessage(content=sys_prompt),
+                HumanMessage(content=_diagnosis_task(raw_error, step_context)),
+            ]),
+            timeout=60,
+        )
+        reply = _clean_reply(getattr(resp, "content", "") or "")
+    except asyncio.TimeoutError:
+        return JSONResponse({"error": "diagnosis timed out"}, status_code=504)
+    except Exception as e:
+        log.warning("diagnose-error: inference failed: %s", e)
+        return JSONResponse({"error": "diagnosis failed"}, status_code=502)
+
+    if not reply:
+        reply = ("I could not read a clear cause from that error. Double-check the domain is "
+                 "spelled right and that its DNS points to this box, then try again -- and "
+                 "paste the full error to me in chat if it keeps happening.")
+    return {"agent_name": agent_name, "reply": reply}
+
+
 @router.post("/api/domain/check-records")
 async def check_records(request: Request):
     """C1 (locked): guided-manual 'Check my records' — resolve the operator's own-domain A
