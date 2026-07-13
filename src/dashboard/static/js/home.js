@@ -324,7 +324,7 @@ function _onboardingCardHtml(item) {
         const gpu = item.gpu || {};
         const hasGpu = !!gpu.present;
         const localBtn = hasGpu
-            ? `<button class="btn-approve" onclick="setCompute('local')">Use this GPU ★</button>`
+            ? `<button class="btn-approve" onclick="setCompute('local', this)">Use this GPU ★</button>`
             : '';
         // CF-72: the choice's price tag — what a starter month costs on cloud keys
         // vs ~$0 local, computed server-side (item.cost). Purely informational.
@@ -339,15 +339,15 @@ function _onboardingCardHtml(item) {
                 <input id="compute-rent-url" class="settings-input" placeholder="https://voice.their-cove.lucidcove.org" style="width:100%;">
                 <input id="compute-rent-token" class="settings-input" placeholder="grant code (gpugrant_…)" style="width:100%;margin-top:6px;">
                 <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-                    <button class="btn-approve" onclick="setCompute('external')">Use this GPU grant</button>
+                    <button class="btn-approve" onclick="setCompute('external', this)">Use this GPU grant</button>
                     <a class="btn-ghost" href="/static/action-board/rent-gpu.html" target="_blank" rel="noopener" style="text-decoration:none;">Browse marketplace ↗</a>
                 </div>
             </div>
             <div class="approval-actions" id="compute-cta" style="flex-wrap:wrap;gap:6px;">
                 ${localBtn}
-                <button class="btn-approve" onclick="setCompute('cloud')">Use cloud</button>
+                <button class="btn-approve" onclick="setCompute('cloud', this)">Use cloud</button>
                 <button class="btn-approve" onclick="document.getElementById('compute-rent').style.display='block';">Rent a GPU</button>
-                <button class="btn-ghost" onclick="setCompute('cpu')">CPU only for now</button>
+                <button class="btn-ghost" onclick="setCompute('cpu', this)">CPU only for now</button>
             </div>
             <div id="compute-status" style="display:none;margin-top:6px;font-size:0.72rem;"></div>
         </div>`;
@@ -1032,9 +1032,31 @@ async function ackOnboarding(item) {
 // ack the step. local = this box's GPU · cloud = BYOK cloud ASR · external = a rented
 // GPU (endpoint + grant token) · cpu = no GPU backend (GPU features stay limited, and
 // say so). The video pipeline + other GPU features already gate on this config.
-async function setCompute(choice) {
+async function setCompute(choice, btn) {
+    // JL-3: immediate running/progress feedback — previously the CTA only updated after
+    // a full reload when ackOnboarding refreshed the card.
     const st = document.getElementById('compute-status');
     const show = (msg, color) => { if (st) { st.style.display = 'block'; st.style.color = color || 'var(--dim)'; st.textContent = msg; } };
+    const cta = document.getElementById('compute-cta');
+    const actionBtns = cta
+        ? Array.from(cta.querySelectorAll('button'))
+        : (btn ? [btn] : []);
+    // Also lock the grant submit button if the rent panel is open outside cta flow.
+    const rentBtn = document.querySelector('#compute-rent button.btn-approve');
+    if (rentBtn && !actionBtns.includes(rentBtn)) actionBtns.push(rentBtn);
+    const originals = actionBtns.map(b => ({ b, text: b.textContent, disabled: b.disabled }));
+    const setBusy = (busy, activeLabel) => {
+        for (const { b, text } of originals) {
+            b.disabled = busy || false;
+            if (busy) {
+                b.textContent = (b === btn) ? (activeLabel || 'Working…') : text;
+                b.style.opacity = (b === btn) ? '1' : '0.55';
+            } else {
+                b.textContent = text;
+                b.style.opacity = '';
+            }
+        }
+    };
     let payload;
     if (choice === 'local')      payload = { mode: 'local', url: '', token: '' };
     else if (choice === 'cloud') payload = { mode: 'cloud', url: '', token: '' };
@@ -1045,14 +1067,32 @@ async function setCompute(choice) {
         if (!url.trim() || !token.trim()) { show('Paste both the endpoint and the grant code.', '#ff8c00'); return; }
         payload = { mode: 'external', url: url.trim(), token: token.trim() };
     } else return;
+
+    const runningLabel = (choice === 'external') ? 'Using grant…'
+        : (choice === 'local') ? 'Using GPU…'
+        : (choice === 'cloud') ? 'Connecting…'
+        : 'Saving…';
+    setBusy(true, runningLabel);
+    show('Setting up compute…', 'var(--dim)');
     try {
         const r = await fetch('/api/settings/compute/video_asr', {
             method: 'PUT', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         });
         const d = await r.json();
-        if (!r.ok || d.error) { show(d.error || 'Could not save that.', '#ff6b6b'); return; }
-    } catch (e) { show('Could not save: ' + e.message, '#ff6b6b'); return; }
+        if (!r.ok || d.error) {
+            setBusy(false);
+            show(d.error || 'Could not save that.', '#ff6b6b');
+            return;
+        }
+    } catch (e) {
+        setBusy(false);
+        show('Could not save: ' + e.message, '#ff6b6b');
+        return;
+    }
+    // Success path: keep busy state until the card refreshes away.
+    if (btn) btn.textContent = '✓ Saved';
+    show('Compute set — finishing…', 'var(--green)');
     // Mark the step done regardless of which path — compute is now established.
     await ackOnboarding('set_compute');
 }
