@@ -733,10 +733,14 @@ class AgentScheduler:
                 desc = f"{desc}\n\n{hashtags}" if desc else hashtags
 
             # Build metadata
+            # Sanitize tags to YouTube's keyword limit (shared with the
+            # interactive route). The queue path previously sent RAW tags, which
+            # is why queue #4 kept 400ing on 'invalid video keywords'.
+            from src.dashboard.routes.youtube import sanitize_youtube_tags
             snippet = {
                 "title": title,
                 "description": desc,
-                "tags": post["tags"] if isinstance(post["tags"], list) else [],
+                "tags": sanitize_youtube_tags(post["tags"] if isinstance(post["tags"], list) else []),
                 "categoryId": post["category_id"] or "22",
             }
 
