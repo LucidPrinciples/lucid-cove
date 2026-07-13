@@ -231,7 +231,7 @@ async def onboarding_items(request: Request):
             # 2026-07-04: the instructions ARE the nag) — home.js renders `guide`
             # as ordered steps.
             "id": "protect_backup",
-            "title": "Protect your Cove",
+            "title": "Back up your Cove's work",
             "unlocks": "A daily off-site copy of everything that makes this Cove yours",
             "done": (_backup_green or bool(ac.get("onboarding_backup_ack"))),
             "available": intel_done,                  # meaningful once the Cove is real
