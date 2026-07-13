@@ -47,6 +47,16 @@ async def _append_messages(request: Request, channel: str, items: list[dict]) ->
         return {"ok": True, "count": 0}
     async with channel_db_scope(channel):
         thread_id = await _get_active_thread_id(channel, request)
+        # Fix C: wake writes bypass the interactive pre-send critical check too.
+        # Rotate first if the thread is over the limit so wake-driven channels
+        # don't accumulate unbounded either. Best-effort — never breaks the write.
+        try:
+            from src.memory.threads import rotate_if_context_critical
+            _rot = await rotate_if_context_critical(channel, agent_id)
+            if _rot and _rot.get("new_thread_id"):
+                thread_id = _rot["new_thread_id"]
+        except Exception:
+            pass
         async with get_checkpointer() as checkpointer:
             graph = await get_channel_graph(channel, checkpointer)
             config = {"configurable": {"thread_id": thread_id}}

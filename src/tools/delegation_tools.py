@@ -104,6 +104,20 @@ async def _run_agent_turn(channel: str, message: str, agent_label: str,
                 row2 = await r.fetchone()
             agent_id = row2["agent_id"] if row2 else None
 
+        # Fix C: background delegation turns skip the interactive send path's
+        # pre-send critical check, so these work-logs grew unbounded (280-357 msgs,
+        # never rotating). Rotate here if the thread is over the limit BEFORE we
+        # append this turn. Best-effort — never blocks the delegated work.
+        try:
+            from src.memory.threads import rotate_if_context_critical
+            _rot = await rotate_if_context_critical(channel, agent_id)
+            if _rot and _rot.get("new_thread_id"):
+                thread_id = _rot["new_thread_id"]
+                _say(f"{agent_label}: rotated {channel} before the delegated turn "
+                     f"(previous thread was over the context limit)")
+        except Exception:
+            pass
+
         now_iso = datetime.now(timezone.utc).isoformat()
         graph_input = {
             "messages": [HumanMessage(content=message,
