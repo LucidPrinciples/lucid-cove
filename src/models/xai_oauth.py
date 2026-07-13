@@ -47,7 +47,7 @@ TOKEN_CACHE_DIR = Path("/app/data/.xai_tokens")
 TOKEN_CACHE_FILE = TOKEN_CACHE_DIR / "tokens.json"
 
 # OAuth scopes for Grok access
-XAI_SCOPES = ["read", "write"]  # Adjust per xAI documentation
+XAI_SCOPES = ["openid", "profile", "email", "offline_access", "grok-cli:access", "api:access"]
 
 
 def _ensure_token_dir():
@@ -92,7 +92,10 @@ def _get_oauth_config() -> dict:
     No client_secret is needed (public client), but you must register
     an app at https://x.ai/api to get a client_id.
     """
-    client_id = env("XAI_CLIENT_ID", default="")
+    # Shared "Grok Build" OAuth client (the same one Hermes/OpenClaw use). The
+    # operator authenticates with their OWN SuperGrok / X-Premium subscription
+    # via the device-code flow; this id only identifies the app to xAI.
+    client_id = env("XAI_CLIENT_ID", default="b1a00492-073a-47ea-816f-4c329264a828")
     
     if not client_id:
         raise ValueError(

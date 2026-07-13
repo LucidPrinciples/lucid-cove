@@ -68,14 +68,28 @@ models:
     context_window: 200000
     notes: "Quality ceiling benchmark ($3/$15 per M). Premium tier — test to set the bar, not for default production."
 
-  # ── xAI Grok models — DISABLED 2026-07-12 (Chords) ────────────────────────
-  # Removed from the registry so nothing can route to the xai-oauth provider.
-  # xAI's subscription/OAuth surface is unofficial + allowlisted (standard
-  # SuperGrok gets 403'd — hermes-agent#26847), ToS-gray, and revocable, so it
-  # is not a foundation for a replicable product. Grok stays reachable via
-  # OpenRouter if a family wants it. Backend (xai_oauth.py / xai_auth.py /
-  # provider dispatch) left dormant. Re-enable: restore these entries from git
-  # history and wire XAI_CLIENT_ID.
+  # xAI Grok models - subscription OAuth (opt-in, re-enabled 2026-07-13).
+  # UNOFFICIAL: uses xAI's shared "Grok Build" OAuth client (like Hermes/OpenClaw).
+  # Requires the operator's own SuperGrok / X-Premium subscription (device-code
+  # login in Settings -> Connect xAI). May be rate/tier limited or revoked by xAI
+  # (hermes-agent#26847). NOT a shipped default for any role - a family opts in.
+  # Grok also stays reachable via OpenRouter. Verified on X Premium 2026-07-13.
+
+  - id: grok-4-5
+    name: "Grok 4.5 (xAI subscription)"
+    provider: xai-oauth
+    model_string: "grok-4.5"
+    type: cloud
+    context_window: 500000
+    notes: "xAI Grok 4.5 via subscription OAuth (unofficial). Needs SuperGrok/X-Premium+ and a Connect xAI device-code login. Reasoning/tools/vision, 500K context. Verified on X Premium 2026-07-13."
+
+  - id: grok-build
+    name: "Grok Build 0.1 (xAI subscription)"
+    provider: xai-oauth
+    model_string: "grok-build-0.1"
+    type: cloud
+    context_window: 256000
+    notes: "xAI Grok Build coding model via subscription OAuth (unofficial). Scoped to the shared client, most reliable on standard subscriptions. Verified on X Premium 2026-07-13."
 
   # ── GLM 5.2 via Featherless — NOT REGISTERED (Chords, 2026-07-12) ─────────────
   # Provider code (_featherless_client) kept DORMANT like the xAI backend, but no
