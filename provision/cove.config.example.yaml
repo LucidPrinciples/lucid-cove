@@ -70,9 +70,6 @@ compute:
   #                                 #   default: standalone/p620 → http://host.docker.internal:11434
   #                                 #            vps             → http://100.64.0.1:11434 (P620 over mesh)
   # p620_ollama_url: ""             # override just the VPS→P620 mesh endpoint (if the P620 mesh IP differs)
-  # ltp_core_path: "../ltp-core"   # PRE-FLIP TESTING ONLY: mount ltp-core source so the
-                                   # public-Drop tuning works before lucid-tuner-protocol is
-                                   # on PyPI. Leave unset in production (uses the published package).
   # voice (#205-voice). Where jules (voice dictation) runs. Default is a local CPU
   # pipecat shipped in this Cove's stack — no GPU, works out of the box.
   voice:

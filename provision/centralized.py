@@ -877,10 +877,6 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
       - "{bind}{matrix_port}:8008"{svc_nets}
 """ if matrix_on else "")
     dendrite_volume = "\n  dendrite_data:" if matrix_on else ""
-    # Pre-flip testing: mount ltp-core source so `import lucid_tuner_protocol`
-    # resolves without PyPI (its deps httpx+cryptography are already in the image).
-    # Leave ltp_core_path unset in production — there cove-core deps on the
-    # published lucid-tuner-protocol package.
     _ltp = (deploy.get("ltp_core_path") or "").strip()
     ltp_mount = f"\n      - {_ltp}/src:/opt/ltp-core-src:ro" if _ltp else ""
     ltp_env = "\n      PYTHONPATH: /opt/ltp-core-src" if _ltp else ""
