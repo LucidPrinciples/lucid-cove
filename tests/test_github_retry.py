@@ -87,6 +87,43 @@ def test_success_first_try():
     assert client.calls == 1
 
 
+# ── _delta_tree_entries: base_tree delta payload (small tree, explicit deletes) ──
+
+def test_delta_changed_new_deleted_and_unchanged():
+    existing = {"a": "sA", "b": "sB", "c": "sC"}
+    desired = {"a": "sA", "b": "sB2", "d": "sD"}  # a unchanged, b changed, d new, c removed
+    entries, deletions = gh._delta_tree_entries(existing, desired)
+    by_path = {e["path"]: e for e in entries}
+    assert "a" not in by_path                      # unchanged omitted (rides base_tree)
+    assert by_path["b"]["sha"] == "sB2"            # changed
+    assert by_path["d"]["sha"] == "sD"             # new
+    assert by_path["c"]["sha"] is None             # deleted -> sha None
+    assert deletions == 1
+    assert len(entries) == 3
+
+
+def test_delta_no_changes_is_empty():
+    existing = {"a": "sA", "b": "sB"}
+    entries, deletions = gh._delta_tree_entries(existing, dict(existing))
+    assert entries == []
+    assert deletions == 0
+
+
+def test_delta_pure_delete():
+    existing = {"a": "sA", "b": "sB"}
+    desired = {"a": "sA"}
+    entries, deletions = gh._delta_tree_entries(existing, desired)
+    assert entries == [{"path": "b", "mode": "100644", "type": "blob", "sha": None}]
+    assert deletions == 1
+
+
+def test_delta_entries_are_small_vs_full_site():
+    existing = {f"f{i}": f"s{i}" for i in range(864)}      # big live site
+    desired = dict(existing); desired["f0"] = "changed"    # one file edited
+    entries, deletions = gh._delta_tree_entries(existing, desired)
+    assert len(entries) == 1 and deletions == 0            # payload is 1, not 864
+
+
 if __name__ == "__main__":
     tests = [
         ("retries_502_then_succeeds", test_retries_transient_502_then_succeeds),
@@ -94,6 +131,10 @@ if __name__ == "__main__":
         ("no_retry_on_4xx", test_no_retry_on_4xx),
         ("retries_network_error", test_retries_network_error_then_succeeds),
         ("success_first_try", test_success_first_try),
+        ("delta_changed_new_deleted_unchanged", test_delta_changed_new_deleted_and_unchanged),
+        ("delta_no_changes_is_empty", test_delta_no_changes_is_empty),
+        ("delta_pure_delete", test_delta_pure_delete),
+        ("delta_small_vs_full_site", test_delta_entries_are_small_vs_full_site),
     ]
     ok = True
     for name, fn in tests:

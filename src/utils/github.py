@@ -328,6 +328,30 @@ async def github_get_tree_shas(repo: str, branch: str, pat: str) -> dict:
         return {e["path"]: e["sha"] for e in rt.json().get("tree", []) if e["type"] == "blob"}
 
 
+def _delta_tree_entries(existing: dict, desired: dict) -> tuple[list, int]:
+    """Minimal git tree payload to turn the live repo (`existing` {path: sha})
+    into the folder mirror (`desired` {path: sha}), for POST git/trees WITH a
+    base_tree.
+
+    Changed/new paths carry their blob sha; paths removed from the folder are
+    sent with sha=None (GitHub deletes them). Unchanged paths are omitted — the
+    base_tree carries them forward — so the payload is the DIFF, not the whole
+    site. That keeps a one-file change a one-entry POST and avoids the large-tree
+    502 a full mirror hit on big sites (chordsoftruth, 864 files).
+
+    Returns (entries, deletion_count).
+    """
+    entries = []
+    for path, sha in desired.items():
+        if existing.get(path) != sha:
+            entries.append({"path": path, "mode": "100644", "type": "blob", "sha": sha})
+    deletions = 0
+    for path in existing.keys() - desired.keys():
+        entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
+        deletions += 1
+    return entries, deletions
+
+
 async def github_commit_tree(repo: str, files: dict, message: str,
                              branch: str, pat: str,
                              parent_branch: str = "main",
@@ -338,9 +362,10 @@ async def github_commit_tree(repo: str, files: dict, message: str,
     `parent_branch` and reuses the existing blob for unchanged files (no
     upload). `unchanged_shas` lets the caller pass {path: blob_sha} for files
     it already knows are identical to live (matched by NC etag) so their bytes
-    are never downloaded or uploaded. The new tree lists the full file set
-    (files + unchanged_shas); anything missing from both is removed (deletes
-    propagate — folder is source of truth). History is preserved.
+    are never downloaded or uploaded. The commit is built against the live
+    base_tree and sends only the DELTA (changed/new + explicit sha=None
+    deletions); unchanged files ride on base_tree. Deletes still propagate
+    (folder = source of truth). History is preserved.
 
     Returns {commit_sha, branch, file_count, changed, shas, no_changes}.
     """
@@ -363,46 +388,52 @@ async def github_commit_tree(repo: str, files: dict, message: str,
         rt.raise_for_status()
         existing = {e["path"]: e["sha"] for e in rt.json().get("tree", []) if e["type"] == "blob"}
 
-        # 3. Build tree. unchanged_shas are files the caller already matched to
-        #    live by NC etag — added by sha with no download/upload. files are
-        #    the (few) changed/new files; upload a blob only when content differs.
-        tree_entries = []
+        # 3. Upload blobs only for genuinely changed/new content, building the
+        #    FULL desired mirror {path: sha}. unchanged_shas are files the caller
+        #    matched to live by NC etag (no download/upload).
         all_shas = {}
         changed = 0
         for path, sha in (unchanged_shas or {}).items():
             if path in files:
                 continue  # caller flagged it changed; the files loop is authoritative
-            tree_entries.append({"path": path, "mode": "100644", "type": "blob", "sha": sha})
             all_shas[path] = sha
         for path, raw in files.items():
             want = _git_blob_sha(raw)
             if existing.get(path) == want:
-                sha = want  # unchanged — reuse existing blob, no upload
-            else:
-                if isinstance(raw, str):
-                    raw = raw.encode("utf-8")
-                b64 = base64.b64encode(raw).decode("ascii")
-                br = await _gh_send(
-                    client, "POST", f"{API}/repos/{repo}/git/blobs",
-                    headers=h, json={"content": b64, "encoding": "base64"},
-                )
-                br.raise_for_status()
-                sha = br.json()["sha"]
-                changed += 1
-            tree_entries.append({"path": path, "mode": "100644", "type": "blob", "sha": sha})
-            all_shas[path] = sha
-        # deletions: files live now but absent from the new tree
-        changed += len(set(existing) - set(all_shas))
+                all_shas[path] = want  # already live — reuse blob, not in the delta
+                continue
+            if isinstance(raw, str):
+                raw = raw.encode("utf-8")
+            b64 = base64.b64encode(raw).decode("ascii")
+            br = await _gh_send(
+                client, "POST", f"{API}/repos/{repo}/git/blobs",
+                headers=h, json={"content": b64, "encoding": "base64"},
+            )
+            br.raise_for_status()
+            all_shas[path] = br.json()["sha"]
+            changed += 1
 
-        # 4. Full tree (no base_tree) → exact mirror; unchanged blobs reused by sha
+        # 4. Commit against base_tree with only the DELTA (changed/new + sha=None
+        #    deletions). Unchanged files ride on base_tree, so a huge site sends a
+        #    tiny payload instead of an 864-entry tree (which 502'd).
+        delta_entries, deletions = _delta_tree_entries(existing, all_shas)
+        changed += deletions
+
+        # Nothing differs from live — skip the commit entirely.
+        if not delta_entries:
+            log.info(f"Deploy {repo}: no changes")
+            return {"commit_sha": parent_sha, "branch": parent_branch,
+                    "file_count": len(all_shas), "changed": 0,
+                    "shas": all_shas, "no_changes": True}
+
         tr = await _gh_send(
             client, "POST", f"{API}/repos/{repo}/git/trees",
-            headers=h, json={"tree": tree_entries},
+            headers=h, json={"base_tree": base_tree_sha, "tree": delta_entries},
         )
         tr.raise_for_status()
         tree_sha = tr.json()["sha"]
 
-        # Nothing changed — don't make an empty commit
+        # Guard: identical resulting tree (shouldn't happen given the delta check)
         if tree_sha == base_tree_sha:
             log.info(f"Deploy {repo}: no changes")
             return {"commit_sha": parent_sha, "branch": parent_branch,
