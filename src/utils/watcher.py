@@ -33,6 +33,7 @@ is the v1 surface, per spec: never just a log line.
 """
 
 import json
+import os
 import re
 
 from src.memory.database import get_db
@@ -46,11 +47,16 @@ PUSH_NO_PR_HOURS = 4          # approved push with no PR request after this → 
 TUNING_ALERT_HOUR = 8         # local hour after which missing tunings alert
                               # (self-tune 06:30-06:55 + sweep cycles get to settle)
 
+# Tuner cycle thresholds (configurable via env or watcher_state)
+TUNER_CYCLE_EXAMPLES_THRESHOLD = int(os.getenv("TUNER_CYCLE_EXAMPLES_THRESHOLD", "500"))
+TUNER_CYCLE_DAYS_THRESHOLD = int(os.getenv("TUNER_CYCLE_DAYS_THRESHOLD", "30"))
+
 # The check categories this module owns — auto-resolve only touches these.
 CATEGORIES = (
     "approved-failed", "approval-stale", "queue-stuck",
     "tuning-missing", "push-no-pr", "steward-queue",
     "proxy-drift", "cert-expiry", "delegation-stale",
+    "tuner-cycle-due",
 )
 
 _ERROR_PATTERNS = (
@@ -439,6 +445,82 @@ async def _check_cert_expiry(conn) -> list[dict]:
     return alerts
 
 
+async def _check_tuner_cycle_due(conn) -> list[dict]:
+    """Tuner training cycle is due when either:
+      1. NEW training examples since last export >= TUNER_CYCLE_EXAMPLES_THRESHOLD
+      2. OR last cycle was > TUNER_CYCLE_DAYS_THRESHOLD days ago
+
+    Thresholds are configurable: env vars override defaults, or watcher_state
+    can store per-Cove overrides set via API.
+    """
+    # Allow watcher_state overrides (per-Cove tuning)
+    examples_threshold = TUNER_CYCLE_EXAMPLES_THRESHOLD
+    days_threshold = TUNER_CYCLE_DAYS_THRESHOLD
+    try:
+        state_examples = await _watcher_state_get(conn, "tuner_cycle_examples_threshold")
+        if state_examples:
+            examples_threshold = int(state_examples)
+        state_days = await _watcher_state_get(conn, "tuner_cycle_days_threshold")
+        if state_days:
+            days_threshold = int(state_days)
+    except Exception:
+        pass  # use defaults
+
+    # Find last export time
+    r = await conn.execute(
+        "SELECT exported_at FROM tuner_exports ORDER BY exported_at DESC LIMIT 1")
+    last_export = await r.fetchone()
+    last_export_at = last_export["exported_at"] if last_export else None
+
+    # Count new examples since last export
+    if last_export_at:
+        r = await conn.execute(
+            "SELECT COUNT(*) AS n FROM training_examples WHERE created_at > %s",
+            (last_export_at,))
+    else:
+        # No exports yet — count all examples
+        r = await conn.execute("SELECT COUNT(*) AS n FROM training_examples")
+    new_examples = (await r.fetchone())["n"]
+
+    # Check condition 1: examples threshold
+    if new_examples >= examples_threshold:
+        return [{
+            "alert_key": "tuner-cycle-due-examples",
+            "category": "tuner-cycle-due",
+            "title": f"Tuner cycle due: {new_examples} new examples ≥ {examples_threshold}",
+            "detail": _clip(f"{new_examples} training examples since last export. "
+                           f"Threshold: {examples_threshold}. Export to start training."),
+            "urgency": "normal",
+        }]
+
+    # Check condition 2: days since last export
+    if last_export_at:
+        from datetime import datetime, timezone
+        days_since = (datetime.now(timezone.utc) - last_export_at).days
+        if days_since >= days_threshold:
+            return [{
+                "alert_key": "tuner-cycle-due-days",
+                "category": "tuner-cycle-due",
+                "title": f"Tuner cycle due: {days_since} days since last export",
+                "detail": _clip(f"Last export was {days_since} days ago. "
+                               f"Monthly floor threshold: {days_threshold}. Export to refresh."),
+                "urgency": "normal",
+            }]
+    else:
+        # Never exported — alert if we have any examples
+        if new_examples > 0:
+            return [{
+                "alert_key": "tuner-cycle-due-new",
+                "category": "tuner-cycle-due",
+                "title": f"Tuner cycle due: first export needed ({new_examples} examples)",
+                "detail": _clip(f"{new_examples} training examples ready. "
+                               "No prior export found. Run first training cycle."),
+                "urgency": "normal",
+            }]
+
+    return []
+
+
 # ── The run ─────────────────────────────────────────────────────────────────
 
 _CHECKS = (
@@ -451,6 +533,7 @@ _CHECKS = (
     _check_delegation_stale,
     _check_proxy_drift,
     _check_cert_expiry,
+    _check_tuner_cycle_due,
 )
 
 
