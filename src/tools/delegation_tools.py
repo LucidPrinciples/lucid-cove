@@ -84,25 +84,25 @@ async def _run_agent_turn(channel: str, message: str, agent_label: str,
         from src.graphs.channels import get_channel_graph
         from src.memory.threads import create_thread
 
-        # Prefer the channel's existing active thread (the one the operator's
-        # MC tab shows); create one only if the channel has never been opened.
+        # Fix D: key the delegation thread to the TARGET AGENT (agent_label — the
+        # resolved config key, e.g. 'archimedes'), NOT to whatever active thread
+        # happens to be on the channel (that adopted a stale ghost-presence thread
+        # like d04dbbb8) and NOT to create_thread's bare 'agent' fallback. The
+        # agent's own delegated-work history is now filed under its own id, and the
+        # channel's active thread is resolved within that scope.
+        agent_id = agent_label
         async with get_db() as conn:
             r = await conn.execute(
-                "SELECT thread_id, agent_id FROM chat_threads "
-                "WHERE channel = %s AND status = 'active' "
-                "ORDER BY created_at DESC LIMIT 1", (channel,))
+                "SELECT thread_id FROM chat_threads "
+                "WHERE channel = %s AND agent_id = %s AND status = 'active' "
+                "ORDER BY created_at DESC LIMIT 1", (channel, agent_id))
             row = await r.fetchone()
         if row:
-            thread_id, agent_id = row["thread_id"], row["agent_id"]
+            thread_id = row["thread_id"]
         else:
-            created = await create_thread(channel, title=f"Delegated work — {agent_label}")
+            created = await create_thread(channel, agent_id=agent_id,
+                                          title=f"Delegated work — {agent_label}")
             thread_id = created["thread_id"]
-            async with get_db() as conn:
-                r = await conn.execute(
-                    "SELECT agent_id FROM chat_threads WHERE thread_id = %s",
-                    (thread_id,))
-                row2 = await r.fetchone()
-            agent_id = row2["agent_id"] if row2 else None
 
         # Fix C: background delegation turns skip the interactive send path's
         # pre-send critical check, so these work-logs grew unbounded (280-357 msgs,
@@ -305,7 +305,7 @@ async def sweep_orphaned_delegations() -> int:
     for row in rows:
         try:
             await _report_back(
-                row.get("assignee") or "agent", row["id"],
+                row.get("assignee") or "a team agent", row["id"],
                 "(interrupted by a restart — task marked blocked; re-delegate to resume)")
         except Exception:
             pass
