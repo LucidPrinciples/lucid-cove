@@ -349,7 +349,16 @@ async def _run_live():
         print("SKIP - live grok round-trip (no cached xAI token at %s)" % xo.TOKEN_CACHE_FILE)
         return True
 
-    model = xo.ChatXAI(model="grok-4-5")
+    # Resolve through the registry exactly as an agent does: the assignment key
+    # "grok-4-5" maps (config/models.yaml) to provider xai-oauth + model_string
+    # "grok-4.5" (the API rejects the dashed "grok-4-5" with Model not found).
+    # This makes the live test a true acceptance check of Stuart's assignment.
+    try:
+        from src.models.provider import get_model_client
+        model = get_model_client("grok-4-5")
+    except Exception as e:  # noqa: BLE001
+        print("NOTE - registry resolve unavailable (%r); using ChatXAI(model='grok-4.5')" % e)
+        model = xo.ChatXAI(model="grok-4.5")
     bound = model.bind_tools([add])
     print("LIVE - round 1: asking grok-4-5 to add 2 and 3 (expect a tool call)...")
     r1 = await bound.ainvoke([
