@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -25,8 +26,10 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from src.env import env
 
@@ -309,6 +312,8 @@ async def revoke_tokens():
     _delete_cached_tokens()
 
 
+
+
 # =============================================================================
 # xAI Responses-API Chat Model
 # =============================================================================
@@ -317,7 +322,13 @@ class ChatXAI(BaseChatModel):
     """LangChain-compatible chat model for xAI Grok via Responses-API.
 
     Uses OAuth2 tokens (auto-refreshed) for authentication.
-    Supports streaming and non-streaming completions.
+    Supports non-streaming completions, fake streaming, and TOOL CALLING.
+
+    Tool calling (added 2026-07-13, grok-tool-calling-spec Part A):
+      The base BaseChatModel.bind_tools raises NotImplementedError, so every
+      agent turn (channels.py binds tools on every call) died and fell back to
+      local qwen. ChatXAI now implements the LangChain tool contract on top of
+      the xAI Responses API (OpenAI-Responses-compatible, FLATTENED tool shape).
     """
 
     model: str = "grok-build-0.1"  # Default model
@@ -339,6 +350,197 @@ class ChatXAI(BaseChatModel):
             "model": self.model,
             "temperature": self.temperature,
         }
+
+    # ------------------------------------------------------------------
+    # Tool calling — LangChain contract
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _format_tool_for_xai(tool: Any) -> dict:
+        """Convert one LangChain tool to the xAI Responses tool shape.
+
+        `convert_to_openai_tool` yields the Chat-Completions shape
+        `{"type":"function","function":{name,description,parameters}}`.
+        The Responses API is FLATTENED — name/description/parameters live at
+        the tool top level, NOT nested under a "function" key.
+        """
+        oai = convert_to_openai_tool(tool)
+        fn = oai.get("function", oai) if isinstance(oai, dict) else {}
+        return {
+            "type": "function",
+            "name": fn.get("name"),
+            "description": fn.get("description", "") or "",
+            "parameters": fn.get("parameters") or {"type": "object", "properties": {}},
+        }
+
+    @staticmethod
+    def _resolve_tool_choice(tool_choice: Any) -> Any:
+        """Map LangChain tool_choice conventions to the xAI Responses shape.
+
+        Responses accepts: "auto" | "required" | "none" | {"type":"function","name":...}.
+        LangChain callers may pass None / a bool / "any" / a bare tool name.
+        """
+        if tool_choice is None:
+            return None
+        if isinstance(tool_choice, dict):
+            return tool_choice
+        if isinstance(tool_choice, bool):
+            return "required" if tool_choice else "none"
+        if isinstance(tool_choice, str):
+            if tool_choice in ("auto", "required", "none"):
+                return tool_choice
+            if tool_choice == "any":
+                return "required"
+            # A specific tool name.
+            return {"type": "function", "name": tool_choice}
+        return None
+
+    def bind_tools(self, tools, *, tool_choice=None, **kwargs):
+        """Bind tools for the xAI Responses API.
+
+        Returns a Runnable (self.bind(...)) so the formatted tools + resolved
+        tool_choice arrive in `_agenerate`/`_astream` **kwargs on every call.
+        This is the standard custom-model pattern — self is not mutated.
+        """
+        formatted = [self._format_tool_for_xai(t) for t in tools]
+        bind_kwargs: dict[str, Any] = {"tools": formatted}
+        resolved = self._resolve_tool_choice(tool_choice)
+        if resolved is not None:
+            bind_kwargs["tool_choice"] = resolved
+        return self.bind(**bind_kwargs, **kwargs)
+
+    # ------------------------------------------------------------------
+    # Message conversion (single converter — request build AND history replay)
+    # ------------------------------------------------------------------
+    def _build_responses_input(self, messages: list[BaseMessage]) -> tuple[str | None, list[dict]]:
+        """Convert LangChain messages to (instructions, input_items) for Responses.
+
+        System -> `instructions` (top-level). Human/plain-AI -> role items.
+        The tool-loop return leg:
+          - AIMessage WITH .tool_calls  -> optional assistant text item, then one
+            `{"type":"function_call", name, arguments, call_id}` per call.
+          - ToolMessage                 -> `{"type":"function_call_output", call_id, output}`.
+        Ordering is preserved by iterating messages in order, so every
+        function_call precedes its matching function_call_output (Responses
+        rejects an output whose call has not been seen yet).
+        """
+        instructions_parts: list[str] = []
+        input_items: list[dict] = []
+        for m in messages:
+            if isinstance(m, SystemMessage):
+                instructions_parts.append(
+                    m.content if isinstance(m.content, str) else str(m.content)
+                )
+            elif isinstance(m, ToolMessage):
+                content = m.content
+                if not isinstance(content, str):
+                    content = str(content)
+                input_items.append({
+                    "type": "function_call_output",
+                    "call_id": m.tool_call_id,
+                    "output": content,
+                })
+            elif isinstance(m, AIMessage):
+                tool_calls = getattr(m, "tool_calls", None) or []
+                text = m.content
+                if isinstance(text, list):
+                    text = " ".join(
+                        p.get("text", "") if isinstance(p, dict) else str(p) for p in text
+                    )
+                if text and isinstance(text, str) and text.strip():
+                    input_items.append({"role": "assistant", "content": text})
+                for tc in tool_calls:
+                    input_items.append({
+                        "type": "function_call",
+                        "name": tc.get("name"),
+                        "arguments": json.dumps(tc.get("args") or {}),
+                        "call_id": tc.get("id") or f"call_{uuid.uuid4().hex}",
+                    })
+            elif isinstance(m, HumanMessage):
+                input_items.append({"role": "user", "content": m.content})
+            else:
+                input_items.append({"role": "user", "content": str(m.content)})
+        instructions = "\n\n".join(p for p in instructions_parts if p) or None
+        return instructions, input_items
+
+    def _convert_messages(self, messages: list[BaseMessage]) -> list[dict]:
+        """LEGACY flat converter (System->system role item). NOT used by the live
+        path — `_agenerate` uses `_build_responses_input`, which splits System out
+        to `instructions` and understands tool items. Retained unchanged because
+        existing unit tests pin this shape; kept for any external caller."""
+        converted = []
+        for msg in messages:
+            if isinstance(msg, SystemMessage):
+                converted.append({"role": "system", "content": msg.content})
+            elif isinstance(msg, HumanMessage):
+                converted.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage):
+                converted.append({"role": "assistant", "content": msg.content})
+            else:
+                # Fallback — treat as user
+                converted.append({"role": "user", "content": str(msg.content)})
+        return converted
+
+    # ------------------------------------------------------------------
+    # Response parsing (Responses output -> AIMessage with tool_calls)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _parse_response(data: dict) -> AIMessage:
+        """Parse an xAI Responses payload into an AIMessage.
+
+        Accumulates message text and collects `function_call` items into
+        LangChain tool_calls (`{name, args, id, type}`). Falls back to the
+        chat-completions shape if the API ever returns `choices`.
+        """
+        content = ""
+        tool_calls: list[dict] = []
+
+        if "output" in data:
+            for item in data.get("output") or []:
+                itype = item.get("type")
+                if itype == "message":
+                    for ci in item.get("content", []):
+                        if ci.get("type") in ("output_text", "text"):
+                            content += ci.get("text", "")
+                elif itype == "function_call":
+                    raw_args = item.get("arguments")
+                    try:
+                        if isinstance(raw_args, str) and raw_args.strip():
+                            args = json.loads(raw_args)
+                        elif isinstance(raw_args, dict):
+                            args = raw_args
+                        else:
+                            args = {}
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    call_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex}"
+                    tool_calls.append({
+                        "name": item.get("name") or "",
+                        "args": args,
+                        "id": call_id,
+                        "type": "tool_call",
+                    })
+        elif "choices" in data:
+            # Fallback: chat-completions shape.
+            for choice in data["choices"]:
+                msg = choice.get("message", {}) or {}
+                content += msg.get("content") or ""
+                for tc in msg.get("tool_calls", []) or []:
+                    fn = tc.get("function", {}) or {}
+                    raw_args = fn.get("arguments")
+                    try:
+                        args = json.loads(raw_args) if isinstance(raw_args, str) and raw_args.strip() else (raw_args or {})
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    tool_calls.append({
+                        "name": fn.get("name") or "",
+                        "args": args,
+                        "id": tc.get("id") or f"call_{uuid.uuid4().hex}",
+                        "type": "tool_call",
+                    })
+
+        if tool_calls:
+            return AIMessage(content=content, tool_calls=tool_calls)
+        return AIMessage(content=content)
 
     def _generate(
         self,
@@ -365,21 +567,6 @@ class ChatXAI(BaseChatModel):
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(lambda: asyncio.run(coro_factory())).result()
 
-    def _convert_messages(self, messages: list[BaseMessage]) -> list[dict]:
-        """Convert LangChain messages to xAI Responses-API format."""
-        converted = []
-        for msg in messages:
-            if isinstance(msg, SystemMessage):
-                converted.append({"role": "system", "content": msg.content})
-            elif isinstance(msg, HumanMessage):
-                converted.append({"role": "user", "content": msg.content})
-            elif isinstance(msg, AIMessage):
-                converted.append({"role": "assistant", "content": msg.content})
-            else:
-                # Fallback — treat as user
-                converted.append({"role": "user", "content": str(msg.content)})
-        return converted
-
     async def _agenerate(
         self,
         messages: list[BaseMessage],
@@ -388,34 +575,39 @@ class ChatXAI(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         """Async call to xAI Responses-API. AUDIT-F5: this is the canonical async method
-        LangChain invokes for .ainvoke (was `_acall`, which LangChain never called)."""
+        LangChain invokes for .ainvoke (was `_acall`, which LangChain never called).
+
+        Tool calling: `tools`/`tool_choice` arrive via kwargs from bind_tools().
+        """
         access_token = await get_valid_access_token()
 
         # xAI Responses API: the conversation goes in `input`; system prompts map
         # to the top-level `instructions` field (OpenAI-Responses-compatible shape).
-        input_items = []
-        instructions_parts = []
-        for m in messages:
-            if isinstance(m, SystemMessage):
-                instructions_parts.append(m.content if isinstance(m.content, str) else str(m.content))
-            elif isinstance(m, AIMessage):
-                input_items.append({"role": "assistant", "content": m.content})
-            elif isinstance(m, HumanMessage):
-                input_items.append({"role": "user", "content": m.content})
-            else:
-                input_items.append({"role": "user", "content": str(m.content)})
-        payload = {
+        # One converter handles System/Human/AI AND the tool return leg
+        # (ToolMessage -> function_call_output, AI.tool_calls -> function_call).
+        instructions, input_items = self._build_responses_input(messages)
+        payload: dict[str, Any] = {
             "model": self.model,
             "input": input_items,
             "temperature": self.temperature,
         }
         # Reasoning depth applies to the grok-4.x reasoning models (not grok-build).
+        # grok-4.x supports reasoning + tools together; keep both. If a future tier
+        # ever 422s on the combination, drop `reasoning` when tools are present.
         if self.reasoning_effort and self.model.startswith("grok-4"):
             payload["reasoning"] = {"effort": self.reasoning_effort}
-        if instructions_parts:
-            payload["instructions"] = "\n\n".join(instructions_parts)
+        if instructions:
+            payload["instructions"] = instructions
         if self.max_tokens:
             payload["max_output_tokens"] = self.max_tokens
+
+        # Tools (from bind_tools -> Runnable.bind -> per-call kwargs).
+        tools = kwargs.get("tools")
+        if tools:
+            payload["tools"] = tools
+            tool_choice = kwargs.get("tool_choice")
+            if tool_choice is not None:
+                payload["tool_choice"] = tool_choice
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
@@ -476,21 +668,10 @@ class ChatXAI(BaseChatModel):
 
         data = resp.json()
 
-        # Extract content from Responses-API format
-        content = ""
-        if "output" in data:
-            for item in data["output"]:
-                if item.get("type") == "message":
-                    for content_item in item.get("content", []):
-                        if content_item.get("type") in ("output_text", "text"):
-                            content += content_item.get("text", "")
-        elif "choices" in data:
-            # Fallback to chat-completions format
-            for choice in data["choices"]:
-                content += choice.get("message", {}).get("content", "")
-
-        # Create LangChain message
-        message = AIMessage(content=content)
+        # Parse Responses output -> AIMessage (text + tool_calls). When there are
+        # tool_calls, content may be empty — that is valid; the graph checks
+        # response.tool_calls (channels.py) and routes to the tools.
+        message = self._parse_response(data)
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
 
@@ -503,10 +684,30 @@ class ChatXAI(BaseChatModel):
     ) -> AsyncGenerator[ChatGenerationChunk, None]:
         """Async streaming not implemented — xAI Responses-API may not support it.
         Fall back to non-streaming and yield a single chunk. AUDIT-F5: BaseChatModel
-        requires ChatGenerationChunk here, not ChatGeneration."""
+        requires ChatGenerationChunk here, not ChatGeneration. The chunk carries
+        tool_call_chunks so a streaming caller still sees tool calls (the agent path
+        uses .ainvoke, so _agenerate is the hot path — this is for completeness)."""
         result = await self._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         for gen in result.generations:
-            yield ChatGenerationChunk(message=AIMessageChunk(content=gen.message.content))
+            msg = gen.message
+            tcs = getattr(msg, "tool_calls", None) or []
+            if tcs:
+                tool_call_chunks = [
+                    {
+                        "name": tc.get("name"),
+                        "args": json.dumps(tc.get("args") or {}),
+                        "id": tc.get("id"),
+                        "index": i,
+                    }
+                    for i, tc in enumerate(tcs)
+                ]
+                yield ChatGenerationChunk(
+                    message=AIMessageChunk(
+                        content=msg.content, tool_call_chunks=tool_call_chunks
+                    )
+                )
+            else:
+                yield ChatGenerationChunk(message=AIMessageChunk(content=msg.content))
 
 
 
