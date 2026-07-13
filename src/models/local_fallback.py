@@ -92,3 +92,47 @@ def resolve_local_fallback_model(force: bool = False) -> str:
     _CACHE["model"] = model
     _CACHE["ts"] = now
     return model
+
+
+# ── Tuner V2 resolution for tuning-shaped work (#D44) ─────────────────────
+
+_TUNER_CACHE: dict = {"model": None, "ts": 0.0}
+
+
+def reset_tuner_cache() -> None:
+    """Clear the tuner model cache. Call after pulling or removing models."""
+    _TUNER_CACHE["model"] = None
+    _TUNER_CACHE["ts"] = 0.0
+
+
+def _is_tuner_installed(providers: list) -> str | None:
+    """Check if ltp-tuner-v2 is installed. Returns the exact tag name if found."""
+    for p in providers:
+        if not p.get("reachable"):
+            continue
+        for m in p.get("models", []):
+            name = m.get("name", "")
+            # Match ltp-tuner-v2:latest or ltp-tuner-v2 with any tag
+            if name and name.split(":")[0] == "ltp-tuner-v2":
+                return name
+    return None
+
+
+def resolve_tuner_model(force: bool = False) -> str | None:
+    """Resolve ltp-tuner-v2 for tuning-shaped work, or None if not installed.
+
+    LOCAL tier uses this to route tuning work to the tuner when available.
+    Returns None (not raises) so caller can fall back to regular local model.
+    Caches the check result for _CACHE_TTL seconds.
+    """
+    now = time.time()
+    if not force and _TUNER_CACHE["model"] is not None:
+        if (now - _TUNER_CACHE["ts"]) < _CACHE_TTL:
+            return _TUNER_CACHE["model"]
+
+    providers = _probe_installed_sync()
+    tuner = _is_tuner_installed(providers)
+
+    _TUNER_CACHE["model"] = tuner  # None is a valid cached result
+    _TUNER_CACHE["ts"] = now
+    return tuner
