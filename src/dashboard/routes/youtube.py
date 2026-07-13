@@ -43,6 +43,29 @@ from src.dashboard.routes.youtube_calendar import (
 
 router = APIRouter()
 
+
+def sanitize_youtube_tags(tags) -> list[str]:
+    """Trim a tag list to YouTube's real keyword limit so an upload never 400s on
+    'invalid video keywords'. Strips angle brackets (rejected outright), drops
+    empties, and caps the TOTAL characters (YouTube counts the quotes it wraps
+    around multi-word tags plus the commas between them) to a safe 450. Shared by
+    BOTH the interactive upload route and the scheduler queue path so neither can
+    send an over-long or malformed keyword set."""
+    safe: list[str] = []
+    total = 0
+    for t in (tags or []):
+        t = str(t).replace("<", "").replace(">", "").strip()
+        if not t:
+            continue
+        cost = len(t) + (2 if " " in t else 0) + (1 if safe else 0)
+        if total + cost > 450:
+            break
+        safe.append(t)
+        total += cost
+    return safe
+
+
+
 # =========================================================================
 # Upload + Scheduling
 # =========================================================================
@@ -151,17 +174,7 @@ async def youtube_upload(req: UploadRequest, request: Request):
     # (rejected outright), drop empties, and cap the TOTAL characters (YouTube counts
     # the quotes it wraps around multi-word tags plus the commas between them), so an
     # over-long or malformed keyword set is trimmed to valid instead of failing upload.
-    _safe_tags = []
-    _tag_chars = 0
-    for _t in (req.tags or []):
-        _t = str(_t).replace("<", "").replace(">", "").strip()
-        if not _t:
-            continue
-        _cost = len(_t) + (2 if " " in _t else 0) + (1 if _safe_tags else 0)
-        if _tag_chars + _cost > 450:
-            break
-        _safe_tags.append(_t)
-        _tag_chars += _cost
+    _safe_tags = sanitize_youtube_tags(req.tags)
 
     snippet = {
         "title": title,
