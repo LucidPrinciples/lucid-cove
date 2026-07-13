@@ -390,15 +390,28 @@ class ChatXAI(BaseChatModel):
         LangChain invokes for .ainvoke (was `_acall`, which LangChain never called)."""
         access_token = await get_valid_access_token()
 
+        # xAI Responses API: the conversation goes in `input`; system prompts map
+        # to the top-level `instructions` field (OpenAI-Responses-compatible shape).
+        input_items = []
+        instructions_parts = []
+        for m in messages:
+            if isinstance(m, SystemMessage):
+                instructions_parts.append(m.content if isinstance(m.content, str) else str(m.content))
+            elif isinstance(m, AIMessage):
+                input_items.append({"role": "assistant", "content": m.content})
+            elif isinstance(m, HumanMessage):
+                input_items.append({"role": "user", "content": m.content})
+            else:
+                input_items.append({"role": "user", "content": str(m.content)})
         payload = {
             "model": self.model,
-            "messages": self._convert_messages(messages),
+            "input": input_items,
             "temperature": self.temperature,
         }
+        if instructions_parts:
+            payload["instructions"] = "\n\n".join(instructions_parts)
         if self.max_tokens:
-            payload["max_tokens"] = self.max_tokens
-        if stop:
-            payload["stop"] = stop
+            payload["max_output_tokens"] = self.max_tokens
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
@@ -465,7 +478,7 @@ class ChatXAI(BaseChatModel):
             for item in data["output"]:
                 if item.get("type") == "message":
                     for content_item in item.get("content", []):
-                        if content_item.get("type") == "text":
+                        if content_item.get("type") in ("output_text", "text"):
                             content += content_item.get("text", "")
         elif "choices" in data:
             # Fallback to chat-completions format
