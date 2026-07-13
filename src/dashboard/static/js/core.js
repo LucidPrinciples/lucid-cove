@@ -1201,6 +1201,26 @@ async function pollStatus() {
     }
 }
 
+// #1626: agent wake pop-in — show presence first_message on set-address surfaces.
+// Shared by home onboarding + settings Cove-admin address panel. ESC lives in lp-colors.js.
+async function _mountAgentWakeCard(containerId) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    try {
+        const r = await fetch('/api/agent/first-message');
+        if (!r.ok) return;
+        const d = await r.json();
+        const msg = (d && d.first_message) ? String(d.first_message).trim() : '';
+        if (!msg) return;
+        const name = (d && d.name) ? String(d.name).trim()
+            : ((typeof MC !== 'undefined' && MC.agentName) || 'Your agent');
+        el.innerHTML = `<div class="approval-card brain-awake" style="margin:8px 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:rgba(126,184,218,0.06);">
+            <div class="approval-title" style="font-weight:600;font-size:0.85rem;">${ESC(name)} is awake</div>
+            <div class="approval-desc" style="margin-top:4px;font-size:0.8rem;line-height:1.5;color:var(--text);white-space:pre-wrap;">${ESC(msg)}</div>
+        </div>`;
+    } catch (e) { /* leave surface clean if the wake message is unavailable */ }
+}
+
 // =============================================================================
 // Boot
 // =============================================================================

@@ -220,6 +220,8 @@ async function loadHomeApprovals() {
         }).join('');
         const prHtml = prCards.join('');
         el.innerHTML = obHtml + watchHtml + apHtml + prHtml;
+        // #1626: agent wake pop-in on the set-address onboarding card (if present).
+        if (typeof _mountAgentWakeCard === 'function') _mountAgentWakeCard('addr-agent-wake-home');
     } catch {
         el.innerHTML = '<span class="empty-msg">Approvals unavailable</span>';
         if (badge) badge.classList.add('hidden');
@@ -378,6 +380,7 @@ function _onboardingCardHtml(item) {
         // VPS or an install.sh-preflighted box skips straight to step 2.
         return `<div class="home-approval onboarding-card">
             <div class="approval-tool">${title}</div>
+            <div id="addr-agent-wake-home"></div>
             <div class="approval-desc">${body}</div>
             <div id="addr-mesh-step" style="display:none;margin-top:8px;">
                 <div style="font-size:0.78rem;"><strong>Step 1 — put this box on the mesh.</strong></div>
