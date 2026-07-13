@@ -470,6 +470,35 @@ async def _fetch_watcher_open_count() -> int | None:
         return None
 
 
+async def _fetch_embedding_health() -> dict:
+    """Fix E: semantic-memory embedding health, so an 'embeddings off' period is
+    visible on /ops instead of silently rotting."""
+    try:
+        from src.memory.knowledge import embedding_health
+        from src.memory.database import get_db
+        h = await embedding_health()
+        async with get_db() as conn:
+            r = await conn.execute(
+                "SELECT count(*) total, count(embedding) embedded FROM agent_memory")
+            row = await r.fetchone()
+        total = (row["total"] or 0) if row else 0
+        embedded = (row["embedded"] or 0) if row else 0
+        return {
+            "backend": h.get("backend"),
+            "model": h.get("model"),
+            "can_embed": h.get("can_embed"),
+            "dim": h.get("dim"),
+            "total": total,
+            "embedded": embedded,
+            "coverage": (round(embedded / total, 3) if total else None),
+            "reason": h.get("reason", ""),
+            "fetched_at": time.time(),
+            "error": None,
+        }
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}", "fetched_at": time.time()}
+
+
 @router.get("/api/ops/state")
 async def ops_state(request: Request):
     """The single JSON assembly — every source with its own fetched_at + error.
@@ -482,6 +511,7 @@ async def ops_state(request: Request):
     github = await _fetch_github()
     vault = await _fetch_vault()
     watcher_open = await _fetch_watcher_open_count()
+    embeddings = await _fetch_embedding_health()
 
     mismatches = reconcile(
         {"tickets": intake.get("tickets", [])},
@@ -496,6 +526,7 @@ async def ops_state(request: Request):
         "queue": queue,
         "github": github,
         "vault": vault,
+        "embeddings": embeddings,
         "header": {
             "watcher_open": watcher_open,
             "repos": [{"repo": r["repo"], "main_sha": r.get("main_sha"),
