@@ -672,6 +672,15 @@ class ChatXAI(BaseChatModel):
         # tool_calls, content may be empty — that is valid; the graph checks
         # response.tool_calls (channels.py) and routes to the tools.
         message = self._parse_response(data)
+        # Stamp provenance so channels.py (actual_model = meta["model_name"]) and
+        # the chat UI badge show the real model. Without this, ChatXAI returned no
+        # response_metadata, so a grok turn was mislabeled "local Ollama" and the
+        # badge went blank. self.model is the API id (e.g. "grok-4.5").
+        rmeta: dict[str, Any] = {"model_name": self.model, "model": self.model}
+        usage = data.get("usage")
+        if isinstance(usage, dict) and usage:
+            rmeta["token_usage"] = usage
+        message.response_metadata = rmeta
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
 
@@ -690,6 +699,7 @@ class ChatXAI(BaseChatModel):
         result = await self._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
         for gen in result.generations:
             msg = gen.message
+            rmeta = getattr(msg, "response_metadata", {}) or {}
             tcs = getattr(msg, "tool_calls", None) or []
             if tcs:
                 tool_call_chunks = [
@@ -703,11 +713,15 @@ class ChatXAI(BaseChatModel):
                 ]
                 yield ChatGenerationChunk(
                     message=AIMessageChunk(
-                        content=msg.content, tool_call_chunks=tool_call_chunks
+                        content=msg.content,
+                        tool_call_chunks=tool_call_chunks,
+                        response_metadata=rmeta,
                     )
                 )
             else:
-                yield ChatGenerationChunk(message=AIMessageChunk(content=msg.content))
+                yield ChatGenerationChunk(
+                    message=AIMessageChunk(content=msg.content, response_metadata=rmeta)
+                )
 
 
 

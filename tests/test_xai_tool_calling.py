@@ -256,6 +256,21 @@ async def test_full_tool_loop_replay(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_response_metadata_model_name_stamped(monkeypatch):
+    """The returned message must carry response_metadata.model_name so channels.py
+    labels the turn (and the UI badge shows) the real model — not blank/local Ollama."""
+    monkeypatch.setattr(xo, "get_valid_access_token", _async_return("tok"))
+    _install(monkeypatch, _MockResp(200, {
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": "hi"}]}],
+        "usage": {"input_tokens": 10, "output_tokens": 3},
+    }))
+    model = xo.ChatXAI(model="grok-4.5")
+    resp = await model.ainvoke([HumanMessage(content="hi")])
+    assert resp.response_metadata.get("model_name") == "grok-4.5"
+    assert resp.response_metadata.get("token_usage") == {"input_tokens": 10, "output_tokens": 3}
+
+
+@pytest.mark.asyncio
 async def test_plain_chat_still_works(monkeypatch):
     """Regression: no tools bound -> plain text, no NotImplementedError."""
     monkeypatch.setattr(xo, "get_valid_access_token", _async_return("tok"))
@@ -326,6 +341,7 @@ def _run_offline():
         ("agenerate_requests_tool", test_agenerate_requests_tool),
         ("reasoning_and_tools_coexist", test_agenerate_reasoning_and_tools_coexist),
         ("full_tool_loop_replay", test_full_tool_loop_replay),
+        ("response_metadata_model_name", test_response_metadata_model_name_stamped),
         ("plain_chat_still_works", test_plain_chat_still_works),
     ]:
         try:
