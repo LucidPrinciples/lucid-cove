@@ -280,6 +280,21 @@ async def block_for_approval(tool_name: str, kwargs: dict, channel: str = "") ->
 # Execute approved tool
 # =============================================================================
 
+def _result_is_success(result_str: str) -> bool:
+    """#D52: a gated tool that RETURNS (no exception) can still have failed.
+    git_push returns 'FAILED: ... not found on origin', create_github_pr returns
+    'Error: ...', and both can return 'REFUSED: ...'. The old executor marked every
+    non-throwing call success=True, so the approval card rendered a green checkmark on
+    a failed push -- the exact false-success gap #D52 closes. Reuse the tested #D13
+    classifier (looks_like_error) so success reflects the real outcome."""
+    from src.utils.watcher import looks_like_error
+    if not result_str or not result_str.strip():
+        return True
+    if result_str.lstrip().upper().startswith("REFUSED"):
+        return False
+    return not looks_like_error(result_str)
+
+
 async def execute_approved_tool(request_id: str) -> dict:
     """Execute a tool that has been approved by the operator.
 
@@ -336,8 +351,13 @@ async def execute_approved_tool(request_id: str) -> dict:
                 (result_str[:10000], request_id),  # cap at 10k chars
             )
 
-        logger.info(f"Approved tool executed: {tool_name} -> {result_str[:200]}")
-        return {"success": True, "result": result_str}
+        # #D52: map a FAILED/Error/REFUSED result (tool returned without throwing) to
+        # executed=False so the approval card can't show a green checkmark on a failed push.
+        real_success = _result_is_success(result_str)
+        logger.info(
+            f"Approved tool executed: {tool_name} -> success={real_success} :: {result_str[:200]}"
+        )
+        return {"success": real_success, "result": result_str}
 
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}"

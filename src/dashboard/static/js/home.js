@@ -1222,17 +1222,20 @@ async function respondApproval(requestId, approved, btnEl) {
         const data = await res.json();
         // The action really runs now — surface a failed execution instead of a false ✓.
         const executed = data.executed !== false;
+        const resultText = (data.result || '').toString();
 
         if (actionBtn) {
             if (!approved) {
                 actionBtn.textContent = 'Denied';
             } else if (data.site_edit) {
                 actionBtn.textContent = executed ? 'Deployed ✓' : 'Approved — merge failed';
-                actionBtn.style.background = executed ? 'var(--accent)' : '';
+                actionBtn.style.background = executed ? 'var(--accent)' : 'var(--red)';
             } else {
                 actionBtn.textContent = executed ? 'Approved ✓' : 'Approved — action failed';
-                actionBtn.style.background = executed ? 'var(--accent)' : '';
+                actionBtn.style.background = executed ? 'var(--accent)' : 'var(--red)';
             }
+            // #D52: on real failure, surface the tool's actual result text on the card.
+            if (executed === false && resultText) actionBtn.title = resultText.slice(0, 300);
         }
 
         // Hold the confirmation briefly, then refresh the list.
