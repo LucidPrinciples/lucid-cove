@@ -1,0 +1,51 @@
+{
+  "id": "tuner-cycle",
+  "num": 7,
+  "title": "Tuner training cycle",
+  "when": "The watcher alert 'tuner-cycle-due' fires — either 500+ new training examples accumulated, or 30+ days since the last export.",
+  "category": "ops",
+  "audience": "steward",
+  "description": "Export training examples and run the tuner model training cycle. This is a human-in-the-loop process: the steward verifies the data, the operator approves the GPU/compute spend, and a delegate_task handles the actual execution. Phase 3 (automated training) is not implemented yet.",
+  "steps": [
+    {
+      "label": "Check current training data status",
+      "command": "cd {{COVE_DIR}} && docker compose exec -T postgres sh -c 'PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB psql -c \"SELECT COUNT(*) AS new_examples_since_export FROM training_examples WHERE created_at > COALESCE((SELECT MAX(exported_at) FROM tuner_exports), '1970-01-01'); SELECT MAX(exported_at) AS last_export FROM tuner_exports;\"'",
+      "note": "Confirm the watcher alert numbers: new examples since last export, and days since last cycle. If the numbers look wrong, investigate before proceeding."
+    },
+    {
+      "label": "Review training examples (sample)",
+      "command": "cd {{COVE_DIR}} && docker compose exec -T postgres sh -c 'PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB psql -c \"SELECT id, LEFT(content, 120) AS preview, source, created_at FROM training_examples WHERE created_at > COALESCE((SELECT MAX(exported_at) FROM tuner_exports), '1970-01-01') ORDER BY created_at DESC LIMIT 5;\"'",
+      "note": "Spot-check the most recent examples. Look for quality issues, corrupted data, or unexpected sources. Do not export garbage."
+    },
+    {
+      "label": "Export training data to staging",
+      "command": "cd {{COVE_DIR}} && docker compose exec -T app python -c \"import asyncio; from src.utils.watcher import _export_training_data; asyncio.run(_export_training_data())\"",
+      "note": "This creates a JSONL export in the configured export path. Verify the export file exists and has the expected row count. Phase 3 will automate this; for now, run manually or via delegate_task."
+    },
+    {
+      "label": "Verify export integrity",
+      "command": "cd {{COVE_DIR}} && ls -lh data/exports/training_*.jsonl 2>/dev/null | head -5",
+      "note": "Check file size and timestamp. Empty or tiny files mean something went wrong — do not proceed to training."
+    },
+    {
+      "label": "Request GPU/compute allocation",
+      "command": "# Use the steward queue or delegate_task to request GPU time for training",
+      "note": "Training requires GPU. The operator must approve compute spend. Do not run training unapproved — this is the human gate per #D44 constraints."
+    },
+    {
+      "label": "Run training (delegate_task)",
+      "command": "# delegate_task to training agent with the exported data path",
+      "note": "The actual training execution stays in the steward queue. The training agent handles the GPU work, checkpointing, and model artifact upload. Monitor the task for completion or failure."
+    },
+    {
+      "label": "Record the export cycle",
+      "command": "cd {{COVE_DIR}} && docker compose exec -T postgres sh -c \"PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB psql -c \\\"INSERT INTO tuner_exports (example_count, notes) VALUES ((SELECT COUNT(*) FROM training_examples WHERE created_at > COALESCE((SELECT MAX(exported_at) FROM tuner_exports WHERE id != currval('tuner_exports_id_seq')), '1970-01-01')), 'Cycle completed via runbook 07');\\\"\"",
+      "note": "Mark the cycle complete so the watcher alert clears. If training failed, note that in the notes field and keep the alert open for retry."
+    },
+    {
+      "label": "Verify watcher alert cleared",
+      "command": "cd {{COVE_DIR}} && docker compose exec -T postgres sh -c 'PGUSER=$POSTGRES_USER PGDATABASE=$POSTGRES_DB psql -c \"SELECT alert_key, status, title FROM watcher_alerts WHERE category = '\''tuner-cycle-due'\'' AND status = '\''open'\'';\"'",
+      "note": "The tuner-cycle-due alert should auto-resolve after the export is recorded. If it persists, check that the export row was actually inserted."
+    }
+  ]
+}

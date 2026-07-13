@@ -81,3 +81,22 @@ def test_branchless_pr_covers_any_push_after_it():
 
 def test_branchless_push_covered_by_any_later_pr():
     assert pushes_without_pr([_push("", 6)], [_pr("stuart/whatever", 5)]) == []
+
+
+# ── tuner-cycle-due: #D45 training cycle thresholds ───────────────────────────
+
+from src.utils.watcher import TUNER_CYCLE_EXAMPLES_THRESHOLD, TUNER_CYCLE_DAYS_THRESHOLD
+
+
+def test_tuner_cycle_examples_threshold_default():
+    """Default threshold matches spec: 500 new examples triggers alert."""
+    assert TUNER_CYCLE_EXAMPLES_THRESHOLD == 500
+
+
+def test_tuner_cycle_days_threshold_default():
+    """Default threshold matches spec: 30 days since last export triggers alert."""
+    assert TUNER_CYCLE_DAYS_THRESHOLD == 30
+
+
+# The full _check_tuner_cycle_due logic is DB-backed and tested via integration.
+# These unit tests verify the tunable defaults match the #D45 spec.
