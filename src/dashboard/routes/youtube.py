@@ -147,11 +147,26 @@ async def youtube_upload(req: UploadRequest, request: Request):
         if len(title) + 8 <= 100:
             title = f"{title} #Shorts"
 
-    # Build snippet
+    # Build snippet. Sanitize tags to YouTube's real limit: strip angle brackets
+    # (rejected outright), drop empties, and cap the TOTAL characters (YouTube counts
+    # the quotes it wraps around multi-word tags plus the commas between them), so an
+    # over-long or malformed keyword set is trimmed to valid instead of failing upload.
+    _safe_tags = []
+    _tag_chars = 0
+    for _t in (req.tags or []):
+        _t = str(_t).replace("<", "").replace(">", "").strip()
+        if not _t:
+            continue
+        _cost = len(_t) + (2 if " " in _t else 0) + (1 if _safe_tags else 0)
+        if _tag_chars + _cost > 450:
+            break
+        _safe_tags.append(_t)
+        _tag_chars += _cost
+
     snippet = {
         "title": title,
         "description": req.description,
-        "tags": req.tags[:500] if req.tags else [],
+        "tags": _safe_tags,
         "categoryId": req.category_id,
     }
 
