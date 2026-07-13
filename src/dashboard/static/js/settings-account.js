@@ -216,7 +216,7 @@ async function saveSettingsAddress(confirmChange) {
             }
             return;
         }
-        if (!r.ok || d.error) { alert(d.error || 'Could not set the address.'); return; }
+        if (!r.ok || d.error) { _addrFailCard(d.error || 'Could not set the address.'); return; }
         if (status) {
             status.style.color = 'var(--green)';
             if (d.records && d.records.length) {
@@ -235,7 +235,45 @@ async function saveSettingsAddress(confirmChange) {
         // No auto-reload: the records path stays put so the operator can copy them, and the
         // address-change path now hands back the door above rather than reloading onto a login
         // wall. The operator refreshes on their own click.
-    } catch (e) { alert('Could not set: ' + e.message); }
+    } catch (e) { _addrFailCard('Could not set: ' + e.message); }
+}
+
+// #1628: on set-address failure, the operator's agent diagnoses it inline (decision 5,
+// 2026-07-10) -- automatic, no prompt. Ephemeral to this card; raw error is behind "details".
+function _addrFailCard(errText) {
+    const status = document.getElementById('addr-status');
+    if (!status) return;
+    const name = (window.MC && (MC.agentName || (MC.presence && MC.presence.agent_name))) || 'Your agent';
+    status.style.color = 'var(--dim)';
+    status.innerHTML = `
+        <div style="margin-top:8px;border:1px solid var(--red);border-radius:8px;padding:10px 12px;background:rgba(255,80,80,0.06);">
+            <div style="font-weight:600;color:var(--text);">That didn't go through</div>
+            <div id="addr-fail-line" style="font-size:0.8rem;color:var(--dim);margin-top:2px;">${ESC(name)} can see the error and is looking at it now…</div>
+            <div id="addr-fail-reply" style="font-size:0.82rem;color:var(--text);margin-top:8px;white-space:pre-wrap;"></div>
+            <pre id="addr-fail-raw" style="display:none;font-size:0.72rem;color:var(--dim);white-space:pre-wrap;margin-top:8px;">${ESC(errText || 'Could not set the address.')}</pre>
+            <div style="margin-top:10px;display:flex;gap:8px;">
+                <button class="btn-sm" onclick="saveSettingsAddress()">Try again</button>
+                <button class="btn-sm" style="background:transparent;border:1px solid var(--border,#2a2d3a);" onclick="var p=document.getElementById('addr-fail-raw');if(p)p.style.display=(p.style.display==='none'?'block':'none');">Show me the details</button>
+            </div>
+        </div>`;
+    fetch('/api/domain/diagnose-error', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw_error: errText || '', step_context: 'set the Cove address (Settings)' }),
+    }).then(r => r.json()).then(d => {
+        const line = document.getElementById('addr-fail-line');
+        const rep = document.getElementById('addr-fail-reply');
+        if (d && d.reply) {
+            if (line) line.textContent = (d.agent_name || name) + ' looked at it:';
+            if (rep) rep.textContent = d.reply;
+        } else {
+            if (line) line.textContent = name + " couldn't reach a diagnosis — open the details below.";
+            const p = document.getElementById('addr-fail-raw'); if (p) p.style.display = 'block';
+        }
+    }).catch(() => {
+        const line = document.getElementById('addr-fail-line');
+        if (line) line.textContent = name + " couldn't be reached — open the details below.";
+        const p = document.getElementById('addr-fail-raw'); if (p) p.style.display = 'block';
+    });
 }
 
 async function saveProfile() {
