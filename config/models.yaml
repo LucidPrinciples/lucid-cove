@@ -107,12 +107,12 @@ models:
   # agent assignment. Uses 22GB VRAM when loaded, choking everything else.
   # MoE (qwen3:30b-a3b) replaces it at ~8-12GB with near-equivalent quality.
 
-  # ── Specialty models ────────────────────────────────────────────────────────
+  # ── Specialty models — TUNER V2 (Chords approved, 94/94 eval) ─────────────
 
-  # - id: lp-tuning
-  #   name: "LP Tuning Model"
-  #   provider: ollama
-  #   model_string: "lp-tuning:latest"
-  #   type: local
-  #   context_window: 32768
-  #   notes: "Fine-tuned on Canon + Manifesto. Framework-native tuning generation."
+  - id: ltp-tuner-v2
+    name: "LTP Tuner V2"
+    provider: ollama
+    model_string: "ltp-tuner-v2:latest"
+    type: local
+    context_window: 32768
+    notes: "Fine-tuned on Canon + Manifesto. Framework-native tuning generation. 94/94 eval score. LOCAL tier routes tuning-shaped work here."

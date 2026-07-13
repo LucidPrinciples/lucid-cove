@@ -879,16 +879,26 @@ async def invoke_with_fallback(
     # ── Tier 3: Local last resort (longer timeout for cold-load) ─────────────
     # No configured fallback? Resolve one from the best INSTALLED local model
     # rather than dead-ending (#11/CF-106).
+    # For TUNING-shaped work, prefer ltp-tuner-v2 if installed (#D44).
     if not fallback_id:
-        from src.models.local_fallback import resolve_local_fallback_model, LocalModelUnavailable
-        try:
-            fallback_id = resolve_local_fallback_model()
-            print(f"[{label}] No configured fallback — resolved installed local '{fallback_id}'")
-        except LocalModelUnavailable as _le:
-            raise RuntimeError(
-                f"[{label}] Primary + cloud fallback failed for {agent_id} and no local is "
-                f"available: {_le}"
-            ) from _le
+        from src.models.local_fallback import (
+            resolve_local_fallback_model, resolve_tuner_model, LocalModelUnavailable
+        )
+        # TUNING tier: prefer tuner model when available
+        if operation_type == "tuning":
+            tuner_id = resolve_tuner_model()
+            if tuner_id:
+                fallback_id = tuner_id
+                print(f"[{label}] Tuning work — resolved ltp-tuner-v2 '{tuner_id}'")
+        if not fallback_id:
+            try:
+                fallback_id = resolve_local_fallback_model()
+                print(f"[{label}] No configured fallback — resolved installed local '{fallback_id}'")
+            except LocalModelUnavailable as _le:
+                raise RuntimeError(
+                    f"[{label}] Primary + cloud fallback failed for {agent_id} and no local is "
+                    f"available: {_le}"
+                ) from _le
 
     local_provider, local_model_str = _resolve_model_string(fallback_id)
     t2 = time.monotonic()
