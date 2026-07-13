@@ -246,12 +246,34 @@ async function loadSettingsModel() {
         const brainLine = brain.model
             ? `<div style="font-size:0.7rem;color:var(--dim);margin-bottom:6px;">Cove brain (the default an agent runs on when not overridden): <strong>${ESC(brain.model)}</strong>${brain.provider ? ' · ' + ESC(brain.provider) : ''}</div>`
             : '';
+
+        // Cove-level Grok connection (admin Intelligence panel). The token is per-box /
+        // Cove-wide (src/models/xai_oauth.py), so connecting here enables every agent
+        // assigned a grok-* model below — no per-presence setup. The presence-level
+        // Connect xAI (in each presence's own settings) stays as an optional override.
+        const xai = await fetch('/api/xai/auth/status').then(r => r.json()).catch(() => ({ authorized: false }));
+        const coveXai = `<div style="margin:8px 0 10px;padding:10px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border);">
+            <div style="font-size:0.72rem;color:var(--text);margin-bottom:2px;"><strong>Cove Grok connection</strong> — xAI subscription OAuth <span style="color:var(--dim);font-weight:normal;">(optional, Cove-wide)</span></div>
+            <div style="font-size:0.62rem;color:var(--dim);margin-bottom:6px;">Connect the Cove's own SuperGrok / X-Premium subscription once. Any agent assigned a <code>grok-*</code> model below uses it — no per-presence setup. Unofficial (xAI's shared client); may be rate or tier limited.</div>
+            <div id="cove-xai-container">
+                ${xai.authorized
+                    ? `<div style="font-size:0.7rem;color:var(--green);">&#10003; Connected ${xai.has_refresh_token ? '(with refresh)' : ''}</div>
+                       <button class="btn-sm" style="margin-top:6px;background:transparent;border:1px solid var(--border);color:var(--dim);" onclick="revokeCoveXAIAuth(this)">Disconnect</button>`
+                    : `<div style="font-size:0.7rem;color:var(--dim);margin-bottom:6px;">Not connected. Connect to enable Grok models for the Cove.</div>
+                       <button class="btn-sm" onclick="startCoveXAIAuth(this)">Connect xAI</button>
+                       <div id="cove-xai-pending" style="display:none;margin-top:8px;">
+                           <div style="font-size:0.7rem;color:var(--text);">Go to <a id="cove-xai-verify-link" href="#" target="_blank" style="color:var(--accent);">x.ai</a> and enter:</div>
+                           <div id="cove-xai-user-code" style="font-family:monospace;font-size:1.1rem;margin:6px 0;padding:8px 12px;background:#0e0e16;border-radius:4px;border:1px solid var(--border);color:var(--accent);letter-spacing:2px;"></div>
+                       </div>
+                       <div id="cove-xai-error" style="display:none;margin-top:6px;font-size:0.7rem;color:#ff6b6b;"></div>`}
+            </div>
+        </div>`;
         el.innerHTML = style +
             `<div class="tm-toggle" onclick="var t=this.nextElementSibling;var h=t.style.display==='none';t.style.display=h?'':'none';this.querySelector('.tm-caret').textContent=h?'▾':'▸';">
                 <span class="tm-caret">▾</span>
                 <span style="font-size:0.7rem;color:var(--dim);">Build-team models — <strong>working</strong> (chat/build) + <strong>tuning</strong> per agent. Saved instantly, no restart. Presences override their own personal agent in their settings.</span>
             </div>
-            ${brainLine}<div>${headRow}${rows}</div>`;
+            ${brainLine}${coveXai}<div>${headRow}${rows}</div>`;
 
         el.querySelectorAll('.team-model-sel').forEach(sel => {
             sel.addEventListener('change', () => _saveTeamModel(sel.dataset.agent, el));
@@ -286,6 +308,62 @@ async function _saveTeamModel(agentId, el) {
         if (statusEl) { statusEl.textContent = 'error'; statusEl.style.color = 'var(--red)'; }
     }
 }
+
+// ── Cove-level xAI (Grok) OAuth device-code flow — admin Intelligence panel ──
+// Same /api/xai/auth/* routes as the presence card (the token is per-box /
+// Cove-wide), but self-contained here with distinct cove-xai-* element ids so it
+// works on the manager subdomain without settings.js and never collides with the
+// presence card. Refreshes loadSettingsModel() (this panel) on connect/disconnect.
+let _coveXaiPollInterval = null;
+
+async function startCoveXAIAuth(btn) {
+    if (_coveXaiPollInterval) { clearInterval(_coveXaiPollInterval); _coveXaiPollInterval = null; }
+    btn.disabled = true;
+    const errorEl = document.getElementById('cove-xai-error');
+    const pendingEl = document.getElementById('cove-xai-pending');
+    if (errorEl) errorEl.style.display = 'none';
+    try {
+        const r = await fetch('/api/xai/auth/start', { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok || d.error) throw new Error(d.error || 'Failed to start OAuth flow');
+        const codeEl = document.getElementById('cove-xai-user-code');
+        const linkEl = document.getElementById('cove-xai-verify-link');
+        if (codeEl) codeEl.textContent = d.user_code || '';
+        if (linkEl) linkEl.href = d.verification_uri || '#';
+        if (pendingEl) pendingEl.style.display = 'block';
+        _coveXaiPollInterval = setInterval(() => pollCoveXAIAuth(), (d.interval || 5) * 1000);
+    } catch (e) {
+        if (errorEl) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+        btn.disabled = false;
+    }
+}
+
+async function pollCoveXAIAuth() {
+    try {
+        const r = await fetch('/api/xai/auth/poll', { method: 'POST' });
+        const d = await r.json();
+        if (d.status === 'authorized') {
+            if (_coveXaiPollInterval) { clearInterval(_coveXaiPollInterval); _coveXaiPollInterval = null; }
+            await loadSettingsModel();
+        } else if (d.status === 'no_flow') {
+            if (_coveXaiPollInterval) { clearInterval(_coveXaiPollInterval); _coveXaiPollInterval = null; }
+        }
+        // pending — keep polling
+    } catch (e) { console.warn('cove xAI poll error:', e); }
+}
+
+async function revokeCoveXAIAuth(btn) {
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/xai/auth/revoke', { method: 'POST' });
+        const d = await r.json();
+        if (d.status === 'revoked') await loadSettingsModel();
+    } catch (e) { console.warn('cove xAI revoke error:', e); btn.disabled = false; }
+}
+
+window.addEventListener('beforeunload', () => {
+    if (_coveXaiPollInterval) { clearInterval(_coveXaiPollInterval); _coveXaiPollInterval = null; }
+});
 
 // =============================================================================
 // Model Registry — editable textarea for models.yaml
