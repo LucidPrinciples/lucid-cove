@@ -406,6 +406,53 @@ async def frontend_config(request: Request):
 
 
 # =============================================================================
+# Agent wake / first message (#1626)
+# =============================================================================
+
+@router.get("/api/agent/first-message")
+async def agent_first_message(request: Request):
+    """Return the current presence agent's name + birth/wake first_message.
+
+    Used by the set-address surfaces so the agent can pop in with its stranded
+    wake message. Name is also available client-side as MC.agentName; the body
+    (agent_identity.first_message) is not, so this is the thin expose.
+    Public-app and unauthenticated multi-mode callers get empty strings.
+    """
+    name = ""
+    first_message = ""
+    if _is_public_app():
+        return {"name": name, "first_message": first_message}
+    try:
+        if env("COVE_MODE", "single") == "multi":
+            from src.dashboard.routes.presence import get_current_presence
+            account = await get_current_presence(request)
+            if account:
+                _ai = account.get("agent_identity") or {}
+                if not isinstance(_ai, dict):
+                    _ai = {}
+                name = (
+                    (account.get("agent_name") or "")
+                    or (_ai.get("agent_name") or "")
+                    or (_ai.get("name") or "")
+                ).strip()
+                first_message = str(_ai.get("first_message") or "").strip()
+        if not name:
+            # single-mode / no presence: fall back to primary agent display name
+            try:
+                instance = get_instance() or {}
+                name = (
+                    (instance.get("name") or "")
+                    or (get_primary_agent_id() or "")
+                ).strip()
+            except Exception:
+                pass
+    except Exception:
+        # Never break the set-address surface over a missing message.
+        pass
+    return {"name": name, "first_message": first_message}
+
+
+# =============================================================================
 # Status and health
 # =============================================================================
 

@@ -107,9 +107,11 @@ async function loadSettingsCoveAdmin() {
     if (!isAdmin) { el.innerHTML = ''; return; }
 
     const curDomain = (MC.config && MC.config.domain) || '';
+    // #1626: mount point for the agent wake card (filled async after render).
     const addrHtml = `
         <div style="padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
             <label class="settings-label">Cove address</label>
+            <div id="addr-agent-wake"></div>
             <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">${curDomain ? 'Current: <strong style="color:var(--text);">' + ESC(curDomain) + '</strong> — everyone signs in at their-handle.' + ESC(curDomain) + '.' : 'No address set yet.'}</div>
             <input type="text" id="addr-domain" class="settings-input" value="${ESC(curDomain)}" placeholder="cove.yourdomain.com" style="width:100%;">
             <div style="margin-top:6px;"><button class="btn-sm" onclick="saveSettingsAddress()">Set address</button> <span id="addr-status" style="font-size:0.72rem;color:var(--dim);"></span></div>
@@ -157,6 +159,8 @@ async function loadSettingsCoveAdmin() {
         </div>`;
 
     el.innerHTML = addrHtml + publicHtml + brainHtml + membersHtml;
+    // #1626: surface the agent's stranded wake message on the set-address surface.
+    if (typeof _mountAgentWakeCard === 'function') _mountAgentWakeCard('addr-agent-wake');
 }
 
 // Request making this Cove publicly reachable (Cloudflare tunnel). The app can't run
