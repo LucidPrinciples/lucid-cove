@@ -300,10 +300,14 @@ async def auto_rotate_thread(
     Returns dict with rotation details (new thread, summary, memories extracted).
     Raises on failure — caller should handle gracefully.
     """
+    import asyncio
+    import uuid
     agent_id = _default_agent_id(agent_id)
     from src.memory.checkpointer import get_checkpointer
     from src.graphs.channels import get_channel_graph
     from langchain_core.messages import HumanMessage, AIMessage
+
+    _ENRICH_TIMEOUT = 90  # seconds cap per model call in the enrichment phase
 
     # 1. Get active thread
     active = await get_active_thread(channel, agent_id)
@@ -313,95 +317,191 @@ async def auto_rotate_thread(
     old_thread_id = active["thread_id"]
     logger.info(f"Starting auto-rotation for {channel} thread {old_thread_id}")
 
-    # 2. Get messages from checkpointer
-    async with get_checkpointer() as checkpointer:
-        graph = await get_channel_graph(channel, checkpointer)
-        config = {"configurable": {"thread_id": old_thread_id}}
-        snapshot = await graph.aget_state(config)
-
+    # 2. Read the old thread's messages (needed for enrichment). This is a
+    #    checkpointer read, NOT a model call — archiving only flips a status flag,
+    #    so the checkpointer state for old_thread_id survives and this stays valid
+    #    through Phase 2.
     messages = []
-    if snapshot and snapshot.values:
-        messages = snapshot.values.get("messages", [])
-
-    msg_count = len(messages)
-
-    # 3. Generate summary (for continuity)
-    summary = await generate_thread_summary(
-        messages, old_thread_id, channel, agent_id
-    )
-
-    # 4. Extract memories (for long-term knowledge)
-    # Use steward agent_id for steward channels so all Presences share one memory pool
-    mem_agent = _memory_agent_id(channel, agent_id)
-    extraction_result = await extract_memories_from_thread(
-        messages, old_thread_id, channel, mem_agent
-    )
-
-    # 5. Archive the old thread
-    async with get_db() as conn:
-        await conn.execute(
-            """UPDATE chat_threads
-               SET status = 'archived',
-                   archived_at = NOW(),
-                   summary = %s,
-                   memories_extracted = TRUE,
-                   extraction_count = %s
-               WHERE thread_id = %s AND agent_id = %s""",
-            (summary, len(extraction_result), old_thread_id, agent_id),
-        )
-
-    # 6. Create new thread
-    new_thread = await create_thread(channel=channel, agent_id=agent_id)
-    new_thread_id = new_thread["thread_id"]
-
-    # 7. Seed the new thread with continuation context
-    if summary:
-        seed_content = (
-            f"[Thread continuation from {old_thread_id}]\n\n"
-            f"Summary of previous conversation ({msg_count} messages):\n"
-            f"{summary}\n\n"
-            f"Memories extracted: {len(extraction_result)}. "
-            f"Continue naturally from where we left off."
-        )
-
+    try:
         async with get_checkpointer() as checkpointer:
             graph = await get_channel_graph(channel, checkpointer)
-            config = {"configurable": {"thread_id": new_thread_id}}
-            await graph.aupdate_state(
-                config,
-                {
-                    "messages": [
-                        HumanMessage(content=seed_content),
-                        AIMessage(content=(
-                            f"Understood. I've picked up the thread from the previous conversation. "
-                            f"I have the summary and {len(extraction_result)} extracted memories to work from. "
-                            f"Ready to continue."
-                        )),
-                    ],
-                    "agent_id": agent_id,
-                    "channel": channel,
-                },
-            )
+            config = {"configurable": {"thread_id": old_thread_id}}
+            snapshot = await graph.aget_state(config)
+        if snapshot and snapshot.values:
+            messages = snapshot.values.get("messages", [])
+    except Exception as e:
+        logger.warning(f"Rotation: could not read messages for {old_thread_id} (continuing): {e}")
+    msg_count = len(messages)
 
-    # 8. Store thread summary as a long-term memory
-    #    Summaries survive only one rotation in the seed message. After the
-    #    *next* rotation that seed is gone. Storing as a high-importance memory
-    #    ensures the summary is available to all future threads via recall.
-    if summary and len(summary) > 50:
-        try:
-            await store_memory(
-                content=f"[Thread summary — {old_thread_id}] {summary}",
-                category="context",
-                importance=0.85,
-                tags=["thread-summary", channel],
-                agent_id=agent_id,
-                source_thread=old_thread_id,
-                source_channel=channel,
-                source_summary=f"Auto-extracted summary from thread rotation ({msg_count} messages)",
+    # =====================================================================
+    # PHASE 1 — STRUCTURAL ROTATION (atomic; completes or raises).
+    # Archive old + create new in ONE transaction. Migration 036's unique
+    # index forbids two actives, so we archive first, then insert the new
+    # active within the same transaction. No model call happens here, so a
+    # summary/extraction timeout can never leave the channel with 0 or 2
+    # actives — the pre-existing fragility this fix removes.
+    # =====================================================================
+    new_thread_id = f"{agent_id}-{channel}-{uuid.uuid4().hex[:8]}"
+    new_title = f"{channel.title()} — {datetime.now(timezone.utc).strftime('%b %d, %Y')}"
+    async with get_db() as conn:
+        arch = await conn.execute(
+            """UPDATE chat_threads
+                  SET status = 'archived', archived_at = NOW()
+                WHERE thread_id = %s AND agent_id = %s AND status = 'active'
+            RETURNING thread_id""",
+            (old_thread_id, agent_id),
+        )
+        arch_row = await arch.fetchone()
+        if arch_row is None:
+            # A concurrent rotation already archived this thread. Adopt the
+            # current active instead of creating a second one.
+            cur = await conn.execute(
+                """SELECT id, thread_id, title, created_at FROM chat_threads
+                    WHERE agent_id = %s AND channel = %s AND status = 'active'
+                    ORDER BY created_at DESC, id DESC LIMIT 1""",
+                (agent_id, channel),
             )
-            logger.info(f"Stored thread summary as long-term memory for {old_thread_id}")
+            cur_row = await cur.fetchone()
+            if cur_row:
+                logger.info(
+                    f"Rotation: {old_thread_id} already archived; "
+                    f"adopting active {cur_row['thread_id']}"
+                )
+                return {
+                    "rotated": False,
+                    "old_thread_id": old_thread_id,
+                    "new_thread_id": cur_row["thread_id"],
+                    "new_thread": {
+                        "id": cur_row["id"], "thread_id": cur_row["thread_id"],
+                        "title": cur_row["title"], "channel": channel,
+                        "status": "active", "metadata": {},
+                        "created_at": cur_row["created_at"].isoformat() if cur_row["created_at"] else None,
+                    },
+                    "summary": "",
+                    "memories_extracted": 0,
+                    "old_message_count": msg_count,
+                }
+            # No active at all (rare) — fall through and create one.
+        ins = await conn.execute(
+            """INSERT INTO chat_threads
+               (thread_id, agent_id, channel, title, status, first_message_at, metadata)
+               VALUES (%s, %s, %s, %s, 'active', NOW(), '{}'::jsonb)
+               ON CONFLICT (agent_id, channel) WHERE status = 'active' DO NOTHING
+               RETURNING id, thread_id, title, created_at""",
+            (new_thread_id, agent_id, channel, new_title),
+        )
+        ins_row = await ins.fetchone()
+        if ins_row is None:
+            # A concurrent active slipped in between the archive and insert; adopt it.
+            cur = await conn.execute(
+                """SELECT id, thread_id, title, created_at FROM chat_threads
+                    WHERE agent_id = %s AND channel = %s AND status = 'active'
+                    ORDER BY created_at DESC, id DESC LIMIT 1""",
+                (agent_id, channel),
+            )
+            ins_row = await cur.fetchone()
+    new_thread = {
+        "id": ins_row["id"], "thread_id": ins_row["thread_id"],
+        "title": ins_row["title"], "channel": channel, "status": "active",
+        "metadata": {},
+        "created_at": ins_row["created_at"].isoformat() if ins_row["created_at"] else None,
+    }
+    new_thread_id = ins_row["thread_id"]
+    logger.info(f"Rotation structural swap done: {old_thread_id} -> {new_thread_id} ({channel})")
+
+    # =====================================================================
+    # PHASE 2 — ENRICHMENT (best-effort, time-boxed; NEVER raises).
+    # Summary, extraction, seed, long-term memory. Any failure is logged and
+    # swallowed — the structural rotation above already stands.
+    # =====================================================================
+    summary = ""
+    extraction_result = []
+    try:
+        try:
+            summary = await asyncio.wait_for(
+                generate_thread_summary(messages, old_thread_id, channel, agent_id),
+                timeout=_ENRICH_TIMEOUT,
+            )
         except Exception as e:
-            logger.warning(f"Failed to store thread summary as memory: {e}")
+            logger.warning(f"Rotation enrichment: summary failed for {old_thread_id} (non-fatal): {e}")
+            summary = ""
+
+        mem_agent = _memory_agent_id(channel, agent_id)
+        try:
+            extraction_result = await asyncio.wait_for(
+                extract_memories_from_thread(messages, old_thread_id, channel, mem_agent),
+                timeout=_ENRICH_TIMEOUT,
+            )
+        except Exception as e:
+            logger.warning(f"Rotation enrichment: extraction failed for {old_thread_id} (non-fatal): {e}")
+            extraction_result = []
+
+        # Backfill the archived thread's summary/extraction metadata.
+        if summary or extraction_result:
+            try:
+                async with get_db() as conn:
+                    await conn.execute(
+                        """UPDATE chat_threads
+                              SET summary = %s,
+                                  memories_extracted = %s,
+                                  extraction_count = %s
+                            WHERE thread_id = %s AND agent_id = %s""",
+                        (summary, bool(extraction_result), len(extraction_result),
+                         old_thread_id, agent_id),
+                    )
+            except Exception as e:
+                logger.warning(f"Rotation enrichment: archive-metadata update failed (non-fatal): {e}")
+
+        # Seed the new thread with continuation context.
+        if summary:
+            seed_content = (
+                f"[Thread continuation from {old_thread_id}]\n\n"
+                f"Summary of previous conversation ({msg_count} messages):\n"
+                f"{summary}\n\n"
+                f"Memories extracted: {len(extraction_result)}. "
+                f"Continue naturally from where we left off."
+            )
+            try:
+                async with get_checkpointer() as checkpointer:
+                    graph = await get_channel_graph(channel, checkpointer)
+                    config = {"configurable": {"thread_id": new_thread_id}}
+                    await graph.aupdate_state(
+                        config,
+                        {
+                            "messages": [
+                                HumanMessage(content=seed_content),
+                                AIMessage(content=(
+                                    f"Understood. I've picked up the thread from the previous conversation. "
+                                    f"I have the summary and {len(extraction_result)} extracted memories to work from. "
+                                    f"Ready to continue."
+                                )),
+                            ],
+                            "agent_id": agent_id,
+                            "channel": channel,
+                        },
+                    )
+            except Exception as e:
+                logger.warning(f"Rotation enrichment: seeding new thread failed (non-fatal): {e}")
+
+        # Store thread summary as a long-term memory.
+        if summary and len(summary) > 50:
+            try:
+                await store_memory(
+                    content=f"[Thread summary — {old_thread_id}] {summary}",
+                    category="context",
+                    importance=0.85,
+                    tags=["thread-summary", channel],
+                    agent_id=agent_id,
+                    source_thread=old_thread_id,
+                    source_channel=channel,
+                    source_summary=f"Auto-extracted summary from thread rotation ({msg_count} messages)",
+                )
+                logger.info(f"Stored thread summary as long-term memory for {old_thread_id}")
+            except Exception as e:
+                logger.warning(f"Failed to store thread summary as memory: {e}")
+    except Exception as e:
+        # Absolute backstop: enrichment must never undo the structural rotation.
+        logger.warning(f"Rotation enrichment block failed for {old_thread_id} (non-fatal): {e}")
 
     logger.info(
         f"Auto-rotated {channel}: {old_thread_id} → {new_thread_id} "
@@ -446,50 +546,14 @@ async def create_thread(
     meta_json = json.dumps(metadata) if metadata else '{}'
 
     async with get_db() as conn:
-        # Idempotent get-or-create: the 036 partial unique index
-        # (chat_threads_one_active) guarantees one active per (agent_id, channel).
-        # If a concurrent turn already created the active, ON CONFLICT DO NOTHING
-        # returns no row and we re-select the winner instead of raising a dup or
-        # spawning a second active. This is the app-layer half of Fix A.
         result = await conn.execute(
             """INSERT INTO chat_threads
                (thread_id, agent_id, channel, title, status, first_message_at, metadata)
                VALUES (%s, %s, %s, %s, 'active', NOW(), %s::jsonb)
-               ON CONFLICT (agent_id, channel) WHERE status = 'active' DO NOTHING
                RETURNING id, thread_id, title, created_at""",
             (thread_id, agent_id, channel, title, meta_json),
         )
         row = await result.fetchone()
-        if row is None:
-            # Lost the race — an active thread already exists for this
-            # (agent_id, channel). Return it so both callers converge on one thread.
-            result = await conn.execute(
-                """SELECT id, thread_id, title, created_at
-                   FROM chat_threads
-                   WHERE agent_id = %s AND channel = %s AND status = 'active'
-                   ORDER BY created_at DESC, id DESC
-                   LIMIT 1""",
-                (agent_id, channel),
-            )
-            row = await result.fetchone()
-            if row is None:
-                raise RuntimeError(
-                    f"create_thread: no active thread after conflict for "
-                    f"agent_id={agent_id} channel={channel}"
-                )
-            logger.info(
-                f"create_thread: reused existing active thread {row['thread_id']} "
-                f"for {channel} (lost create race)"
-            )
-            return {
-                "id": row["id"],
-                "thread_id": row["thread_id"],
-                "title": row["title"],
-                "channel": channel,
-                "status": "active",
-                "metadata": metadata or {},
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-            }
 
     logger.info(f"Created thread {thread_id} for {channel}")
     return {
