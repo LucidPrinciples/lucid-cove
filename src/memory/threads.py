@@ -446,14 +446,50 @@ async def create_thread(
     meta_json = json.dumps(metadata) if metadata else '{}'
 
     async with get_db() as conn:
+        # Idempotent get-or-create: the 036 partial unique index
+        # (chat_threads_one_active) guarantees one active per (agent_id, channel).
+        # If a concurrent turn already created the active, ON CONFLICT DO NOTHING
+        # returns no row and we re-select the winner instead of raising a dup or
+        # spawning a second active. This is the app-layer half of Fix A.
         result = await conn.execute(
             """INSERT INTO chat_threads
                (thread_id, agent_id, channel, title, status, first_message_at, metadata)
                VALUES (%s, %s, %s, %s, 'active', NOW(), %s::jsonb)
+               ON CONFLICT (agent_id, channel) WHERE status = 'active' DO NOTHING
                RETURNING id, thread_id, title, created_at""",
             (thread_id, agent_id, channel, title, meta_json),
         )
         row = await result.fetchone()
+        if row is None:
+            # Lost the race — an active thread already exists for this
+            # (agent_id, channel). Return it so both callers converge on one thread.
+            result = await conn.execute(
+                """SELECT id, thread_id, title, created_at
+                   FROM chat_threads
+                   WHERE agent_id = %s AND channel = %s AND status = 'active'
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT 1""",
+                (agent_id, channel),
+            )
+            row = await result.fetchone()
+            if row is None:
+                raise RuntimeError(
+                    f"create_thread: no active thread after conflict for "
+                    f"agent_id={agent_id} channel={channel}"
+                )
+            logger.info(
+                f"create_thread: reused existing active thread {row['thread_id']} "
+                f"for {channel} (lost create race)"
+            )
+            return {
+                "id": row["id"],
+                "thread_id": row["thread_id"],
+                "title": row["title"],
+                "channel": channel,
+                "status": "active",
+                "metadata": metadata or {},
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            }
 
     logger.info(f"Created thread {thread_id} for {channel}")
     return {
