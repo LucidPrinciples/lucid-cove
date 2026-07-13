@@ -307,7 +307,7 @@ function openOnboardingHelp() {
             <p><b>2. Set your address.</b> Your Cove gets its own web address. That turns on HTTPS so voice and the mic work, and gives everyone a clean link (you're <code>your-handle.your-address</code>).</p>
             <p><b>3. Set up compute.</b> Choose where heavy work runs: a cloud model, this box's GPU, a GPU rented from another Cove, or CPU only.</p>
             <p><b>4. Connect on mobile.</b> Join your phone to the private mesh, then open <b>jules</b> and talk anywhere. It lands in your Inbox for your agent to act on.</p>
-            <p><b>5. Protect your Cove.</b> It backs itself up every night to a private repo you own, so if this box dies your Cove doesn't.</p>
+            <p><b>5. Back up your Cove's work.</b> It backs itself up every night to a private repo you own, so if this box dies your Cove doesn't.</p>
             <p style="color:var(--dim);">From there your agent helps you build, capture, and organize, and you can add family members, each with their own handle.</p>
             <div style="text-align:right;margin-top:10px;"><button class="btn-approve" onclick="document.getElementById('onboarding-help-modal').remove()">Got it</button></div>
         </div>`;

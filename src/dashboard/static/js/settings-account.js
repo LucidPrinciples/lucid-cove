@@ -88,7 +88,7 @@ async function loadSettingsProfile() {
     }
 
     // Cove address moved to the admin-only "Cove Settings" section (loadSettingsCoveAdmin).
-    // Self-host now lives in its own bottom section (loadSettingsSelfHost).
+    // Move/copy your Cove lives in its own bottom section (loadSettingsSelfHost).
     // Affiliate program lives entirely in the Affiliates tab now — nothing here.
     el.innerHTML = fieldsHtml;
 }
@@ -188,7 +188,7 @@ async function enablePublicCove(btn) {
 }
 
 // =============================================================================
-// Self-host a Cove — its own section at the BOTTOM of Settings.
+// Move/copy your Cove — its own section at the BOTTOM of Settings. (#1522c)
 // Available to EVERY signed-in account (Tuner/Operator/Cove), since self-hosting is
 // exactly the path FROM Tuner/Operator → Cove. Mints + reveals the connect token once
 // (their @handle shows with it), to paste into a self-host install's connect panel.
@@ -197,7 +197,7 @@ async function loadSettingsSelfHost() {
     const el = document.getElementById('settings-selfhost');
     if (!el) return;
     el.innerHTML = `
-        <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">Running your own box? Get the connect key + config it needs to join the network as <strong>your @handle</strong>. Your current login stays active.</div>
+        <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">Take your account onto a new box, or stand up a second copy. Get the connect key + config it needs to join the network as <strong>your @handle</strong>. Your current login stays active.</div>
         <button class="btn-sm" onclick="getSelfHostConfig(this)">Get my connect key</button>
         <div id="self-host-config-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>`;
 }
