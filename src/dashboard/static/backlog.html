@@ -24,6 +24,8 @@
   --later: #58a6ff;
   --projects: #bc8cff;
   --done: #3fb950;
+  --interactive: #a371f7;
+  --blocked: #f778ba;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -159,11 +161,17 @@ h1 {
   margin-bottom: 6px;
 }
 
+:root {
+  --interactive: #a371f7;  /* purple for interactive */
+  --blocked: #f778ba;      /* pink for blocked */
+}
 .lane.now .lane-dot { background: var(--now); }
 .lane.soon .lane-dot { background: var(--soon); }
 .lane.later .lane-dot { background: var(--later); }
 .lane.projects .lane-dot { background: var(--projects); }
 .lane.done .lane-dot { background: var(--done); }
+.lane.interactive .lane-dot { background: var(--interactive); }
+.lane.blocked .lane-dot { background: var(--blocked); }
 
 /* Cards */
 .cards {
@@ -179,6 +187,8 @@ h1 {
 .lane.later .cards { border-left-color: #58a6ff30; }
 .lane.projects .cards { border-left-color: #bc8cff30; }
 .lane.done .cards { border-left-color: #3fb95030; }
+.lane.interactive .cards { border-left-color: #a371f730; }
+.lane.blocked .cards { border-left-color: #f778ba30; }
 
 .card {
   background: var(--surface);
@@ -332,13 +342,17 @@ let activeFilter = null;
 let collapsedLanes = new Set();
 
 const LANE_META = {
-  now:      { title: "Now", desc: "Active build — drives session priorities", color: "now" },
-  soon:     { title: "Soon", desc: "Important, raised recently — after Now clears", color: "soon" },
-  later:    { title: "Later", desc: "Defined work, not urgent", color: "later" },
-  projects: { title: "Projects — Not Started", desc: "Bodies of work needing their own spec", color: "projects" },
-  done:     { title: "Completed", desc: "", color: "done" },
+  now:         { title: "Now", desc: "Active build — drives session priorities", color: "now" },
+  soon:        { title: "Soon", desc: "Important, raised recently — after Now clears", color: "soon" },
+  later:       { title: "Later", desc: "Defined work, not urgent", color: "later" },
+  projects:    { title: "Projects — Not Started", desc: "Bodies of work needing their own spec", color: "projects" },
+  interactive: { title: "Interactive", desc: "Build WITH Chords — he provides live state", color: "interactive" },
+  blocked:     { title: "Blocked", desc: "Waiting on external dependency", color: "blocked" },
+  done:        { title: "Completed", desc: "", color: "done" },
 };
-const LANE_ORDER = ["now", "soon", "later", "projects", "done"];
+// #D43: INTERACTIVE and BLOCKED are their own lanes, never merged into NOW.
+// Unknown headers from the backend get their own lane group automatically.
+const LANE_ORDER = ["now", "soon", "later", "projects", "interactive", "blocked", "done"];
 
 // #D20: escape ALL item-derived text before it goes into innerHTML. A ticket whose
 // title/desc/source/tag contained a literal '<' (e.g. a jules transcription, or text
