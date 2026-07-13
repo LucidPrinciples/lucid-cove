@@ -30,9 +30,11 @@ router = APIRouter()
 # #D26: the interactive chat turn ran on LangGraph's DEFAULT recursion_limit (25
 # super-steps ≈ 12 tool rounds) — nothing set it here, so a heavy tool-using turn hit
 # the ceiling and surfaced as a generic error (some "model errors" were really this).
-# Match delegation's ceiling (delegation_tools.DELEGATION_RECURSION_LIMIT = 100); the
-# turn timeout, not the step count, is the real runaway bound.
-CHAT_RECURSION_LIMIT = 100
+# Matches delegation's ceiling; the turn TIMEOUT, not the step count, is the real
+# runaway bound. Raised 100->200 (2026-07-12): heavy Clearfield dev turns (read
+# several files, edit, test, git) legitimately exceed ~50 tool rounds and were
+# getting chopped mid-task every run. Timeout still caps genuine runaways.
+CHAT_RECURSION_LIMIT = 200
 
 # Track running send tasks for cancellation — keyed by channel
 _running_tasks: dict[str, asyncio.Event] = {}

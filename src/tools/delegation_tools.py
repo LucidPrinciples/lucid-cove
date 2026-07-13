@@ -33,7 +33,7 @@ def _say(msg: str) -> None:
     print(f"{ts_log()} [delegation] {msg}")
 
 DELEGATION_TURN_TIMEOUT = 900  # seconds — a background turn gets 15 minutes
-DELEGATION_RECURSION_LIMIT = 100  # graph super-steps (~50 tool rounds); the
+DELEGATION_RECURSION_LIMIT = 200  # graph super-steps (~100 tool rounds); the
                                   # wall-clock timeout is the real runaway bound
 
 
