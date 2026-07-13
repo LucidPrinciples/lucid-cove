@@ -438,12 +438,13 @@ Hard rules:
 - Write finished, postable copy only. NEVER use placeholder text of any kind (no "[relevant links here]", no "[...]", no TODO notes).
 - Separate every paragraph with a blank line (\\n\\n in the JSON string).
 - No em dashes. Use periods or commas instead.
-- The only link allowed is https://lucidtuner.com as the final line. Do not invent other links.
+- Provide 8 to 12 tags. Each tag is 1 to 3 words, no tag longer than 25 characters, and the whole tag set stays under 400 characters total.
+- The only link allowed is https://lucidprinciples.com/vision. End the description with this exact final line: "The framework, the music, and the systems behind it: https://lucidprinciples.com/vision". Do not invent other links.
 
 Return ONLY valid JSON:
 {
   "title": "Compelling YouTube title (50-70 chars ideal, max 100)",
-  "description": "YouTube description (2-3 paragraphs, ~150-300 words, blank line between paragraphs). First line is the hook. Include timestamps if obvious sections exist. Final line: https://lucidtuner.com",
+  "description": "YouTube description (2-3 paragraphs, ~150-300 words, blank line between paragraphs). First line is the hook. Include timestamps if obvious sections exist. Final line exactly: The framework, the music, and the systems behind it: https://lucidprinciples.com/vision",
   "hashtags": "#hashtag1 #hashtag2 #hashtag3 (3-5 relevant hashtags)",
   "tags": ["tag1", "tag2", "tag3", "..."]
 }

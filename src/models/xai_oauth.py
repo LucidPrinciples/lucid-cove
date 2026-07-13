@@ -324,6 +324,7 @@ class ChatXAI(BaseChatModel):
     temperature: float = 0.7
     max_tokens: int | None = None
     timeout: float = 120.0
+    reasoning_effort: str = "medium"  # xAI reasoning depth: low | medium | high
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -408,6 +409,9 @@ class ChatXAI(BaseChatModel):
             "input": input_items,
             "temperature": self.temperature,
         }
+        # Reasoning depth applies to the grok-4.x reasoning models (not grok-build).
+        if self.reasoning_effort and self.model.startswith("grok-4"):
+            payload["reasoning"] = {"effort": self.reasoning_effort}
         if instructions_parts:
             payload["instructions"] = "\n\n".join(instructions_parts)
         if self.max_tokens:
