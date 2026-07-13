@@ -8,6 +8,7 @@ and the diff endpoint all share the same API layer.
 GitHub API docs: https://docs.github.com/en/rest/repos/contents
 """
 
+import asyncio
 import base64
 import logging
 from typing import Optional
@@ -19,6 +20,11 @@ log = logging.getLogger("github")
 API = "https://api.github.com"
 TIMEOUT = 20
 
+# Transient GitHub 5xx (and network blips) are common on large writes. A big
+# deploy's `POST git/trees` 502'd with zero retry and killed the whole deploy
+# (chordsoftruth, 864 files). Retry those on bounded exponential backoff.
+_GH_RETRY_STATUS = {502, 503, 504}
+
 
 def _headers(pat: str) -> dict:
     return {
@@ -26,6 +32,40 @@ def _headers(pat: str) -> dict:
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+
+
+async def _gh_send(client: httpx.AsyncClient, method: str, url: str, *,
+                   headers: dict, retries: int = 4, **kwargs) -> httpx.Response:
+    """Send a GitHub API request, retrying transient 5xx (502/503/504) and
+    network/timeout errors with exponential backoff (1→2→4→8s cap).
+
+    Does NOT call raise_for_status — the caller keeps its own status handling
+    (e.g. the 422 branch-exists path). Retried writes are safe: blobs and trees
+    are content-addressed so re-POSTing is idempotent; a retried commit at worst
+    leaves an extra dangling commit that the branch ref then overwrites — far
+    better than a dead deploy. A retryable status on the final attempt is
+    returned as-is so the caller's raise_for_status surfaces the real error.
+    """
+    delay = 1.0
+    for attempt in range(retries):
+        try:
+            resp = await client.request(method, url, headers=headers, **kwargs)
+        except (httpx.TransportError, httpx.TimeoutException) as e:
+            if attempt == retries - 1:
+                raise
+            log.warning("GitHub %s %s network error (%s), retry %d/%d",
+                        method, url, type(e).__name__, attempt + 1, retries)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 8.0)
+            continue
+        if resp.status_code in _GH_RETRY_STATUS and attempt < retries - 1:
+            log.warning("GitHub %s %s -> %s, retry %d/%d",
+                        method, url, resp.status_code, attempt + 1, retries)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 8.0)
+            continue
+        return resp
+    return resp
 
 
 # =============================================================================
@@ -273,15 +313,15 @@ async def github_get_tree_shas(repo: str, branch: str, pat: str) -> dict:
     """
     async with httpx.AsyncClient(timeout=60) as client:
         h = _headers(pat)
-        r = await client.get(f"{API}/repos/{repo}/git/refs/heads/{branch}", headers=h)
+        r = await _gh_send(client, "GET", f"{API}/repos/{repo}/git/refs/heads/{branch}", headers=h)
         if r.status_code != 200:
             return {}
         parent_sha = r.json()["object"]["sha"]
-        rc = await client.get(f"{API}/repos/{repo}/git/commits/{parent_sha}", headers=h)
+        rc = await _gh_send(client, "GET", f"{API}/repos/{repo}/git/commits/{parent_sha}", headers=h)
         rc.raise_for_status()
         base_tree_sha = rc.json()["tree"]["sha"]
-        rt = await client.get(
-            f"{API}/repos/{repo}/git/trees/{base_tree_sha}",
+        rt = await _gh_send(
+            client, "GET", f"{API}/repos/{repo}/git/trees/{base_tree_sha}",
             headers=h, params={"recursive": "1"},
         )
         rt.raise_for_status()
@@ -308,16 +348,16 @@ async def github_commit_tree(repo: str, files: dict, message: str,
         h = _headers(pat)
 
         # 1. Parent commit + its tree sha
-        r = await client.get(f"{API}/repos/{repo}/git/refs/heads/{parent_branch}", headers=h)
+        r = await _gh_send(client, "GET", f"{API}/repos/{repo}/git/refs/heads/{parent_branch}", headers=h)
         r.raise_for_status()
         parent_sha = r.json()["object"]["sha"]
-        rc = await client.get(f"{API}/repos/{repo}/git/commits/{parent_sha}", headers=h)
+        rc = await _gh_send(client, "GET", f"{API}/repos/{repo}/git/commits/{parent_sha}", headers=h)
         rc.raise_for_status()
         base_tree_sha = rc.json()["tree"]["sha"]
 
         # 2. Existing repo files {path: blob_sha}
-        rt = await client.get(
-            f"{API}/repos/{repo}/git/trees/{base_tree_sha}",
+        rt = await _gh_send(
+            client, "GET", f"{API}/repos/{repo}/git/trees/{base_tree_sha}",
             headers=h, params={"recursive": "1"},
         )
         rt.raise_for_status()
@@ -342,8 +382,8 @@ async def github_commit_tree(repo: str, files: dict, message: str,
                 if isinstance(raw, str):
                     raw = raw.encode("utf-8")
                 b64 = base64.b64encode(raw).decode("ascii")
-                br = await client.post(
-                    f"{API}/repos/{repo}/git/blobs",
+                br = await _gh_send(
+                    client, "POST", f"{API}/repos/{repo}/git/blobs",
                     headers=h, json={"content": b64, "encoding": "base64"},
                 )
                 br.raise_for_status()
@@ -355,8 +395,8 @@ async def github_commit_tree(repo: str, files: dict, message: str,
         changed += len(set(existing) - set(all_shas))
 
         # 4. Full tree (no base_tree) → exact mirror; unchanged blobs reused by sha
-        tr = await client.post(
-            f"{API}/repos/{repo}/git/trees",
+        tr = await _gh_send(
+            client, "POST", f"{API}/repos/{repo}/git/trees",
             headers=h, json={"tree": tree_entries},
         )
         tr.raise_for_status()
@@ -370,20 +410,20 @@ async def github_commit_tree(repo: str, files: dict, message: str,
                     "shas": all_shas, "no_changes": True}
 
         # 5. Commit + point the deploy branch at it
-        cr = await client.post(
-            f"{API}/repos/{repo}/git/commits",
+        cr = await _gh_send(
+            client, "POST", f"{API}/repos/{repo}/git/commits",
             headers=h, json={"message": message, "tree": tree_sha, "parents": [parent_sha]},
         )
         cr.raise_for_status()
         commit_sha = cr.json()["sha"]
 
-        cre = await client.post(
-            f"{API}/repos/{repo}/git/refs",
+        cre = await _gh_send(
+            client, "POST", f"{API}/repos/{repo}/git/refs",
             headers=h, json={"ref": f"refs/heads/{branch}", "sha": commit_sha},
         )
         if cre.status_code == 422:
-            upd = await client.patch(
-                f"{API}/repos/{repo}/git/refs/heads/{branch}",
+            upd = await _gh_send(
+                client, "PATCH", f"{API}/repos/{repo}/git/refs/heads/{branch}",
                 headers=h, json={"sha": commit_sha, "force": True},
             )
             upd.raise_for_status()
