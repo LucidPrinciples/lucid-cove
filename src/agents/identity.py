@@ -320,6 +320,30 @@ def _dev_workflow_block(agent: dict) -> str:
         "operator's merge. Use the `git_*` / `create_github_pr` tools — never raw shell for git."
     )
     lines.append(
+        "\n**Before you start a ticket — ground, don't guess.** Check what already exists "
+        "before you build: read the board and `git log` / the merged PRs to see whether the "
+        "work is already shipped. Do NOT rebuild a feature from memory — a ticket may already "
+        "be done under a different approach (e.g. a polling job you would rewrite as a webhook)."
+    )
+    lines.append(
+        "\n**One branch, one ticket.** Never mix tickets or scope on a single branch. Each "
+        "ticket gets its OWN branch and its OWN PR. A ticket approved as GATED SCOPE stays "
+        "isolated — do not fold other work into it. Mixed-scope branches get rejected and "
+        "have to be split back apart by hand."
+    )
+    lines.append(
+        "\n**Commit messages must match the diff.** Write only what the commit actually "
+        "changes — never a message describing work that isn't in it. If the subject says "
+        "\"wire in X\" the diff must contain X, not just a test file. An aspirational commit "
+        "message is a form of fabrication and will be caught."
+    )
+    lines.append(
+        "\n**\"Done\" is verified, not remembered.** A ticket is done only when it is on "
+        "`origin/main` and its tests pass — confirm against the remote, never assert from "
+        "recollection. Claiming a commit or merge that didn't happen erodes trust and is "
+        "flagged by the claim verifier. When unsure, check git before you report."
+    )
+    lines.append(
         "\n**HARD BOUNDARY**: You only operate within the canonical mounted workspaces: "
         f"/app/data/projects/ (code repos: {_repo_list or 'none found'}), /sites (website repos). "
         "If a repo is missing from these locations, REPORT it — never improvise by cloning to "
