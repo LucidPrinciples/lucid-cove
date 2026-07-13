@@ -156,11 +156,121 @@ def semantic_search_status() -> dict:
     return {"available": b["kind"] != "none", "backend": b["kind"], "reason": b.get("reason", "")}
 
 
+# ---------------------------------------------------------------------------
+# Fix E: local-Ollama-preferred embeddings (works on every self-host install)
+# ---------------------------------------------------------------------------
+_LOCAL_EMBED_PROBE = {"ok": None, "at": 0.0}
+_LOCAL_EMBED_PROBE_TTL = 300  # seconds; re-probe Ollama at most every 5 min
+
+
+async def _local_ollama_embed_available() -> bool:
+    """True if a local Ollama with the embedding model is reachable. Cached for a
+    few minutes. Local embeddings are free and private, so we prefer them over the
+    LLM-mode-gated backend whenever they exist. This keeps a cloud-LLM Cove on a
+    box with Ollama (every P620-class self-host) from silently losing semantic
+    memory. Boxes without a local Ollama (hosted CPU) probe False and fall back to
+    the gated cloud-or-none path, so the sovereignty gate stays intact."""
+    import time as _t
+    now = _t.monotonic()
+    if _LOCAL_EMBED_PROBE["ok"] is not None and (now - _LOCAL_EMBED_PROBE["at"]) < _LOCAL_EMBED_PROBE_TTL:
+        return _LOCAL_EMBED_PROBE["ok"]
+    ok = False
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{OLLAMA_URL}/api/tags", timeout=3.0)
+            r.raise_for_status()
+            names = [m.get("name", "") for m in r.json().get("models", [])]
+            ok = any(n == EMBEDDING_MODEL or n.startswith(EMBEDDING_MODEL + ":") for n in names)
+    except Exception:
+        ok = False
+    _LOCAL_EMBED_PROBE["ok"] = ok
+    _LOCAL_EMBED_PROBE["at"] = now
+    return ok
+
+
+async def ensure_local_embedding_model() -> bool:
+    """If a local Ollama is reachable but the embedding model is not pulled, pull
+    it once (best-effort). Makes semantic memory work on a FRESH self-host install
+    with no manual 'ollama pull'. No-op on boxes without a local Ollama (hosted
+    CPU), which use the gated cloud path. Returns True if the model is present."""
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{OLLAMA_URL}/api/tags", timeout=3.0)
+            r.raise_for_status()
+            names = [m.get("name", "") for m in r.json().get("models", [])]
+    except Exception:
+        return False  # no local Ollama; nothing to ensure
+    if any(n == EMBEDDING_MODEL or n.startswith(EMBEDDING_MODEL + ":") for n in names):
+        return True
+    print(f"{_ts()} [knowledge] local Ollama present but {EMBEDDING_MODEL} missing, pulling it...")
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(f"{OLLAMA_URL}/api/pull",
+                                     json={"model": EMBEDDING_MODEL, "stream": False},
+                                     timeout=600.0)
+            resp.raise_for_status()
+        _LOCAL_EMBED_PROBE["ok"] = None  # force a fresh probe on next embed
+        print(f"{_ts()} [knowledge] pulled {EMBEDDING_MODEL}")
+        return True
+    except Exception as e:
+        print(f"{_ts()} [knowledge] failed to pull {EMBEDDING_MODEL} (non-fatal): {e}")
+        return False
+
+
+async def embedding_health() -> dict:
+    """Live health of the semantic-memory embedding path (for /ops). Reports the
+    effective backend and whether an embed actually succeeds right now."""
+    if await _local_ollama_embed_available():
+        backend, model, reason = "local", EMBEDDING_MODEL, ""
+    else:
+        b = _resolve_embedding_backend()
+        backend, model, reason = b["kind"], b.get("model", ""), b.get("reason", "")
+    vec = await get_embedding("healthcheck")
+    return {"backend": backend, "model": model, "can_embed": bool(vec),
+            "dim": (len(vec) if vec else 0), "reason": reason}
+
+
+async def backfill_agent_memory_embeddings(batch: int = 500) -> dict:
+    """Embed agent_memory rows that have no embedding yet (Fix E). Idempotent:
+    only touches embedding IS NULL rows, so a period of 'embeddings off' self-heals
+    when this runs. Returns counts."""
+    from src.memory.database import get_db
+    done = 0
+    failed = 0
+    async with get_db() as conn:
+        r = await conn.execute(
+            "SELECT id, content FROM agent_memory WHERE embedding IS NULL "
+            "ORDER BY created_at DESC LIMIT %s", (batch,))
+        rows = await r.fetchall()
+    for row in rows:
+        vec = await get_embedding(row["content"] or "")
+        if not vec:
+            failed += 1
+            continue
+        try:
+            async with get_db() as conn:
+                await conn.execute(
+                    "UPDATE agent_memory SET embedding = %s WHERE id = %s",
+                    (str(vec), row["id"]))
+            done += 1
+        except Exception as e:
+            print(f"{_ts()} [knowledge] backfill update failed for #{row['id']}: {e}")
+            failed += 1
+    return {"scanned": len(rows), "embedded": done, "failed": failed}
+
+
 async def get_embedding(text: str) -> Optional[list]:
     """Embed `text` via the compute-mode-resolved backend (local Ollama / external Ollama /
     cloud OpenAI @ 768 dims). Returns None when there is no backend (cloud mode without an
     OpenAI key) or on any failure — callers treat None as 'semantic search off'."""
-    b = _resolve_embedding_backend()
+    # Fix E: prefer local Ollama embeddings whenever reachable (free, private,
+    # no sovereignty or cost concern), independent of the LLM compute mode. Only
+    # when no local Ollama embed model exists do we fall back to the mode-gated
+    # backend (external Ollama / cloud OpenAI @768 / none).
+    if await _local_ollama_embed_available():
+        b = {"kind": "local", "url": OLLAMA_URL, "model": EMBEDDING_MODEL, "key": ""}
+    else:
+        b = _resolve_embedding_backend()
     if b["kind"] == "none":
         return None
     try:
@@ -210,6 +320,10 @@ async def populate_knowledge_base() -> bool:
     Returns True when the index is settled (indexed or already up to date) and
     False when a retry might help (KB files not synced yet, Ollama unreachable,
     embedding model unavailable) — callers use this to re-kick (audit C3-2)."""
+    # Fix E: on a self-host box, make sure the embedding model is pulled so
+    # semantic memory works out of the box (no-op if no local Ollama).
+    await ensure_local_embedding_model()
+
     framework_dir = resolve_kb_dir()
     if not framework_dir.exists():
         print(f"{_ts()} [knowledge] framework dir not found: {framework_dir}")
