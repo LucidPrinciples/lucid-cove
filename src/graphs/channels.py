@@ -1211,6 +1211,35 @@ async def agent_node(state: ChannelState) -> dict:
             except Exception as gate_e:
                 print(f"{ts_log()} [{label}] Truth Gate error (non-fatal): {gate_e}")
 
+        # ── Claim Verification — #D50: catch fabricated completions ──────
+        # After the agent composes its response, check for unverified claims
+        if resp_stripped:
+            try:
+                from src.tools.claim_verifier import check_and_flag
+                flag = await check_and_flag(
+                    text=resp_stripped,
+                    agent_id=agent_id,
+                    channel=channel,
+                )
+                if flag:
+                    # Append a system note to the response so the operator sees it
+                    note = (
+                        f"\n\n[ATTENTION: {flag['title']}]\n"
+                        f"{flag['detail']}\n"
+                        f"(This claim could not be verified against tool-call logs.)"
+                    )
+                    resp_content = response.content
+                    if isinstance(resp_content, list):
+                        resp_content = " ".join(
+                            p.get("text", "") if isinstance(p, dict) else str(p)
+                            for p in resp_content
+                        )
+                    if isinstance(resp_content, str):
+                        response.content = resp_content + note
+                    print(f"{ts_log()} [{label}] Claim verification FLAGGED: {flag['title']}")
+            except Exception as claim_e:
+                print(f"{ts_log()} [{label}] Claim verification error (non-fatal): {claim_e}")
+
         return {"messages": [response], "context_usage": context_usage}
 
     except Exception as e:

@@ -31,7 +31,7 @@ class TestGitPushVerification:
                 "abc123 refs/heads/stuart/test-branch",  # ls-remote shows branch exists
             ]
             
-            result = await git_push("lucid-cove")
+            result = await git_push.ainvoke({"project": "lucid-cove"})
             
             # Should succeed and mention the push
             assert "new branch" in result or "[new branch]" in result
@@ -57,7 +57,7 @@ class TestGitPushVerification:
                 "(no output)",  # ls-remote shows NO branch on origin
             ]
             
-            result = await git_push("lucid-cove")
+            result = await git_push.ainvoke({"project": "lucid-cove"})
             
             # Should report failure, not success
             assert "FAILED" in result
@@ -107,7 +107,7 @@ class TestCreateGitHubPrVerification:
             mock_client.post.return_value = post_response
             mock_client.get.side_effect = [verify_response, compare_response]
             
-            result = await create_github_pr("lucid-cove", "Test PR")
+            result = await create_github_pr.ainvoke({"project": "lucid-cove", "title": "Test PR"})
             
             # Parse JSON result
             data = json.loads(result)
@@ -151,7 +151,7 @@ class TestCreateGitHubPrVerification:
             mock_client.post.return_value = post_response
             mock_client.get.return_value = verify_response
             
-            result = await create_github_pr("lucid-cove", "Test PR")
+            result = await create_github_pr.ainvoke({"project": "lucid-cove", "title": "Test PR"})
             
             # Should report failure, not JSON
             assert "FAILED" in result
@@ -186,7 +186,7 @@ class TestCreateGitHubPrVerification:
             
             mock_client.post.return_value = post_response
             
-            result = await create_github_pr("lucid-cove", "Test PR")
+            result = await create_github_pr.ainvoke({"project": "lucid-cove", "title": "Test PR"})
             
             # Should report failure
             assert "FAILED" in result
@@ -216,7 +216,7 @@ class TestApprovalCardsShowResultText:
                 "abc123 refs/heads/stuart/test-branch",
             ]
             
-            result = await git_push("lucid-cove")
+            result = await git_push.ainvoke({"project": "lucid-cove"})
             
             # Should include git output, not just "executed"
             assert len(result) > 20  # More than just "OK"
@@ -257,7 +257,7 @@ class TestApprovalCardsShowResultText:
             mock_client.post.return_value = post_response
             mock_client.get.side_effect = [verify_response, compare_response]
             
-            result = await create_github_pr("lucid-cove", "Test PR")
+            result = await create_github_pr.ainvoke({"project": "lucid-cove", "title": "Test PR"})
             
             # Parse JSON
             data = json.loads(result)

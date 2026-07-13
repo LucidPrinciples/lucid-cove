@@ -31,16 +31,22 @@ def _find_backlog():
 
 
 def _parse_backlog(text: str) -> dict:
-    """Parse the backlog markdown into structured lane data."""
+    """Parse the backlog markdown into structured lane data.
+
+    #D43: Recognizes INTERACTIVE and BLOCKED as their own lanes. Unknown headers
+    get their own lane group (never swallowed into NOW)."""
     lanes = {}
     current_lane_key = None
 
+    # Known lane headers → internal key
     lane_map = {
         "now": "now",
         "soon": "soon",
         "later": "later",
         "projects": "projects",
         "completed": "done",
+        "interactive": "interactive",
+        "blocked": "blocked",
     }
 
     for line in text.split("\n"):
@@ -56,8 +62,12 @@ def _parse_backlog(text: str) -> dict:
                     break
             if matched_key:
                 current_lane_key = matched_key
-                if current_lane_key not in lanes:
-                    lanes[current_lane_key] = []
+            else:
+                # #D43: Unknown headers get their own lane group, never merged into NOW.
+                # Normalize: alphanumeric only, no spaces.
+                current_lane_key = re.sub(r"[^a-z0-9]", "", header)
+            if current_lane_key not in lanes:
+                lanes[current_lane_key] = []
             continue
 
         # Detect items (- [ ] or - [x])

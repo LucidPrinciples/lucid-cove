@@ -200,8 +200,21 @@ async def _extract_items(transcript: str) -> list | None:
 
 def _append_items(backlog_text: str, items: list, source: str) -> tuple:
     """Insert items at the top of their lane, numbered past the current max #N.
-    Returns (new_text, assigned_numbers)."""
-    nums = [int(n) for n in re.findall(r"#(\d+)\s", backlog_text)]
+    Returns (new_text, assigned_numbers).
+
+    #D42: scans BOTH plain numbers (#1626) and D-prefixed (#D38) to find the
+    true max. Never mints an ID that already exists — agent-supplied ids in
+    item titles get remapped to the next free number.
+    """
+    # #D42: Match ticket IDs in item lines only (- [ ] **#N Title** or - [ ] **#DN Title**).
+    # Descriptions and other #N references are NOT ticket IDs and must not affect numbering.
+    nums = []
+    for line in backlog_text.split("\n"):
+        if line.strip().startswith("- ["):
+            # Extract ID from the bold header: **#N Title** or **#DN Title**
+            m = re.search(r"\*\*#(?:D)?(\d+)\s", line)
+            if m:
+                nums.append(int(m.group(1)))
     next_num = (max(nums) + 1) if nums else 1
     assigned = []
     by_lane = {"now": [], "soon": [], "later": []}
