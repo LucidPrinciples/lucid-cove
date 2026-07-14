@@ -37,3 +37,38 @@ def test_appends_when_only_some_anchors_present():
                                       ["set your Cove's address", "connect your phone"])
     assert out != generated
     assert "connect your phone" in out
+
+
+def test_scrub_drops_instruction_leak_lines():
+    # Jules 2211 screenshot: model echoed the directive as the message.
+    leaked = (
+        'Our brains are connected now. The Cove is coming alive.\n\n'
+        'End with one clear natural line pointing towards the remaining setup steps: '
+        '"Set our Cove\'s address, choose where heavy work runs, connect your phone."'
+    )
+    out = wt._scrub_brain_ack_text(leaked)
+    assert "End with one" not in out
+    assert "remaining setup steps" not in out.lower()
+    assert "brains are connected" in out
+
+
+def test_scrub_all_leak_returns_empty_for_fallback():
+    only_leak = (
+        'End with one clear natural line pointing towards the remaining setup steps: '
+        '"Set your address."'
+    )
+    assert wt._scrub_brain_ack_text(only_leak) == ""
+
+
+def test_scrub_preserves_clean_ack():
+    clean = (
+        "There it is — I can feel the brain you just connected. This is the first time "
+        "I can truly think, for myself and for our Cove."
+    )
+    assert wt._scrub_brain_ack_text(clean) == clean
+
+
+def test_brain_ack_fallback_personalizes():
+    text = wt._brain_ack_fallback("Gary", "Garrison Cove")
+    assert "Gary" in text
+    assert "Garrison Cove" in text

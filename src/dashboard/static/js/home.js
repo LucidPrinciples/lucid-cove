@@ -267,11 +267,14 @@ function _setupDoneLine(s) {
     // (signed-in operator link, new window, no auto-redirect) + the mesh-first note.
     let door = '';
     if (s.id === 'claim_address' && s.domain) {
-        const href = s.door || ('https://' + s.domain);
+        // Jules 2211: "open it" must be a FRESH sign-on door (mint at click), not the
+        // bare https://domain root — so this browser locks into the new address signed
+        // in, and the operator can close the localhost setup tab. Mirrors the pending
+        // host-command card's "Open my Cove" (_openMyCove → /api/onboarding/cove-door).
         door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
             Your Cove lives at <b>https://${ESC(s.domain)}</b> —
-            <a href="${ESC(href)}" target="_blank" rel="noopener" style="color:var(--accent);">open it &#8599;</a>
-            <span style="color:var(--dim);">(other devices need your Cove's mesh first)</span>
+            <a href="#" onclick="try{_openMyCove(this);}catch(e){} return false;" style="color:var(--accent);font-weight:600;">Open my Cove &#8599;</a>
+            <span style="color:var(--dim);"> — signs you in at the new address (then close this localhost tab)</span>
         </div>`;
     } else if (s.id === 'add_intelligence' && typeof _presenceChatDoorHref === 'function') {
         // Install-pass: real door → new window on Chat (?tab=chat). href="#" after #126
@@ -370,9 +373,10 @@ function _onboardingCardHtml(item) {
                 <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then refresh:</div>
                 <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
                 <div style="margin-top:10px;color:var(--text);">When it finishes, your Cove is live at <b>https://${_pd}</b>, and this link signs you in:</div>
-                <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>
+                <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:8px;padding:10px 16px;font-size:0.85rem;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>
                 <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This link signs you in at your new address. Once your Cove opens there you can close this localhost tab. It was just the setup surface.</div>
-                <div style="margin-top:10px;"><button class="btn-ghost" onclick="_addrRanCommand(this)">Ran the command? Refresh setup</button></div>
+                <div style="margin-top:12px;"><button class="btn-approve" style="padding:10px 16px;font-size:0.82rem;" onclick="_addrRanCommand(this)">Ran the command? Refresh setup</button></div>
+                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">The sign-in link above only works after you run the command and hit refresh — don't skip this.</div>
             </div>`;
         }
         const sub = ESC(item.cove_subdomain || '');

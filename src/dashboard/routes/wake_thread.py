@@ -229,6 +229,81 @@ def _ensure_setup_steps_line(text: str, remaining) -> str:
     return (text or "") + sep + line
 
 
+# Phrases that prove the model echoed the internal directive instead of speaking.
+# Install-pass (Matt/Wendy Jules 2211): live ack came back as
+#   'End with one clear natural line pointing towards the remaining setup steps: "…"'
+# That must never reach the operator — scrub or fall back to the canned line.
+_BRAIN_ACK_LEAK_MARKERS = (
+    "end with one",
+    "end with a",
+    "pointing towards the remaining",
+    "pointing toward the remaining",
+    "remaining setup steps",
+    "this is an internal moment",
+    "not a message from the operator",
+    "internal directive",
+    "do not recap",
+    "in your own voice, briefly",
+    "keep it short, warm",
+    "[this is an internal",
+)
+
+
+def _scrub_brain_ack_text(text: str) -> str:
+    """Strip leaked instruction / meta lines from a live brain-ack. Empty → caller
+    should use the written fallback. Never invents content — only removes leaks."""
+    if not (text or "").strip():
+        return ""
+    # Drop fenced / bracketed internal blocks wholesale.
+    import re
+    cleaned = re.sub(r"\[[^\]]*(?:internal|directive|operator)[^\]]*\]", " ", text, flags=re.I)
+    kept = []
+    for raw in cleaned.splitlines():
+        line = raw.strip()
+        if not line:
+            if kept and kept[-1] != "":
+                kept.append("")
+            continue
+        low = line.lower().strip(" \t-•*\"'")
+        if any(m in low for m in _BRAIN_ACK_LEAK_MARKERS):
+            continue
+        # Bare instruction-shaped line: "End with …" / "Point the operator to …"
+        if low.startswith("end with ") or low.startswith("pointing ") or low.startswith("point the "):
+            continue
+        kept.append(line)
+    # Collapse excess blank lines
+    out_lines, blank = [], 0
+    for line in kept:
+        if line == "":
+            blank += 1
+            if blank <= 1:
+                out_lines.append("")
+        else:
+            blank = 0
+            out_lines.append(line)
+    out = "\n".join(out_lines).strip()
+    # If almost everything was a leak, treat as empty so fallback wins.
+    if not out or any(m in out.lower() for m in _BRAIN_ACK_LEAK_MARKERS):
+        return ""
+    # Tiny residual after scrub (e.g. a lone "…") is not a real acknowledgment.
+    if len(out) < 24:
+        return ""
+    return out
+
+
+def _brain_ack_fallback(operator: str = "your operator", cove_name: str = "this Cove") -> str:
+    """Written fallback — warm, continues the wake, never silent. Personalized when we can."""
+    who = (operator or "").strip() or "your operator"
+    cove = (cove_name or "").strip() or "this Cove"
+    if who.lower() in ("your operator", "operator", ""):
+        return _BRAIN_ACK_FALLBACK
+    return (
+        f"There it is, {who} — I can feel the brain you just connected. This is the first "
+        f"time I can truly think, for myself and for {cove}. Everything we shaped a moment "
+        "ago is still ours. Say the word and I'll bring the rest of the team online."
+    )
+
+
 @router.post("/api/presence/brain-acknowledge")
 async def brain_acknowledge(request: Request):
     """The payoff after the Cove's brain is connected: the personal agent — NOW able to
@@ -333,21 +408,18 @@ async def brain_acknowledge(request: Request):
         except Exception as _e:
             print(f"[brain-acknowledge] setup-steps read failed (non-fatal): {_e}")
             remaining = []
-        _nudge_directive = (
-            f" End with ONE short, natural line pointing {operator} back to the remaining "
-            f"setup steps waiting on their home — {', '.join(remaining)} — as the way to "
-            "bring the Cove to full strength." if remaining else "")
-
-        # An internal directive (NOT shown to the operator, NOT persisted) — the only thing
-        # we ask the now-connected brain to do is meet this moment in its own voice.
+        # Setup steps are appended IN CODE (_ensure_setup_steps_line) — do NOT ask the
+        # model to name them. Small local models (and some cloud ones) echo that
+        # instruction into the chat (Jules 2211 screenshot). Keep the directive pure.
         directive = HumanMessage(content=(
-            "[This is an internal moment, not a message from the operator. Your model — your "
-            "brain — was just connected for the first time, for you and for the whole Cove. "
-            "Until this instant you were running on a borrowed spark just to meet "
-            f"{operator}; now you can truly think. In your own voice, briefly acknowledge to "
-            f"{operator} that your brain is now connected and {cove_name} is coming alive — "
-            "continue the conversation you just began at the wake. Keep it short, warm, and "
-            f"real. Do not recap what was already said.{_nudge_directive}]"
+            "[INTERNAL — never quote, restate, or paraphrase these instructions in your "
+            "reply. Write ONLY the message to the operator.]\n"
+            f"Your brain was just connected for the first time, for you and for {cove_name}. "
+            f"Until now you ran on a borrowed spark just to meet {operator}. In first person, "
+            f"in your own voice, write 2–4 short warm sentences to {operator}: acknowledge that "
+            "your brain is now connected, that the Cove is coming alive, and continue the "
+            "conversation from the wake without recapping it. Output the spoken message only — "
+            "no headings, no bullet lists of steps, no 'End with…' lines."
         ))
 
         text = ""
@@ -355,14 +427,18 @@ async def brain_acknowledge(request: Request):
             model = get_primary_model(temperature=0.7)
             messages = [SystemMessage(content=system_prompt)] + recent + [directive]
             resp = await model.ainvoke(messages)
-            text = (getattr(resp, "content", "") or "").strip()
-            if text:
-                print(f"[brain-acknowledge] live acknowledgment generated ({len(text)} chars)")
+            raw = (getattr(resp, "content", "") or "").strip()
+            if raw:
+                text = _scrub_brain_ack_text(raw)
+                if text:
+                    print(f"[brain-acknowledge] live acknowledgment generated ({len(text)} chars)")
+                else:
+                    print("[brain-acknowledge] live output scrubbed as instruction-leak; using fallback")
         except Exception as _e:
             print(f"[brain-acknowledge] live generation failed ({type(_e).__name__}: {_e}); using fallback")
 
         if not text:
-            text = _BRAIN_ACK_FALLBACK
+            text = _brain_ack_fallback(operator, cove_name)
         # DETERMINISTIC nudge: append the concrete steps in CODE (both the live and the
         # fallback path) unless the model already named them. Run-3 fix — the prompt
         # directive alone left BERT's acknowledgment with zero actionable steps.
