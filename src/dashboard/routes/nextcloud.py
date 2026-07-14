@@ -498,6 +498,43 @@ async def resolve_tab_nc_creds(request=None):
     return await get_nc_creds(request)
 
 
+async def ensure_nc_bruteforce_bypass() -> bool:
+    """Whitelist THIS app container's own subnet in NC brute-force protection.
+
+    The app is a trusted first-party service that authenticates to NC constantly. If a
+    transient auth failure ever accumulates (an NC restart race, a creds mismatch), NC's
+    brute-force protection throttles the app's IP with up to ~25s delay PER authenticated
+    request -- which silently makes Files/Calendar and every agent NC tool crawl. Adding
+    the app's /16 to NC's allowlist means the internal service is never throttled; real
+    login protection (external IPs) is unaffected. Idempotent: writes a fixed slot.
+    NC 29 stores this as bruteForce/whitelist_0 (+ _v4 mask). Returns True on success."""
+    if not NC_ADMIN_PASSWORD:
+        return False
+    try:
+        import socket
+        ip = socket.gethostbyname(socket.gethostname())
+        octets = ip.split(".")
+        if len(octets) != 4 or not all(o.isdigit() for o in octets):
+            return False
+        subnet = f"{octets[0]}.{octets[1]}.0.0"  # /16 base of the container's subnet
+        base = f"{NC_URL}/ocs/v2.php/apps/provisioning_api/api/v1/config/apps/bruteForce"
+        async with httpx.AsyncClient(timeout=15) as client:
+            for key, val in (("whitelist_0", subnet), ("whitelist_0_v4", "16")):
+                r = await client.post(
+                    f"{base}/{key}",
+                    data={"value": val},
+                    headers={"OCS-APIRequest": "true"},
+                    auth=(NC_ADMIN_USER, NC_ADMIN_PASSWORD),
+                )
+                if r.status_code >= 400:
+                    return False
+        log.info("NC brute-force bypass ensured for %s/16", subnet)
+        return True
+    except Exception as e:
+        log.warning("NC brute-force bypass ensure failed (non-fatal): %s", e)
+        return False
+
+
 # =============================================================================
 # OCS Provisioning — create/manage Nextcloud users
 # =============================================================================
