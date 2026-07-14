@@ -185,3 +185,39 @@ async def get_backlog_items(request: Request):
         return JSONResponse({"ok": True, "lanes": _parse_backlog(text)})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e), "lanes": {}})
+
+
+@router.post("/api/backlog/clear-completed")
+async def clear_completed_backlog(request: Request):
+    """Purge checklist items under ## Completed on the intake board.
+
+    Board lifecycle: done items retain in COMPLETED until the operator clears.
+    Uses the steward's CAS board write (If-Match) so concurrent edits can't
+    stomp. Admin-gated in multi mode.
+    """
+    if env("COVE_MODE", "single") == "multi":
+        try:
+            from src.dashboard.routes.presence import get_current_presence
+            p = await get_current_presence(request)
+            if not p or p.get("cove_role") != "admin":
+                return JSONResponse(status_code=403,
+                                    content={"ok": False, "error": "Admin only."})
+        except Exception:
+            return JSONResponse(status_code=403,
+                                content={"ok": False, "error": "Admin only."})
+    try:
+        from src.tools.backlog_tools import _cas_edit, clear_completed_items
+
+        def _apply(t):
+            nt, m = clear_completed_items(t)
+            return nt, [m]
+
+        msgs, label, saved = await _cas_edit(_apply)
+        return JSONResponse({
+            "ok": bool(saved),
+            "message": " ".join(msgs),
+            "board": label,
+        })
+    except Exception as e:
+        return JSONResponse(status_code=500,
+                            content={"ok": False, "error": str(e)})

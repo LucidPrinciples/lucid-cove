@@ -70,6 +70,23 @@ def test_annotate_and_done():
     assert "already" in msg3
 
 
+def test_clear_completed_items_purges_only_completed_lane():
+    text, msg = bt.clear_completed_items(BOARD)
+    assert "Cleared 1 completed item" in msg
+    assert "#D41" not in text
+    assert "## Completed" in text
+    # Other lanes untouched
+    assert "#D52" in text and "#1626" in text
+    # Second clear is a no-op
+    text2, msg2 = bt.clear_completed_items(text)
+    assert text2 == text and "already empty" in msg2
+
+
+def test_clear_completed_no_lane():
+    text, msg = bt.clear_completed_items("## Now\n- [ ] **#X** open.\n")
+    assert "No Completed lane" in msg and "#X" in text
+
+
 def test_ticket_title():
     t = bt.ticket_title(BOARD, "#D52")
     assert t.startswith("#D52 Effect-verification") and len(t) <= 70

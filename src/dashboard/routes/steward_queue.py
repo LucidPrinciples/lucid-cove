@@ -100,6 +100,44 @@ async def sync_merges(request: Request):
     return await sync_merged_prs()
 
 
+@router.post("/api/steward-queue/clear-completed")
+async def clear_completed_queue(request: Request):
+    """Purge terminal steward_queue rows older than the retention window.
+
+    Board lifecycle pair: done/dropped items stay visible for `days` (default
+    14) then this endpoint archives them out of the runtime queue. Open rows
+    (queued/assigned/in_review) are never touched.
+    """
+    await _require_operator(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        days = int(body.get("days", 14))
+    except (TypeError, ValueError):
+        days = 14
+    if days < 0:
+        days = 0
+    if days > 365:
+        days = 365
+
+    from src.memory.database import get_db
+    try:
+        async with get_db() as conn:
+            r = await conn.execute(
+                "DELETE FROM steward_queue "
+                "WHERE status IN ('done','dropped') "
+                "AND COALESCE(done_at, updated_at) < NOW() - (%s || ' days')::interval "
+                "RETURNING id",
+                (str(days),),
+            )
+            deleted = await r.fetchall()
+    except Exception as e:
+        raise HTTPException(500, f"Queue clear failed: {e}")
+    return {"ok": True, "removed": len(deleted), "days": days}
+
+
 @router.post("/api/steward-queue/{item_id}/update")
 async def update_item(item_id: int, request: Request):
     await _require_operator(request)
