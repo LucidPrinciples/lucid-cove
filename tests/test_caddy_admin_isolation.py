@@ -52,6 +52,7 @@ def test_token_bases_wire_the_proxy(monkeypatch):
         assert "admin localhost:2018" in base
         assert "admin :2019" not in base
         assert "reverse_proxy localhost:2018" in base
+        assert "header_up Host localhost:2018" in base
         assert "s3cr3t" not in base  # secret stays in env, not on disk
 
 

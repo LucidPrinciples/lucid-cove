@@ -88,6 +88,6 @@ def test_caddy_load_sends_origin_and_host(monkeypatch):
     monkeypatch.setenv("LP_CADDY_ADMIN_TOKEN", "s3cr3t")
     assert ra._caddy_load("{ }") == {"ok": True}
     h = captured["headers"]
-    assert h.get("host") == "lucidcove-caddy:2019"
+    # Host comes from the URL via urllib (we no longer force it)
     assert h.get("origin") == "http://localhost:2018"  # #D35 loopback admin allowlist
     assert h.get("authorization") == "Bearer s3cr3t"

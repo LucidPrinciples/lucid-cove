@@ -160,10 +160,15 @@ def render_admin_proxy_site(*, token: str = None) -> list:
     return [
         "# #D35 — token-gated admin proxy. The real admin is loopback-only; this is the",
         "# ONLY bridge entrance to it, and it requires the shared secret (in Caddy's env).",
+        "# header_up Host is REQUIRED: the app POSTs with Host lucidcove-caddy:2019 (or",
+        "# caddy:2019); without rewriting, the loopback admin's enforce_origin rejects",
+        "# host not allowed: lucidcove-caddy:2019 and set-address 403s.",
         ":2019 {",
         '\t@noauth not header Authorization "Bearer {$LP_CADDY_ADMIN_TOKEN}"',
         "\trespond @noauth 403",
-        f"\treverse_proxy localhost:{p}",
+        f"\treverse_proxy localhost:{p} {{",
+        f"\t\theader_up Host localhost:{p}",
+        "\t}",
         "}",
         "",
     ]

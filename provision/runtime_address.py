@@ -188,10 +188,13 @@ def _caddy_load(caddyfile_text: str) -> dict:
     _tok = _caddy_admin_token()
     try:
         _parsed = urllib.parse.urlparse(_admin_url())
-        _host = _parsed.netloc  # e.g. lucidcove-caddy:2019
+        _host = _parsed.netloc  # e.g. lucidcove-caddy:2019 (urllib sets Host from URL)
         if _host:
-            headers["Host"] = _host
+            # Do NOT set Host here — urllib.request derives Host from the URL and a
+            # manual Host header is unreliable. #D35 proxy rewrites Host to
+            # localhost:2018; #D32 needs Host = bridge admin host from the URL.
             if _tok:
+                # Loopback admin allowlist (origins localhost:2018 …)
                 headers["Origin"] = "http://localhost:2018"
             else:
                 headers["Origin"] = f"http://{_host}"

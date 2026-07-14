@@ -142,9 +142,29 @@ def _ensure_setup_steps_line(text: str, remaining) -> str:
     anchors = [_STEP_ANCHORS.get(s, s).lower() for s in remaining]
     if anchors and all(a in low for a in anchors):
         return text
-    steps = ", ".join(remaining)
-    line = (f"A couple of setup steps are still open — {steps} — they're how we reach "
-            "full strength when you're ready.")
+    # Address first when open — that's the step that gets them off localhost.
+    ordered = list(remaining)
+    if "set your Cove's address" in ordered:
+        ordered = (["set your Cove's address"]
+                   + [s for s in ordered if s != "set your Cove's address"])
+    if "set your Cove's address" in remaining:
+        rest = [s for s in ordered if s != "set your Cove's address"]
+        if rest:
+            line = (
+                "Next up: set your Cove's address so we can leave the local URL for a real "
+                "door (HTTPS, voice, and access from other devices). It's on Attention — "
+                "Claim your address. After that: " + ", ".join(rest) + "."
+            )
+        else:
+            line = (
+                "Next up: set your Cove's address so we can leave the local URL for a real "
+                "door (HTTPS, voice, and access from other devices). It's on Attention when "
+                "you're ready — Claim your address."
+            )
+    else:
+        steps = ", ".join(ordered)
+        line = (f"A couple of setup steps are still open — {steps} — they're how we reach "
+                "full strength when you're ready.")
     sep = "" if not text else ("\n\n" if not text.endswith("\n") else "")
     return (text or "") + sep + line
 
