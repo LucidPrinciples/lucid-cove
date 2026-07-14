@@ -24,16 +24,6 @@ RUN mkdir -p src && touch src/__init__.py \
     fi \
  && rm -rf src
 
-# ── Vendored ltp-core (public LTP Drop client) ──────────────────────────
-# Bakes lucid-tuner-protocol into the image so the public Drop (the "latest
-# tuning" badge) is ALWAYS available to a Cove on load — every clean install,
-# no mount required. A dev `ltp_core_path` mount still overrides it via
-# PYTHONPATH. Deps (httpx, cryptography) are already installed above, so
-# --no-deps keeps the build hermetic. Superseded by #101 (ltp-core → PyPI,
-# moves into base deps; drop this vendored copy then).
-COPY vendor/ltp-core /opt/ltp-core
-RUN pip install --no-cache-dir --no-deps /opt/ltp-core
-
 # ── Directories ─────────────────────────────────────────────────────────
 # /app/src         — merged at entrypoint (cove-core + overlay)
 # /app/config      — agent config (bind mount)
