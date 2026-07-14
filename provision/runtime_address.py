@@ -170,13 +170,35 @@ def _caddy_load(caddyfile_text: str) -> dict:
     gate is still on an old value), /load returns HTTP 403 and set-address dies
     with an opaque error. Surface that mismatch explicitly so the operator (and
     #1628 later) can fix env alignment instead of re-clicking Set address.
+
+    #D32 origin: urllib sends no Origin by default → Caddy enforce_origin sees
+    origin '' and 403s even when Host would match. Always set Host + Origin from
+    the admin URL so the #D32 bridge path (and the loopback admin behind the
+    #D35 proxy) accepts the request.
     """
     import urllib.error
+    import urllib.parse
     url = _admin_url() + "/load"
     headers = {"Content-Type": "text/caddyfile"}
+    # Sanctioned Host/Origin for Caddy enforce_origin. Without Origin, a bare urllib
+    # POST is rejected with: client is not allowed to access from origin ''.
+    # #D35: when the token gate is on, reverse_proxy forwards to loopback admin
+    # (origins = localhost:2018 only) — so Origin must be the loopback origin, not
+    # the bridge host. #D32 (no token): Origin is the bridge admin host itself.
+    _tok = _caddy_admin_token()
+    try:
+        _parsed = urllib.parse.urlparse(_admin_url())
+        _host = _parsed.netloc  # e.g. lucidcove-caddy:2019
+        if _host:
+            headers["Host"] = _host
+            if _tok:
+                headers["Origin"] = "http://localhost:2018"
+            else:
+                headers["Origin"] = f"http://{_host}"
+    except Exception:
+        pass
     # #D35: when the admin proxy is token-gated, authenticate the /load. Harmless when
     # the gate is off (a plain #D32 bridge admin ignores an unexpected auth header).
-    _tok = _caddy_admin_token()
     if _tok:
         headers["Authorization"] = f"Bearer {_tok}"
     req = urllib.request.Request(

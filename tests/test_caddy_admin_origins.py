@@ -2,12 +2,22 @@
 # box. The rendered base now constrains the admin endpoint with an origin allowlist +
 # enforce_origin, while keeping the sanctioned app path (Set-Address POST) working.
 # Pure string-generation; no live Caddy.
+#
+# These tests assert the #D32 (no-token) path. Clear LP_CADDY_ADMIN_TOKEN so ambient
+# box env (a running Cove with a minted token) cannot flip them into #D35 mode.
 import pathlib
 import sys
+
+import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "provision"))
 import netconfig  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_admin_token(monkeypatch):
+    monkeypatch.delenv("LP_CADDY_ADMIN_TOKEN", raising=False)
 
 
 def test_shared_base_admin_has_origin_allowlist_and_enforce():

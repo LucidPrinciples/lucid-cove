@@ -266,10 +266,35 @@ mkdir -p "$HOME/.lucidcove/tune-lock"
 # /tmp). Copy it to the host's shared dir ONCE — never clobber an existing conf.d, so a
 # 2nd Cove on this box doesn't wipe the 1st Cove's routing snippets.
 BOOT="$CORE/out/_shared-caddy"
-if [ -d "$BOOT" ] && [ ! -f "$SHARED_CADDY_DIR/docker-compose.yml" ]; then
+if [ -d "$BOOT" ]; then
   mkdir -p "$SHARED_CADDY_DIR/conf.d"
-  cp "$BOOT/docker-compose.yml" "$SHARED_CADDY_DIR/docker-compose.yml"
-  [ -f "$SHARED_CADDY_DIR/Caddyfile" ] || cp "$BOOT/Caddyfile" "$SHARED_CADDY_DIR/Caddyfile"
+  # Compose file: only seed if missing (never clobber a live shared stack).
+  [ -f "$SHARED_CADDY_DIR/docker-compose.yml" ] || cp "$BOOT/docker-compose.yml" "$SHARED_CADDY_DIR/docker-compose.yml"
+  # #D35: always install the provisioned token-mode base Caddyfile + .env when the
+  # bootstrap has them. conf.d/ is never wiped (per-Cove routes stay). Without the
+  # matching token on lucidcove-caddy, set-address /load returns 403 and onboarding
+  # cannot leave localhost.
+  if [ -f "$BOOT/Caddyfile" ]; then
+    cp "$BOOT/Caddyfile" "$SHARED_CADDY_DIR/Caddyfile"
+  fi
+  if [ -f "$BOOT/.env" ]; then
+    cp "$BOOT/.env" "$SHARED_CADDY_DIR/.env"
+    # Same token into the Cove stack .env so the app authenticates /load.
+    if [ -n "${DIR:-}" ] && [ -f "$DIR/.env" ]; then
+      _tok="$(grep -E '^LP_CADDY_ADMIN_TOKEN=' "$BOOT/.env" | head -1 | cut -d= -f2-)"
+      if [ -n "$_tok" ]; then
+        if grep -qE '^LP_CADDY_ADMIN_TOKEN=' "$DIR/.env"; then
+          # portable in-place replace (no GNU sed assumption)
+          _tmp="$DIR/.env.lp_caddy_tmp"
+          grep -vE '^LP_CADDY_ADMIN_TOKEN=' "$DIR/.env" > "$_tmp"
+          echo "LP_CADDY_ADMIN_TOKEN=$_tok" >> "$_tmp"
+          mv "$_tmp" "$DIR/.env"
+        else
+          echo "LP_CADDY_ADMIN_TOKEN=$_tok" >> "$DIR/.env"
+        fi
+      fi
+    fi
+  fi
 fi
 if [ -f "$SHARED_CADDY_DIR/docker-compose.yml" ]; then
   if ! docker network inspect lucidcove-net >/dev/null 2>&1; then
@@ -300,7 +325,10 @@ if [ -f "$SHARED_CADDY_DIR/docker-compose.yml" ]; then
     c_cyan "Starting the shared Caddy (owns 80/443 for every Cove on this box)…"
     ( cd "$SHARED_CADDY_DIR" && COVE_CORE="$CORE" docker compose up -d --build )
   else
-    c_dim "  shared Caddy already running — leaving it as is."
+    # Already up — recreate so a freshly provisioned #D35 token + Caddyfile take effect
+    # (conf.d volume keeps per-Cove routes). Harmless when nothing changed.
+    c_dim "  shared Caddy already running — reloading config (token + base Caddyfile)…"
+    ( cd "$SHARED_CADDY_DIR" && COVE_CORE="$CORE" docker compose up -d --force-recreate --build )
   fi
 fi
 
