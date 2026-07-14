@@ -378,6 +378,11 @@ async def share_presence_folders_with_steward(
 # Credential resolution — used by files.py, home.py, projects.py
 # =============================================================================
 
+import time as _nc_time
+_NC_CREDS_CACHE: dict = {}
+_NC_CREDS_TTL = 60.0  # short TTL: cut per-poll DB lookups + reconcile spam for Files/Calendar
+
+
 async def get_nc_creds(request: Request = None):
     """Get Nextcloud credentials for the current user.
 
@@ -393,6 +398,12 @@ async def get_nc_creds(request: Request = None):
             from src.dashboard.routes.presence import get_current_presence
             presence = await get_current_presence(request)
             if presence and presence.get("id"):
+                _pid = str(presence["id"])
+                _cc = _NC_CREDS_CACHE.get(_pid)
+                if _cc and _cc[3] > _nc_time.monotonic():
+                    # perf: serve fresh cached creds and skip the accounts query, the
+                    # on-every-poll reconcile spawn, and any inline provisioning.
+                    return _cc[0], _cc[1], _cc[2]
                 from src.memory.database import get_db
                 async with get_db() as conn:
                     result = await conn.execute(
@@ -420,6 +431,7 @@ async def get_nc_creds(request: Request = None):
                                     "steward" if _cr in ("admin", "steward") else "member"))
                         except Exception:
                             pass
+                        _NC_CREDS_CACHE[_pid] = (nc_url, row["nc_username"], row["nc_password"], _nc_time.monotonic() + _NC_CREDS_TTL)
                         return nc_url, row["nc_username"], row["nc_password"]
                 # No credentials yet — provision the NC user ON DEMAND and self-heal.
                 # On a fresh box Nextcloud often isn't ready when finalize runs, so the
@@ -445,6 +457,7 @@ async def get_nc_creds(request: Request = None):
                                 (presence["id"],))
                             row2 = await r2.fetchone()
                             if row2 and row2["nc_username"] and row2["nc_password"]:
+                                _NC_CREDS_CACHE[_pid] = (nc_url, row2["nc_username"], row2["nc_password"], _nc_time.monotonic() + _NC_CREDS_TTL)
                                 return nc_url, row2["nc_username"], row2["nc_password"]
                     else:
                         log.warning("On-demand NC provisioning not ready: %s", res.get("error"))
