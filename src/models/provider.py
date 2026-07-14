@@ -551,14 +551,20 @@ def model_is_runnable(model_id: str) -> bool:
     return bool(var and (env(var) or "").strip())
 
 
-def set_request_byok(provider: str, api_key: str = ""):
-    """Set the operator's BYOK provider + key for THIS request (returns a reset token).
-    Ollama needs no key. Returns None (no-op) when there's nothing usable to set."""
+def set_request_byok(provider: str, api_key: str = "", model: str = ""):
+    """Set the operator's BYOK provider + key (+ optional model) for THIS request.
+
+    Returns a reset token for clear_request_byok. Ollama needs no key; an explicit
+    `model` (the tag picked from machine-probe, e.g. dolphin-phi) is REQUIRED for
+    local to be correct — without it, get_primary_model used to substitute the
+    hardcoded qwen3:30b-a3b seed and 404 on stranger boxes that never pulled it.
+    Returns None (no-op) when there's nothing usable to set."""
     p = (provider or "").strip().lower()
+    m = (model or "").strip()
     if p == "ollama":
-        return _byok_ctx.set({"provider": "ollama", "api_key": ""})
+        return _byok_ctx.set({"provider": "ollama", "api_key": "", "model": m})
     if p and api_key:
-        return _byok_ctx.set({"provider": p, "api_key": api_key})
+        return _byok_ctx.set({"provider": p, "api_key": api_key, "model": m})
     return None
 
 
@@ -610,10 +616,23 @@ def get_model_client(model_id: str, temperature: float = 0.7):
     byok = _byok_now()
     if byok:
         bp = byok.get("provider")
+        bmodel = (byok.get("model") or "").strip()
         if bp == provider:
-            return _client_for(provider, model_string, temperature, key=byok.get("api_key"))
+            # Same provider: honor explicit BYOK model when set (local tag pick),
+            # else keep the assignment's model_string.
+            use = bmodel or model_string
+            return _client_for(provider, use, temperature, key=byok.get("api_key"))
         if bp in BYOK_DEFAULT_MODEL:
-            return _client_for(bp, BYOK_DEFAULT_MODEL[bp], temperature, key=byok.get("api_key"))
+            # Different provider: operator's pick wins. Prefer their explicit model,
+            # else per-provider default — but never the ollama seed when no model
+            # was named (resolve from installed tags instead).
+            if bmodel:
+                use = bmodel
+            elif bp == "ollama":
+                use = _resolve_local_fallback()
+            else:
+                use = BYOK_DEFAULT_MODEL[bp]
+            return _client_for(bp, use, temperature, key=byok.get("api_key"))
     return _client_for(provider, model_string, temperature)
 
 
@@ -629,13 +648,23 @@ def get_primary_model(temperature: float = 0.7) -> ChatOpenAI | ChatOllama:
     Ollama (often not running), so the operator's connected key was ignored and the agent
     silently never replied.
     """
-    # 1. Per-request operator override.
+    # 1. Per-request operator override (Add-Intelligence / Settings BYOK).
+    # MUST honor an explicit model tag — BYOK_DEFAULT_MODEL["ollama"] is only a
+    # seed id (qwen3:30b-a3b) and 404s on boxes that never pulled it (install-pass
+    # Wendy screenshot: operator picked dolphin-phi, chat still hit the seed).
     byok = _byok_now()
     if byok:
         bp = byok.get("provider")
         if bp in BYOK_DEFAULT_MODEL:
             try:
-                return _client_for(bp, BYOK_DEFAULT_MODEL[bp], temperature, key=byok.get("api_key"))
+                bmodel = (byok.get("model") or "").strip()
+                if bmodel:
+                    use = bmodel
+                elif bp == "ollama":
+                    use = _resolve_local_fallback()
+                else:
+                    use = BYOK_DEFAULT_MODEL[bp]
+                return _client_for(bp, use, temperature, key=byok.get("api_key"))
             except Exception as _e:
                 print(f"[provider] BYOK primary failed ({_e}); falling back")
     # 2. The Cove's connected brain — the admin's Add-Intelligence choice (key is in env).

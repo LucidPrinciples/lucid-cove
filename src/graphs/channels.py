@@ -1286,7 +1286,9 @@ async def agent_node(state: ChannelState) -> dict:
         try:
             print(f"{ts_log()} [{label}] Primary failed - resolving configured fallback...")
             _t1 = time_module.monotonic()
-            _fb_provider, _fb_model_str = "ollama", "qwen3:32b"
+            # Never seed a hardcoded ollama tag here — stranger boxes don't have
+            # qwen3:32b. Real target is resolved below from assignment or installed.
+            _fb_provider, _fb_model_str = "ollama", ""
             _fallback_id = None
             try:
                 from src.config import (_is_steward_channel, _is_merchant_channel,
@@ -1312,7 +1314,7 @@ async def agent_node(state: ChannelState) -> dict:
                     _fb_provider, _fb_model_str = "cloud", str(_fallback_id)
             else:
                 local = get_local_model(temperature=0.7)
-                _fb_provider, _fb_model_str = "ollama", getattr(local, "model", "qwen3:32b")
+                _fb_provider, _fb_model_str = "ollama", getattr(local, "model", "") or "(installed-local)"
             print(f"{ts_log()} [{label}] Fallback target: {_fb_provider}/{_fb_model_str}")
             try:
                 local_with_tools = local.bind_tools(channel_tools(channel))
