@@ -372,16 +372,39 @@ async def onboarding_cove_door(request: Request):
     """Mint a FRESH sign-in door for the current operator at the Cove's live domain, so
     'Open my Cove' always crosses over ALREADY LOGGED IN — even after a reload. The step-data
     door is a bare URL (a minted /p/{token} can't be persisted since tokens are stored hashed),
-    so we mint it at click time here."""
+    so we mint it at click time here.
+
+    Jules reinstall 2306: refuse while the host command is still pending / address not live.
+    Minting a door to a domain that DNS hasn't published yet opens a dead NXDOMAIN tab
+    (screenshot 7:03). Operator must run the host command and mark live first.
+    """
     from src.dashboard.routes.presence import get_current_presence, mint_signin_door
     p = await get_current_presence(request)
     if not p or not p.get("id"):
         return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
     try:
         from src.config import load_cove_config
-        dom = (load_cove_config().get("domain") or "").strip().lstrip("*").lstrip(".").lower()
+        _cc = load_cove_config()
+        dom = (_cc.get("domain") or "").strip().lstrip("*").lstrip(".").lower()
         if not dom:
             return JSONResponse(status_code=409, content={"ok": False, "error": "No address set yet"})
+        # Same live rule as the address checklist: pending host command always wins.
+        _pending = (_cc.get("pending_host_command") or "").strip()
+        if "domain_live" in _cc:
+            _live = bool(_cc.get("domain_live"))
+        else:
+            _live = not bool(_pending)
+        if _pending:
+            _live = False
+        if not _live:
+            return JSONResponse(status_code=409, content={
+                "ok": False,
+                "error": (
+                    "Address isn't live yet — run the host command on the machine hosting "
+                    "your Cove, then click \"I ran the command — mark live\"."
+                ),
+                "code": "address_not_live",
+            })
         door = await mint_signin_door(p["id"], dom, "https")
         if not door:
             return JSONResponse(status_code=500, content={"ok": False, "error": "Could not mint the door"})

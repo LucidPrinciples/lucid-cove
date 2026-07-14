@@ -367,16 +367,13 @@ function _onboardingCardHtml(item) {
         // done-line the instant the domain saved, stranding the operator.
         if (item.host_command) {
             const _pd = ESC(item.domain || '');
-            const _pdoor = ESC(item.door || ('https://' + (item.domain || '')));
             return `<div class="home-approval onboarding-card">
                 <div class="approval-tool">${title}</div>
-                <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then refresh:</div>
+                <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then mark it live:</div>
                 <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
-                <div style="margin-top:10px;color:var(--text);">When the command finishes, your Cove is live at <b>https://${_pd}</b>. Mark it live, then open signed in:</div>
+                <div style="margin-top:10px;color:var(--text);">When the command finishes, your Cove is live at <b>https://${_pd}</b>. Then mark it live — that unlocks the signed-in door:</div>
                 <div style="margin-top:12px;"><button class="btn-approve" style="padding:12px 18px;font-size:0.9rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>
-                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">Not a plain refresh — confirms the host command finished, then reloads setup. Don't click until the command succeeded.</div>
-                <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:10px;padding:10px 16px;font-size:0.85rem;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>
-                <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This signs you in at the new address. Close this localhost tab after it opens.</div>
+                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">Run the host command first. Mark live only after it succeeds — that reloads setup and unlocks Open my Cove. Opening early still hits the old host / unfinished DNS.</div>
             </div>`;
         }
         const sub = ESC(item.cove_subdomain || '');
@@ -649,19 +646,24 @@ async function _addrRanCommand(btn) {
 }
 
 async function _openMyCove(btn) {
-    // jules 07-07: mint a FRESH sign-in door at CLICK time so "Open my Cove" always crosses over
-    // logged in — the step-data/bare door has no /p/{token} (tokens are stored hashed, can't be
-    // persisted), so a reload used to drop the sign-on and land on a login wall.
+    // jules 07-07 / reinstall 2306: mint a FRESH sign-in door at CLICK time so "Open my Cove"
+    // always crosses over logged in. Server refuses until the address is live (host command
+    // done + mark-live) — opening early was NXDOMAIN / dead tab (Jules screenshot 7:03).
     const _t = btn ? btn.textContent : '';
     if (btn) { btn.style.pointerEvents = 'none'; btn.textContent = 'Opening…'; }
     let url = '';
+    let err = '';
     try {
-        const d = await (await fetch('/api/onboarding/cove-door', { method: 'POST' })).json();
+        const r = await fetch('/api/onboarding/cove-door', { method: 'POST', credentials: 'same-origin' });
+        const d = await r.json().catch(() => ({}));
         url = d && d.door;
-    } catch (e) {}
+        if (!url) err = (d && d.error) || ('HTTP ' + r.status);
+    } catch (e) {
+        err = (e && e.message) || 'network error';
+    }
     if (btn) { btn.style.pointerEvents = ''; btn.textContent = _t || 'Open my Cove ↗'; }
     if (url) window.open(url, '_blank', 'noopener');
-    else alert('Your Cove address isn\'t live yet — run the host command, then use "Ran the command? Refresh setup".');
+    else alert(err || 'Your Cove address isn\'t live yet — run the host command, then click "I ran the command — mark live".');
 }
 
 function _addrShowClaim(reach) {
@@ -848,11 +850,9 @@ async function saveDomain(btn, confirmChange) {
                 const _door = d.door || ('https://' + d.domain);
                 html = `<div style="color:var(--accent);">Saved ${ESC(d.domain)}. One step left, on the machine hosting your Cove — run this command first (do not skip):</div>${steps}`
                     + (d.host_command ? `<code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(d.host_command)}</code>` : '')
-                    + `<div style="margin-top:12px;color:var(--text);">When the command finishes, your Cove is live at <b>https://${ESC(d.domain)}</b>. Then mark it live and open it signed in:</div>`
+                    + `<div style="margin-top:12px;color:var(--text);">When the command finishes, your Cove is live at <b>https://${ESC(d.domain)}</b>. Then mark it live — that unlocks the signed-in door:</div>`
                     + `<div style="margin-top:12px;"><button class="btn-approve" style="padding:10px 16px;font-size:0.85rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>`
-                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">This is not a plain refresh — it attests the host command finished, then reloads setup.</div>`
-                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:10px;padding:10px 16px;font-size:0.85rem;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>`
-                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">Sign-in link works after the command + mark-live. Then you can close this localhost tab.</div>`;
+                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">Run the host command first. Mark live only after it succeeds — that reloads setup and unlocks Open my Cove. Opening early still hits unfinished DNS.</div>`;
             }
             out.innerHTML = html;
         }
