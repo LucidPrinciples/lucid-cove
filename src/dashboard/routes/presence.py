@@ -662,9 +662,11 @@ async def create_presence(request: Request):
 
     # TODO: Add operator auth check here
     body = await request.json()
-    display_name = body.get("display_name", "").strip()
+    # Jules 2230: capitalize at the root — operator + agent names both title-case
+    # when created (typed "walt"/"hal" must store as "Walt"/"Hal").
+    display_name = _titlecase_name(_sanitize_name(body.get("display_name", "")))
     email = body.get("email", "").strip().lower()
-    agent_name = body.get("agent_name", "").strip()
+    agent_name = _titlecase_name(_sanitize_name(body.get("agent_name", "")))
     cove_role = body.get("cove_role", "member").strip()
     agent_config = body.get("agent_config", {})
     send_email = body.get("send_email", True)
@@ -862,7 +864,7 @@ async def _create_presence_record(
     # Belt-and-suspenders: normalize the operator-supplied names server-side too, so a
     # direct API call or stale cached JS can't store junk (idempotent on names the
     # client already cleaned).
-    display_name = _sanitize_name(display_name)
+    display_name = _titlecase_name(_sanitize_name(display_name))
     agent_name = _titlecase_name(_sanitize_name(agent_name))
     from src.config import load_cove_config
     _cove = load_cove_config()
@@ -1004,8 +1006,9 @@ async def provision_presence(request: Request):
 
     body = await request.json()
     display_name = body.get("display_name", "").strip()
-    # Jules 2153: title-case at the root so a lowercase-typed name never reaches
-    # the spark / wake / MC as "matt" — same rule as finalize + invite complete.
+    # Jules 2153/2230: title-case at the root so a lowercase-typed name never
+    # reaches the spark / wake / MC as "matt"/"walt" — same rule as finalize.
+    display_name = _titlecase_name(_sanitize_name(display_name)) if display_name else display_name
     agent_name = _titlecase_name(_sanitize_name(body.get("agent_name") or body.get("name") or ""))
     email = body.get("email", "").strip().lower()
     cove_role = body.get("cove_role", "member").strip()
@@ -1289,7 +1292,8 @@ async def finalize_setup(request: Request):
             # The operator's OWN name (the human). Without this, the value the
             # generator seeded (e.g. "Alex") would persist no matter what the
             # operator entered in the wizard.
-            _disp = (body.get("display_name") or body.get("person") or "").strip()
+            _disp = _titlecase_name(_sanitize_name(
+                body.get("display_name") or body.get("person") or ""))
             if _disp:
                 set_parts.append("display_name = %s")
                 params.append(_disp)

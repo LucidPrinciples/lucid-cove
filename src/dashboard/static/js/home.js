@@ -372,11 +372,11 @@ function _onboardingCardHtml(item) {
                 <div class="approval-tool">${title}</div>
                 <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then refresh:</div>
                 <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
-                <div style="margin-top:10px;color:var(--text);">When it finishes, your Cove is live at <b>https://${_pd}</b>, and this link signs you in:</div>
-                <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:8px;padding:10px 16px;font-size:0.85rem;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>
-                <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This link signs you in at your new address. Once your Cove opens there you can close this localhost tab. It was just the setup surface.</div>
-                <div style="margin-top:12px;"><button class="btn-approve" style="padding:10px 16px;font-size:0.82rem;" onclick="_addrRanCommand(this)">Ran the command? Refresh setup</button></div>
-                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">The sign-in link above only works after you run the command and hit refresh — don't skip this.</div>
+                <div style="margin-top:10px;color:var(--text);">When the command finishes, your Cove is live at <b>https://${_pd}</b>. Mark it live, then open signed in:</div>
+                <div style="margin-top:12px;"><button class="btn-approve" style="padding:12px 18px;font-size:0.9rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>
+                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">Not a plain refresh — confirms the host command finished, then reloads setup. Don't click until the command succeeded.</div>
+                <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:10px;padding:10px 16px;font-size:0.85rem;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>
+                <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This signs you in at the new address. Close this localhost tab after it opens.</div>
             </div>`;
         }
         const sub = ESC(item.cove_subdomain || '');
@@ -634,8 +634,15 @@ async function _addrOpen(btn) {
 }
 
 async function _addrRanCommand(btn) {
-    // jules 07-07: operator attests they ran the host command → mark the address live so the
-    // claim step completes (in-container we can't detect the host command ran), then reload.
+    // jules 07-07 / reinstall 2230: operator attests they ran the host command → mark
+    // the address live (in-container we can't detect the host command ran), then reload.
+    // Confirm first — a plain "refresh" click used to mark live without running the
+    // command and collapsed the card (Jules: never ran command, step still cleared).
+    const ok = confirm(
+        'Only continue after the host command finished successfully.\n\n'
+        + 'Mark the address live and refresh setup?'
+    );
+    if (!ok) return;
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
     try { await fetch('/api/onboarding/address-live', { method: 'POST' }); } catch (e) {}
     location.reload();
@@ -839,12 +846,13 @@ async function saveDomain(btn, confirmChange) {
                 // (the host still owes the Matrix regen, so _mx_host forces it false), which is
                 // why the door has to be surfaced HERE, not only in the fully_live branch above.
                 const _door = d.door || ('https://' + d.domain);
-                html = `<div style="color:var(--accent);">Saved ${ESC(d.domain)}. One step left, on the machine hosting your Cove:</div>${steps}`
+                html = `<div style="color:var(--accent);">Saved ${ESC(d.domain)}. One step left, on the machine hosting your Cove — run this command first (do not skip):</div>${steps}`
                     + (d.host_command ? `<code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(d.host_command)}</code>` : '')
-                    + `<div style="margin-top:12px;color:var(--text);">When it finishes, your Cove is live at <b>https://${ESC(d.domain)}</b>. The secure connection takes about a minute, then open it here, already signed in:</div>`
-                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>`
-                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">This link signs you in at your new address. Once your Cove opens there you can close this localhost tab. It was just the setup surface.</div>`
-                    + `<div style="margin-top:10px;"><button class="btn-ghost" onclick="_addrRanCommand(this)">Ran the command? Refresh setup</button></div>`;
+                    + `<div style="margin-top:12px;color:var(--text);">When the command finishes, your Cove is live at <b>https://${ESC(d.domain)}</b>. Then mark it live and open it signed in:</div>`
+                    + `<div style="margin-top:12px;"><button class="btn-approve" style="padding:10px 16px;font-size:0.85rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>`
+                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">This is not a plain refresh — it attests the host command finished, then reloads setup.</div>`
+                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:10px;padding:10px 16px;font-size:0.85rem;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>`
+                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">Sign-in link works after the command + mark-live. Then you can close this localhost tab.</div>`;
             }
             out.innerHTML = html;
         }
@@ -976,21 +984,19 @@ async function openChatWithBrainAck(ev) {
     const href = (typeof _presenceChatDoorHref === 'function')
         ? _presenceChatDoorHref()
         : (location.origin + '/?tab=chat');
-    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, 8000) : null;
-    try {
-        await fetch('/api/presence/brain-acknowledge', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-            signal: ctrl ? ctrl.signal : undefined,
-        });
-    } catch (e) {
-        /* best-effort — still open chat */
-    } finally {
-        if (timer) clearTimeout(timer);
-    }
+    // Install-pass: NEVER abort brain-acknowledge. AbortController cancel was
+    // killing the server write mid-flight, so Open chat landed on an empty
+    // thread (Jules reinstall — no ack). Race a soft timeout for UX only; leave
+    // the fetch running so the canned/live ack still lands.
+    const ack = fetch('/api/presence/brain-acknowledge', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        keepalive: true,
+    }).catch(() => null);
+    const wait = new Promise((resolve) => setTimeout(resolve, 12000));
+    try { await Promise.race([ack, wait]); } catch (e) { /* open anyway */ }
     try {
         window.open(href, '_blank', 'noopener');
     } catch (e) {
@@ -1006,21 +1012,17 @@ async function openChatWithBrainAck(ev) {
 // cookies ride along. On timeout we still open chat + poll once so a late write
 // can appear without freezing the UI forever.
 async function _kickBrainAcknowledgeThenOpen() {
-    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, 25000) : null;
-    try {
-        await fetch('/api/presence/brain-acknowledge', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-            signal: ctrl ? ctrl.signal : undefined,
-        });
-    } catch (e) {
-        /* best-effort — server has its own written fallback */
-    } finally {
-        if (timer) clearTimeout(timer);
-    }
+    // Same rule as openChatWithBrainAck: never abort the server write. Soft-wait
+    // so connect UX isn't frozen forever; keepalive keeps the request alive.
+    const ack = fetch('/api/presence/brain-acknowledge', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+        keepalive: true,
+    }).catch(() => null);
+    const wait = new Promise((resolve) => setTimeout(resolve, 20000));
+    try { await Promise.race([ack, wait]); } catch (e) { /* continue */ }
     _afterIntelligenceConnected();
     // If the operator already landed on chat before the write finished (slow model),
     // reload once more shortly after so the message still shows up.
@@ -1031,6 +1033,13 @@ async function _kickBrainAcknowledgeThenOpen() {
             }
         } catch (e) {}
     }, 1500);
+    setTimeout(() => {
+        try {
+            if (typeof activeTab !== 'undefined' && activeTab === 'chat' && typeof loadChat === 'function') {
+                loadChat();
+            }
+        } catch (e) {}
+    }, 5000);
 }
 
 // B2 reachable-host door (mirrors presence-profile.js): only jump to the
