@@ -220,8 +220,9 @@ async function loadHomeApprovals() {
         }).join('');
         const prHtml = prCards.join('');
         el.innerHTML = obHtml + watchHtml + apHtml + prHtml;
-        // #1626: agent wake pop-in on the set-address onboarding card (if present).
-        if (typeof _mountAgentWakeCard === 'function') _mountAgentWakeCard('addr-agent-wake-home');
+        // Birth / brain-ack messages live in Chat only — not on the set-address card
+        // (that surface is action-only; read-only wake text there was confusing and
+        // hid the real conversation).
     } catch {
         el.innerHTML = '<span class="empty-msg">Approvals unavailable</span>';
         if (badge) badge.classList.add('hidden');
@@ -272,13 +273,12 @@ function _setupDoneLine(s) {
             <a href="${ESC(href)}" target="_blank" rel="noopener" style="color:var(--accent);">open it &#8599;</a>
             <span style="color:var(--dim);">(other devices need your Cove's mesh first)</span>
         </div>`;
-    } else if (s.id === 'add_intelligence' && typeof _presenceChatDoorHref === 'function') {
-        // jules 2026-07-07: the awake "Open chat" card was wiped by the post-connect re-render.
-        // Carry the chat link on the COMPLETED step instead, so it persists (like the address door).
-        const chref = _presenceChatDoorHref();
+    } else if (s.id === 'add_intelligence') {
+        // Same-tab chat — the ack lives in Chat, not in a new window / set-address card.
         const agent = (typeof MC !== 'undefined' && MC.agentName) || 'Your agent';
-        if (chref) door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
-            ${ESC(agent)} is awake. <a href="${ESC(chref)}" target="_blank" rel="noopener" style="color:var(--accent);">Open chat &#8599;</a>
+        door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
+            ${ESC(agent)} is awake.
+            <a href="#" onclick="try{switchToTab('chat');}catch(e){} return false;" style="color:var(--accent);">Open chat</a>
         </div>`;
     }
     return `<div class="home-approval onboarding-card" style="opacity:.65;padding:6px 10px;">
@@ -380,7 +380,6 @@ function _onboardingCardHtml(item) {
         // VPS or an install.sh-preflighted box skips straight to step 2.
         return `<div class="home-approval onboarding-card">
             <div class="approval-tool">${title}</div>
-            <div id="addr-agent-wake-home"></div>
             <div class="approval-desc">${body}</div>
             <div id="addr-mesh-step" style="display:none;margin-top:8px;">
                 <div style="font-size:0.78rem;"><strong>Step 1 — put this box on the mesh.</strong></div>
@@ -1031,11 +1030,25 @@ function _renderBrainAwakeCard() {
 // Cove-admin apex, which has no chat) show the "awake — Open chat" door card (B2) and
 // refresh the surface so the step clears.
 function _afterIntelligenceConnected() {
+    // Install-pass product rule: intelligence connect → Chat with the ack that
+    // continues the wake and points at remaining setup (address first). Do not
+    // leave the operator on Attention reading a stranded "is awake" card.
     if (typeof markChatUnread === 'function') markChatUnread();
-    const hasChat = (typeof MC !== 'undefined' && MC.tabs
-        && MC.tabs.some(t => (t.id || t) === 'chat'));
-    if (hasChat && typeof switchToTab === 'function') { switchToTab('chat'); return; }
-    // Chat-less surface: transform the intelligence card into the awake-door card.
+    if (typeof switchToTab === 'function') {
+        try {
+            const hasChat = (typeof MC !== 'undefined' && MC.tabs
+                && MC.tabs.some(t => (t.id || t) === 'chat'));
+            if (hasChat || (typeof MC === 'undefined')) {
+                switchToTab('chat');
+                // Ensure the thread paints after tab switch (loadChat is tab-driven).
+                setTimeout(() => {
+                    try { if (typeof loadChat === 'function') loadChat(); } catch (e) {}
+                }, 200);
+                return;
+            }
+        } catch (e) { /* fall through to door card */ }
+    }
+    // True chat-less surface only (e.g. Cove-admin apex): door card.
     _renderBrainAwakeCard();
     if (typeof MC !== 'undefined' && MC.coveAdminView && typeof loadCoveAdminPresences === 'function') {
         loadCoveAdminPresences(); return;
