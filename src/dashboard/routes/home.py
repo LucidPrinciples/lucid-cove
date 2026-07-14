@@ -448,8 +448,8 @@ async def respond_bridge_approval(request_id: str, request: Request):
 
 async def _nc_creds(request: Request = None):
     """Get Nextcloud CalDAV credentials — per-user in multi mode, env vars in single."""
-    from src.dashboard.routes.nextcloud import get_nc_creds
-    return await get_nc_creds(request)
+    from src.dashboard.routes.nextcloud import resolve_tab_nc_creds
+    return await resolve_tab_nc_creds(request)
 
 
 def _caldav_url(nc_url: str, nc_user: str, calendar: str = "personal") -> str:

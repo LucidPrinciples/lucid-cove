@@ -36,13 +36,13 @@ async def _resolve_webdav(request: Request = None, path: str = ""):
     KB paths resolve to the SINGLE Cove copy (the steward/NC-admin space) no matter
     which presence is asking — the same source kb_sync writes. Everything else
     resolves to the current presence's own space as before."""
-    from src.dashboard.routes.nextcloud import (get_nc_creds, NC_ADMIN_USER,
-                                                NC_ADMIN_PASSWORD)
+    from src.dashboard.routes.nextcloud import (get_nc_creds, resolve_tab_nc_creds,
+                                                NC_ADMIN_USER, NC_ADMIN_PASSWORD)
     if _is_kb_path(path) and NC_ADMIN_PASSWORD:
         nc_url = env("NEXTCLOUD_URL")
         webdav_base = f"{nc_url}/remote.php/dav/files/{NC_ADMIN_USER}"
         return webdav_base, NC_ADMIN_USER, (NC_ADMIN_USER, NC_ADMIN_PASSWORD), None
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_pass:
         return None, None, None, "Nextcloud not configured"
     webdav_base = f"{nc_url}/remote.php/dav/files/{nc_user}"
