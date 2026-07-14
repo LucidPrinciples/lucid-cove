@@ -321,14 +321,17 @@ async def lifespan(app: FastAPI):
     _assign_task = None
     try:
         from src.models.assignments import load_assignments_cache
+        from src.tools.nextcloud_tools import load_fallback_nc_creds
         await load_assignments_cache()
-        print(f"{ts()} [app] Agent model assignments loaded.")
-        # Keep the cache fresh across workers — model changes are rare, 45s is plenty.
+        await load_fallback_nc_creds()
+        print(f"{ts()} [app] Agent model assignments + NC fallback creds loaded.")
+        # Keep the caches fresh across workers — changes are rare, 45s is plenty.
         async def _assign_refresher():
             while True:
                 await asyncio.sleep(45)
                 try:
                     await load_assignments_cache()
+                    await load_fallback_nc_creds()
                 except Exception:
                     pass
         _assign_task = asyncio.create_task(_assign_refresher())
