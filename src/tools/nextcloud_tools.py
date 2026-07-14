@@ -74,12 +74,47 @@ def clear_request_nc_creds(token) -> None:
         pass
 
 
+# Request-free fallback for multi-mode contexts where the ContextVar is unset
+# (delegation/wake/scheduler turns, or a tool running off the request thread) AND the
+# container env is empty (multi-mode). Loaded once at boot from the accounts table --
+# the same source get_nc_creds uses -- as the FOUNDING operator's NC login, so a steward
+# acting in the background (e.g. reading the operator's jules Inbox, which lives in the
+# operator's NC area) authenticates as the operator instead of failing on empty creds.
+_fallback_nc_creds: tuple[str, str, str] | None = None
+
+
+async def load_fallback_nc_creds() -> None:
+    """Populate the request-free NC creds fallback from the founding operator's accounts
+    row. Best-effort: on any error the fallback stays unset and behavior is unchanged."""
+    global _fallback_nc_creds
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            result = await conn.execute(
+                "SELECT nc_username, nc_password FROM accounts "
+                "WHERE nc_username IS NOT NULL AND nc_username <> '' "
+                "AND nc_password IS NOT NULL AND nc_password <> '' "
+                "ORDER BY created_at ASC LIMIT 1"
+            )
+            row = await result.fetchone()
+        if row and row["nc_username"]:
+            _fallback_nc_creds = (NEXTCLOUD_URL, row["nc_username"], row["nc_password"])
+    except Exception:
+        pass
+
+
 def _current_creds() -> tuple[str, str, str]:
-    """(url, user, password) for the acting presence: the request-scoped ctx when a
-    non-empty user is bound, else the module env globals (behavior-preserving)."""
+    """(url, user, password) for the acting presence. Priority: request-scoped ctx
+    (interactive chat binds it) -> env globals (single-user/legacy) -> the founding
+    operator's creds loaded at boot (multi-mode background/off-request-thread turns).
+    The last fallback keeps file tools authenticating instead of failing on empty creds."""
     c = _nc_creds_ctx.get()
     if c and c[1]:
         return c
+    if NEXTCLOUD_USER:
+        return (NEXTCLOUD_URL, NEXTCLOUD_USER, NEXTCLOUD_PASSWORD)
+    if _fallback_nc_creds and _fallback_nc_creds[1]:
+        return _fallback_nc_creds
     return (NEXTCLOUD_URL, NEXTCLOUD_USER, NEXTCLOUD_PASSWORD)
 
 
