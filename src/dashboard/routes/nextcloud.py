@@ -92,6 +92,12 @@ PRESENCE_FOLDERS = [
 # Steward (Stuart-type) — same as Presence plus Knowledge Base
 STEWARD_FOLDERS = PRESENCE_FOLDERS + [
     "AgentSkills/Knowledge Base",
+    # Team deliverables + per-agent workspaces (agent-workspace-access-spec.md).
+    # Reports = shared functional deliverables (organized by what they are, not who made
+    # them). Team = parent for per-agent workspaces; Team/<agent>/ is created on first
+    # use by the file tool, so only the parent is seeded here.
+    "AgentSkills/Reports",
+    "AgentSkills/Team",
 ]
 
 # Backward compat alias
