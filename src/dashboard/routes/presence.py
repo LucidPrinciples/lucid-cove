@@ -1004,7 +1004,9 @@ async def provision_presence(request: Request):
 
     body = await request.json()
     display_name = body.get("display_name", "").strip()
-    agent_name = (body.get("agent_name") or body.get("name") or "").strip()
+    # Jules 2153: title-case at the root so a lowercase-typed name never reaches
+    # the spark / wake / MC as "matt" — same rule as finalize + invite complete.
+    agent_name = _titlecase_name(_sanitize_name(body.get("agent_name") or body.get("name") or ""))
     email = body.get("email", "").strip().lower()
     cove_role = body.get("cove_role", "member").strip()
     send_email = body.get("send_email", True)

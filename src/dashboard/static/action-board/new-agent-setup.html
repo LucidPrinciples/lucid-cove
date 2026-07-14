@@ -1850,7 +1850,9 @@ async function provisionAgent() {
         const _selfJoin = (urlParams.get('self') === '1') && !!urlParams.get('invite');
         const _body = {
             display_name: _selfJoin ? '' : (personParam || memberNameParam || name),
-            agent_name: name,
+            // Jules 2153: always send title-cased agent name so the spark / wake never
+            // greets as lowercase when the operator typed "matt". Server also caps.
+            agent_name: _titleCaseName(name),
             handle: urlParams.get('handle') || undefined,
             email: emailParam,
             cove_role: roleParam,
