@@ -1098,14 +1098,37 @@ async def agent_node(state: ChannelState) -> dict:
     _FALLBACK_TIMEOUT = 120  # Local model gets more time if needed
     _t0 = time_module.monotonic()
 
+    # Resilient invoke: retry TRANSIENT provider errors (429/503/502/capacity/overloaded/
+    # connection) with backoff before giving up, so a single blip does not drop the turn to
+    # a weaker model. A hung provider (timeout) is NOT retried -- it falls back fast, as the
+    # D16 short primary timeout intends. Wraps both the primary and the fallback invokes.
+    _TRANSIENT = ("429", "503", "502", "504", "overloaded", "capacity", "exhausted",
+                  "rate limit", "please retry", "try again", "temporarily", "connection",
+                  "reset by peer", "econnreset")
+    def _is_transient(_e):
+        _m = f"{type(_e).__name__}: {_e}".lower()
+        return any(_t in _m for _t in _TRANSIENT)
+    async def _invoke_retry(_runnable, _msgs, _timeout, _tag, _attempts=3):
+        _delay = 1.5
+        for _i in range(_attempts):
+            try:
+                return await asyncio.wait_for(_runnable.ainvoke(_msgs), timeout=_timeout)
+            except asyncio.TimeoutError:
+                raise
+            except Exception as _e:
+                if not _is_transient(_e) or _i >= _attempts - 1:
+                    raise
+                print(f"{ts_log()} [{label}] {_tag} transient ({type(_e).__name__}); "
+                      f"retry {_i + 1}/{_attempts - 1} in {int(_delay)}s")
+                await asyncio.sleep(_delay)
+                _delay *= 2
+
     try:
         tools = channel_tools(channel)
         model_with_tools = model.bind_tools(tools)
 
         # D16: Primary with shorter timeout for faster fallback on hung provider
-        response = await asyncio.wait_for(
-            model_with_tools.ainvoke(full_messages), timeout=_PRIMARY_TIMEOUT
-        )
+        response = await _invoke_retry(model_with_tools, full_messages, _PRIMARY_TIMEOUT, "primary")
         _duration_ms = int((time_module.monotonic() - _t0) * 1000)
 
         # Capture reasoning from provider hook
@@ -1293,15 +1316,11 @@ async def agent_node(state: ChannelState) -> dict:
             print(f"{ts_log()} [{label}] Fallback target: {_fb_provider}/{_fb_model_str}")
             try:
                 local_with_tools = local.bind_tools(channel_tools(channel))
-                response = await asyncio.wait_for(
-                    local_with_tools.ainvoke(full_messages), timeout=_FALLBACK_TIMEOUT
-                )
+                response = await _invoke_retry(local_with_tools, full_messages, _FALLBACK_TIMEOUT, "fallback")
             except Exception as tool_e:
                 # D16: Log why tool-enabled call failed before trying plain
                 print(f"{ts_log()} [{label}] Tool-enabled fallback failed ({type(tool_e).__name__}), trying plain...")
-                response = await asyncio.wait_for(
-                    local.ainvoke(full_messages), timeout=_FALLBACK_TIMEOUT
-                )
+                response = await _invoke_retry(local, full_messages, _FALLBACK_TIMEOUT, "fallback-plain")
             _fb_duration_ms = int((time_module.monotonic() - _t1) * 1000)
 
             from datetime import datetime, timezone
