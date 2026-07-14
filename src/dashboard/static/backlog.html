@@ -307,6 +307,29 @@ h1 {
 }
 .process-btn:active { background: #21262d; }
 .process-btn:disabled { opacity: .55; cursor: default; }
+
+/* Clear completed — board lifecycle purge */
+.clear-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 230px;
+  height: 44px;
+  border-radius: 22px;
+  padding: 0 16px;
+  background: var(--surface);
+  border: 1px solid #3fb95060;
+  color: var(--done);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  -webkit-tap-highlight-color: transparent;
+  z-index: 10;
+}
+.clear-btn:active { background: #21262d; }
+.clear-btn:disabled { opacity: .55; cursor: default; }
+.clear-btn.hidden { display: none; }
 /* ── Team queue (steward execution queue) ── */
 .tq { margin-bottom: 26px; }
 .tq .cards { border-left: 3px solid #2ea04360; padding-left: 12px; }
@@ -334,6 +357,7 @@ h1 {
 <div id="board"><div class="loading">Loading backlog...</div></div>
 <button class="refresh-btn" id="refresh-btn" title="Refresh">↻</button>
 <button class="process-btn" id="process-btn" title="Process new jules recordings into this board">🎙 Process jules</button>
+<button class="clear-btn hidden" id="clear-btn" title="Purge Completed lane + old done queue rows">Clear completed</button>
 
 <script>
 let DATA = {};
@@ -348,7 +372,7 @@ const LANE_META = {
   projects:    { title: "Projects — Not Started", desc: "Bodies of work needing their own spec", color: "projects" },
   interactive: { title: "Interactive", desc: "Build WITH Chords — he provides live state", color: "interactive" },
   blocked:     { title: "Blocked", desc: "Waiting on external dependency", color: "blocked" },
-  done:        { title: "Completed", desc: "", color: "done" },
+  done:        { title: "Completed", desc: "Retained until you Clear completed", color: "done" },
 };
 // #D43: INTERACTIVE and BLOCKED are their own lanes, never merged into NOW.
 // Unknown headers from the backend get their own lane group automatically.
@@ -465,6 +489,14 @@ function render() {
 
     board.appendChild(laneEl);
   });
+
+  // Show Clear completed when the Completed lane has anything
+  const clearBtn = document.getElementById("clear-btn");
+  if (clearBtn) {
+    const n = (DATA.done || []).length;
+    if (n > 0) clearBtn.classList.remove("hidden");
+    else clearBtn.classList.add("hidden");
+  }
 }
 
 async function loadTeamQueue() {
@@ -574,6 +606,41 @@ document.getElementById("process-btn").addEventListener("click", async function(
     btn.textContent = "Failed: " + e.message;
   }
   setTimeout(() => { btn.textContent = "🎙 Process jules"; btn.disabled = false; }, 4000);
+});
+
+// Board lifecycle: purge Completed lane + terminal queue rows past retention.
+document.getElementById("clear-btn").addEventListener("click", async function() {
+  const n = (DATA.done || []).length;
+  const msg = n
+    ? `Clear ${n} completed board item${n === 1 ? "" : "s"} and purge done/dropped queue rows older than 14 days?`
+    : "Purge done/dropped queue rows older than 14 days?";
+  if (!window.confirm(msg)) return;
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = "Clearing…";
+  try {
+    const [boardResp, queueResp] = await Promise.all([
+      fetch("/api/backlog/clear-completed", { method: "POST" }),
+      fetch("/api/steward-queue/clear-completed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days: 14 }),
+      }),
+    ]);
+    const boardData = await boardResp.json().catch(() => ({}));
+    const queueData = await queueResp.json().catch(() => ({}));
+    const parts = [];
+    if (boardData.ok) parts.push(boardData.message || "board cleared");
+    else if (boardData.error) parts.push("board: " + boardData.error);
+    if (queueData.ok) parts.push((queueData.removed || 0) + " queue rows ≥14d");
+    else if (queueData.detail) parts.push("queue: " + queueData.detail);
+    btn.textContent = parts.length ? "✓ " + parts.join(" · ") : "Done";
+    await loadBacklog();
+    await loadTeamQueue();
+  } catch (e) {
+    btn.textContent = "Failed: " + e.message;
+  }
+  setTimeout(() => { btn.textContent = "Clear completed"; btn.disabled = false; }, 3500);
 });
 
 loadBacklog();

@@ -136,6 +136,39 @@ def mark_ticket_done(text: str, ticket: str):
     return "\n".join(lines), f"Marked {ticket} done on the board."
 
 
+def clear_completed_items(text: str):
+    """Remove checklist item lines under the Completed lane.
+
+    Retention is the Completed lane itself (done items stay there until the
+    operator clears). This is the purge step: keep the ## Completed header and
+    any prose under it, drop every `- [ ]` / `- [x]` line in that section.
+    Other lanes are untouched. Returns (new_text, msg).
+    """
+    lines = text.split("\n")
+    hdr = _lane_header_index(lines, "completed")
+    if hdr is None:
+        return text, "No Completed lane on the board — nothing to clear."
+    # End of section = next ## header, or EOF
+    end = len(lines)
+    for i in range(hdr + 1, len(lines)):
+        if lines[i].strip().startswith("## "):
+            end = i
+            break
+    kept = []
+    removed = 0
+    for i, line in enumerate(lines):
+        if hdr < i < end:
+            s = line.strip()
+            if s.startswith("- [") and ("] " in s or s.endswith("]")):
+                # Checklist item under Completed — purge
+                removed += 1
+                continue
+        kept.append(line)
+    if removed == 0:
+        return text, "Completed lane is already empty."
+    return "\n".join(kept), f"Cleared {removed} completed item{'s' if removed != 1 else ''} from the board."
+
+
 def ticket_title(text: str, ticket: str) -> str:
     """Short queue title from the ticket's board line."""
     idx, _ = find_ticket(text, ticket)
@@ -421,5 +454,28 @@ async def backlog_update(ticket: str, lane: str = "", note: str = "",
     return " ".join(msgs) + f" (on {label})"
 
 
-ALL_BACKLOG_TOOLS = [backlog_board, backlog_pull, backlog_update]
+@notify
+@tool
+async def backlog_clear_completed() -> str:
+    """Purge the Completed lane on the operator's intake board.
+
+    Done items stay in COMPLETED as a retention window until this runs.
+    Removes every checklist row under ## Completed (header + prose stay).
+    Does not touch NOW/SOON/etc. Pair with steward-queue clear for runtime.
+    """
+
+    def _apply(t):
+        nt, m = clear_completed_items(t)
+        return nt, [m]
+
+    try:
+        msgs, label, saved = await _cas_edit(_apply)
+    except Exception as e:
+        return f"Board write failed, nothing saved: {e}"
+    if not saved:
+        return " ".join(msgs)
+    return " ".join(msgs) + f" (on {label})"
+
+
+ALL_BACKLOG_TOOLS = [backlog_board, backlog_pull, backlog_update, backlog_clear_completed]
 TOOLS = ALL_BACKLOG_TOOLS  # channel loader entry point (_load_tools)
