@@ -725,20 +725,20 @@ async def send_message(request: Request):
             # back to the env globals (single-user unchanged).
             _nc_tok = None
             try:
-                from src.dashboard.routes.nextcloud import get_nc_creds, NC_ADMIN_USER, NC_ADMIN_PASSWORD
-                from src.tools.nextcloud_tools import set_request_nc_creds
-                from src.config import _is_steward_channel, _is_merchant_channel
-                if (_is_steward_channel(ch) or _is_merchant_channel(ch)) and NC_ADMIN_PASSWORD:
-                    # Managers (Stuart/Mercer) have NO NC user of their own -- they act in the
-                    # cove ADMIN NC space, NOT the requesting operator's. Without this, a manager
+                from src.tools.nextcloud_tools import set_request_nc_creds, set_team_nc_creds
+                from src.graphs.channels import _is_manager_channel, _team_agent_key
+                if _is_manager_channel(ch) or _team_agent_key(ch) is not None:
+                    # Managers (Stuart/Mercer) AND build-team agents share the cove ADMIN NC
+                    # space -- they have NO NC user of their own. Without this, a team agent
                     # invoked from an operator's chat authenticates AS that operator and writes
-                    # into their folder (e.g. Mercer reports landing in JAG), which also defeats
-                    # the narrow Inbox share. Mirrors the admin-pinning files.py uses for KB paths.
-                    _nc_url, _nc_user, _nc_pass = "", NC_ADMIN_USER, NC_ADMIN_PASSWORD
+                    # into their folder (e.g. Mercer reports landing in JAG), also defeating the
+                    # narrow Inbox share. Presences (else branch) keep their own NC user.
+                    _nc_tok = set_team_nc_creds()
                 else:
+                    from src.dashboard.routes.nextcloud import get_nc_creds
                     _nc_url, _nc_user, _nc_pass = await get_nc_creds(request)
-                if _nc_user:
-                    _nc_tok = set_request_nc_creds(_nc_url, _nc_user, _nc_pass)
+                    if _nc_user:
+                        _nc_tok = set_request_nc_creds(_nc_url, _nc_user, _nc_pass)
             except Exception:
                 _nc_tok = None
             # CF-59 — bind the acting presence so the agent's Links-board tool writes

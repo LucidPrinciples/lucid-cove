@@ -35,6 +35,11 @@ from src.tools.approval import auto, notify
 NEXTCLOUD_URL = env("NEXTCLOUD_URL", "http://nextcloud:80")
 NEXTCLOUD_USER = env("NEXTCLOUD_USER")
 NEXTCLOUD_PASSWORD = env("NEXTCLOUD_PASSWORD")
+# Cove ADMIN NC identity -- the space cove-managers (steward/merchant) act in.
+# Read from env here (not routes.nextcloud) to avoid a circular import; the
+# values mirror routes/nextcloud.py exactly.
+NEXTCLOUD_ADMIN_USER = env("NEXTCLOUD_ADMIN_USER", "admin")
+NEXTCLOUD_ADMIN_PASSWORD = env("NEXTCLOUD_ADMIN_PASSWORD")
 
 _OCS_BASE = f"{NEXTCLOUD_URL}/ocs/v2.php"
 
@@ -72,6 +77,18 @@ def clear_request_nc_creds(token) -> None:
         _nc_creds_ctx.reset(token)
     except Exception:
         pass
+
+
+def set_team_nc_creds():
+    """Bind the cove ADMIN NC identity for a TEAM run (managers + build-team agents).
+
+    Managers (steward/merchant) and build-team agents have no NC user of their own --
+    they all share the cove admin NC space, NOT the requesting or founding operator's.
+    Presences keep their own NC user. Returns a token for clear_request_nc_creds(), or
+    None when admin creds are unset (caller then leaves creds unbound)."""
+    if NEXTCLOUD_ADMIN_USER and NEXTCLOUD_ADMIN_PASSWORD:
+        return set_request_nc_creds(NEXTCLOUD_URL, NEXTCLOUD_ADMIN_USER, NEXTCLOUD_ADMIN_PASSWORD)
+    return None
 
 
 # Request-free fallback for multi-mode contexts where the ContextVar is unset

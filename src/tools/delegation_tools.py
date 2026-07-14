@@ -132,6 +132,19 @@ async def _run_agent_turn(channel: str, message: str, agent_label: str,
         # "running now, or crashed mid-turn" — the boot sweep + watcher key off that.
         await _set_task_status(task_id, "in_progress")
         _say(f"{agent_label} starting delegated turn on {channel} (thread {thread_id})")
+        # Team agents (managers Stuart/Mercer + the build team) delegated in the background
+        # have NO NC user of their own -- they share the cove admin NC space. Pin it so their
+        # file/calendar tools don't fall to the founding-operator fallback and write into an
+        # operator's folder. delegate_task only ever targets team agents; the guard keeps a
+        # future non-team caller safe. Fired as its own asyncio task, so the ContextVar set
+        # dies with the task (no cross-task leak).
+        try:
+            from src.graphs.channels import _is_manager_channel, _team_agent_key
+            from src.tools.nextcloud_tools import set_team_nc_creds
+            if _is_manager_channel(channel) or _team_agent_key(channel) is not None:
+                set_team_nc_creds()
+        except Exception:
+            pass
         async with get_checkpointer() as checkpointer:
             graph = await get_channel_graph(channel, checkpointer)
             # A delegated dev turn legitimately runs MANY agent->tool rounds
