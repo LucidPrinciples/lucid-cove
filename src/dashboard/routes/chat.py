@@ -725,9 +725,18 @@ async def send_message(request: Request):
             # back to the env globals (single-user unchanged).
             _nc_tok = None
             try:
-                from src.dashboard.routes.nextcloud import get_nc_creds
+                from src.dashboard.routes.nextcloud import get_nc_creds, NC_ADMIN_USER, NC_ADMIN_PASSWORD
                 from src.tools.nextcloud_tools import set_request_nc_creds
-                _nc_url, _nc_user, _nc_pass = await get_nc_creds(request)
+                from src.config import _is_steward_channel, _is_merchant_channel
+                if (_is_steward_channel(ch) or _is_merchant_channel(ch)) and NC_ADMIN_PASSWORD:
+                    # Managers (Stuart/Mercer) have NO NC user of their own -- they act in the
+                    # cove ADMIN NC space, NOT the requesting operator's. Without this, a manager
+                    # invoked from an operator's chat authenticates AS that operator and writes
+                    # into their folder (e.g. Mercer reports landing in JAG), which also defeats
+                    # the narrow Inbox share. Mirrors the admin-pinning files.py uses for KB paths.
+                    _nc_url, _nc_user, _nc_pass = "", NC_ADMIN_USER, NC_ADMIN_PASSWORD
+                else:
+                    _nc_url, _nc_user, _nc_pass = await get_nc_creds(request)
                 if _nc_user:
                     _nc_tok = set_request_nc_creds(_nc_url, _nc_user, _nc_pass)
             except Exception:
