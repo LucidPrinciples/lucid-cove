@@ -343,7 +343,26 @@ async def brain_acknowledge(request: Request):
         except Exception as _e:
             print(f"[brain-acknowledge] presence load failed (non-fatal): {_e}")
 
-        cove_name = (env("COVE_NAME") or "").strip() or "this Cove"
+        # Jules reinstall 2306: env COVE_NAME is the provisioner seed ("New Cove")
+        # and stays stale after wizard finalize writes the real name into cove.yaml /
+        # accounts.last_name. Use the same resolver the rest of MC uses so the ack
+        # never says "for New Cove" when the Cove is already named (e.g. Roos Cove).
+        try:
+            from src.dashboard.routes.core import resolve_cove_name
+            cove_name = (await resolve_cove_name() or "").strip()
+        except Exception as _e:
+            print(f"[brain-acknowledge] resolve_cove_name failed (non-fatal): {_e}")
+            cove_name = ""
+        if not cove_name or cove_name.lower() in ("new cove", "cove"):
+            try:
+                from src.config import load_cove_config
+                cove_name = (load_cove_config().get("name") or "").strip()
+            except Exception:
+                cove_name = ""
+        if not cove_name or cove_name.lower() in ("new cove", "cove"):
+            cove_name = (env("COVE_NAME") or "").strip()
+        if not cove_name or cove_name.lower() in ("new cove", "cove"):
+            cove_name = "this Cove"
 
         agent_id = await _personal_agent_id(request)
 
