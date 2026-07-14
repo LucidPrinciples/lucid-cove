@@ -3,8 +3,8 @@
 # =============================================================================
 # Thin admin-gated surface over src/utils/cove_backup.py. The PAT is stored via
 # the feature-overrides store (pipeline_keys pattern) and NEVER echoed — the
-# status reports has_token only. The onboarding "Protect your Cove" card reads
-# /api/backup/status and clears on configured + first green run.
+# status reports has_token only. The onboarding "Back up your Cove's work" card
+# reads /api/backup/status and clears on configured + first green run.
 # =============================================================================
 import asyncio
 import logging

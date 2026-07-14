@@ -378,7 +378,7 @@ function _defaultPanelHTML(tabId) {
                     <div id="settings-cove-admin" class="settings-row-list"></div>
                 </div>` : ''}
                 <div class="settings-group" id="settings-selfhost-group">
-                    <div class="settings-group-title">Self-host a Cove</div>
+                    <div class="settings-group-title">Move/copy your Cove</div>
                     <div id="settings-selfhost" class="settings-row-list"></div>
                 </div>`;
                 })() : ''}

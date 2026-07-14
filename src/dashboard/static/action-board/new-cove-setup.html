@@ -75,7 +75,7 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
       <div style="font-size:12px;opacity:.6;margin-top:4px">Optional — used only for recovery and notices. You can add it anytime. Skipping it? Your account comes with an operator key — you'll find it in Settings after setup. Store it with your passwords; it's how you get back in if email isn't set up.</div>
     </div>
     <div class="field" id="op-connect" style="display:none">
-      <div style="font-size:13px;opacity:.9;margin-bottom:6px">This is your account? Paste your connect key to bring it onto this Cove.<br><span style="opacity:.6;font-size:12px">Sign in at app.lucidcove.org → Settings → “Self-host a Cove” → <strong>Get my connect key</strong>, and copy it. (Pasting the whole .env or config block works too.)</span></div>
+      <div style="font-size:13px;opacity:.9;margin-bottom:6px">This is your account? Paste your connect key to bring it onto this Cove.<br><span style="opacity:.6;font-size:12px">Sign in at app.lucidcove.org → Settings → “Move/copy your Cove” → <strong>Get my connect key</strong>, and copy it. (Pasting the whole .env or config block works too.)</span></div>
       <input id="op-connect-key" type="text" placeholder="paste your connect key" autocomplete="off" spellcheck="false">
       <button id="op-connect-btn" class="btn" type="button" style="margin-top:8px">Connect &amp; claim @<span id="op-connect-handle"></span></button>
       <div class="status" id="op-connect-status"></div>
@@ -414,7 +414,7 @@ async function opContinue() {
               + '</div>'
               + '<div id="op-existing-help" style="display:none;margin-top:8px;color:#cfcfe0;font-size:12px;line-height:1.6;">'
               +   '1. <a href="https://app.lucidcove.org" target="_blank" style="color:var(--accent);">Sign in at app.lucidcove.org</a> with that email.<br>'
-              +   '2. Go to <strong>Settings → “Self-host a Cove” → Get my connect key</strong> and copy it (it shows your @handle too).<br>'
+              +   '2. Go to <strong>Settings → “Move/copy your Cove” → Get my connect key</strong> and copy it (it shows your @handle too).<br>'
               +   '3. Come back here, type <strong>that @handle</strong> above, and paste the key in the panel that appears.'
               + '</div>';
             const fresh = document.getElementById('op-start-fresh');
