@@ -104,6 +104,12 @@ async def _personal_agent_id(request: Request = None) -> str:
     Falls back to the container primary for single-mode and for config-defined
     Presences (e.g. Knight) whose agent_identity is empty — so Cove Cove and the
     existing agents are unchanged.
+
+    Install-pass fix: any multi-mode row with a real presence id is that presence's
+    personal agent, even if agent_identity is still {} / null (common mid-onboarding
+    before wake fields land). Without this, brain-acknowledge + chat list scoped to
+    the container primary and the co-admin "first thought" message never appeared
+    in their chat.
     """
     import os
     if request is not None and env("COVE_MODE", "single") == "multi":
@@ -112,7 +118,14 @@ async def _personal_agent_id(request: Request = None) -> str:
             if presence is None:
                 from src.dashboard.routes.presence import get_current_presence
                 presence = await get_current_presence(request)
-            if presence and (presence.get("agent_identity") or {}):
+            if presence and presence.get("id") is not None:
+                # Prefer rows that look like a real presence (agent_identity set OR
+                # any multi-mode account with an id — co-admin mid-onboarding often
+                # has empty agent_identity until wake fields write).
+                _ai = presence.get("agent_identity")
+                if _ai or presence.get("agent_name") or presence.get("cove_role") or presence.get("username"):
+                    return str(presence["id"])
+                # Still have an id → treat as presence-scoped (safer than primary).
                 return str(presence["id"])
         except Exception:
             pass

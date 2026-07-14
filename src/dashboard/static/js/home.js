@@ -892,26 +892,18 @@ async function saveIntelligence() {
     if (provider !== 'ollama' && !api_key) { alert('Enter your API key (or pick Ollama for local).'); return; }
     try {
         const r = await fetch('/api/settings/model-key', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ provider, api_key }),
         });
         const d = await r.json();
         if (!r.ok || d.error || d.ok === false) { alert(d.error || 'Could not save that right now.'); return; }
 
-        // The brain is connected. The personal agent — already met at the wake — now
-        // ACTUALLY thinks for the first time: brain-acknowledge generates its acknowledgment
-        // LIVE with the just-connected model (the real proof it works), continuing that same
-        // chat thread, with a written fallback server-side so the moment is never silent. Then
-        // we take them straight to chat where it's waiting. Connecting intelligence is a
-        // deliberate one-time action (the card only shows when no model is set), no guard.
-        // Run-2 2.8/2.9: fire the acknowledgment in the BACKGROUND — it's a model
-        // generation that can run 30s+ (or hang), and awaiting it froze this flow.
-        // The key save already succeeded; the ack lands in chat when it's ready.
-        fetch('/api/presence/brain-acknowledge', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({}),
-        }).catch(() => { /* best-effort — generated server-side with its own fallback */ });
-        _afterIntelligenceConnected();
+        // Brain is connected. Fire brain-acknowledge with cookies, then open chat
+        // once the ack has landed (or timed out) so the first message is visible.
+        // Install-pass: fire-and-forget + immediate switchToTab loaded chat BEFORE
+        // the write finished → empty thread; co-admin saw "is awake" with no message.
+        _kickBrainAcknowledgeThenOpen();
     } catch (e) { alert('Could not save: ' + e.message); }
 }
 
@@ -955,21 +947,51 @@ async function saveIntelligenceLocal(provider, model, btn) {
     const _restore = () => { if (btn) { btn.disabled = false; btn.textContent = _label || 'Use'; } };
     try {
         const r = await fetch('/api/settings/model-key', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ provider, model, api_key: '' }),
         });
         const d = await r.json();
         if (!r.ok || d.error || d.ok === false) { _restore(); alert(d.error || 'Could not save that right now.'); return; }
-        // Run-2 2.8/2.9: the button stayed "Connecting…" because this AWAITED
-        // brain-acknowledge — a model generation that can run 30s+ or hang.
-        // The key save already succeeded: show it, move on; the acknowledgment
-        // lands in chat when it's ready (server-side fallback keeps it non-silent).
-        fetch('/api/presence/brain-acknowledge', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
-        }).catch(() => { /* best-effort — generated server-side with its own fallback */ });
+        // Key save already succeeded. Wait for brain-ack (capped) so chat isn't empty
+        // when we open it — then mark connected. Server fallback keeps non-silent.
+        if (btn) { btn.textContent = 'Waking…'; }
+        await _kickBrainAcknowledgeThenOpen();
         if (btn) { btn.textContent = '✓ Connected'; }
-        _afterIntelligenceConnected();
     } catch (e) { _restore(); alert('Could not save: ' + e.message); }
+}
+
+// Install-pass: race fix for "Jude is awake / open chat" with an empty thread.
+// Awaits brain-acknowledge (with timeout) so the first message is in the
+// checkpointer before loadChat runs. credentials:same-origin so multi-presence
+// cookies ride along. On timeout we still open chat + poll once so a late write
+// can appear without freezing the UI forever.
+async function _kickBrainAcknowledgeThenOpen() {
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, 25000) : null;
+    try {
+        await fetch('/api/presence/brain-acknowledge', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+            signal: ctrl ? ctrl.signal : undefined,
+        });
+    } catch (e) {
+        /* best-effort — server has its own written fallback */
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+    _afterIntelligenceConnected();
+    // If the operator already landed on chat before the write finished (slow model),
+    // reload once more shortly after so the message still shows up.
+    setTimeout(() => {
+        try {
+            if (typeof activeTab !== 'undefined' && activeTab === 'chat' && typeof loadChat === 'function') {
+                loadChat();
+            }
+        } catch (e) {}
+    }, 1500);
 }
 
 // B2 reachable-host door (mirrors presence-profile.js): only jump to the
