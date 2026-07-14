@@ -882,7 +882,22 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     ltp_env = "\n      PYTHONPATH: /opt/ltp-core-src" if _ltp else ""
     # Sites: canonical durable workspace for website repos (GitHub → Cloudflare Pages).
     # Mounts the sites subdir of app_data to /sites so container recreates don't lose repos.
-    sites_mount = f"\n      - {_stg_src['app_data']}/sites:/sites"
+    _app_data_src = _stg_src['app_data']
+    if _app_data_src.startswith("/"):
+        # bind-path app_data: plain bind, equals /app/data/sites
+        sites_mount = f"\n      - {_app_data_src}/sites:/sites"
+    else:
+        # NAMED volume (default fresh install): short "app_data/sites:/sites" is an INVALID
+        # compose project -- named volumes have no subpath in short syntax. Long-syntax volume
+        # subpath keeps the SAME app_data volume so /sites == /app/data/sites, and Docker
+        # creates the subdir on first run (needs Docker 26+/Compose v2, standard on modern hosts).
+        sites_mount = (
+            "\n      - type: volume"
+            "\n        source: " + _app_data_src +
+            "\n        target: /sites"
+            "\n        volume:"
+            "\n          subpath: sites"
+        )
     # Local CPU voice (jules dictation + Piper TTS). faster-whisper downloads its STT
     # model on first boot; voice_cache persists it across recreates. The browser reaches
     # voice on this published port (same host as the app); the app's transcribe proxy
