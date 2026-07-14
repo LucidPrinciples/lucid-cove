@@ -132,6 +132,72 @@ async def _move_to_archive(client: httpx.AsyncClient, nc_url: str, nc_user: str,
     return resp.status_code in (201, 204)
 
 
+def _slug(s: str) -> str:
+    """Match the Jules app chip slug: lowercase, strip to [a-z0-9]."""
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _manager_slugs() -> set:
+    """Slugs of the SELECT agents that may RECEIVE tagged jules (steward + merchant).
+    A jules-for-{slug} whose slug is one of these delivers to the admin Inbox where those
+    managers read; any other tag is a personal agent and stays with the operator."""
+    slugs = set()
+    try:
+        from src.config import get_steward_channel_config, get_merchant_channel_config
+        for cfg, default in ((get_steward_channel_config(), "stuart"),
+                             (get_merchant_channel_config(), "mercer")):
+            if cfg:
+                slugs.add(_slug(cfg.get("name") or default))
+    except Exception:
+        pass
+    return slugs - {""}
+
+
+async def _deliver_addressed(client: httpx.AsyncClient, nc_url: str,
+                             src_user: str, src_pass: str, names: list) -> int:
+    """Deliver manager-tagged jules OUT of this operator's private Inbox to the admin Inbox
+    where the select agents (steward/merchant) read. Only jules-for-{manager}-* move, and the
+    filename tag is preserved so each manager picks up its own. Untagged and jules-hold-* never
+    move; a jules tagged for a PERSONAL agent also stays here (that agent already reads this
+    operator's own Inbox). Best-effort per file: any failure leaves the file untouched. The
+    admin Inbox is the delivery TARGET, never a source to re-deliver from."""
+    admin_user = env("NEXTCLOUD_ADMIN_USER", "admin")
+    admin_pass = env("NEXTCLOUD_ADMIN_PASSWORD")
+    if not admin_pass or src_user == admin_user:
+        return 0
+    managers = _manager_slugs()
+    if not managers:
+        return 0
+    delivered = 0
+    for name in names:
+        if not (name.startswith("jules-for-") and name.endswith(".md")):
+            continue
+        slug = name[len("jules-for-"):].split("-", 1)[0]
+        if slug not in managers:
+            continue  # personal-agent tag: leave in the operator's own Inbox
+        stem = name[:-3]
+        group = [name] + [f"{stem}{ext}" for ext in AUDIO_EXTS if f"{stem}{ext}" in names]
+        try:
+            await client.request("MKCOL", f"{_dav_base(nc_url, admin_user)}/{INBOX_PATH}",
+                                 auth=(admin_user, admin_pass))  # 201 new / 405 exists
+            for fn in group:
+                got = await client.get(f"{_dav_base(nc_url, src_user)}/{INBOX_PATH}/{quote(fn)}")
+                if got.status_code != 200:
+                    raise RuntimeError(f"GET {fn} HTTP {got.status_code}")
+                put = await client.put(
+                    f"{_dav_base(nc_url, admin_user)}/{INBOX_PATH}/{quote(fn)}",
+                    content=got.content, auth=(admin_user, admin_pass))
+                if put.status_code not in (200, 201, 204):
+                    raise RuntimeError(f"PUT {fn} -> admin HTTP {put.status_code}")
+            for fn in group:  # delete sources only after every copy landed
+                await client.request("DELETE", f"{_dav_base(nc_url, src_user)}/{INBOX_PATH}/{quote(fn)}")
+            delivered += 1
+            log.info("[jules-deliver] %s -> admin Inbox (tag=%s)", name, slug)
+        except Exception as e:
+            log.warning("[jules-deliver] %s left in place: %s", name, e)
+    return delivered
+
+
 # ── Item extraction (the agent's brain) ──────────────────────────────────────
 
 def _resolve_agent_id() -> str:
@@ -268,6 +334,13 @@ async def process_inbox(nc_url: str, nc_user: str, nc_pass: str, trigger: str = 
     agent = _resolve_agent_id()
     async with httpx.AsyncClient(timeout=60, auth=(nc_user, nc_pass)) as client:
         names = await _list_inbox(client, nc_url, nc_user)
+        # Deliver manager-tagged jules (jules-for-{steward|merchant}-*) OUT to the admin
+        # Inbox where those select agents read; untagged + jules-hold-* + personal-agent
+        # tags stay private in this operator's Inbox. Best-effort; failures leave in place.
+        try:
+            await _deliver_addressed(client, nc_url, nc_user, nc_pass, names)
+        except Exception as _de:
+            log.warning("[jules-deliver] pass failed (non-fatal): %s", _de)
         # Addressed recordings are NOT ours to process: jules-for-{recipient}-*
         # waits for that agent/person, jules-hold-* waits for the operator. The
         # Inbox is a shared drop-zone — only plain jules-* means "for the backlog".
