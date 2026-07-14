@@ -146,16 +146,17 @@ async def flow_chat(request: Request):
         if isinstance(_fac, dict):
             _prov = (_fac.get("model_provider") or "").strip()
             _key = (_fac.get("model_api_key") or "").strip()
+            _model = (_fac.get("model_name") or "").strip()
             # Guided cove-creation tour ONLY: if the operator hasn't added their own model
             # yet, run the guided conversation on LP's shared guided key (Kimi via
             # OpenRouter). This key is scoped to THIS flow — the operator's normal agent
             # (chat.py) has no such fallback and still requires their own key or Ollama, so
             # LP never pays for anyone's day-to-day usage, only the setup tour.
-            if not _key:
+            if not _key and _prov != "ollama":
                 _lp_guided = (env("LP_GUIDED_OPENROUTER_KEY") or "").strip()
                 if _lp_guided:
-                    _prov, _key = "openrouter", _lp_guided
-            _byok_tok = set_request_byok(_prov, _key)
+                    _prov, _key, _model = "openrouter", _lp_guided, ""
+            _byok_tok = set_request_byok(_prov, _key, model=_model)
     except Exception:
         _byok_tok = None
 

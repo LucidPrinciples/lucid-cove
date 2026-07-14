@@ -607,7 +607,7 @@ async def send_message(request: Request):
     # answers with its own persona + personality dials, not the container's static
     # agent.yaml. None in single-mode → unchanged behavior. Managers stay manager.
     presence_identity = None
-    _byok_provider = _byok_key = ""   # #121 — this operator's own model creds (if set)
+    _byok_provider = _byok_key = _byok_model = ""   # #121 — operator BYOK (+ local tag)
     try:
         if env("COVE_MODE", "single") == "multi":
             from src.dashboard.routes.presence import get_current_presence
@@ -628,6 +628,10 @@ async def send_message(request: Request):
                 if isinstance(_ac, dict):
                     _byok_provider = _ac.get("model_provider") or ""
                     _byok_key = _ac.get("model_api_key") or ""
+                    # Specific local tag from machine-probe (e.g. dolphin-phi) — without
+                    # this, set_request_byok only carried provider=ollama and primary
+                    # substituted the hardcoded qwen3:30b-a3b seed (404 on stranger boxes).
+                    _byok_model = (_ac.get("model_name") or "").strip()
     except Exception as _e:
         print(f"[chat] presence identity resolve failed (non-fatal): {_e}")
 
@@ -640,13 +644,15 @@ async def send_message(request: Request):
     from src.config import _is_steward_channel, _is_merchant_channel
     if _byok_provider and (_is_steward_channel(ch) or _is_merchant_channel(ch)):
         _byok_provider = _byok_key = ""
+        _byok_model = ""
 
     if not user_message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
 
     # Diagnostic: what model context is this send resolving? (empty-chat / no-reply triage)
     print(f"[chat] send ch={ch} agent_id={agent_id} mode={env('COVE_MODE','single')} "
-          f"byok_provider={_byok_provider or '(none)'} byok_key={'set' if _byok_key else '(none)'} "
+          f"byok_provider={_byok_provider or '(none)'} byok_model={_byok_model or '(none)'} "
+          f"byok_key={'set' if _byok_key else '(none)'} "
           f"presence_identity={'yes' if presence_identity else 'no'}")
 
     try:
@@ -729,7 +735,7 @@ async def send_message(request: Request):
             _byok_tok = None
             try:
                 from src.models.provider import set_request_byok
-                _byok_tok = set_request_byok(_byok_provider, _byok_key)
+                _byok_tok = set_request_byok(_byok_provider, _byok_key, model=_byok_model)
             except Exception:
                 _byok_tok = None
             # CF-57 — bind THIS presence's Nextcloud creds for the run so the agent's
