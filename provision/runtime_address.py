@@ -160,8 +160,18 @@ def _caddy_admin_token() -> str:
 
 
 def _caddy_load(caddyfile_text: str) -> dict:
-    """Push a full Caddyfile to the bundled Caddy admin API → live reload. Caddy adapts
-    the text (Content-Type: text/caddyfile) and issues the cert immediately, no restart."""
+    """Push a full Caddyfile to the bundled/shared Caddy admin API → live reload.
+
+    Caddy adapts the text (Content-Type: text/caddyfile) and issues the cert
+    immediately, no restart.
+
+    #D35 auth: when LP_CADDY_ADMIN_TOKEN is set, send Bearer. Install-pass find:
+    if the app has a token but Caddy was started without the same secret (or the
+    gate is still on an old value), /load returns HTTP 403 and set-address dies
+    with an opaque error. Surface that mismatch explicitly so the operator (and
+    #1628 later) can fix env alignment instead of re-clicking Set address.
+    """
+    import urllib.error
     url = _admin_url() + "/load"
     headers = {"Content-Type": "text/caddyfile"}
     # #D35: when the admin proxy is token-gated, authenticate the /load. Harmless when
@@ -176,6 +186,29 @@ def _caddy_load(caddyfile_text: str) -> dict:
         with urllib.request.urlopen(req, timeout=30) as r:
             r.read()
         return {"ok": True}
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = (e.read() or b"")[:120].decode("utf-8", "replace")
+        except Exception:
+            body = ""
+        if e.code == 403:
+            hint = (
+                "Caddy admin /load returned HTTP 403 Forbidden. "
+                "The app's LP_CADDY_ADMIN_TOKEN must match the token in the "
+                "lucidcove-caddy (shared) or caddy (bundled) container env, and "
+                "the shared Caddyfile must include the #D35 token-gated :2019 "
+                "proxy (rebuild/reload Caddy after setting the token). "
+                f"admin={_admin_url()} token_set={'yes' if _tok else 'no'}"
+            )
+            if body:
+                hint += f" body={body!r}"
+            return {"ok": False, "reason": hint, "code": "caddy_admin_403"}
+        return {
+            "ok": False,
+            "reason": f"Caddy admin /load failed: HTTP {e.code} {str(e)[:120]}",
+            "code": f"caddy_admin_http_{e.code}",
+        }
     except Exception as e:
         return {"ok": False, "reason": f"Caddy admin /load failed: {str(e)[:180]}"}
 
@@ -282,6 +315,10 @@ def set_address_live_shared(domain: str, *, mesh_ip: str = "", own_dns_token: st
     out["caddy"]["reloaded"] = bool(reload_res.get("ok"))
     if not reload_res.get("ok"):
         out["caddy"]["reason"] = reload_res.get("reason")
+        if reload_res.get("code"):
+            out["caddy"]["code"] = reload_res["code"]
+            out["code"] = reload_res["code"]
+        out["reason"] = reload_res.get("reason") or out.get("reason")
     out["ok"] = bool(reload_res.get("ok"))
 
     # ── Next steps ──
@@ -373,6 +410,10 @@ def set_address_live(domain: str, *, mesh_ip: str = "", own_dns_token: str = "",
     out["caddy"]["reloaded"] = bool(load.get("ok"))
     if not load.get("ok"):
         out["caddy"]["reason"] = load.get("reason")
+        if load.get("code"):
+            out["caddy"]["code"] = load["code"]
+            out["code"] = load["code"]
+        out["reason"] = load.get("reason") or out.get("reason")
     out["ok"] = bool(load.get("ok"))
 
     # ── Next steps for the operator ───────────────────────────────────────────────

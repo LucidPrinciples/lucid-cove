@@ -363,10 +363,13 @@ async def domain_set(body: DomainSet, request: Request):
         # fail (no routing, no records) leaves the current address untouched, so a broken
         # change can't knock the Cove offline.
         if not (live.get("ok") or live.get("records")):
+            _caddy = live.get("caddy") or {}
             return JSONResponse(status_code=502, content={
                 "ok": False, "mode": "live-shared", "domain": domain, "live": live,
-                "error": (live.get("reason") or (live.get("caddy") or {}).get("reason")
+                "error": (live.get("reason") or _caddy.get("reason")
                           or "Couldn't apply the new address — routing didn't reload."),
+                # Install-pass: surface caddy_admin_403 so UI / #1628 can act on it.
+                "code": live.get("code") or _caddy.get("code") or None,
                 "unchanged": current_domain or None,
             })
         if not _persist():
@@ -401,10 +404,12 @@ async def domain_set(body: DomainSet, request: Request):
         if _mr is not None:
             return _mr
         if not (live.get("ok") or live.get("records")):
+            _caddy = live.get("caddy") or {}
             return JSONResponse(status_code=502, content={
                 "ok": False, "mode": "live", "domain": domain, "live": live,
-                "error": (live.get("reason") or (live.get("caddy") or {}).get("reason")
+                "error": (live.get("reason") or _caddy.get("reason")
                           or "Couldn't apply the new address — Caddy didn't reload."),
+                "code": live.get("code") or _caddy.get("code") or None,
                 "unchanged": current_domain or None,
             })
         if not _persist():
