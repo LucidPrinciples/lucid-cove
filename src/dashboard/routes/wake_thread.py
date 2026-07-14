@@ -22,9 +22,10 @@ router = APIRouter()
 
 
 async def _append_messages(request: Request, channel: str, items: list[dict]) -> dict:
-    """Append [{role:'ai'|'human', content}] to the CURRENT presence's active thread for
-    `channel`, with no model call. Scoped to the requester's own personal agent via the
-    same helpers chat.py uses."""
+    """Append [{role:'ai'|'human', content, kind?}] to the CURRENT presence's active
+    thread for `channel`, with no model call. Scoped to the requester's own personal
+    agent via the same helpers chat.py uses. Optional `kind` is stored in
+    additional_kwargs (e.g. kind='brain_ack') so later writes can detect it."""
     from langchain_core.messages import HumanMessage, AIMessage
     from src.memory.checkpointer import get_checkpointer
     from src.graphs.channels import get_channel_graph
@@ -39,6 +40,9 @@ async def _append_messages(request: Request, channel: str, items: list[dict]) ->
         if not content:
             continue
         kw = {"created_at": now_iso}
+        kind = (it.get("kind") or "").strip()
+        if kind:
+            kw["kind"] = kind
         if (it.get("role") or "ai") == "human":
             msgs.append(HumanMessage(content=content, additional_kwargs=kw))
         else:
@@ -120,6 +124,62 @@ _BRAIN_ACK_FALLBACK = (
     "truly think, for myself and for our Cove. Everything we shaped a moment ago is still "
     "ours. Say the word and I'll bring the rest of the team online."
 )
+
+# Content markers for acks written BEFORE kind=brain_ack tagging existed (pre-#127).
+# Prefer the structured kind when present; fall back to these for older threads so
+# Open-chat re-clicks stay idempotent without double-appending.
+_BRAIN_ACK_MARKERS = (
+    "brain you just connected",
+    "i can feel the brain",
+    "this is the first time i can",
+    "leave the local url for a real",
+    "claim your address",
+)
+
+
+def _msg_role(msg) -> str:
+    if isinstance(msg, dict):
+        return str(msg.get("type") or msg.get("role") or "").lower()
+    return str(getattr(msg, "type", None) or getattr(msg, "role", None) or "").lower()
+
+
+def _msg_text(msg) -> str:
+    content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(str(part.get("text") or ""))
+            else:
+                parts.append(str(part or ""))
+        content = " ".join(parts)
+    return (content or "").strip()
+
+
+def _msg_kind(msg) -> str:
+    if isinstance(msg, dict):
+        extra = msg.get("additional_kwargs") or {}
+        return str(extra.get("kind") or msg.get("kind") or "").strip()
+    extra = getattr(msg, "additional_kwargs", None) or {}
+    return str(extra.get("kind") or "").strip()
+
+
+def _thread_already_has_brain_ack(messages) -> bool:
+    """True if a brain-acknowledge already wrote into this thread.
+
+    Prefers structured kind='brain_ack' on AI messages (set by this endpoint).
+    Falls back to content markers for acks written before the kind tag existed.
+    Keeps Open-chat re-clicks from stacking duplicate acknowledgments.
+    """
+    for msg in messages or []:
+        if _msg_role(msg) not in ("ai", "assistant"):
+            continue
+        if _msg_kind(msg) == "brain_ack":
+            return True
+        text = _msg_text(msg).lower()
+        if text and any(m in text for m in _BRAIN_ACK_MARKERS):
+            return True
+    return False
 
 # The concrete anchor word for each remaining-setup label, so we can tell whether the
 # model ALREADY named a step (leave its phrasing) or skipped it (append ours).
@@ -213,6 +273,9 @@ async def brain_acknowledge(request: Request):
         agent_id = await _personal_agent_id(request)
 
         # Pull the recent wake exchange so the acknowledgment CONTINUES it (not a cold open).
+        # Also detect an existing brain-ack so Open-chat re-clicks stay idempotent —
+        # install-pass saw empty chat after set-address when the connect race missed,
+        # and the door now re-fires this endpoint; never double-append.
         recent = []
         async with channel_db_scope(channel):
             thread_id = await _get_active_thread_id(channel, request)
@@ -222,7 +285,16 @@ async def brain_acknowledge(request: Request):
                 try:
                     state = await graph.aget_state(config)
                     if state and state.values:
-                        recent = list(state.values.get("messages") or [])[-6:]
+                        all_msgs = list(state.values.get("messages") or [])
+                        recent = all_msgs[-6:]
+                        if _thread_already_has_brain_ack(all_msgs):
+                            print(f"[brain-acknowledge] already present thread={thread_id} — skip")
+                            return {
+                                "ok": True,
+                                "count": 0,
+                                "thread_id": thread_id,
+                                "skipped": "already_acknowledged",
+                            }
                 except Exception as _e:
                     print(f"[brain-acknowledge] thread read failed (non-fatal): {_e}")
 
@@ -295,10 +367,15 @@ async def brain_acknowledge(request: Request):
         # fallback path) unless the model already named them. Run-3 fix — the prompt
         # directive alone left BERT's acknowledgment with zero actionable steps.
         text = _ensure_setup_steps_line(text, remaining)
-        return await _append_messages(request, channel, [{"role": "ai", "content": text}])
+        return await _append_messages(
+            request, channel, [{"role": "ai", "content": text, "kind": "brain_ack"}]
+        )
     except Exception as e:
         # Last-ditch: still drop the written acknowledgment so the moment isn't silent.
         try:
-            return await _append_messages(request, channel, [{"role": "ai", "content": _BRAIN_ACK_FALLBACK}])
+            return await _append_messages(
+                request, channel,
+                [{"role": "ai", "content": _BRAIN_ACK_FALLBACK, "kind": "brain_ack"}],
+            )
         except Exception:
             return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=200)
