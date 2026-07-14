@@ -424,9 +424,13 @@ async def brain_acknowledge(request: Request):
 
         text = ""
         try:
+            import asyncio
             model = get_primary_model(temperature=0.7)
             messages = [SystemMessage(content=system_prompt)] + recent + [directive]
-            resp = await model.ainvoke(messages)
+            # Cap live generation so a cold local model can't hold the write past
+            # the Open-chat soft wait. On timeout we fall through to the canned line
+            # — empty chat after Open chat was the install-pass panic.
+            resp = await asyncio.wait_for(model.ainvoke(messages), timeout=14.0)
             raw = (getattr(resp, "content", "") or "").strip()
             if raw:
                 text = _scrub_brain_ack_text(raw)

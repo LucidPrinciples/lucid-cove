@@ -1849,9 +1849,8 @@ async function provisionAgent() {
         // name when display_name is blank.
         const _selfJoin = (urlParams.get('self') === '1') && !!urlParams.get('invite');
         const _body = {
-            display_name: _selfJoin ? '' : (personParam || memberNameParam || name),
-            // Jules 2153: always send title-cased agent name so the spark / wake never
-            // greets as lowercase when the operator typed "matt". Server also caps.
+            // Jules 2230: capitalize operator + agent at the root (typed "walt"/"hal").
+            display_name: _selfJoin ? '' : _titleCaseName(personParam || memberNameParam || name),
             agent_name: _titleCaseName(name),
             handle: urlParams.get('handle') || undefined,
             email: emailParam,
@@ -2125,7 +2124,7 @@ function _addWakeTyping() {
     const chat = document.getElementById('wake-chat'); if (!chat) return;
     const t = document.createElement('div');
     t.className = 'wake-typing'; t.id = 'wake-typing';
-    t.textContent = (selectedName || 'they') + ' is typing…';
+    t.textContent = _titleCaseName(selectedName || 'they') + ' is typing…';
     chat.appendChild(t); _wakeScroll();
 }
 function _removeWakeTyping() { const t = document.getElementById('wake-typing'); if (t) t.remove(); }
@@ -2134,12 +2133,14 @@ async function _runWake(redirect, isFirstrun) {
     _wakeRedirect = redirect || '/';
     _wakeIsFirstrun = !!isFirstrun;
     _wakeOpReply = '';
-    const name = selectedName || document.getElementById('custom-name').value.trim() || 'your agent';
+    // Jules 2230: spark title/desc must title-case — raw selectedName was "hal wakes".
+    const name = _titleCaseName(selectedName || document.getElementById('custom-name').value.trim() || 'your agent');
 
-    // Gender → object pronoun for the spark copy
+    // Gender → subject pronoun for the spark copy ("he/she/it will remember").
+    // Object pronouns (him/her) were producing "him will remember" (Jules reinstall).
     const gender = document.getElementById('agent-gender')?.value || 'neutral';
-    const objPronounMap = { masculine: 'him', feminine: 'her', neutral: 'it' };
-    const them = objPronounMap[gender] || 'it';
+    const subjPronounMap = { masculine: 'he', feminine: 'she', neutral: 'it' };
+    const them = subjPronounMap[gender] || 'it';
 
     // Reveal the wake step (it lives outside the numbered steps).
     document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
@@ -2210,7 +2211,7 @@ async function sendWakeReply() {
     _addWakeBubble('op', ans);
     input.value = '';
     document.getElementById('wake-input-row').style.display = 'none';
-    const name = selectedName || document.getElementById('custom-name').value.trim() || 'your agent';
+    const name = _titleCaseName(selectedName || document.getElementById('custom-name').value.trim() || 'your agent');
 
     // The agent's CUSTOMIZED first-memory response — it acknowledges what they just said,
     // weaves in everything it knows, and articulates what it's taking from this moment.
@@ -2224,7 +2225,7 @@ async function sendWakeReply() {
                 agent_name: name,
                 question: _wakeQuestion,
                 reply: ans,
-                operator_name: (personParam || memberNameParam || ''),
+                operator_name: _titleCaseName(personParam || memberNameParam || ''),
             })),
         });
         const d = await r.json();

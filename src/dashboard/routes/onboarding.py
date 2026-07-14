@@ -91,11 +91,21 @@ async def onboarding_items(request: Request):
     #   2. Intelligence — the model/API that activates Agents + Tools (incl. jules).
     #   3. Device + jules — get the Cove on your phone (walk-around capture).
     # A member (non-admin) doesn't set the Cove address — it's already done for them.
-    # jules 07-07: a self-host claim SAVES the domain but isn't LIVE until the host command runs
-    # (set_domain.py stamps domain_live). Keep the step OPEN until live so the command stays reachable
-    # instead of collapsing on save. Absent marker defaults to live — existing Coves are unaffected.
+    # jules 07-07 / reinstall 2230: a self-host claim SAVES the domain but isn't LIVE until
+    # the host command runs (or operator attests via address-live). Keep the step OPEN so
+    # the command stays reachable instead of collapsing on save.
+    # Default: if a pending_host_command is still stored, treat as NOT live even when the
+    # domain_live key is missing/stale. Only default-true when there is no pending command
+    # (existing Coves without the marker stay done).
     try:
-        _addr_live = bool(_cc.get("domain_live", True))
+        _pending_cmd = (_cc.get("pending_host_command") or "").strip()
+        if "domain_live" in _cc:
+            _addr_live = bool(_cc.get("domain_live"))
+        else:
+            _addr_live = not bool(_pending_cmd)
+        # Pending command always wins over a true flag left by a partial write.
+        if _pending_cmd:
+            _addr_live = False
     except Exception:
         _addr_live = True
     address_done = (_domain_set and _addr_live) or (not is_admin)

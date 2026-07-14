@@ -23,6 +23,12 @@ from src.env import env
 router = APIRouter()
 
 
+def _titlecase_words(s: str) -> str:
+    """Per-word first-letter uppercase for spark/wake names (Jules 2230).
+    Preserves internal caps (McLeod stays McLeod). Empty → empty."""
+    return " ".join((w[:1].upper() + w[1:]) if w else w for w in (s or "").split(" "))
+
+
 @router.post("/api/flow/cove-names")
 async def generate_cove_names(request: Request):
     """Suggest Cove names from a short reflection on what the space is for.
@@ -157,7 +163,8 @@ async def wake_agent(request: Request):
 
     archetype = (body.get("archetype") or "agent").strip()
     frequency = (body.get("frequency") or "").strip()
-    agent_name = (body.get("agent_name") or "").strip()
+    # Jules 2230: title-case at the root so spark never greets as "hal" / "walt".
+    agent_name = _titlecase_words((body.get("agent_name") or "").strip())
     persona = (body.get("persona") or "").strip()
     # D1 (batch-10 #6): the intro-yourself wizard step SAVES the bio to the operator's
     # profile (presence_profiles.bio). The multi-page setup chain doesn't reliably thread
@@ -217,11 +224,11 @@ async def wake_reflect(request: Request):
 
     archetype = (body.get("archetype") or "agent").strip()
     frequency = (body.get("frequency") or "").strip()
-    agent_name = (body.get("agent_name") or "").strip()
+    agent_name = _titlecase_words((body.get("agent_name") or "").strip())
     persona = (body.get("persona") or "").strip()
     question = (body.get("question") or "").strip()
     reply = (body.get("reply") or "").strip()
-    operator_name = (body.get("operator_name") or "").strip()
+    operator_name = _titlecase_words((body.get("operator_name") or "").strip())
     context = _wake_context(body)
 
     know_block = (f"What you already know about them:\n{context}\n\n" if context else "")
