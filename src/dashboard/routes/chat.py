@@ -724,8 +724,11 @@ async def send_message(request: Request):
             # the same way the Files/Calendar UI does (get_nc_creds). Unset → tools fall
             # back to the env globals (single-user unchanged).
             _nc_tok = None
+            _ch_tok = None
             try:
-                from src.tools.nextcloud_tools import set_request_nc_creds, set_team_nc_creds
+                from src.tools.nextcloud_tools import (
+                    set_request_nc_creds, set_team_nc_creds, set_acting_channel,
+                )
                 from src.graphs.channels import _is_manager_channel, _team_agent_key
                 if _is_manager_channel(ch) or _team_agent_key(ch) is not None:
                     # Managers (Stuart/Mercer) AND build-team agents share the cove ADMIN NC
@@ -734,6 +737,8 @@ async def send_message(request: Request):
                     # into their folder (e.g. Mercer reports landing in JAG), also defeating the
                     # narrow Inbox share. Presences (else branch) keep their own NC user.
                     _nc_tok = set_team_nc_creds()
+                    # Phase 2: bind acting channel so NC path scopes resolve by role.
+                    _ch_tok = set_acting_channel(ch)
                 else:
                     from src.dashboard.routes.nextcloud import get_nc_creds
                     _nc_url, _nc_user, _nc_pass = await get_nc_creds(request)
@@ -741,6 +746,7 @@ async def send_message(request: Request):
                         _nc_tok = set_request_nc_creds(_nc_url, _nc_user, _nc_pass)
             except Exception:
                 _nc_tok = None
+                _ch_tok = None
             # CF-59 — bind the acting presence so the agent's Links-board tool writes
             # THIS operator's board (multi-Cove); unset → single-mode file fallback.
             _links_tok = None
@@ -919,9 +925,11 @@ async def send_message(request: Request):
                 except Exception:
                     pass
                 try:
-                    from src.tools.nextcloud_tools import clear_request_nc_creds
+                    from src.tools.nextcloud_tools import clear_request_nc_creds, clear_acting_channel
                     if _nc_tok is not None:
                         clear_request_nc_creds(_nc_tok)
+                    if _ch_tok is not None:
+                        clear_acting_channel(_ch_tok)
                 except Exception:
                     pass
                 try:

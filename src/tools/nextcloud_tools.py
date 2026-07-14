@@ -91,6 +91,308 @@ def set_team_nc_creds():
     return None
 
 
+# ---------------------------------------------------------------------------
+# Phase 2 — role-scoped path access in the SHARED admin NC space
+# ---------------------------------------------------------------------------
+# Team agents authenticate as the cove admin user (set_team_nc_creds). NC itself
+# cannot tell agents apart, so the tool layer scopes paths by the acting role.
+# Presence own-space writes are untouched (no acting team channel / no scope).
+# Pattern mirrors CF-57 (_nc_creds_ctx) and CF-59 (_links_presence_ctx):
+# ContextVar set at the chat + delegation chokepoints, cleared in finally.
+# ---------------------------------------------------------------------------
+
+_acting_channel_ctx: "_ctxvars.ContextVar" = _ctxvars.ContextVar(
+    "nc_acting_channel", default=None)
+
+# agent_id -> role key (aligned with agent_tools.AGENT_TOOL_REGISTRY + matrix)
+_AGENT_ROLE = {
+    "stuart": "steward",
+    "mercer": "merchant",
+    "archimedes": "builder",
+    "arthur": "analyst",
+    "gabe": "scout",
+    "ezra": "keeper",
+    "julian": "scribe",
+    "iris": "advocate",
+    "vera": "auditor",
+    "soren": "lens",
+}
+
+# Default matrix — approved in Working/Specs/role-nc-access-matrix.md (JAG).
+# Paths are prefixes under AgentSkills/ in the admin space. "*" = unrestricted.
+# Cove-overridable via cove.yaml `nc_path_scopes` (merged over these defaults).
+_DEFAULT_NC_PATH_SCOPES = {
+    "steward": {"rw": ["*"], "ro": []},
+    "merchant": {
+        "rw": ["Team/mercer/", "Reports/", "Shared/"],
+        "ro": ["Knowledge Base/", "Content/", "Sites/", "Ops/"],
+    },
+    "builder": {
+        "rw": ["Team/archimedes/", "Sites/", "Shared/"],
+        "ro": ["Knowledge Base/", "Reports/", "Content/", "Ops/"],
+    },
+    "analyst": {
+        "rw": ["Team/arthur/", "Shared/"],
+        "ro": ["Knowledge Base/", "Reports/", "Content/", "Ops/"],
+    },
+    "scout": {
+        "rw": ["Team/gabe/", "Shared/"],
+        "ro": ["Knowledge Base/", "Content/", "Reports/", "Sites/", "Ops/"],
+    },
+    "keeper": {
+        "rw": ["Team/ezra/", "Ops/", "Shared/"],
+        "ro": ["Knowledge Base/", "Reports/", "Content/", "Sites/"],
+    },
+    "scribe": {
+        "rw": ["Team/julian/", "Content/", "Shared/"],
+        "ro": ["Knowledge Base/", "Reports/", "Sites/", "Ops/"],
+    },
+    "advocate": {
+        "rw": ["Team/iris/", "Content/", "Shared/"],
+        "ro": ["Knowledge Base/", "Reports/", "Sites/", "Ops/"],
+    },
+    "auditor": {
+        "rw": ["Team/vera/"],
+        "ro": ["Knowledge Base/", "Reports/", "Content/", "Sites/", "Ops/", "Shared/"],
+    },
+    "lens": {
+        "rw": ["Team/soren/"],
+        "ro": ["Knowledge Base/", "Reports/", "Ops/", "Shared/"],
+    },
+}
+
+# Explicit denials for non-steward team agents (never RW even if misconfigured).
+_HARD_DENY_PREFIXES = (
+    "Context/",
+    "Inbox/",
+    "Knowledge Base/",
+)
+
+
+def set_acting_channel(channel: str | None):
+    """Bind the acting channel for this request/task. Returns a reset token."""
+    return _acting_channel_ctx.set(channel or None)
+
+
+def clear_acting_channel(token) -> None:
+    """Reset the acting-channel ContextVar (best-effort)."""
+    try:
+        if token is not None:
+            _acting_channel_ctx.reset(token)
+    except Exception:
+        pass
+
+
+def get_acting_channel() -> str | None:
+    return _acting_channel_ctx.get()
+
+
+def _role_for_agent(agent_id: str | None) -> str | None:
+    if not agent_id:
+        return None
+    return _AGENT_ROLE.get(agent_id.lower())
+
+
+def resolve_acting_role() -> tuple[str | None, str | None]:
+    """Return (role, agent_id) for the current NC tool call, or (None, None).
+
+    (None, None) means "no team path scoping" — presence/operator own-space, or
+    an unbound context. Team managers + build-team agents always resolve a role.
+    """
+    ch = _acting_channel_ctx.get()
+    if not ch:
+        return None, None
+    try:
+        from src.graphs.channels import (
+            _is_steward_channel, _is_merchant_channel, _team_agent_key,
+        )
+    except Exception:
+        try:
+            from src.config import _is_steward_channel, _is_merchant_channel
+            _team_agent_key = lambda _c: None  # noqa: E731
+        except Exception:
+            return None, None
+    if _is_steward_channel(ch):
+        return "steward", "stuart"
+    if _is_merchant_channel(ch):
+        return "merchant", "mercer"
+    key = None
+    try:
+        key = _team_agent_key(ch)
+    except Exception:
+        key = None
+    if key:
+        role = _role_for_agent(key) or "unknown"
+        return role, key
+    # Presence / non-team channel — no team scoping
+    return None, None
+
+
+def _load_nc_path_scopes() -> dict:
+    """Defaults merged with cove.yaml `nc_path_scopes` (Cove-overridable)."""
+    scopes = {k: {"rw": list(v.get("rw") or []), "ro": list(v.get("ro") or [])}
+              for k, v in _DEFAULT_NC_PATH_SCOPES.items()}
+    try:
+        from src.config import load_cove_config
+        override = (load_cove_config() or {}).get("nc_path_scopes") or {}
+        if isinstance(override, dict):
+            for role, cfg in override.items():
+                if not isinstance(cfg, dict):
+                    continue
+                base = scopes.get(role, {"rw": [], "ro": []})
+                if "rw" in cfg and isinstance(cfg["rw"], list):
+                    base["rw"] = list(cfg["rw"])
+                if "ro" in cfg and isinstance(cfg["ro"], list):
+                    base["ro"] = list(cfg["ro"])
+                scopes[role] = base
+    except Exception:
+        pass
+    return scopes
+
+
+def _norm_nc_path(path: str) -> str:
+    """Normalize a tool path to a slash-free-leading relative form."""
+    p = (path or "").replace("\\", "/").strip()
+    while "//" in p:
+        p = p.replace("//", "/")
+    return p.lstrip("/")
+
+
+def _under_agentskills(norm: str) -> tuple[bool, str]:
+    """Return (is_under_agentskills, relative_under_agentskills).
+
+    relative is the path after AgentSkills/ ('' for the root itself).
+    Paths outside AgentSkills return (False, norm).
+    """
+    if norm == "AgentSkills" or norm.startswith("AgentSkills/"):
+        rel = norm[len("AgentSkills"):].lstrip("/")
+        return True, rel
+    return False, norm
+
+
+def _prefix_match(rel: str, prefix: str) -> bool:
+    """True if rel is exactly the prefix folder or a path under it."""
+    pref = (prefix or "").lstrip("/")
+    if pref == "*":
+        return True
+    if not pref:
+        return False
+    if not pref.endswith("/"):
+        pref = pref + "/"
+    if rel == pref.rstrip("/"):
+        return True
+    return rel.startswith(pref)
+
+
+def _scope_for_role(role: str | None, agent_id: str | None) -> dict:
+    """rw/ro prefix lists for a role. Fail-safe: unknown role → Team/<agent>/ only."""
+    scopes = _load_nc_path_scopes()
+    if role and role in scopes:
+        return scopes[role]
+    # Fail-safe (restricted-functional): own Team folder only
+    aid = (agent_id or "unknown").lower()
+    return {"rw": [f"Team/{aid}/"], "ro": ["Knowledge Base/"]}
+
+
+def _path_allowed(norm: str, prefixes: list[str], *, unrestricted: bool = False) -> bool:
+    if unrestricted or "*" in prefixes:
+        # Steward (and any role with rw:["*"]) is unrestricted in the admin space.
+        return True
+    under, rel = _under_agentskills(norm)
+    if not under:
+        return False
+    for pref in prefixes:
+        if _prefix_match(rel, pref):
+            return True
+    return False
+
+
+def check_nc_path_access(path: str, write: bool = False) -> str | None:
+    """Return an error message if the acting role may not access `path`, else None.
+
+    No acting team role → no scoping (presence own-space unchanged).
+    Steward → unrestricted under AgentSkills/.
+    Writes need an rw prefix; reads allow rw + ro.
+    """
+    role, agent_id = resolve_acting_role()
+    if role is None:
+        return None  # presence / unbound — do not scope
+
+    norm = _norm_nc_path(path)
+    scope = _scope_for_role(role, agent_id)
+    rw = list(scope.get("rw") or [])
+    ro = list(scope.get("ro") or [])
+    unrestricted = role == "steward" or "*" in rw
+
+    # Hard denials for non-steward (Context/Inbox/KB writes, Team/<other>/)
+    if write and not unrestricted:
+        under, rel = _under_agentskills(norm)
+        # Outside AgentSkills entirely
+        if not under:
+            return (f"Access denied: role '{role}' may only write under "
+                    f"AgentSkills/ (path: {path}).")
+        for deny in _HARD_DENY_PREFIXES:
+            if _prefix_match(rel, deny):
+                return (f"Access denied: '{rel or path}' is read-only / private "
+                        f"for role '{role}'.")
+        # Team/<other-agent>/ — never write into another agent's workspace
+        if rel == "Team" or rel.startswith("Team/"):
+            parts = rel.split("/")
+            if len(parts) >= 2 and parts[1]:
+                other = parts[1].lower()
+                mine = (agent_id or "").lower()
+                if other != mine:
+                    return (f"Access denied: cannot write into Team/{other}/ "
+                            f"(role '{role}' owns Team/{mine}/ only).")
+
+    if write:
+        if _path_allowed(norm, rw, unrestricted=unrestricted):
+            return None
+        return (f"Access denied: role '{role}' cannot write to '{path}'. "
+                f"Allowed RW prefixes under AgentSkills/: {rw}.")
+
+    # Read: rw ∪ ro
+    if _path_allowed(norm, rw + ro, unrestricted=unrestricted):
+        return None
+    # Steward unrestricted already handled; non-steward outside allowlist
+    return (f"Access denied: role '{role}' cannot read '{path}'. "
+            f"Allowed prefixes under AgentSkills/: rw={rw}, ro={ro}.")
+
+
+async def _ensure_own_team_workspace(path: str) -> None:
+    """On first write under Team/<self>/, MKCOL the agent folder if missing.
+
+    Best-effort: never raises into the caller; parent AgentSkills/Team is seeded
+    by Phase 1. Only creates Team/<own-agent>/, never Team/<other>/.
+    """
+    role, agent_id = resolve_acting_role()
+    if not agent_id or role is None:
+        return
+    norm = _norm_nc_path(path)
+    under, rel = _under_agentskills(norm)
+    if not under or not rel.startswith("Team/"):
+        return
+    mine = agent_id.lower()
+    # Only when writing into our own team folder
+    if not (rel == f"Team/{mine}" or rel.startswith(f"Team/{mine}/")):
+        return
+    folder = f"AgentSkills/Team/{mine}"
+    url = _webdav_url(folder)
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=10) as client:
+            resp = await client.request("MKCOL", url)
+            # 201 created, 405 already exists — both fine
+            if resp.status_code not in (201, 405, 200):
+                pass
+    except Exception:
+        pass
+
+
+def _guard_or_error(path: str, write: bool = False) -> str | None:
+    """Convenience: run check_nc_path_access; return error string or None."""
+    return check_nc_path_access(path, write=write)
+
+
 # Request-free fallback for multi-mode contexts where the ContextVar is unset
 # (delegation/wake/scheduler turns, or a tool running off the request thread) AND the
 # container env is empty (multi-mode). Loaded once at boot from the accounts table --
@@ -215,6 +517,9 @@ async def nextcloud_list(path: str = "/") -> str:
     Args:
         path: Directory path (e.g. '/', '/Ideas', '/Business Docs')
     """
+    denied = check_nc_path_access(path, write=False)
+    if denied:
+        return denied
     url = _webdav_url(path)
     propfind_body = """<?xml version="1.0" encoding="UTF-8"?>
 <d:propfind xmlns:d="DAV:" xmlns:nc="http://nextcloud.org/ns">
@@ -263,6 +568,9 @@ async def nextcloud_read(path: str) -> str:
     Args:
         path: File path (e.g. '/Ideas/my-note.md')
     """
+    denied = check_nc_path_access(path, write=False)
+    if denied:
+        return denied
     url = _webdav_url(path)
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=15) as client:
@@ -344,6 +652,10 @@ async def nextcloud_upload(path: str, content: str, overwrite: bool = False) -> 
         content: Text content to write
         overwrite: Whether to overwrite if file exists (default False)
     """
+    denied = check_nc_path_access(path, write=True)
+    if denied:
+        return denied
+    await _ensure_own_team_workspace(path)
     url = _webdav_url(path)
     try:
         if not overwrite:
@@ -372,6 +684,10 @@ async def nextcloud_mkdir(path: str) -> str:
     Args:
         path: Folder path to create (e.g. '/Ideas/Projects/NewFolder')
     """
+    denied = check_nc_path_access(path, write=True)
+    if denied:
+        return denied
+    await _ensure_own_team_workspace(path)
     url = _webdav_url(path)
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=10) as client:
@@ -394,6 +710,9 @@ async def nextcloud_download(path: str, local_path: str) -> str:
         path: Nextcloud file path (e.g. '/Business Docs/report.pdf')
         local_path: Local destination path (e.g. '/app/data/downloads/report.pdf')
     """
+    denied = check_nc_path_access(path, write=False)
+    if denied:
+        return denied
     url = _webdav_url(path)
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=60) as client:

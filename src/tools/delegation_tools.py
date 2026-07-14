@@ -140,9 +140,12 @@ async def _run_agent_turn(channel: str, message: str, agent_label: str,
         # dies with the task (no cross-task leak).
         try:
             from src.graphs.channels import _is_manager_channel, _team_agent_key
-            from src.tools.nextcloud_tools import set_team_nc_creds
+            from src.tools.nextcloud_tools import set_team_nc_creds, set_acting_channel
             if _is_manager_channel(channel) or _team_agent_key(channel) is not None:
                 set_team_nc_creds()
+                # Phase 2: bind acting channel so NC path scopes resolve by role.
+                # ContextVar dies with this asyncio task (no cross-task leak).
+                set_acting_channel(channel)
         except Exception:
             pass
         async with get_checkpointer() as checkpointer:
