@@ -838,6 +838,11 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     _stg_named_decl = "".join(
         f"\n  {n}:" for n in ("postgres_data", "nextcloud_data", "app_data")
         if not _stg_src[n].startswith("/"))
+    # Dedicated named volume for site repos when app_data is a named volume: the /sites
+    # subpath of a named volume can't be expressed in compose short syntax, and long-syntax
+    # volume.subpath isn't universally supported. Bind-path installs keep sites under app_data.
+    if not _stg_src["app_data"].startswith("/"):
+        _stg_named_decl += "\n  app_sites:"
     nc_port = deploy.get("nextcloud_port", 8080)
     matrix_port = deploy.get("matrix_port", 8008)
     voice_port = deploy.get("voice_port", 8301)
@@ -884,20 +889,16 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     # Mounts the sites subdir of app_data to /sites so container recreates don't lose repos.
     _app_data_src = _stg_src['app_data']
     if _app_data_src.startswith("/"):
-        # bind-path app_data: plain bind, equals /app/data/sites
+        # bind-path app_data: /sites and /app/data/sites are the same host dir already.
         sites_mount = f"\n      - {_app_data_src}/sites:/sites"
     else:
-        # NAMED volume (default fresh install): short "app_data/sites:/sites" is an INVALID
-        # compose project -- named volumes have no subpath in short syntax. Long-syntax volume
-        # subpath keeps the SAME app_data volume so /sites == /app/data/sites, and Docker
-        # creates the subdir on first run (needs Docker 26+/Compose v2, standard on modern hosts).
-        sites_mount = (
-            "\n      - type: volume"
-            "\n        source: " + _app_data_src +
-            "\n        target: /sites"
-            "\n        volume:"
-            "\n          subpath: sites"
-        )
+        # NAMED volume (default fresh install): "app_data/sites:/sites" is an invalid compose
+        # project, and volume.subpath (long syntax) isn't supported on older Compose. Use a
+        # DEDICATED named volume mounted at BOTH /sites and /app/data/sites so site repos
+        # persist and every code path (dev_tools -> /sites, site_tools -> /app/data/sites)
+        # resolves to the same store -- matching bind-mode. Works on ALL Compose versions.
+        sites_mount = ("\n      - app_sites:/sites"
+                       "\n      - app_sites:/app/data/sites")
     # Local CPU voice (jules dictation + Piper TTS). faster-whisper downloads its STT
     # model on first boot; voice_cache persists it across recreates. The browser reaches
     # voice on this published port (same host as the app); the app's transcribe proxy
