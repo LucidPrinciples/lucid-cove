@@ -1256,13 +1256,41 @@ async def agent_node(state: ChannelState) -> dict:
             duration_ms=_duration_ms, succeeded=False,
         )
 
-        # Fallback to local Ollama (D16: different provider/model for rescue)
+        # Fallback: use the agent's CONFIGURED fallback model (the Team-page WORK-FALLBACK),
+        # resolved the SAME way as the primary above. Only drop to the local Ollama floor when
+        # no fallback is configured. (Prior code hardcoded get_local_model(), so the configured
+        # fallback was ignored and every rescue cold-loaded qwen3:32b on the GPU and timed out.)
         try:
-            print(f"{ts_log()} [{label}] Falling back to local Ollama (different provider)...")
+            print(f"{ts_log()} [{label}] Primary failed - resolving configured fallback...")
             _t1 = time_module.monotonic()
-            local = get_local_model(temperature=0.7)
-            # D16: Log which model we're falling back to
-            print(f"{ts_log()} [{label}] Fallback target: {local.model}")
+            _fb_provider, _fb_model_str = "ollama", "qwen3:32b"
+            _fallback_id = None
+            try:
+                from src.config import (_is_steward_channel, _is_merchant_channel,
+                                        get_steward_channel_config, get_merchant_channel_config,
+                                        get_agent_model_assignment)
+                from src.models.provider import get_model_client, _resolve_model_string
+                if _is_steward_channel(channel):
+                    _fallback_id = get_agent_model_assignment((get_steward_channel_config() or {}).get("agent_id") or "stuart").get("fallback")
+                elif _is_merchant_channel(channel):
+                    _fallback_id = get_agent_model_assignment((get_merchant_channel_config() or {}).get("agent_id") or "mercer").get("fallback")
+                else:
+                    _ai = state.get("agent_identity")
+                    _ovr = (_ai.get("model") if isinstance(_ai, dict) else None) or {}
+                    _fallback_id = _ovr.get("fallback") or get_agent_model_assignment(get_primary_agent_id()).get("fallback")
+            except Exception as _fe:
+                print(f"{ts_log()} [{label}] fallback resolve failed ({_fe}); using local floor")
+                _fallback_id = None
+            if _fallback_id:
+                local = get_model_client(_fallback_id, temperature=0.7)
+                try:
+                    _fb_provider, _fb_model_str = _resolve_model_string(_fallback_id)
+                except Exception:
+                    _fb_provider, _fb_model_str = "cloud", str(_fallback_id)
+            else:
+                local = get_local_model(temperature=0.7)
+                _fb_provider, _fb_model_str = "ollama", getattr(local, "model", "qwen3:32b")
+            print(f"{ts_log()} [{label}] Fallback target: {_fb_provider}/{_fb_model_str}")
             try:
                 local_with_tools = local.bind_tools(channel_tools(channel))
                 response = await asyncio.wait_for(
@@ -1279,13 +1307,13 @@ async def agent_node(state: ChannelState) -> dict:
             from datetime import datetime, timezone
             response.additional_kwargs["created_at"] = datetime.now(timezone.utc).isoformat()
             meta = getattr(response, "response_metadata", {}) or {}
-            actual_model = meta.get("model") or "qwen3:32b"
+            actual_model = meta.get("model") or _fb_model_str
             print(f"{ts_log()} [{label}] Fallback response via {actual_model}")
 
             await _write_jw_metric(
                 agent_id=agent_id, operation_type="channel",
                 operation_label=f"channel-{channel}",
-                model_used=str(actual_model), provider="ollama",
+                model_used=str(actual_model), provider=_fb_provider,
                 tokens_in=meta.get("prompt_eval_count"),
                 tokens_out=meta.get("eval_count"),
                 duration_ms=_fb_duration_ms,
@@ -1303,7 +1331,7 @@ async def agent_node(state: ChannelState) -> dict:
             await _write_jw_metric(
                 agent_id=agent_id, operation_type="channel",
                 operation_label=f"channel-{channel}",
-                model_used="qwen3:32b", provider="ollama",
+                model_used=_fb_model_str, provider=_fb_provider,
                 tokens_in=None, tokens_out=None,
                 duration_ms=_fb_duration_ms, succeeded=False,
             )
