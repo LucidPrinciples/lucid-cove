@@ -475,6 +475,29 @@ async def get_nc_creds(request: Request = None):
     return nc_url, nc_user, nc_pass
 
 
+async def resolve_tab_nc_creds(request=None):
+    """(url, user, password) for a HUMAN MC tab (Files/Calendar).
+
+    Unlike get_nc_creds -- which keys purely off the login cookie -- this honors the
+    DOOR (subdomain). A manager door (stuart./mercer.) viewed by an admin session
+    resolves to the shared cove ADMIN NC space, so Stuart's/Mercer's MC Files+Calendar
+    show the admin space, matching the agent tool path (set_team_nc_creds). Operator
+    doors fall through to the cookie owner's own creds (an operator only passes
+    host_match on their own door, so cookie owner == viewed presence there)."""
+    try:
+        from src.dashboard.host_context import (resolve_host_context, request_host,
+                                                host_match)
+        from src.config import load_cove_config
+        _ctx = resolve_host_context(request_host(request), load_cove_config())
+        if _ctx.get("kind") == "manager" and NC_ADMIN_USER and NC_ADMIN_PASSWORD:
+            from src.dashboard.routes.presence import get_current_presence
+            if host_match(_ctx, await get_current_presence(request)):
+                return env("NEXTCLOUD_URL"), NC_ADMIN_USER, NC_ADMIN_PASSWORD
+    except Exception:
+        pass
+    return await get_nc_creds(request)
+
+
 # =============================================================================
 # OCS Provisioning — create/manage Nextcloud users
 # =============================================================================
