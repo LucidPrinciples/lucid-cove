@@ -338,6 +338,21 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         print(f"{ts()} [app] Agent model assignments load skipped: {_e}")
 
+    # Trust this app container's subnet in NC brute-force protection so a transient auth
+    # failure can never throttle the first-party app (~25s/request). Idempotent + best
+    # effort; NC may still be warming up at boot, so retry a few times then give up.
+    try:
+        from src.dashboard.routes.nextcloud import ensure_nc_bruteforce_bypass
+        async def _bruteforce_bypass_standup():
+            for _ in range(6):
+                if await ensure_nc_bruteforce_bypass():
+                    print(f"{ts()} [app] NC brute-force bypass ensured.")
+                    return
+                await asyncio.sleep(10)
+        asyncio.create_task(_bruteforce_bypass_standup())
+    except Exception as _e:
+        print(f"{ts()} [app] NC brute-force bypass standup skipped: {_e}")
+
     # Populate knowledge base in background (non-blocking).
     # C3-2: this was boot-only — on a fresh box Ollama isn't up yet (or the embed
     # model isn't pulled, or the CF-6b sync hasn't landed the KB files) and the
