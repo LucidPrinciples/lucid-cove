@@ -273,12 +273,16 @@ function _setupDoneLine(s) {
             <a href="${ESC(href)}" target="_blank" rel="noopener" style="color:var(--accent);">open it &#8599;</a>
             <span style="color:var(--dim);">(other devices need your Cove's mesh first)</span>
         </div>`;
-    } else if (s.id === 'add_intelligence') {
-        // Same-tab chat — the ack lives in Chat, not in a new window / set-address card.
+    } else if (s.id === 'add_intelligence' && typeof _presenceChatDoorHref === 'function') {
+        // Install-pass: real door → new window on Chat (?tab=chat). href="#" after #126
+        // was a dead link. openChatWithBrainAck seeds the ack first so the new MC
+        // doesn't paint an empty personal thread.
+        const chref = _presenceChatDoorHref();
         const agent = (typeof MC !== 'undefined' && MC.agentName) || 'Your agent';
-        door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
+        if (chref) door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
             ${ESC(agent)} is awake.
-            <a href="#" onclick="try{switchToTab('chat');}catch(e){} return false;" style="color:var(--accent);">Open chat</a>
+            <a href="${ESC(chref)}" target="_blank" rel="noopener" style="color:var(--accent);"
+               onclick="try{if(typeof openChatWithBrainAck==='function'){openChatWithBrainAck(event);} }catch(e){}">Open chat &#8599;</a>
         </div>`;
     }
     return `<div class="home-approval onboarding-card" style="opacity:.65;padding:6px 10px;">
@@ -960,6 +964,38 @@ async function saveIntelligenceLocal(provider, model, btn) {
     } catch (e) { _restore(); alert('Could not save: ' + e.message); }
 }
 
+// Open chat door: seed brain-ack (idempotent server-side), then open a new window
+// on the presence chat (?tab=chat). Caps wait so a slow model never freezes the
+// door; server fallback still writes on timeout paths.
+async function openChatWithBrainAck(ev) {
+    if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+    const href = (typeof _presenceChatDoorHref === 'function')
+        ? _presenceChatDoorHref()
+        : (location.origin + '/?tab=chat');
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, 8000) : null;
+    try {
+        await fetch('/api/presence/brain-acknowledge', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+            signal: ctrl ? ctrl.signal : undefined,
+        });
+    } catch (e) {
+        /* best-effort — still open chat */
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+    try {
+        window.open(href, '_blank', 'noopener');
+    } catch (e) {
+        // Popup blocked — fall through to same-tab navigation.
+        try { location.href = href; } catch (e2) {}
+    }
+    return false;
+}
+
 // Install-pass: race fix for "Jude is awake / open chat" with an empty thread.
 // Awaits brain-acknowledge (with timeout) so the first message is in the
 // checkpointer before loadChat runs. credentials:same-origin so multi-presence
@@ -1019,7 +1055,8 @@ function _renderBrainAwakeCard() {
         <div class="approval-title">✓ ${ESC(agent)} is awake</div>
         <div class="approval-desc">It just thought for the first time and left you a message.</div>
         <a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;"
-           href="${ESC(href)}" target="_blank" rel="noopener">Open chat &#8599;</a>
+           href="${ESC(href)}" target="_blank" rel="noopener"
+           onclick="try{if(typeof openChatWithBrainAck==='function'){openChatWithBrainAck(event);} }catch(e){}">Open chat &#8599;</a>
     </div>`;
     if (card) { card.outerHTML = html; return true; }
     return false;
