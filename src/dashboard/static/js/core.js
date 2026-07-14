@@ -47,8 +47,8 @@ let activeBoard = 'attention';  // 'attention' or 'action'
 // Action Board tabs are tier-aware: Tuner only gets Flows (as "Actions")
 const BOARD_CONFIG = {
     attention: {
-        // Priority order for bottom nav (#1629: all eligible tabs stay exposed)
-        // Chat first, then Attention (home), then the rest.
+        // Priority tabs for bottom nav (first N shown, rest in More).
+        // Chat first, then Attention (home), then the rest. Team etc. in More.
         priority: ['chat', 'home', 'projects', 'calendar'],
         switchTo: 'action',
         switchIcon: '⚡',
@@ -791,8 +791,10 @@ function _buildBottomNav() {
         'ab-tools': '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
     };
 
-    // Pick which tabs go in the bottom bar (#1629: all eligible tabs stay exposed)
-    // Board-aware: Action board shows its own tabs, Attention shows tier-specific tabs
+    // Pick which tabs go in the bottom bar (first N + More for overflow).
+    // Board-aware: Action board shows its own tabs, Attention shows tier-specific tabs.
+    // #1629 tried "show every tab + horizontal scroll" — that squashed the bar on
+    // real phones and removed More. Restore capped primary slots + More menu.
     const boardConfig = BOARD_CONFIG[activeBoard] || BOARD_CONFIG.attention;
     const actionTabs = _getActionTabs();
 
@@ -814,42 +816,34 @@ function _buildBottomNav() {
         // Attention board: show tier-specific attention tabs
         allTabIds = MC.tabs.map(t => t.id || t);
         if (MC.isTuner) {
-            // Tuner (free): home, tune, playlists, go-deeper, affiliates, settings
+            // Tuner (free): 4 bottom tabs + More (Affiliates, Settings)
             priority = ['home', 'tune', 'playlists', 'go-deeper', 'affiliates', 'settings'];
         } else if (tierLevel < 20) {
-            // Operator: home, projects, calendar, reports, affiliates, settings
+            // Operator: 4 bottom tabs + More (Affiliates, Settings)
             priority = ['home', 'projects', 'calendar', 'reports', 'affiliates', 'settings'];
         } else if (tierLevel < 30) {
-            // Presence: Chat | Attention | Projects | Calendar (+ remaining tabs)
+            // Presence: Chat | Attention | Projects | Calendar
             priority = ['chat', 'home', 'projects', 'calendar'];
         } else {
-            // Cove+: Chat | Attention | Projects | Calendar (+ remaining tabs)
+            // Cove+: Chat | Attention | Projects | Calendar
             priority = boardConfig.priority || ['chat', 'home', 'projects', 'calendar'];
         }
     }
 
-    // #1629: expose all eligible tabs on mobile — do not collapse overflow into More.
+    // Cap primary bottom slots; overflow goes in More (Action board keeps room for its tabs).
     // Operator+ still hides tune/playlists/go-deeper (Latest Tuning card path).
-    // Bottom nav becomes horizontally scrollable when tabs exceed the viewport.
-    const hiddenFromNav = (tierLevel >= 10) ? new Set(['tune', 'playlists', 'go-deeper']) : new Set();
+    const maxBottom = (activeBoard === 'action') ? 10 : (MC.isTuner || tierLevel < 20) ? 4 : 5;
+    const hiddenFromMore = (tierLevel >= 10) ? new Set(['tune', 'playlists', 'go-deeper']) : new Set();
     const shown = new Set();
     for (const id of priority) {
-        if (allTabIds.includes(id) && !hiddenFromNav.has(id) && !shown.has(id)) {
-            bottomItems.push(id);
-            shown.add(id);
-        }
-    }
-    // Append any remaining eligible tabs not covered by priority order
-    for (const id of allTabIds) {
-        if (!shown.has(id) && !hiddenFromNav.has(id)) {
+        if (allTabIds.includes(id) && bottomItems.length < maxBottom && !shown.has(id) && !hiddenFromMore.has(id)) {
             bottomItems.push(id);
             shown.add(id);
         }
     }
 
-    // Drop any leftover More panel from a prior build
-    const oldMore = document.getElementById('more-menu-panel');
-    if (oldMore) oldMore.remove();
+    // Remaining tabs go in "More"
+    const moreItems = allTabIds.filter(id => !shown.has(id) && !hiddenFromMore.has(id));
 
     const nav = document.createElement('nav');
     nav.className = 'bottom-nav';
@@ -868,8 +862,37 @@ function _buildBottomNav() {
         </button>`;
     });
 
+    // More button (if there are remaining tabs)
+    if (moreItems.length > 0) {
+        nav.innerHTML += `<button class="nav-item" data-tab="more" onclick="_toggleMoreMenu()">
+            ${icons.more}<span>More</span>
+        </button>`;
+    }
+
     document.body.appendChild(nav);
     _applyChatUnreadDot();   // re-show the unread dot after the nav rebuilds
+
+    // Build more menu panel (hidden by default)
+    const oldMore = document.getElementById('more-menu-panel');
+    if (oldMore) oldMore.remove();
+    if (moreItems.length > 0) {
+        const morePanel = document.createElement('div');
+        morePanel.id = 'more-menu-panel';
+        morePanel.className = 'panel';
+        let moreHTML = '<div class="panel-scroll"><div class="more-menu">';
+        moreItems.forEach(id => {
+            const tab = MC.tabs.find(t => (t.id || t) === id);
+            const abTab = BOARD_CONFIG.action.tabs.find(t => t.id === id);
+            const label = tab?.label || abTab?.label || id.charAt(0).toUpperCase() + id.slice(1);
+            const icon = icons[id] || icons.more;
+            moreHTML += `<button class="more-item" onclick="switchToTab('${id}'); _closeMoreMenu();">
+                ${icon}<div>${ESC(label)}</div>
+            </button>`;
+        });
+        moreHTML += '</div></div>';
+        morePanel.innerHTML = moreHTML;
+        document.getElementById('panel-container').appendChild(morePanel);
+    }
 }
 
 function _updateBottomNav(activeTab) {
