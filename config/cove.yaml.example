@@ -253,3 +253,14 @@ cove:
   # A presence may also carry its own quota, which wins over this default.
   storage:
     default_quota: none                # none | "500 MB" | "100 GB" | etc.
+  # ── NC path scopes (Phase 2) ───────────────────────────────────────────────
+  # Role → path allowlists for team agents sharing the cove ADMIN Nextcloud
+  # identity. Paths are prefixes under AgentSkills/ unless rw includes "*".
+  # Defaults live in src/tools/nextcloud_tools.py (_DEFAULT_NC_PATH_SCOPES);
+  # set nc_path_scopes here only to override a role. Unset = use code defaults.
+  # nc_path_scopes:
+  #   steward: { rw: ["*"], ro: [] }
+  #   builder:
+  #     rw: ["Team/archimedes/", "Sites/", "Shared/"]
+  #     ro: ["Knowledge Base/", "Reports/", "Content/", "Ops/"]
+
