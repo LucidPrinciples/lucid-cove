@@ -271,7 +271,7 @@ async function processOne(id) {
     // Queued items take the CURRENT destination selection at send time.
     formData.append("filename", `jules-${destPrefix()}${ts}`);
 
-    const resp = await fetch("/api/jules/transcribe-and-save", { method: "POST", body: formData });
+    const resp = await julesFetch("/api/jules/transcribe-and-save", { method: "POST", body: formData });
     const data = await resp.json();
 
     if (data.ok) {
@@ -717,6 +717,33 @@ function getFullTranscript() {
 
 // ── Save — all saves go to same-origin MC endpoints ───────
 
+// Always send session cookies. Default fetch credentials are "same-origin", but
+// iOS home-screen / some WebViews drop them unless we set include explicitly —
+// that produced POST /api/jules/* → 403 while GET /api/config still looked fine
+// from a warm MC tab.
+function julesFetch(url, opts) {
+  opts = opts || {};
+  opts.credentials = "include";
+  return fetch(url, opts);
+}
+function julesApiError(data, resp) {
+  // Middleware uses {detail}; routes use {error}; never bare "Error"/status-only.
+  const d = data || {};
+  let msg = (d.error || d.detail || "").toString().trim();
+  if (!msg || /^error$/i.test(msg)) {
+    if (resp && resp.status === 403) {
+      msg = "Not signed in — reopen Jules from this Cove (session missing)";
+    } else if (resp && resp.status) {
+      msg = "Save failed (" + resp.status + ")";
+    } else {
+      msg = "Save failed";
+    }
+  } else if (resp && resp.status === 403) {
+    msg = msg + " — reopen Jules from Mission Control";
+  }
+  return msg;
+}
+
 // ── Destination chips ────────────────────────────────────────────────────────
 // Plain jules-{ts} auto-processes into the backlog. jules-hold-{ts} waits in the
 // Inbox for the operator. jules-for-{name}-{ts} waits for that recipient — the
@@ -746,30 +773,45 @@ function renderDestChips(items) {
 
 async function initDest() {
   try { DEST = localStorage.getItem("jules-dest") || ""; } catch (e) {}
-  // jules 2026-07-06: show each agent by its NAME (Stuart, Mercer, Atlas…), never a raw
-  // UUID. /api/config gives {id, name}; the chip LABEL is the display name and the routing
-  // token is a slug of the name (fallback to the id). Skip entries with no human name so a
-  // bare UUID can't become a chip. Build-team agents temporarily hidden — re-enable by
-  // removing from HIDDEN_DEST_AGENTS.
+  // Show each agent by its NAME (Knight, Stuart, Mercer…), never a raw UUID and never
+  // the yaml seed label "Agent". Prefer chat_agents (has real manager names), then
+  // agents[], then top-level config.name for the host Presence agent.
   const HIDDEN_DEST_AGENTS = new Set(["archimedes","arthur","gabe","ezra","julian","iris","vera","soren"]);
+  function prettyLabel(raw) {
+    let n = String(raw || "").trim();
+    if (!n || /^agent$/i.test(n)) return "";
+    // Title-case words; keep existing internal caps (McDonald → Mcdonald is ok for chips)
+    return n.replace(/([a-z])(\w*)/gi, (_, a, b) => a.toUpperCase() + b.toLowerCase());
+  }
   let items = [];
   try {
-    const r = await fetch("/api/config");
+    const r = await julesFetch("/api/config");
     const d = await r.json();
-    const ag = d.agents || (d.config && d.config.agents) || [];
+    const hostName = prettyLabel(d.name || (d.instance && (d.instance.name || d.instance.operator)) || "");
+    // chat_agents first (host + steward + merchant with display names), else agents[]
+    let ag = [];
+    if (Array.isArray(d.chat_agents) && d.chat_agents.length) ag = d.chat_agents.slice();
+    else if (Array.isArray(d.agents) && d.agents.length) ag = d.agents.slice();
+    else if (d.config && Array.isArray(d.config.agents)) ag = d.config.agents.slice();
+    // If agents only has the seed "Agent", inject host name.
+    if (hostName && (!ag.length || ag.every(a => !prettyLabel(a && a.name)))) {
+      ag = [{ name: hostName, id: (ag[0] && ag[0].id) || "host" }].concat(ag.filter(a => prettyLabel(a && a.name)));
+    }
     const seen = new Set();
     for (const a of ag) {
-      const name = String(a.name || "").trim();
-      const idSlug = String(a.id || "").split(".")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+      let name = prettyLabel(a && a.name);
+      // agents[0] often still says "Agent" while config.name is Knight — prefer host.
+      if (!name && hostName) name = hostName;
+      if (!name || /^agent$/i.test(name)) continue;
+      const idSlug = String((a && a.id) || "").split(".")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
       const nameSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
       const v = nameSlug || idSlug;
-      if (HIDDEN_DEST_AGENTS.has(v)) continue;
-      const label = name || (idSlug ? idSlug.charAt(0).toUpperCase() + idSlug.slice(1) : "");
-      // No human name and the value is a long hex blob → an unresolved UUID; skip it.
-      if (!v || !label || (!name && /^[0-9a-f]{16,}$/.test(v))) continue;
+      if (!v || HIDDEN_DEST_AGENTS.has(v)) continue;
+      // Skip unresolved UUID-only entries
+      if (!name && /^[0-9a-f]{16,}$/.test(v)) continue;
       if (seen.has(v)) continue;
       seen.add(v);
-      items.push({ v, label });
+      items.push({ v, label: name });
     }
   } catch (e) { /* no agent list — Backlog/Hold chips still work */ }
   renderDestChips(items.slice(0, 8));
@@ -837,7 +879,7 @@ async function doSave() {
 
   async function saveLiveTranscript(sourceLabel) {
     const saveBody = { text, filename: baseName };
-    const resp = await fetch("/api/jules/save", {
+    const resp = await julesFetch("/api/jules/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(saveBody)
@@ -853,7 +895,7 @@ async function doSave() {
         const formData = new FormData();
         formData.append("audio", lastAudioBlob, "recording.webm");
         formData.append("filename", baseName.replace(/\.md$/, "") + ".webm");
-        await fetch("/api/jules/save-audio", { method: "POST", body: formData });
+        await julesFetch("/api/jules/save-audio", { method: "POST", body: formData });
       } catch (e) { /* ignore audio sidecar failure */ }
       lastAudioBlob = null;
     }
@@ -862,7 +904,7 @@ async function doSave() {
       finishOk(sourceLabel || "saved");
       return true;
     }
-    finishErr((data.error || ("Save failed (" + resp.status + ")")), "#e74c3c");
+    finishErr(julesApiError(data, resp), "#e74c3c");
     return false;
   }
 
@@ -872,10 +914,12 @@ async function doSave() {
       const formData = new FormData();
       formData.append("audio", lastAudioBlob, "recording.webm");
       formData.append("filename", baseName);
-      const resp = await fetch("/api/jules/transcribe-and-save", { method: "POST", body: formData });
+      const resp = await julesFetch("/api/jules/transcribe-and-save", { method: "POST", body: formData });
       let data = {};
       try { data = await resp.json(); } catch (e) {
-        data = { ok: false, error: "Re-transcribe returned non-JSON (" + resp.status + ")" };
+        data = { ok: false, error: resp.status === 403
+          ? "Not signed in — reopen Jules from this Cove (session missing)"
+          : ("Re-transcribe returned non-JSON (" + resp.status + ")") };
       }
 
       if (data.ok) {
@@ -904,7 +948,7 @@ async function doSave() {
         finishErr("Didn't catch any speech — tap the mic and try again.", "#f39c12");
       } else {
         // Keep blob so a retry can still try; show the real error (never bare "Error").
-        finishErr(_err || ("Re-transcribe failed (" + resp.status + ")"), "#e74c3c");
+        finishErr(julesApiError({ error: _err }, resp), "#e74c3c");
       }
     } else if (hasLiveText || lastAudioBlob) {
       if (!hasLiveText) {
