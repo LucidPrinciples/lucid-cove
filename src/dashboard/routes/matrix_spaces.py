@@ -338,6 +338,21 @@ async def publish_cove_to_registry(*, cove_name: str = "", space_id: str = "") -
                 sid = (st.get("space_id") or "").strip()
             except Exception:
                 sid = ""
+        # Haven nest needs space_id. Do not wait for the operator to open Connect:
+        # if Matrix is configured and the Space table exists, build it here so
+        # registration is complete without a UI step. Best-effort — never block
+        # a name/domain-only register if Matrix is cold.
+        if not sid and _configured():
+            try:
+                if await _has_state_table():
+                    built = await ensure_cove_space()
+                    # ensure_cove_space publishes too (with space_id), so nested
+                    # publish skips this ensure branch. Fall through with sid so
+                    # we still return a truthful register result if nested only queued.
+                    if built.get("ok"):
+                        sid = (built.get("space_id") or sid or "").strip()
+            except Exception as e:
+                log.info("publish: ensure_cove_space before register skipped: %s", e)
         owner_handle, domain = await _admin_handle_and_domain()
         # Prefer live cove.yaml id when present (matches finalize), else COVE_ID env.
         cove_id = ""

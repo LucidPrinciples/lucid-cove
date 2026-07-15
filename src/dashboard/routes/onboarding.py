@@ -416,6 +416,13 @@ async def onboarding_address_live(request: Request):
         save_cove_config({"domain_live": True, "pending_host_command": ""})
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
+    # Domain just went live — re-publish to the hub with the real domain so Haven
+    # nest can resolve this Cove without waiting for Connect or a 30m tick.
+    try:
+        from src.dashboard.routes.matrix_spaces import publish_cove_to_registry
+        await publish_cove_to_registry()
+    except Exception:
+        pass
     return {"ok": True}
 
 

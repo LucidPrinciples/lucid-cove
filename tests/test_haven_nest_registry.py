@@ -158,3 +158,29 @@ async def test_publish_cove_to_registry_registers_and_clears_pending(monkeypatch
     assert res.get("space_id") == "!s:x"
     assert cleared["n"] == 1
     rc.register_cove.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_publish_builds_space_when_missing(monkeypatch):
+    """If space_id is empty, publish should try ensure_cove_space so nest can work
+    without the operator opening Connect first."""
+    import src.dashboard.routes.matrix_spaces as ms
+    import src.dashboard.routes.registry_client as rc
+
+    monkeypatch.setattr(rc, "configured", lambda: True)
+    monkeypatch.setattr(rc, "register_cove", AsyncMock(return_value={"ok": True}))
+    monkeypatch.setattr(ms, "_configured", lambda: True)
+    monkeypatch.setattr(ms, "_has_state_table", AsyncMock(return_value=True))
+    monkeypatch.setattr(ms, "_state", AsyncMock(return_value={}))  # no space yet
+    monkeypatch.setattr(ms, "ensure_cove_space", AsyncMock(return_value={
+        "ok": True, "space_id": "!newspace:x", "room_id": "!fam:x", "created": True,
+    }))
+    monkeypatch.setattr(ms, "_admin_handle_and_domain", AsyncMock(return_value=("jag", "woods.example")))
+    monkeypatch.setattr(ms, "_server_name", lambda: "matrix.woods.example")
+    monkeypatch.setattr(ms, "env", lambda k, d="": {"COVE_ID": "woods-1"}.get(k, d))
+    monkeypatch.setattr("src.utils.hub_retry.clear_registration_pending", AsyncMock())
+
+    res = await ms.publish_cove_to_registry(cove_name="Woods")
+    assert res.get("ok") is True
+    assert res.get("space_id") == "!newspace:x"
+    ms.ensure_cove_space.assert_awaited()
