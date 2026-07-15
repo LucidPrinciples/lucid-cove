@@ -394,11 +394,12 @@ function openOnboardingHelp() {
 function _onboardingCardHtml(item) {
     const title = ESC(item.title || ''), body = ESC(item.body || '');
     if (item.id === 'set_compute') {
-        // Compute establishment (#12): the operator picks WHERE heavy work runs. Each
-        // choice writes compute.video_asr via /api/settings/compute (the video pipeline
-        // + other GPU features gate on it), then acks the step.
-        //   local    → this box's GPU        rent → external URL + grant token
-        //   cloud    → BYOK cloud ASR        cpu  → no GPU backend (features limited)
+        // Compute establishment (#12): the operator picks WHERE heavy work runs.
+        // The VIDEO pipeline gates on compute.video_asr (local/cloud/external/cpu).
+        //   local    → this box's GPU (video pipeline runs here)
+        //   external → rented GPU (URL + grant token)
+        //   cloud    → cloud ASR (Groq/OpenAI/Deepgram key required — NOT automatic)
+        //   cpu      → no GPU backend (features limited, honest)
         const gpu = item.gpu || {};
         const hasGpu = !!gpu.present;
         const localBtn = hasGpu
@@ -409,9 +410,24 @@ function _onboardingCardHtml(item) {
         const costLine = (item.cost && item.cost.summary)
             ? `<div style="margin-top:6px;font-size:0.72rem;color:var(--dim);">💡 ${ESC(item.cost.summary)}</div>`
             : '';
+        // Mosswood 2204: cloud ASR must require a key — previously "Use cloud" collapsed
+        // to done with empty config, falsely claiming compute was set.
         return `<div class="home-approval onboarding-card">
             <div class="approval-tool">${title}${hasGpu ? ' <span style="color:var(--green);font-size:0.7rem;">● GPU found</span>' : ' <span style="color:var(--dim);font-size:0.7rem;">○ no GPU</span>'}</div>
             <div class="approval-desc" style="line-height:1.6;">${body}</div>${costLine}
+            <div id="compute-cloud" style="display:none;margin-top:8px;">
+                <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">Cloud transcription needs a provider key. Pick one and paste your key — the Cove stores it encrypted.</div>
+                <select id="cloud-provider" class="settings-input" style="width:100%;margin-bottom:6px;">
+                    <option value="">Choose provider…</option>
+                    <option value="groq">Groq (fast, Whisper-based)</option>
+                    <option value="openai">OpenAI (Whisper)</option>
+                    <option value="deepgram">Deepgram (Nova)</option>
+                </select>
+                <input id="cloud-key" class="settings-input" type="password" placeholder="sk-… or dg_…" style="width:100%;">
+                <div style="margin-top:6px;">
+                    <button class="btn-approve" onclick="saveCloudKeyThenCompute(this)">Save key & use cloud</button>
+                </div>
+            </div>
             <div id="compute-rent" style="display:none;margin-top:8px;">
                 <div style="font-size:0.72rem;color:var(--dim);margin-bottom:4px;">Paste a GPU grant: the endpoint and the code the provider gave you (e.g. from another Cove's Rent-a-GPU card).</div>
                 <input id="compute-rent-url" class="settings-input" placeholder="https://voice.their-cove.lucidcove.org" style="width:100%;">
@@ -423,7 +439,7 @@ function _onboardingCardHtml(item) {
             </div>
             <div class="approval-actions" id="compute-cta" style="flex-wrap:wrap;gap:6px;">
                 ${localBtn}
-                <button class="btn-approve" onclick="setCompute('cloud', this)">Use cloud</button>
+                <button class="btn-approve" onclick="document.getElementById('compute-cloud').style.display='block';">Cloud transcription</button>
                 <button class="btn-approve" onclick="document.getElementById('compute-rent').style.display='block';">Rent a GPU</button>
                 <button class="btn-ghost" onclick="setCompute('cpu', this)">CPU only for now</button>
             </div>
@@ -438,7 +454,7 @@ function _onboardingCardHtml(item) {
             const _pd = ESC(item.domain || '');
             return `<div class="home-approval onboarding-card">
                 <div class="approval-tool">${title}</div>
-                <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then mark it live:</div>
+                <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then mark it live (it may ask for your password):</div>
                 <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
                 <div style="margin-top:10px;color:var(--text);">When the command finishes, Caddy is up for <b>https://${_pd}</b> and the host can resolve the name (mesh DNS / hosts repair if needed). The TLS certificate often needs <b>another 30–90 seconds</b> after that. Then mark live — that unlocks the signed-in door:</div>
                 <div style="margin-top:12px;"><button class="btn-approve" style="padding:12px 18px;font-size:0.9rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>
@@ -1042,11 +1058,11 @@ async function saveDomain(btn, confirmChange) {
                     + `<div style="margin-top:8px;"><button class="btn-ghost" onclick="checkMyRecords(this)">Check my records</button></div>`
                     + `<div id="rec-check-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>`;
             } else {
-                // Jules 2315: self-host / co-located still owes the host command. Do NOT keep
-                // a second inline card inside the claim form — that dual display (post-save
-                // vs post-refresh) made it look like something was missing when the page
-                // re-rendered. Reload the checklist so the ONE canonical pending card shows
-                // (command + mark-live only; no Open my Cove until live — already on main).
+                // Jules 2315 + Mosswood 2202: self-host / co-located still owes the host command.
+                // Soft-refresh the checklist so the ONE canonical pending card shows
+                // (command + mark-live only; no Open my Cove until live).
+                // Remember the card was open so it doesn't collapse to CTA on refresh.
+                _markSetupExpanded('claim_address', true);
                 if (out) out.style.display = 'none';
                 await loadHomeApprovals();
                 return;
@@ -1449,6 +1465,36 @@ async function setCompute(choice, btn) {
             await loadHomeApprovals();
         }
     } catch (e) { /* ack already succeeded */ }
+}
+
+// Mosswood 2204: cloud ASR requires a provider key. Save the key, then set compute.
+async function saveCloudKeyThenCompute(btn) {
+    const provider = (document.getElementById('cloud-provider') || {}).value || '';
+    const key = (document.getElementById('cloud-key') || {}).value || '';
+    if (!provider) { alert('Choose a cloud provider (Groq, OpenAI, or Deepgram).'); return; }
+    if (!key.trim()) { alert('Paste your API key for that provider.'); return; }
+    const st = document.getElementById('compute-status');
+    const show = (msg, color) => { if (st) { st.style.display = 'block'; st.style.color = color || 'var(--dim)'; st.textContent = msg; } };
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+        // Save the pipeline key first
+        const r = await fetch('/api/pipeline-keys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [provider + '_api_key']: key.trim() }),
+        });
+        const d = await r.json();
+        if (!r.ok || d.error) {
+            if (btn) { btn.disabled = false; btn.textContent = 'Save key & use cloud'; }
+            show(d.error || 'Could not save key.', '#ff6b6b');
+            return;
+        }
+        // Now set compute mode to cloud (video_asr)
+        await setCompute('cloud', btn);
+    } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save key & use cloud'; }
+        show('Could not save: ' + e.message, '#ff6b6b');
+    }
 }
 
 async function loadSiteDiff(repo, branch, containerId) {
