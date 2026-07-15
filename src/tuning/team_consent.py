@@ -127,6 +127,26 @@ def enable_team_auto_tune(*, by: str = "operator") -> dict:
     return {"ok": True, "already": False, "team_tuning": payload}
 
 
+def disable_team_auto_tune(*, by: str = "operator") -> dict:
+    """Turn off daily team auto-tune (Woods / Jules 1357 settings control)."""
+    from src.config import load_cove_config, save_cove_config
+
+    now = datetime.now(timezone.utc).isoformat()
+    cove = load_cove_config() or {}
+    existing = dict(cove.get("team_tuning") or {}) if isinstance(cove.get("team_tuning"), dict) else {}
+    payload = {
+        **existing,
+        "auto_enabled": False,
+        "disabled_at": now,
+        "disabled_by": (by or "operator")[:80],
+        "mode": None,
+    }
+    ok = save_cove_config({"team_tuning": payload, "team_auto_tune": False})
+    if not ok:
+        raise RuntimeError("Could not write team_tuning off to cove.yaml")
+    return {"ok": True, "team_tuning": payload}
+
+
 def _brain_provider_model() -> tuple[str, str, str]:
     """Return (provider, model_string, display) for the Cove brain used by tuning."""
     try:

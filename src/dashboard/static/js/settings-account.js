@@ -157,8 +157,79 @@ async function loadSettingsCoveAdmin() {
             <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 0;">Add or remove people and agents in the steward console. <a href="${stewardHref}" target="_blank" rel="noopener" style="color:var(--accent);">Open the steward console ↗</a></div>
         </div>`;
 
-    el.innerHTML = addrHtml + publicHtml + brainHtml + membersHtml;
+    // Woods / Jules 1357: durable on/off for daily team auto-tune (not only the first-run card).
+    const teamTuneHtml = `
+        <div style="padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
+            <label class="settings-label">Team auto-tune</label>
+            <div id="team-tune-status" style="font-size:0.7rem;color:var(--dim);margin:2px 0 8px;">Checking…</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <button class="btn-sm" id="team-tune-enable" onclick="setTeamAutoTune(true, this)">Enable daily team tune</button>
+                <button class="btn-sm" id="team-tune-disable" style="background:transparent;border:1px solid var(--border);color:var(--dim);" onclick="setTeamAutoTune(false, this)">Turn off</button>
+            </div>
+            <div style="font-size:0.62rem;color:var(--dim);margin-top:6px;">Morning pass for the build team (~10 agents). Personal Tune + chat stay available either way. Cost estimate uses the Cove brain.</div>
+        </div>`;
+
+    el.innerHTML = addrHtml + publicHtml + brainHtml + teamTuneHtml + membersHtml;
     // Wake / brain-ack live in Chat — not on the set-address settings surface.
+    refreshTeamTuneSettings();
+}
+
+async function refreshTeamTuneSettings() {
+    const status = document.getElementById('team-tune-status');
+    if (!status) return;
+    try {
+        const r = await fetch('/api/onboarding/team-tuning/estimate', { credentials: 'same-origin' });
+        const d = await r.json();
+        if (!r.ok || d.error) {
+            status.textContent = d.error || 'Could not load team-tune status.';
+            status.style.color = '#ff6b6b';
+            return;
+        }
+        const est = d.estimate || {};
+        const summary = est.summary || est.daily_label || '';
+        if (d.enabled) {
+            status.innerHTML = '<strong style="color:var(--green);">On</strong> — daily team auto-tune is enabled.'
+                + (summary ? ' <span style="color:var(--dim);">' + ESC(summary) + '</span>' : '');
+        } else {
+            status.innerHTML = '<strong style="color:var(--text);">Off</strong> — team will not auto-tune until you enable it.'
+                + (summary ? ' <span style="color:var(--dim);">' + ESC(summary) + '</span>' : '');
+        }
+    } catch (e) {
+        status.textContent = 'Could not load team-tune status.';
+        status.style.color = '#ff6b6b';
+    }
+}
+
+async function setTeamAutoTune(enable, btn) {
+    if (btn) { btn.disabled = true; }
+    const status = document.getElementById('team-tune-status');
+    try {
+        const url = enable
+            ? '/api/onboarding/team-tuning/enable'
+            : '/api/onboarding/team-tuning/disable';
+        const body = enable ? JSON.stringify({ run_now: false }) : '{}';
+        const r = await fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
+        const d = await r.json();
+        if (!r.ok || d.error) {
+            if (status) {
+                status.textContent = d.error || 'Could not update team auto-tune.';
+                status.style.color = '#ff6b6b';
+            }
+        } else {
+            await refreshTeamTuneSettings();
+        }
+    } catch (e) {
+        if (status) {
+            status.textContent = 'Could not update team auto-tune.';
+            status.style.color = '#ff6b6b';
+        }
+    }
+    if (btn) { btn.disabled = false; }
 }
 
 // Request making this Cove publicly reachable (Cloudflare tunnel). The app can't run
