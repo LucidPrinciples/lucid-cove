@@ -783,21 +783,72 @@ async function _openMyCove(btn) {
     // jules 07-07 / reinstall 2306: mint a FRESH sign-in door at CLICK time so "Open my Cove"
     // always crosses over logged in. Server refuses until the address is live (host command
     // done + mark-live) — opening early was NXDOMAIN / dead tab (Jules screenshot 7:03).
+    //
+    // Woods install-pass: two crash modes after gates/ack already worked:
+    //  1) window.open AFTER await is popup-blocked → nothing opens (looks dead).
+    //  2) a non-/p/ door (or bare token path) never hits signin_link_auth → raw error / blank.
+    // Open the tab synchronously on the click, then navigate it once the door is minted.
+    // If we're ALREADY on the live domain with a session, just reload — no door needed.
     const _t = btn ? btn.textContent : '';
     if (btn) { btn.style.pointerEvents = 'none'; btn.textContent = 'Opening…'; }
+
+    // Already signed in on the claimed host? Stay put — minting a new door only risks
+    // rotating tokens and opening a second tab that looks "broken" if blocked.
+    try {
+        const _dom = ((typeof MC !== 'undefined' && MC.config && MC.config.domain) || '').toLowerCase();
+        const _host = (location.hostname || '').toLowerCase();
+        if (_dom && (_host === _dom || _host.endsWith('.' + _dom))) {
+            if (btn) { btn.style.pointerEvents = ''; btn.textContent = _t || 'Open my Cove ↗'; }
+            location.assign(location.protocol + '//' + _dom + '/');
+            return;
+        }
+    } catch (e) { /* fall through to mint path */ }
+
+    // Synchronous open keeps this in the user-gesture window (popup blockers).
+    let w = null;
+    try { w = window.open('about:blank', '_blank'); } catch (e) { w = null; }
+
     let url = '';
     let err = '';
     try {
         const r = await fetch('/api/onboarding/cove-door', { method: 'POST', credentials: 'same-origin' });
         const d = await r.json().catch(() => ({}));
-        url = d && d.door;
+        url = (d && d.door) || '';
         if (!url) err = (d && d.error) || ('HTTP ' + r.status);
     } catch (e) {
         err = (e && e.message) || 'network error';
     }
+
+    // Door shape guard: magic-link auth is ONLY /p/{token}. Bare /{token} never signs in
+    // (Roos 7:03 bare path) and looks like a crash.
+    if (url) {
+        try {
+            const u = new URL(url, location.href);
+            if (!u.pathname.startsWith('/p/')) {
+                err = 'Sign-in door was malformed (missing /p/). Try again, or open https://' +
+                    (u.hostname || 'your-cove') + ' and sign in from Settings → Devices.';
+                url = '';
+            }
+        } catch (e) {
+            err = 'Sign-in door was malformed. Try again from this page.';
+            url = '';
+        }
+    }
+
     if (btn) { btn.style.pointerEvents = ''; btn.textContent = _t || 'Open my Cove ↗'; }
-    if (url) window.open(url, '_blank', 'noopener');
-    else alert(err || 'Your Cove address isn\'t live yet — run the host command, then click "I ran the command — mark live".');
+
+    if (url) {
+        if (w && !w.closed) {
+            try { w.opener = null; } catch (e) {}
+            w.location = url;
+        } else {
+            // Popup blocked — same-tab fallback so the operator still crosses over.
+            location.assign(url);
+        }
+        return;
+    }
+    if (w && !w.closed) { try { w.close(); } catch (e) {} }
+    alert(err || 'Your Cove address isn\'t live yet — run the host command, then click "I ran the command — mark live".');
 }
 
 function _addrShowClaim(reach) {

@@ -55,6 +55,36 @@ COOKIE_NAME = "presence_token"
 COOKIE_MAX_AGE = 90 * 24 * 60 * 60  # 90 days
 MAX_SESSIONS_PER_ACCOUNT = 10
 
+
+def _auth_link_error_response(request: Request, status: int, message: str):
+    """Browser /p/ clicks must not die on raw JSON — return a small HTML page when
+    the client Accepts HTML (Open my Cove crash: bare 403 JSON tab). API/fetch
+    callers still get JSON."""
+    accept = (request.headers.get("accept") or "").lower()
+    wants_html = "text/html" in accept and "application/json" not in accept.split(",")[0]
+    if not wants_html:
+        raise HTTPException(status, message)
+    from fastapi.responses import HTMLResponse
+    safe = (message or "That sign-in link didn't work.").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    body = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign-in link</title>
+<style>
+body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0a0a0f;color:#d8d8e0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px;}}
+.card{{max-width:420px;background:#14141c;border:1px solid #2a2d3a;border-radius:12px;padding:22px 20px;}}
+h1{{font-size:1.05rem;margin:0 0 8px;color:#f0f0f5}}
+p{{font-size:.9rem;line-height:1.55;color:#9a9aa8;margin:0 0 14px}}
+a{{color:#5ce1e6}}
+</style></head><body><div class="card">
+<h1>That sign-in link didn't work</h1>
+<p>{safe}</p>
+<p>Go back to your setup tab and click <b>Open my Cove</b> again for a fresh door,
+or open your Cove address and sign in from Settings → Devices.</p>
+<p><a href="/">Open this Cove</a></p>
+</div></body></html>"""
+    return HTMLResponse(content=body, status_code=status)
+
 log = logging.getLogger(__name__)
 
 # Default personality dials ("Interstellar" model) — 0..100, framework-flavored,
@@ -278,7 +308,7 @@ async def signin_link_auth(token: str, request: Request):
                 )
                 row = await result.fetchone()
                 if not row:
-                    raise HTTPException(403, "Invalid or expired link. Ask the Cove operator for a new one.")
+                    return _auth_link_error_response(request, 403, "Invalid or expired link. Ask the Cove operator for a new one.")
 
                 account_id = row["id"]
                 # Create a session for this token
@@ -313,7 +343,7 @@ async def signin_link_auth(token: str, request: Request):
         raise
     except Exception as e:
         logging.error(f"[AUTH] Magic link auth failed: {e}")
-        raise HTTPException(500, "Something went wrong. Please try again.")
+        return _auth_link_error_response(request, 500, "Something went wrong. Please try again.")
 
     # Share the session across the Cove's subdomains (domain=cove domain) so one
     # operator login reaches their own MC AND the admin (stuart.) view. Each door is
@@ -1760,7 +1790,11 @@ async def mint_signin_door(account_id, domain: str, scheme: str = "https") -> st
             "UPDATE accounts SET auth_token = %s, updated_at = NOW() WHERE id = %s",
             (hashed_token, uuid.UUID(str(account_id))))
         await _create_session(conn, uuid.UUID(str(account_id)), hashed_token, "pending")
-    return f"{scheme}://{dom}/p/{raw_token}"
+    # Always /p/{token} — bare /{token} never hits this handler (Woods/Roos door crash).
+    door = f"{scheme}://{dom}/p/{raw_token}"
+    if "/p/" not in door:
+        return ""
+    return door
 
 
 @router.get("/api/presence/sessions")

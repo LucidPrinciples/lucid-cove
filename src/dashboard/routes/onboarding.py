@@ -554,6 +554,18 @@ async def onboarding_cove_door(request: Request):
         door = await mint_signin_door(p["id"], dom, "https")
         if not door:
             return JSONResponse(status_code=500, content={"ok": False, "error": "Could not mint the door"})
+        # Woods: never hand the client a non-/p/ door — bare /{token} crashes sign-on.
+        try:
+            from urllib.parse import urlparse as _urlparse
+            _path = (_urlparse(door).path or "")
+        except Exception:
+            _path = ""
+        if not str(_path).startswith("/p/"):
+            return JSONResponse(status_code=500, content={
+                "ok": False,
+                "error": "Sign-in door was malformed. Refresh and try Open my Cove again.",
+                "code": "door_malformed",
+            })
         return {"ok": True, "door": door}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
