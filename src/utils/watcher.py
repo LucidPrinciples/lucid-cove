@@ -165,12 +165,69 @@ async def _check_queue_stuck(conn) -> list[dict]:
     return alerts
 
 
+def _first_run_setup_incomplete() -> bool:
+    """Jules 0113: a brand-new install still working through Add intelligence /
+    Set address / compute must not get 'N team agents missing today's tuning'
+    Attention cards — confusing + the boot sweep would burn API $ on a first key.
+    True when the Cove hasn't finished the founder setup openers yet."""
+    try:
+        from src.config import load_cove_config
+        _cc = load_cove_config() or {}
+        if not (_cc.get("domain") or "").strip():
+            return True
+        _pending = (_cc.get("pending_host_command") or "").strip()
+        if _pending:
+            return True
+        if "domain_live" in _cc and not _cc.get("domain_live"):
+            return True
+        # Intelligence: any presence with an explicit model choice counts as started.
+        # If none have configured intelligence yet, setup is incomplete.
+        return False  # domain is set+live — address opener done; other nags are softer
+    except Exception:
+        return False
+
+
+async def _any_presence_has_intelligence(conn) -> bool:
+    """Has anyone in this Cove connected a real model yet?"""
+    try:
+        r = await conn.execute(
+            "SELECT agent_config FROM accounts "
+            "WHERE agent_config IS NOT NULL "
+            "LIMIT 50"
+        )
+        rows = await r.fetchall()
+        for row in rows or []:
+            ac = row["agent_config"] if isinstance(row, dict) else row[0]
+            if isinstance(ac, str):
+                try:
+                    ac = json.loads(ac or "{}")
+                except Exception:
+                    ac = {}
+            if not isinstance(ac, dict):
+                continue
+            if ac.get("intelligence_configured") or (ac.get("model_api_key") or "").strip():
+                return True
+        return False
+    except Exception:
+        return True  # fail open: don't hide real alerts if we can't read
+
+
 async def _check_tuning_missing(conn) -> list[dict]:
     """After the morning window, is any team agent still missing today's echo?
     Read-only: reuses the sweep's own expected-team + the ONE dedup definition
     (date-only key here — the sweep handles Drop-key precision; the watcher only
-    asks 'did anyone get left behind today')."""
+    asks 'did anyone get left behind today').
+
+    Jules 0113: suppress during first-run setup (no domain yet / host command
+    pending / no intelligence connected). Fresh installs were alarming operators
+    with "10 team agents missing today's tuning" before onboarding finished, and
+    a boot catch-up would have spent real $ tuning the whole team off a first key.
+    """
     if now_app().hour < TUNING_ALERT_HOUR:
+        return []
+    if _first_run_setup_incomplete():
+        return []
+    if not await _any_presence_has_intelligence(conn):
         return []
     from src.tuning.sweep import _expected_team
     from src.tuning.dedup import tuned_today

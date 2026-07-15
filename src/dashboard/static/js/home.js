@@ -246,6 +246,11 @@ async function dismissWatcherAlert(alertKey, btn) {
 // ── First-run onboarding cards (persistent until done) ───────────────────────
 // Dependency-gated first-run setup, shown inside Pending Approvals: each step
 // unlocks only when the prior is done. Address → Intelligence → Device+jules.
+// Jules 0113: 30s Attention refresh used to wipe an expanded address/mobile form
+// mid-setup (card "collapsed in 2–3 seconds"). Remember which setup cards are open
+// across re-renders so the operator can keep working.
+window._setupExpanded = window._setupExpanded || {};
+
 function _renderSetup(obData) {
     const steps = obData.steps || [];
     const dc = obData.done_count || 0, tot = obData.total || steps.length;
@@ -259,7 +264,52 @@ function _renderSetup(obData) {
         else if (s.available) html += _onboardingCardHtml(s);
         else html += _setupLockedLine(s);
     });
+    // Restore expanded claim/mobile panels after the HTML is mounted.
+    setTimeout(_restoreSetupExpanded, 0);
     return html + `</div>`;
+}
+
+function _markSetupExpanded(id, open) {
+    try {
+        window._setupExpanded = window._setupExpanded || {};
+        if (open) window._setupExpanded[id] = open;  // true | 'mesh' | mode string
+        else delete window._setupExpanded[id];
+    } catch (e) {}
+}
+
+function _restoreSetupExpanded() {
+    const exp = window._setupExpanded || {};
+    // Address: if the operator had Claim open (or a host_command pending card is
+    // showing), keep the form visible instead of collapsing back to the CTA.
+    if (exp.claim_address) {
+        const form = document.getElementById('dom-form');
+        const cta = document.getElementById('dom-cta');
+        const mesh = document.getElementById('addr-mesh-step');
+        // Prefer the claim form when we left it open; mesh step only if that was open.
+        if (exp.claim_address === 'mesh' && mesh) {
+            mesh.style.display = 'block';
+            if (cta) cta.style.display = 'none';
+        } else if (form) {
+            form.style.display = 'block';
+            if (cta) cta.style.display = 'none';
+            if (mesh) mesh.style.display = 'none';
+        }
+    }
+    // Intelligence form
+    if (exp.add_intelligence) {
+        const f = document.getElementById('ai-form');
+        const c = document.getElementById('ai-cta');
+        if (f) f.style.display = 'block';
+        if (c) c.style.display = 'none';
+    }
+    // Mobile: restore join-command panel if it was open (never auto-ack).
+    if (exp.device_jules) {
+        const out = document.getElementById('mesh-key-out');
+        if (out && exp.device_jules_html) {
+            out.style.display = 'block';
+            out.innerHTML = exp.device_jules_html;
+        }
+    }
 }
 
 function _setupDoneLine(s) {
@@ -458,7 +508,7 @@ function _onboardingCardHtml(item) {
                 <div style="margin-top:6px;"><button class="btn-approve" onclick="saveIntelligence()">Save</button></div>
             </div>
             <div class="approval-actions" id="ai-cta">
-                <button class="btn-approve" onclick="document.getElementById('ai-form').style.display='block';this.parentElement.style.display='none';loadMachineProbe();">Add intelligence</button>
+                <button class="btn-approve" onclick="_markSetupExpanded('add_intelligence', true);document.getElementById('ai-form').style.display='block';this.parentElement.style.display='none';loadMachineProbe();">Add intelligence</button>
             </div>
         </div>`;
     }
@@ -485,9 +535,10 @@ function _onboardingCardHtml(item) {
             <div id="mesh-key-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
             <div class="approval-actions" style="flex-wrap:wrap;gap:6px;">
                 <button class="btn-ghost" onclick="getMeshKey(this)">On a laptop/server? Get a join command</button>
-                <a class="btn-approve" href="/jules" target="_blank" rel="noopener" style="text-decoration:none;">Open jules ↗</a>
-                <button class="btn-ghost" onclick="ackOnboarding('device_jules')">Done</button>
+                <a class="btn-approve" href="/jules" target="_blank" rel="noopener" style="text-decoration:none;" onclick="_markSetupExpanded('device_jules', true);">Open jules ↗</a>
+                <button class="btn-ghost" onclick="ackOnboarding('device_jules')">Mark complete</button>
             </div>
+            <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">Opening jules or copying a join command does <b>not</b> finish this step — mark complete only after your phone is on the mesh and signed in.</div>
         </div>`;
     }
     if (item.id === 'protect_backup') {
@@ -587,8 +638,11 @@ async function runBackupNow(btn) {
 }
 
 async function getMeshKey(btn) {
+    // Jules 0113: this only reveals a join command. It must NEVER ack device_jules
+    // (that false-complete collapsed mobile mid-setup and showed a green check).
     const out = document.getElementById('mesh-key-out');
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    _markSetupExpanded('device_jules', true);
     try {
         const r = await fetch('/api/onboarding/mesh-key');
         const d = await r.json();
@@ -602,11 +656,12 @@ async function getMeshKey(btn) {
                 out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not mint a join code here.') + '</div>'
                     + (d.instructions ? '<div style="color:var(--dim);margin-top:4px;font-size:0.95em;">' + ESC(d.instructions) + '</div>' : '');
             }
+            try { window._setupExpanded.device_jules_html = out.innerHTML; } catch (e) {}
         }
     } catch (e) {
         if (out) { out.style.display = 'block'; out.textContent = 'Could not reach the mesh service.'; }
     }
-    if (btn) { btn.disabled = false; btn.textContent = 'Get join code'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'On a laptop/server? Get a join command'; }
 }
 
 function _domModeChange() {
@@ -627,8 +682,10 @@ async function _addrOpen(btn) {
     } catch (e) { /* status unreachable — fall through to the mesh step */ }
     if (btn && btn.parentElement) btn.parentElement.style.display = 'none';
     if (reach && reach.ok) {
+        _markSetupExpanded('claim_address', true);
         _addrShowClaim(reach);
     } else {
+        _markSetupExpanded('claim_address', 'mesh');
         const step = document.getElementById('addr-mesh-step');
         if (step) step.style.display = 'block';
     }
@@ -1103,11 +1160,28 @@ function _afterIntelligenceConnected() {
 }
 
 async function ackOnboarding(item) {
+    // Jules 0113: mobile was false-completing when operators hit the nearby Done
+    // while still reading the join command. Confirm before clearing that step.
+    if (item === 'device_jules' || item === 'join_mesh') {
+        const ok = confirm(
+            'Mark Connect on mobile complete only after your phone is on the mesh '
+            + 'and signed into this Cove.\n\nContinue?'
+        );
+        if (!ok) return;
+    }
     try {
         await fetch('/api/onboarding/ack', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ item }),
         });
+        if (item === 'device_jules' || item === 'join_mesh') {
+            try {
+                if (window._setupExpanded) {
+                    delete window._setupExpanded.device_jules;
+                    delete window._setupExpanded.device_jules_html;
+                }
+            } catch (e) {}
+        }
         loadHomeApprovals();
     } catch (e) {}
 }
@@ -1685,6 +1759,13 @@ async function createProject() {
 setInterval(() => {
     const homePanel = document.getElementById('panel-home');
     if (homePanel && homePanel.classList.contains('active')) {
+        // Jules 0113: don't hard-refresh Attention while a setup form is open —
+        // that was collapsing Set address / mobile mid-flow every ~30s.
+        const setupBusy = document.querySelector(
+            '#dom-form[style*="block"], #addr-mesh-step[style*="block"], '
+            + '#ai-form[style*="block"], #mesh-key-out[style*="block"], #compute-rent[style*="block"]'
+        );
+        if (setupBusy) return;
         loadHomeApprovals();
     }
 }, 30000);
