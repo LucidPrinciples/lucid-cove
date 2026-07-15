@@ -294,12 +294,18 @@ async def domain_set(body: DomainSet, request: Request):
         pass
     _agents_flag = f" --agents {_agent_csv}" if _agent_csv else ""
     _operators_flag = f" --operators {_operator_csv}" if _operator_csv else ""
+    # Instance dir holds docker/dendrite.yaml + .env. Without --cove-dir, set_domain
+    # falls back to cwd (clone root after `cd`) and cannot restamp the instance .env —
+    # Quietgrove Form Haven stayed blocked after Dendrite was already claimed.
+    _cove_dir_flag = (
+        f" --cove-dir {_host_instance_dir}" if _host_instance_dir else ""
+    )
     host_command = (
         f"cd {_host_clone_dir} && LP_MATRIX_REGEN_ENABLED=1 "
         f"python3 provision/set_domain.py --domain {domain} "
         f"--cove-id {cove_id} --app-port {ports['app']} "
         f"--nextcloud-port {ports['nextcloud']} --matrix-port {ports['matrix']}"
-        f"{_mx_flag}{_mesh_flag}{_agents_flag}{_operators_flag}"
+        f"{_mx_flag}{_mesh_flag}{_agents_flag}{_operators_flag}{_cove_dir_flag}"
     )
 
     # B14 + batch-10 #2: the domain door — once the Cove is live at https://{domain}, hand back

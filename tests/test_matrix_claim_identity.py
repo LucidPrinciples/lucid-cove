@@ -133,6 +133,10 @@ def test_host_command_embeds_agents_and_operators_flags():
     assert "--operators" in domain_py
     assert "_operator_csv" in domain_py
     assert "LP_MATRIX_REGEN_ENABLED=1" in domain_py
+    # Quietgrove: instance .env restamp needs --cove-dir on the host command
+    assert "--cove-dir" in domain_py
+    assert "_cove_dir_flag" in domain_py
+    assert "_host_instance_dir" in domain_py
 
 
 def test_haven_preflight_blocks_localhost_identity(monkeypatch):

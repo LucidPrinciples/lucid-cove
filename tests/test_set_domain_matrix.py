@@ -48,3 +48,78 @@ def test_reconcile_matrix_identity_uses_fresh_stack_container(monkeypatch, tmp_p
     assert seen["pg"] == "smith-postgres"
     assert result["matrix_identity"]["changed"] is False
     assert "matrix_env" not in result   # no regen => no restamp
+
+
+def test_reconcile_restamps_when_already_correct(monkeypatch, tmp_path):
+    """Quietgrove: Dendrite already matrix.{domain} but app env still localhost —
+    restamp + recreate must still run (not only when mx['changed'])."""
+    import netconfig
+    env = tmp_path / ".env"
+    env.write_text("MATRIX_SERVER_NAME=matrix.lucidcove-aa9f.localhost\n")
+
+    monkeypatch.setattr(
+        netconfig, "reconcile_matrix_identity",
+        lambda **kw: {
+            "ok": True, "virgin": True, "changed": False, "already_correct": True,
+            "server_name": "matrix.quietgrove.lucidcove.org",
+            "current_server_name": "matrix.quietgrove.lucidcove.org",
+            "message": "Matrix identity already matrix.quietgrove.lucidcove.org.",
+        })
+    seen = {}
+    def _fake_run(cmd, cwd=None, capture_output=None, text=None, timeout=None):
+        seen["cmd"] = cmd
+        seen["cwd"] = cwd
+        class R:
+            returncode = 0
+            stderr = ""
+        return R()
+    import subprocess as _sp
+    monkeypatch.setattr(_sp, "run", _fake_run)
+
+    class _Args:
+        cove_id = "lucidcove-aa9f5ad9aa5a96da"
+        agents = "stuart"
+        operators = "jag"
+        cove_dir = str(tmp_path)
+        compose_dir = str(tmp_path)
+        postgres_container = ""
+        dendrite_container = ""
+
+    result = {}
+    set_domain._reconcile_matrix_identity(_Args(), "quietgrove.lucidcove.org", result)
+    assert "matrix_env" in result and result["matrix_env"]["ok"] is True
+    body = env.read_text()
+    assert "MATRIX_SERVER_NAME=matrix.quietgrove.lucidcove.org" in body
+    assert "matrix.lucidcove-aa9f.localhost" not in body
+    assert result.get("matrix_app_recreate", {}).get("ok") is True
+    assert seen.get("cmd") == ["docker", "compose", "up", "-d", "app"]
+    assert seen.get("cwd") == str(tmp_path)
+
+
+def test_reconcile_skips_restamp_when_dendrite_not_on_claimed(monkeypatch, tmp_path):
+    """Gated / not eligible: do not rewrite .env to a homeserver Dendrite is not serving."""
+    import netconfig
+    env = tmp_path / ".env"
+    env.write_text("MATRIX_SERVER_NAME=matrix.lucidcove-aa9f.localhost\n")
+    monkeypatch.setattr(
+        netconfig, "reconcile_matrix_identity",
+        lambda **kw: {
+            "ok": True, "virgin": True, "changed": False, "gated": True,
+            "server_name": "matrix.quietgrove.lucidcove.org",
+            "current_server_name": "matrix.lucidcove-aa9f.localhost",
+            "message": "gated",
+        })
+
+    class _Args:
+        cove_id = "lucidcove-aa9f5ad9aa5a96da"
+        agents = ""
+        operators = ""
+        cove_dir = str(tmp_path)
+        compose_dir = str(tmp_path)
+        postgres_container = ""
+        dendrite_container = ""
+
+    result = {}
+    set_domain._reconcile_matrix_identity(_Args(), "quietgrove.lucidcove.org", result)
+    assert "matrix_env" not in result
+    assert "matrix.lucidcove-aa9f.localhost" in env.read_text()

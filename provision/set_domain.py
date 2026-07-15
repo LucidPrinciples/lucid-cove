@@ -276,7 +276,13 @@ def _restamp_matrix_env(cove_dir: str, domain: str) -> dict:
 
 
 def _reconcile_matrix_identity(args, domain: str, result: dict) -> None:
-    """Host-side Matrix server_name regen (first-claim / virgin, gated). See call site."""
+    """Host-side Matrix server_name regen (first-claim / virgin, gated). See call site.
+
+    Quietgrove lesson (2026-07-15): Dendrite can already be on matrix.{domain} while the
+    app container still has MATRIX_SERVER_NAME=matrix.{cove-id}.localhost. Form Haven
+    reads the app env, so preflight blocks even though chat eventually works. Restamp
+    whenever Dendrite is already correct OR we just regenerated — not only on changed.
+    """
     agents = [a.strip() for a in (args.agents or "").split(",") if a.strip()]
     # netconfig.expand_matrix_agent_localparts always unions the standard team; keep
     # explicit extras here for custom installs that pass --agents.
@@ -292,14 +298,27 @@ def _reconcile_matrix_identity(args, domain: str, result: dict) -> None:
         dendrite_container=(getattr(args, "dendrite_container", "") or "").strip(),
         cove_dir=cove_dir)
     result["matrix_identity"] = mx
-    if mx.get("changed"):
+    # Restamp app .env when Dendrite is (or just became) matrix.{domain}. Previously
+    # gated only on mx["changed"], so already_correct left Form Haven on stale env.
+    # IMPORTANT: mx["server_name"] is the *target* (always matrix.{domain}); only
+    # current_server_name reflects live Dendrite. Falling back to server_name would
+    # restamp even when regen was gated/failed (wrong homeserver in the app).
+    want_server = f"matrix.{domain}".lower()
+    live = (mx.get("current_server_name") or "").strip().lower()
+    dendrite_on_claimed = bool(
+        mx.get("changed")
+        or mx.get("already_correct")
+        or (live and live == want_server)
+    )
+    if dendrite_on_claimed:
         result["matrix_env"] = _restamp_matrix_env(cove_dir, domain)
         # Pick up MATRIX_SERVER_NAME in the app so Form Haven / Connect match Dendrite.
         # Best-effort — operator can still run the recreate line from matrix_env if this fails.
         env_result = result["matrix_env"] or {}
         if env_result.get("ok") and cove_dir:
+            import subprocess as _sp
             try:
-                r = subprocess.run(
+                r = _sp.run(
                     ["docker", "compose", "up", "-d", "app"],
                     cwd=cove_dir, capture_output=True, text=True, timeout=120,
                 )
