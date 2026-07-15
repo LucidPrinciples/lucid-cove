@@ -515,6 +515,20 @@ async def resolve_tab_nc_creds(request=None):
         if _ctx.get("kind") == "manager" and NC_ADMIN_USER and NC_ADMIN_PASSWORD:
             from src.dashboard.routes.presence import get_current_presence
             if host_match(_ctx, await get_current_presence(request)):
+                # Once per process: strip stock NC skeleton from admin (Stuart Files).
+                # Admin is image-created before skeletondirectory is emptied.
+                try:
+                    if not getattr(ensure_admin_nc_clean, "_done", False):
+                        import asyncio as _aio
+                        async def _bg_admin_clean():
+                            try:
+                                await ensure_admin_nc_clean()
+                            finally:
+                                ensure_admin_nc_clean._done = True
+                        _aio.create_task(_bg_admin_clean())
+                        ensure_admin_nc_clean._done = True  # prevent task spam; reset if clean fails inside
+                except Exception:
+                    pass
                 return env("NEXTCLOUD_URL"), NC_ADMIN_USER, NC_ADMIN_PASSWORD
     except Exception:
         pass
@@ -603,6 +617,28 @@ async def _remove_nc_default_files(
             log.warning("NC default cleanup failed %s for %s: %s", rel, nc_username, e)
             failures += 1
     return failures
+
+
+async def ensure_admin_nc_clean() -> dict:
+    """Strip stock skeleton junk from the Cove admin NC user (Stuart Files).
+
+    Manager doors and team tools auth as NC_ADMIN_USER, which is the image-created
+    admin account — NOT the op-* steward user provision_nc_user creates. ensure_nc_shape
+    only cleans the op-* account, so admin Files still showed Readme / intro.mp4 /
+    Photos after #152. Call this on first Files access and after steward provision.
+    Idempotent.
+    """
+    if not NC_URL or not NC_ADMIN_USER or not NC_ADMIN_PASSWORD:
+        return {"ok": False, "error": "Nextcloud admin not configured"}
+    webdav_base = f"{NC_URL}/remote.php/dav/files/{NC_ADMIN_USER}"
+    try:
+        async with httpx.AsyncClient(timeout=30) as dav_client:
+            failures = await _remove_nc_default_files(
+                dav_client, webdav_base, NC_ADMIN_USER, NC_ADMIN_PASSWORD)
+        return {"ok": failures == 0, "failures": failures, "user": NC_ADMIN_USER}
+    except Exception as e:
+        log.warning("ensure_admin_nc_clean failed: %s", e)
+        return {"ok": False, "error": str(e)[:200]}
 
 
 async def ensure_nc_shape(nc_username: str, nc_password: str, display_name: str,
@@ -805,6 +841,13 @@ async def provision_nc_user(
         await asyncio.sleep(2)
         shape_failures = await ensure_nc_shape(
             nc_username, nc_password, display_name, tier, role)
+
+        # Steward provision: also clean the image admin user (what Stuart Files uses).
+        if role == "steward":
+            try:
+                await ensure_admin_nc_clean()
+            except Exception as e:
+                log.warning("admin NC clean after steward provision: %s", e)
 
         log.info("Provisioned NC user: %s (tier: %s, role: %s, quota: %s, shape failures: %d)",
                  nc_username, tier, role, quota, shape_failures)
