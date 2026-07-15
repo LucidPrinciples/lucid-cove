@@ -245,8 +245,9 @@ async function dismissWatcherAlert(alertKey, btn) {
 
 // ── First-run onboarding cards (persistent until done) ───────────────────────
 // Dependency-gated first-run setup, shown inside Pending Approvals.
-// Jules 0225/0229 order: intelligence + address (either first) → compute →
-// backup / team-tuning / mobile. Locked steps stay locked until prior is done.
+// Address-first list order (Mosswood 2124): address + intelligence open first
+// (either order) → compute (GPU / video) → backup / team-tuning / mobile.
+// Soft-refresh after every ack/skip so done cards clear without a full page reload.
 // Jules 0113: 30s Attention refresh used to wipe an expanded address/mobile form
 // mid-setup (card "collapsed in 2–3 seconds"). Remember which setup cards are open
 // across re-renders so the operator can keep working.
@@ -375,12 +376,13 @@ function openOnboardingHelp() {
         m.innerHTML = `<div style="background:var(--bg-card,#1a1a1a);border:1px solid var(--border);border-radius:10px;max-width:460px;width:100%;padding:18px;font-size:0.8rem;line-height:1.55;color:var(--text);">
             <div style="font-weight:600;font-size:0.95rem;margin-bottom:8px;">How your Cove works</div>
             <p>A <b>Cove</b> is your private family Intelligence. Setup unlocks in order so you aren't flooded with cards before the foundation is real.</p>
-            <p><b>Open first (either order):</b></p>
-            <p><b>1. Add intelligence.</b> Connect a model (your own key, or a local one). This switches on your <b>Agent</b> and the <b>Tools</b>, including jules.</p>
-            <p><b>2. Set your address.</b> Your Cove gets its own web address. That turns on HTTPS so voice and the mic work, and gives everyone a clean link (you're <code>your-handle.your-address</code>).</p>
+            <p><b>Open first (either order; address listed first):</b></p>
+            <p><b>1. Set your address.</b> Claim the real door (HTTPS, voice, Matrix). Host command + mark-live can take a few minutes — then <b>Open my Cove</b> and keep working there, not on localhost.</p>
+            <p><b>2. Add intelligence.</b> Connect a model (your own key, or a local one). This switches on your <b>Agent</b> and the <b>Tools</b>, including jules. Best after the door is live so chat and Connect use the real address.</p>
             <p><b>Then:</b></p>
-            <p><b>3. Set up compute.</b> Choose where heavy work runs: a cloud model, this box's GPU, a GPU rented from another Cove, or CPU only.</p>
+            <p><b>3. Set up compute.</b> Choose where heavy work runs — this box's GPU (video pipeline), cloud, a rented GPU, or CPU only. Required before the rest.</p>
             <p><b>After compute:</b> Back up your Cove, optionally initiate team tuning (cost consent — skip anytime), then Connect on mobile.</p>
+            <p><b>In Chat:</b> after the address is live, use the <b>Connect</b> tab to finish Matrix (Haven / family rooms).</p>
             <p><b>Connect on mobile.</b> Join-code puts the <em>phone</em> on the private mesh; your sign-in link signs <em>you</em> into the Cove. Both are needed. Then open <b>jules</b> and capture by voice anywhere.</p>
             <p style="color:var(--dim);">From there your agent helps you build, capture, and organize, and you can add family members, each with their own handle.</p>
             <div style="text-align:right;margin-top:10px;"><button class="btn-approve" onclick="document.getElementById('onboarding-help-modal').remove()">Got it</button></div>
@@ -1273,8 +1275,15 @@ function _renderBrainAwakeCard() {
 // refresh the surface so the step clears.
 function _afterIntelligenceConnected() {
     // Install-pass product rule: intelligence connect → Chat with the ack that
-    // continues the wake and points at remaining setup (address first). Do not
-    // leave the operator on Attention reading a stranded "is awake" card.
+    // continues the wake and points at remaining setup (address if still open;
+    // Connect when the door is live; then compute). Soft-refresh Attention so
+    // the intelligence card clears without a full page reload.
+    try {
+        if (typeof loadHomeApprovals === 'function') loadHomeApprovals();
+        if (typeof MC !== 'undefined' && MC.coveAdminView && typeof loadCoveAdminPresences === 'function') {
+            loadCoveAdminPresences();
+        }
+    } catch (e) {}
     if (typeof markChatUnread === 'function') markChatUnread();
     if (typeof switchToTab === 'function') {
         try {
@@ -1352,7 +1361,13 @@ async function ackOnboarding(item) {
                 }
             } catch (e) {}
         }
-        loadHomeApprovals();
+        // Soft-refresh so Skip / Got it / compute clear the card without a full
+        // page reload (Mosswood install: backup/tune stayed until refresh).
+        if (typeof MC !== 'undefined' && MC.coveAdminView && typeof loadCoveAdminPresences === 'function') {
+            await loadCoveAdminPresences();
+        } else if (typeof loadHomeApprovals === 'function') {
+            await loadHomeApprovals();
+        }
     } catch (e) {}
 }
 

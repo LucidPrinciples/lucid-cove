@@ -5,8 +5,9 @@ These are persistent cards (not a dismissable modal): they sit in the same
 "primary driving spot" the operator will later use to approve agent activity,
 and they stay until dealt with — first login or whenever.
 
-  - add_intelligence : connect a model (BYOK key, or local Ollama). Clears once a
-    model provider is set on the presence (then it lives in Settings).
+  - claim_address    : real door first (HTTPS + Matrix identity). Host command + mark-live.
+  - add_intelligence : connect a model (BYOK key, or local Ollama). Open alongside address.
+  - set_compute      : where heavy work / video pipeline runs (after both openers).
   - initiate_team_tuning : one-time cost-aware consent before daily team auto-tune
     spends the operator's cloud key. Skip is allowed — Cove still works.
   - jules_intro      : explain voice capture. Clears when acknowledged.
@@ -87,11 +88,12 @@ async def onboarding_items(request: Request):
     except Exception:
         _domain_set = True  # fail safe: don't nag if we can't read config
 
-    # ── The first-run checklist: 3 dependency-GATED steps ────────────────────
-    # Each step unlocks only when the prior is done. The panel shows the rest LOCKED.
-    #   1. Address  — the keystone (drives every URL + HTTPS so voice/mic work).
+    # ── The first-run checklist (dependency-gated after the two openers) ─────
+    # Openers (either order; address listed first): Address · Intelligence.
+    # Then compute, then backup / team-tuning / mobile. Locked steps stay locked.
+    #   1. Address  — the keystone (real door, HTTPS, Matrix identity for Connect/Haven).
     #   2. Intelligence — the model/API that activates Agents + Tools (incl. jules).
-    #   3. Device + jules — get the Cove on your phone (walk-around capture).
+    #   3. Compute / device — heavy work + phone after foundation is real.
     # A member (non-admin) doesn't set the Cove address — it's already done for them.
     # jules 07-07 / reinstall 2230: a self-host claim SAVES the domain but isn't LIVE until
     # the host command runs (or operator attests via address-live). Keep the step OPEN so
@@ -177,28 +179,20 @@ async def onboarding_items(request: Request):
     except Exception:
         pass
 
-    # Jules 0225 / 0229 progression (install-pass):
-    #   Open first (either order): Add intelligence · Set your address
-    #   After BOTH: Set up compute
+    # Jules 0225 / 0229 + Mosswood 2124 address-first (install-pass):
+    #   Open first (either order, address listed first): Set your address · Add intelligence
+    #   After BOTH: Set up compute  (GPU / video pipeline — share-blocker)
     #   After compute: Backup · Initiate team tuning · Connect on mobile
-    # Nothing past the two openers should flood Attention until the foundation is real.
+    # Address-first is product truth for Matrix/Haven (claimed door before federation).
+    # Intelligence stays open at the same time — spark → Cove → door, brain when ready.
+    # Nothing past the two openers floods Attention until the foundation is real.
     _foundation = bool(intel_done and address_done)
     _after_compute = bool(_foundation and compute_done)
     steps = [
         {
-            "id": "add_intelligence",
-            "title": "Add intelligence",
-            "unlocks": "Activates your agent + Tools (including jules)",
-            "done": intel_done,
-            "available": True,                       # always open — needs nothing first
-            "body": ("Connect a model so your agent can think — bring your own key "
-                     "(OpenRouter covers Claude, GPT and more; OpenAI, Google, Groq) or run a "
-                     "local Ollama with no key. This switches on your Agent and the Tools."),
-        },
-        {
             "id": "claim_address",
             "title": "Set your address",
-            "unlocks": "Drives every link + turns on HTTPS (so voice works) + mobile",
+            "unlocks": "Real door (HTTPS, voice, Matrix identity) — do this before Form Haven",
             "done": address_done,
             "available": True,                       # always open, independent of intelligence
             "admin_only": True,
@@ -214,9 +208,22 @@ async def onboarding_items(request: Request):
             # keep showing it (never collapse it out of reach). Empty once live.
             "host_command": ((_cc.get("pending_host_command") or "").strip()
                              if (_domain_set and not _addr_live) else ""),
-            "body": ("Set your Cove's address — your lucidcove.org subdomain, or your own "
-                     "domain. Everyone here becomes {handle}.{your-address}, and it turns on "
-                     "HTTPS so voice and the mic just work."),
+            "body": ("Set your Cove's address first — lucidcove.org subdomain or your own "
+                     "domain. This takes a few minutes (host command + HTTPS). After the door "
+                     "is live, open it and keep working there — Matrix/Connect, voice, and "
+                     "the rest of setup use the real address. Everyone becomes "
+                     "{handle}.{your-address}."),
+        },
+        {
+            "id": "add_intelligence",
+            "title": "Add intelligence",
+            "unlocks": "Activates your agent + Tools (including jules)",
+            "done": intel_done,
+            "available": True,                       # open alongside address — not locked
+            "body": ("Connect a model so your agent can think — bring your own key "
+                     "(OpenRouter covers Claude, GPT and more; OpenAI, Google, Groq) or run a "
+                     "local Ollama with no key. This switches on your Agent and the Tools. "
+                     "Best after the address is live so brain-ack and Connect use the real door."),
         },
         {
             "id": "set_compute",

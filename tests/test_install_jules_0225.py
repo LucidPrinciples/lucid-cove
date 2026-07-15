@@ -98,5 +98,16 @@ def test_get_mesh_key_surfaces_bare_code():
 
 
 def test_help_modal_matches_progression():
-    assert "Open first (either order)" in HOME_JS
+    assert "Open first (either order; address listed first)" in HOME_JS
     assert "After compute" in HOME_JS
+    assert "Set your address." in HOME_JS
+    assert "Connect" in HOME_JS  # Matrix Connect callout after door is live
+
+
+def test_ack_soft_refreshes_without_full_reload():
+    # Skip / Got it must await loadHomeApprovals so cards clear without refresh.
+    start = HOME_JS.index("async function ackOnboarding")
+    end = HOME_JS.index("async function setCompute", start)
+    block = HOME_JS[start:end]
+    assert "await loadHomeApprovals" in block
+    assert "location.reload" not in block
