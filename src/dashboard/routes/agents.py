@@ -772,22 +772,30 @@ async def get_agent_activity(agent_id: str):
             except Exception:
                 pass
 
-            # Today's echo status (Cove calendar day — not UTC date of tuned_at).
+            # Latest Drop applied? (package identity — not calendar day)
             try:
-                from src.config import get_instance as _gi_echo
-                _tz_echo = (_gi_echo().get("timezone") or "America/New_York")
-                r = await conn.execute(
-                    "SELECT frequency, love_equation, echo_num, tuned_at FROM echoes "
-                    "WHERE agent_id = %s AND (tuned_at AT TIME ZONE %s)::date = "
-                    "(CURRENT_TIMESTAMP AT TIME ZONE %s)::date "
-                    "ORDER BY tuned_at DESC LIMIT 1",
-                    (agent_id, _tz_echo, _tz_echo))
-                row = await r.fetchone()
-                if row:
-                    out["echo_today"] = {"frequency": row.get("frequency"),
-                                         "love_equation": row.get("love_equation"),
-                                         "echo_num": row.get("echo_num"),
-                                         "tuned_at": _iso(row.get("tuned_at"))}
+                from src.tuning.receiver import get_todays_tuning as _gtt_ag
+                from src.tuning.dedup import tuned_for_package as _tfp_ag
+                _pkg = await _gtt_ag(agent_id=agent_id)
+                if _pkg is not None:
+                    _pd = _pkg.to_dict() if hasattr(_pkg, "to_dict") else {}
+                    _freq = _pd.get("frequency") or getattr(_pkg, "frequency", "")
+                    _prin = _pd.get("principle") or getattr(_pkg, "principle", "")
+                    _key = _pd.get("tuning_key") or getattr(_pkg, "tuning_key", "")
+                    _applied = await _tfp_ag(_freq, _prin, _key)
+                    if agent_id in _applied:
+                        r = await conn.execute(
+                            "SELECT frequency, love_equation, echo_num, tuned_at FROM echoes "
+                            "WHERE agent_id = %s AND frequency = %s AND principle = %s "
+                            "AND (tuning_key = %s OR %s = '') "
+                            "ORDER BY tuned_at DESC LIMIT 1",
+                            (agent_id, _freq, _prin, _key, _key))
+                        row = await r.fetchone()
+                        if row:
+                            out["echo_today"] = {"frequency": row.get("frequency"),
+                                                 "love_equation": row.get("love_equation"),
+                                                 "echo_num": row.get("echo_num"),
+                                                 "tuned_at": _iso(row.get("tuned_at"))}
             except Exception:
                 pass
 

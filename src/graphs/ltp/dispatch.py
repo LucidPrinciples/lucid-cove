@@ -129,6 +129,7 @@ async def dispatch_team_tuning(state: dict) -> dict:
             _today_app(),
             (package.get("frequency") or ""),
             (package.get("principle") or ""),
+            (package.get("tuning_key") or ""),
         )
         team_pool = {a for a in team_pool if a not in _tuned_today}
     except Exception:

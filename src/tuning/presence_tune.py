@@ -218,8 +218,9 @@ async def tune_missing_presences(package, today: str, *, force: bool = False,
                 _pd = {}
             _freq = (_pd.get("frequency") or getattr(package, "frequency", "") or "")
             _prin = (_pd.get("principle") or getattr(package, "principle", "") or "")
+            _key = (_pd.get("tuning_key") or getattr(package, "tuning_key", "") or "")
             from src.tuning.dedup import tuned_today
-            tuned = (await tuned_today(today, _freq, _prin)) & ids
+            tuned = (await tuned_today(today, _freq, _prin, _key)) & ids
         except Exception as e:
             print(f"{ts_log()} [presence-tune] today-echo check failed: {e}")
 
