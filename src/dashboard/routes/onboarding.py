@@ -177,10 +177,13 @@ async def onboarding_items(request: Request):
     except Exception:
         pass
 
-    # Order: intelligence → address → COMPUTE → mobile. Intelligence and
-    # address are the independent openers; compute unlocks once BOTH are done (it
-    # confirms how the box will run given the model choice + the now-real URLs);
-    # mobile comes last, gated on the compute ack.
+    # Jules 0225 / 0229 progression (install-pass):
+    #   Open first (either order): Add intelligence · Set your address
+    #   After BOTH: Set up compute
+    #   After compute: Backup · Initiate team tuning · Connect on mobile
+    # Nothing past the two openers should flood Attention until the foundation is real.
+    _foundation = bool(intel_done and address_done)
+    _after_compute = bool(_foundation and compute_done)
     steps = [
         {
             "id": "add_intelligence",
@@ -220,33 +223,23 @@ async def onboarding_items(request: Request):
             "title": "Set up compute",
             "unlocks": "Where your agents run — local GPU, a rented GPU, cloud, or CPU-only",
             "done": compute_done,
-            "available": (intel_done and address_done),   # after both openers, before mobile
+            "available": _foundation,                # after both openers, before later steps
             "gpu": _gpu,
             "body": _compute_body,
             # CF-72: the choice's price tag — a typical starter month, priced live.
             "cost": _starter_cost(),
         },
         {
-            "id": "device_jules",
-            "title": "Connect on mobile",
-            "unlocks": "a claimed address unlocks access to your Cove, wherever you are",
-            "done": device_done,
-            "available": (address_done and compute_done),  # mobile is last — after compute
-            "body": ("Get your Cove on your phone: join the private mesh with a one-time "
-                     "code, then open it at your address — MC, jules, and your files, "
-                     "wherever you are. Add jules to your home screen and capture by voice "
-                     "anywhere; it lands straight in your Inbox."),
-        },
-        {
             # CF-112 — clears on configured + FIRST GREEN run (backup_green), no ack.
             # The card carries the exact GitHub walkthrough (operator decision
             # 2026-07-04: the instructions ARE the nag) — home.js renders `guide`
             # as ordered steps.
+            # Jules 0225/0229: not until foundation + compute — nothing to protect yet.
             "id": "protect_backup",
             "title": "Back up your Cove's work",
             "unlocks": "A daily off-site copy of everything that makes this Cove yours",
             "done": (_backup_green or bool(ac.get("onboarding_backup_ack"))),
-            "available": intel_done,                  # meaningful once the Cove is real
+            "available": _after_compute,
             "admin_only": True,
             "backup": _backup_status,                 # {configured, green, remote_url, has_token, last}
             "body": ("Your Cove backs itself up every night to a private repo YOU own — "
@@ -259,6 +252,37 @@ async def onboarding_items(request: Request):
                 "Permissions: Contents → Read and write. Nothing else. Generate and copy the token.",
                 "Paste the repo URL and the token below, then hit Back up now — the card clears on the first green run.",
             ],
+        },
+        {
+            # Jules 0225/0229: after compute (and the two openers). Cost consent still
+            # requires intelligence; skip remains allowed. Placed before mobile so the
+            # setup board doesn't dump backup/tune/mobile all at once on first intel.
+            "id": "initiate_team_tuning",
+            "title": "Initiate team tuning",
+            "unlocks": "Daily auto-tune for the build team (optional — skip anytime)",
+            "done": False,  # filled below after consent lookup
+            "available": False,  # filled below
+            "admin_only": True,
+            "enabled": False,
+            "skipped": False,
+            "estimate": {},
+            "body": (
+                "Each morning the Cove can tune the full team (~10 agents) to the day's "
+                "frequency. That uses your connected model and can bill a cloud key. "
+                "Your Cove works either way — chat, tools, and personal Tune stay on. "
+                "Enable daily auto-tune when you're ready, or skip and leave it off."
+            ),
+        },
+        {
+            "id": "device_jules",
+            "title": "Connect on mobile",
+            "unlocks": "Reach your Cove from your phone — mesh first, then sign-in",
+            "done": device_done,
+            "available": _after_compute,  # GPU/compute before mobile (Jules 0229)
+            "body": ("Get your Cove on your phone in two clear steps: (1) put the phone on "
+                     "your Cove's private mesh with a one-time join code, then (2) open your "
+                     "live address and sign in as you. After that, add jules to your home "
+                     "screen and capture by voice anywhere — it lands in your Inbox."),
         },
     ]
     # CF-78 close for existing Coves (C6): a Cove that SHARES its GPU must enforce the
@@ -311,37 +335,27 @@ async def onboarding_items(request: Request):
             ],
         })
 
-    # ── Initiate team tuning (cost consent) ────────────────────────────────
-    # Independent of address/compute: available once intelligence is connected.
-    # Admin-only. Done when team_tuning.auto_enabled is true OR they explicitly
-    # skipped (onboarding_team_tuning_skip). Skipping never blocks the Cove.
+    # ── Initiate team tuning (cost consent) — fill the placeholder step ────
+    # Jules 0225/0229: unlock only after foundation + compute (same gate as
+    # backup/mobile). Admin-only. Done when auto_enabled OR explicitly skipped.
     _team_tune_enabled = False
     _team_tune_est = {}
     try:
         from src.tuning.team_consent import team_auto_tune_enabled, estimate_team_tune_cost
         _team_tune_enabled = team_auto_tune_enabled(_cc)
-        if intel_done and not _team_tune_enabled and is_admin:
+        if _after_compute and not _team_tune_enabled and is_admin:
             _team_tune_est = estimate_team_tune_cost()
     except Exception as _e:
         print(f"[onboarding] team-tune estimate failed: {_e}")
     _team_tune_skipped = bool(ac.get("onboarding_team_tuning_skip"))
-    steps.append({
-        "id": "initiate_team_tuning",
-        "title": "Initiate team tuning",
-        "unlocks": "Daily auto-tune for the build team (optional — skip anytime)",
-        "done": (_team_tune_enabled or _team_tune_skipped),
-        "available": bool(intel_done and is_admin),
-        "admin_only": True,
-        "enabled": _team_tune_enabled,
-        "skipped": _team_tune_skipped,
-        "estimate": _team_tune_est,
-        "body": (
-            "Each morning the Cove can tune the full team (~10 agents) to the day's "
-            "frequency. That uses your connected model and can bill a cloud key. "
-            "Your Cove works either way — chat, tools, and personal Tune stay on. "
-            "Enable daily auto-tune when you're ready, or skip and leave it off."
-        ),
-    })
+    for _s in steps:
+        if _s.get("id") == "initiate_team_tuning":
+            _s["done"] = (_team_tune_enabled or _team_tune_skipped)
+            _s["available"] = bool(_after_compute and is_admin)
+            _s["enabled"] = _team_tune_enabled
+            _s["skipped"] = _team_tune_skipped
+            _s["estimate"] = _team_tune_est
+            break
 
     done_count = sum(1 for s in steps if s["done"])
     # Back-compat `items` = the still-pending + available steps (old consumers).
