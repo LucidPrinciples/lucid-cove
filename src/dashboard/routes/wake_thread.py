@@ -343,25 +343,36 @@ async def brain_acknowledge(request: Request):
         except Exception as _e:
             print(f"[brain-acknowledge] presence load failed (non-fatal): {_e}")
 
-        # Jules reinstall 2306: env COVE_NAME is the provisioner seed ("New Cove")
-        # and stays stale after wizard finalize writes the real name into cove.yaml /
-        # accounts.last_name. Use the same resolver the rest of MC uses so the ack
-        # never says "for New Cove" when the Cove is already named (e.g. Roos Cove).
+        # Jules 2306/2315: env COVE_NAME is the provisioner seed ("New Cove") and stays
+        # stale after wizard finalize. Resolve like the rest of MC; also check
+        # system_settings.family_name (mirrored at finalize) and scrub live model output.
+        def _usable_cove_name(raw: str) -> str:
+            n = (raw or "").strip()
+            if not n or n.lower() in ("new cove", "cove", "new"):
+                return ""
+            return n
+
+        cove_name = ""
         try:
             from src.dashboard.routes.core import resolve_cove_name
-            cove_name = (await resolve_cove_name() or "").strip()
+            cove_name = _usable_cove_name(await resolve_cove_name())
         except Exception as _e:
             print(f"[brain-acknowledge] resolve_cove_name failed (non-fatal): {_e}")
-            cove_name = ""
-        if not cove_name or cove_name.lower() in ("new cove", "cove"):
+        if not cove_name:
             try:
                 from src.config import load_cove_config
-                cove_name = (load_cove_config().get("name") or "").strip()
+                cove_name = _usable_cove_name(load_cove_config().get("name") or "")
             except Exception:
                 cove_name = ""
-        if not cove_name or cove_name.lower() in ("new cove", "cove"):
-            cove_name = (env("COVE_NAME") or "").strip()
-        if not cove_name or cove_name.lower() in ("new cove", "cove"):
+        if not cove_name:
+            try:
+                from src.utils.settings import get_setting
+                cove_name = _usable_cove_name(await get_setting("family_name", "") or "")
+            except Exception:
+                cove_name = ""
+        if not cove_name:
+            cove_name = _usable_cove_name(env("COVE_NAME") or "")
+        if not cove_name:
             cove_name = "this Cove"
 
         agent_id = await _personal_agent_id(request)
@@ -462,6 +473,13 @@ async def brain_acknowledge(request: Request):
 
         if not text:
             text = _brain_ack_fallback(operator, cove_name)
+        # Jules 2315: live models (and stale system prompts) still say "New Cove" even when
+        # we pass the real name. Force-replace the provisioner seed so the operator never
+        # sees it once the Cove is named (Hulton / Roos / …).
+        if cove_name and cove_name.lower() not in ("new cove", "this cove", "cove"):
+            import re as _re
+            text = _re.sub(r"\bNew Cove\b", cove_name, text or "")
+            text = _re.sub(r"\bnew cove\b", cove_name, text or "", flags=_re.I)
         # DETERMINISTIC nudge: append the concrete steps in CODE (both the live and the
         # fallback path) unless the model already named them. Run-3 fix — the prompt
         # directive alone left BERT's acknowledgment with zero actionable steps.

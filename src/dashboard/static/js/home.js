@@ -267,14 +267,18 @@ function _setupDoneLine(s) {
     // (signed-in operator link, new window, no auto-redirect) + the mesh-first note.
     let door = '';
     if (s.id === 'claim_address' && s.domain) {
-        // Jules 2211: "open it" must be a FRESH sign-on door (mint at click), not the
-        // bare https://domain root — so this browser locks into the new address signed
-        // in, and the operator can close the localhost setup tab. Mirrors the pending
-        // host-command card's "Open my Cove" (_openMyCove → /api/onboarding/cove-door).
+        // Jules 2211 / 2315: fresh sign-on door at click. Host-aware close-tab copy —
+        // once already on the live domain, "close this localhost tab" is wrong.
+        const _dom = (s.domain || '').toLowerCase();
+        const _host = (location.hostname || '').toLowerCase();
+        const _onLive = _dom && (_host === _dom || _host.endsWith('.' + _dom));
+        const _closeHint = _onLive
+            ? " — you're already on the live address"
+            : ' — signs you in at the new address (then you can close any leftover localhost tab)';
         door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
             Your Cove lives at <b>https://${ESC(s.domain)}</b> —
             <a href="#" onclick="try{_openMyCove(this);}catch(e){} return false;" style="color:var(--accent);font-weight:600;">Open my Cove &#8599;</a>
-            <span style="color:var(--dim);"> — signs you in at the new address (then close this localhost tab)</span>
+            <span style="color:var(--dim);">${_closeHint}</span>
         </div>`;
     } else if (s.id === 'add_intelligence' && typeof _presenceChatDoorHref === 'function') {
         // Install-pass: real door → new window on Chat (?tab=chat). href="#" after #126
@@ -840,28 +844,20 @@ async function saveDomain(btn, confirmChange) {
                     + `<div style="margin-top:8px;"><button class="btn-ghost" onclick="checkMyRecords(this)">Check my records</button></div>`
                     + `<div id="rec-check-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>`;
             } else {
-                // Self-host / co-located: the DNS + cert + Matrix step runs on the host, so we
-                // hand back the command AND the sign-in door. The door (/p/{token}, in d.door)
-                // logs the operator straight into the live Cove; it only resolves once the
-                // command has finished and the cert has issued, so it's framed as the next step,
-                // not a live link yet. §2.1 seam: fully_live is FALSE on every self-host claim
-                // (the host still owes the Matrix regen, so _mx_host forces it false), which is
-                // why the door has to be surfaced HERE, not only in the fully_live branch above.
-                const _door = d.door || ('https://' + d.domain);
-                html = `<div style="color:var(--accent);">Saved ${ESC(d.domain)}. One step left, on the machine hosting your Cove — run this command first (do not skip):</div>${steps}`
-                    + (d.host_command ? `<code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(d.host_command)}</code>` : '')
-                    + `<div style="margin-top:12px;color:var(--text);">When the command finishes, your Cove is live at <b>https://${ESC(d.domain)}</b>. Then mark it live — that unlocks the signed-in door:</div>`
-                    + `<div style="margin-top:12px;"><button class="btn-approve" style="padding:10px 16px;font-size:0.85rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>`
-                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">Run the host command first. Mark live only after it succeeds — that reloads setup and unlocks Open my Cove. Opening early still hits unfinished DNS.</div>`;
+                // Jules 2315: self-host / co-located still owes the host command. Do NOT keep
+                // a second inline card inside the claim form — that dual display (post-save
+                // vs post-refresh) made it look like something was missing when the page
+                // re-rendered. Reload the checklist so the ONE canonical pending card shows
+                // (command + mark-live only; no Open my Cove until live — already on main).
+                if (out) out.style.display = 'none';
+                await loadHomeApprovals();
+                return;
             }
             out.innerHTML = html;
         }
-        // Refresh so the new domain takes effect everywhere (Settings, admin links, voice,
-        // cloud). A full reload re-derives the whole config; skip it when we handed back
-        // DNS records the operator still needs to read.
         // fully_live shows a persistent "Done — refresh" button (the operator reloads when
         // ready). Records path just refreshes the approvals list so the step stays put while
-        // they copy the DNS records. Nothing auto-reloads out from under the confirmation.
+        // they copy the DNS records. Host-command path already returned via loadHomeApprovals.
         const hasRecords = (d.records && d.records.length);
         if (hasRecords) { setTimeout(() => loadHomeApprovals(), 1500); }
     } catch (e) {
