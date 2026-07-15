@@ -4,7 +4,9 @@ Memory Tools — agent's ability to remember things across conversations.
 These tools let the agent actively manage persistent memory during conversation:
   - save_memory: Store something worth remembering
   - recall_memory: Pull up memories by category or topic
-  - search_memory: Find specific memories by keyword
+  - search_memory: Find specific memories by keyword (ILIKE)
+  - memory_search: Find by MEANING across agent_memory + vault Archive (#D54)
+  - memory_get: Load one hit by ref from memory_search (#D54)
   - update_memory: Correct or update an existing memory
   - correct_memory: Handle operator corrections ("actually it's X not Y")
 
@@ -28,6 +30,7 @@ from src.memory.memory import (
     recall_memories,
     recall_memories_by_time,
     search_memories,
+    get_memory as get_memory_service,
     update_memory as update_memory_service,
     correct_memory as correct_memory_service,
     VALID_CATEGORIES,
@@ -340,6 +343,130 @@ async def recall_recent(
 
 
 # =============================================================================
+# Semantic search — meaning over keyword (#D54)
+# =============================================================================
+
+@auto
+@tool
+async def memory_search(
+    query: str,
+    source: str = "all",
+    limit: int = 8,
+) -> str:
+    """Search memories and the vault session archive by MEANING (semantic).
+
+    Prefer this over search_memory when you need continuity across compaction
+    or past sessions and don't know exact keywords/tags. Uses the same
+    embedding backend as the knowledge base (nomic-embed-text / cloud 768-dim).
+
+    Args:
+        query: Natural-language question or topic (e.g. "what did we decide
+               about Haven nesting?" not just a tag).
+        source: Where to look — 'all' (default), 'memories' (agent_memory only),
+                or 'archive' (vault Archive/session-log + dated session files).
+        limit: Max results (default 8).
+    """
+    from src.memory.archive_index import search_memory_unified
+
+    results = await search_memory_unified(
+        query=query,
+        source=source,
+        limit=max(1, min(int(limit or 8), 20)),
+    )
+    if not results:
+        return (
+            f"No semantic hits for '{query}' (source={source}). "
+            "Index may still be building, embeddings may be off, or try broader wording."
+        )
+
+    lines = [f"Found {len(results)} semantic hits for '{query}' (source={source}):\n"]
+    for r in results:
+        sim = r.get("similarity") or r.get("score") or 0
+        if r.get("source") == "memory":
+            cat = (r.get("category") or "general").upper()
+            tags = r.get("tags") or []
+            tag_str = f" [{', '.join(tags)}]" if tags else ""
+            lines.append(
+                f"  {r['ref']} ({cat}, sim={sim:.3f}{tag_str}): {r.get('content', '')}"
+            )
+        else:
+            title = r.get("title") or r.get("doc_name") or "archive"
+            path = r.get("path") or ""
+            sess = r.get("session_num")
+            sess_bit = f" session={sess}" if sess else ""
+            snippet = (r.get("content") or "")[:400]
+            lines.append(
+                f"  {r['ref']} (ARCHIVE sim={sim:.3f}{sess_bit} {path} · {title}):\n"
+                f"    {snippet}{'…' if len(r.get('content') or '') > 400 else ''}"
+            )
+    lines.append(
+        "\nUse memory_get with a ref (memory:123 or archive:_archive_s12#0) "
+        "to load the full entry."
+    )
+    return "\n".join(lines)
+
+
+@auto
+@tool
+async def memory_get(ref: str) -> str:
+    """Load one memory or archive chunk by ref from memory_search.
+
+    Args:
+        ref: Either ``memory:123`` (agent_memory id) or
+             ``archive:_archive_s12#0`` / ``archive:_archive_file:….md#0``.
+             Bare integers are treated as memory ids.
+    """
+    raw = (ref or "").strip()
+    if not raw:
+        return "ref is required (memory:ID or archive:doc#chunk)."
+
+    # Bare integer → memory
+    if raw.isdigit():
+        raw = f"memory:{raw}"
+
+    if raw.startswith("memory:"):
+        try:
+            mid = int(raw.split(":", 1)[1])
+        except ValueError:
+            return f"Invalid memory ref: {ref}"
+        mem = await get_memory_service(mid)
+        if not mem:
+            return f"Memory #{mid} not found."
+        tags = mem.get("tags") or []
+        tag_str = f" [{', '.join(tags)}]" if tags else ""
+        active = "active" if mem.get("is_active", True) else "inactive"
+        return (
+            f"memory:{mid} [{(mem.get('category') or 'general').upper()}, "
+            f"{mem.get('importance', 0.5)}, {active}]{tag_str}\n"
+            f"{mem.get('content', '')}\n"
+            f"created={mem.get('created_at', '')} "
+            f"source={mem.get('source_channel') or '—'} "
+            f"{mem.get('source_summary') or ''}"
+        ).strip()
+
+    if raw.startswith("archive:") or raw.startswith("_archive"):
+        from src.memory.archive_index import get_archive_chunk
+
+        chunk = await get_archive_chunk(raw if raw.startswith("archive:") else f"archive:{raw}")
+        if not chunk:
+            return f"Archive chunk not found for ref: {ref}"
+        meta = chunk.get("metadata") or {}
+        header = (
+            f"{chunk['ref']}\n"
+            f"path={chunk.get('path') or meta.get('path') or '—'} "
+            f"session={chunk.get('session_num') or meta.get('source_session') or '—'} "
+            f"date={chunk.get('session_date') or meta.get('session_date') or '—'} "
+            f"title={chunk.get('session_title') or meta.get('session_title') or '—'}\n"
+        )
+        return header + (chunk.get("text") or "")
+
+    return (
+        f"Unrecognized ref '{ref}'. Use memory:ID or archive:doc_name#chunk_index "
+        "(from memory_search results)."
+    )
+
+
+# =============================================================================
 # Tool Registry
 # =============================================================================
 
@@ -348,6 +475,8 @@ ALL_MEMORY_TOOLS = [
     recall_memory,
     recall_recent,
     search_memory,
+    memory_search,
+    memory_get,
     update_existing_memory,
     correct_memory_tool,
 ]

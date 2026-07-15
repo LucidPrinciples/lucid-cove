@@ -22,7 +22,30 @@ from src.memory.memory import store_memory
 from src.models.provider import invoke_with_fallback
 from src.config import get_primary_agent_id
 
-ARCHIVE_PATH = Path("/vault/LP-Vault/Archive/session-log-archive.md")
+# #D54: resolve Archive path via VAULT_DIR (supports /vault and /vault/LP-Vault).
+from src.memory.archive_index import (
+    session_log_archive_path as _session_log_archive_path,
+    extract_session_entries as _extract_session_entries_shared,
+)
+
+
+class _ArchivePathProxy:
+    """Path-like that re-resolves each access (vault may mount after import)."""
+
+    def __fspath__(self):
+        return str(_session_log_archive_path())
+
+    def __str__(self):
+        return str(_session_log_archive_path())
+
+    def __repr__(self):
+        return repr(_session_log_archive_path())
+
+    def __getattr__(self, name):
+        return getattr(_session_log_archive_path(), name)
+
+
+ARCHIVE_PATH = _ArchivePathProxy()
 AGENT_ID = get_primary_agent_id()
 
 # Cancellation flag — set via API to stop a running digestion
@@ -46,26 +69,8 @@ def _ts():
 
 
 def _extract_session_entries(text: str) -> list[dict]:
-    """Parse archive markdown into session entries.
-
-    Pattern: "### YYYY-MM-DD (session N) — Title"
-    Returns list of {session_num, date, title, content}
-    """
-    entries = []
-    # Match session headers and capture everything until next ### or end
-    pattern = r"###\s+(\d{4}-\d{2}-\d{2})\s+\(session\s+(\d+)\)\s+—\s+(.+?)\n(.*?)(?=\n### |\Z)"
-    matches = re.finditer(pattern, text, re.DOTALL)
-
-    for match in matches:
-        date_str, session_str, title, content = match.groups()
-        entries.append({
-            "session_num": int(session_str),
-            "date": date_str.strip(),
-            "title": title.strip(),
-            "content": content.strip(),
-        })
-
-    return sorted(entries, key=lambda x: x["session_num"])
+    """Parse archive markdown into session entries (shared #D54 parser)."""
+    return _extract_session_entries_shared(text)
 
 
 async def _get_digested_sessions() -> set[int]:

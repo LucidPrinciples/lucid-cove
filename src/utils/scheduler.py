@@ -502,6 +502,21 @@ class AgentScheduler:
             except Exception as be:
                 print(f"{ts_log()} [scheduler] Embedding backfill failed: {be}")
 
+            # #D54: refresh vault Archive semantic index (session-log + dated files).
+            # Hash-guarded; no-ops when vault missing or unchanged.
+            try:
+                from src.memory.archive_index import index_vault_archive
+                ar = await index_vault_archive(force=False)
+                if ar.get("status") == "ok" and ar.get("chunks_total"):
+                    print(f"{ts_log()} [scheduler] Archive index — "
+                          f"{ar.get('chunks_total', 0)} chunks "
+                          f"(sessions={ar.get('session_log', {}).get('sessions', 0)}, "
+                          f"files={ar.get('dated_files', {}).get('files', 0)})")
+                elif ar.get("status") == "error":
+                    print(f"{ts_log()} [scheduler] Archive index skipped: {ar.get('error')}")
+            except Exception as ae:
+                print(f"{ts_log()} [scheduler] Archive index failed: {ae}")
+
             await _log_run_finish(run_id, "success", dur)
 
         except Exception as e:
