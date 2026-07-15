@@ -208,23 +208,28 @@ def _ensure_setup_steps_line(text: str, remaining) -> str:
         ordered = (["set your Cove's address"]
                    + [s for s in ordered if s != "set your Cove's address"])
     if "set your Cove's address" in remaining:
+        # Jules 1825: after Open chat, the operator needs an explicit "go back to
+        # Attention" pointer — the old line said it well; keep that cadence.
         rest = [s for s in ordered if s != "set your Cove's address"]
         if rest:
             line = (
-                "Next up: set your Cove's address so we can leave the local URL for a real "
-                "door (HTTPS, voice, and access from other devices). It's on Attention — "
-                "Claim your address. After that: " + ", ".join(rest) + "."
+                "When you're ready, go back to Attention and set your Cove's address "
+                "so we can leave the local URL for a real door (HTTPS, voice, and access "
+                "from other devices) — Claim your address. After that: "
+                + ", ".join(rest) + "."
             )
         else:
             line = (
-                "Next up: set your Cove's address so we can leave the local URL for a real "
-                "door (HTTPS, voice, and access from other devices). It's on Attention when "
-                "you're ready — Claim your address."
+                "When you're ready, go back to Attention and set your Cove's address "
+                "so we can leave the local URL for a real door (HTTPS, voice, and access "
+                "from other devices) — Claim your address."
             )
     else:
         steps = ", ".join(ordered)
-        line = (f"A couple of setup steps are still open — {steps} — they're how we reach "
-                "full strength when you're ready.")
+        line = (
+            f"A couple of setup steps are still open — {steps} — go back to Attention "
+            "when you're ready; they're how we reach full strength."
+        )
     sep = "" if not text else ("\n\n" if not text.endswith("\n") else "")
     return (text or "") + sep + line
 

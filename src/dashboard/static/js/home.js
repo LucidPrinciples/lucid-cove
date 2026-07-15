@@ -320,27 +320,37 @@ function _setupDoneLine(s) {
     if (s.id === 'claim_address' && s.domain) {
         // Jules 2211 / 2315: fresh sign-on door at click. Host-aware close-tab copy —
         // once already on the live domain, "close this localhost tab" is wrong.
+        // Jules 1827: this is a sign-on link; HTTPS cert often lags 30–90s after mark-live
+        // — ERR_SSL_PROTOCOL_ERROR looks broken until Reload works (Calhoun install).
         const _dom = (s.domain || '').toLowerCase();
         const _host = (location.hostname || '').toLowerCase();
         const _onLive = _dom && (_host === _dom || _host.endsWith('.' + _dom));
         const _closeHint = _onLive
             ? " — you're already on the live address"
-            : ' — signs you in at the new address (then you can close any leftover localhost tab)';
+            : ' — this is your sign-on link (logs you in at the new address; then you can close any leftover localhost tab)';
         door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
             Your Cove lives at <b>https://${ESC(s.domain)}</b> —
             <a href="#" onclick="try{_openMyCove(this);}catch(e){} return false;" style="color:var(--accent);font-weight:600;">Open my Cove &#8599;</a>
             <span style="color:var(--dim);">${_closeHint}</span>
+            <div style="margin-top:6px;padding:8px 10px;border:1px solid var(--accent);border-radius:6px;background:rgba(255,180,60,.08);color:var(--text);font-size:0.72rem;line-height:1.45;">
+                <b>First open can take a minute.</b> HTTPS is still finishing on the host after mark-live.
+                If Chrome says <code>ERR_SSL_PROTOCOL_ERROR</code> / "can't provide a secure connection", wait 30–90s and hit <b>Reload</b> — that is normal, not a broken address.
+            </div>
         </div>`;
     } else if (s.id === 'add_intelligence' && typeof _presenceChatDoorHref === 'function') {
         // Install-pass: real door → new window on Chat (?tab=chat). href="#" after #126
         // was a dead link. openChatWithBrainAck seeds the ack first so the new MC
         // doesn't paint an empty personal thread.
+        // Jules 1825: after Open chat, operator still needs a clear pointer back to
+        // Attention for the next setup card (address / compute) — door stays; nudge is
+        // in the brain-ack line (wake_thread), not buried only in Chat.
         const chref = _presenceChatDoorHref();
         const agent = (typeof MC !== 'undefined' && MC.agentName) || 'Your agent';
         if (chref) door = `<div style="opacity:1;margin-top:4px;font-size:0.68rem;color:var(--text);">
             ${ESC(agent)} is awake.
             <a href="${ESC(chref)}" target="_blank" rel="noopener" style="color:var(--accent);"
                onclick="try{if(typeof openChatWithBrainAck==='function'){openChatWithBrainAck(event);} }catch(e){}">Open chat &#8599;</a>
+            <span style="color:var(--dim);"> — then go back to Attention for the next setup step</span>
         </div>`;
     }
     return `<div class="home-approval onboarding-card" style="opacity:.65;padding:6px 10px;">
@@ -428,9 +438,9 @@ function _onboardingCardHtml(item) {
                 <div class="approval-tool">${title}</div>
                 <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then mark it live:</div>
                 <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
-                <div style="margin-top:10px;color:var(--text);">When the command finishes, Caddy + cert are on for <b>https://${_pd}</b>. The command also checks that <em>this computer</em> can resolve the name (mesh DNS / hosts repair if needed). Then mark live — that unlocks the signed-in door:</div>
+                <div style="margin-top:10px;color:var(--text);">When the command finishes, Caddy is up for <b>https://${_pd}</b> and the host can resolve the name (mesh DNS / hosts repair if needed). The TLS certificate often needs <b>another 30–90 seconds</b> after that. Then mark live — that unlocks the signed-in door:</div>
                 <div style="margin-top:12px;"><button class="btn-approve" style="padding:12px 18px;font-size:0.9rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>
-                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;line-height:1.5;">Run the host command first and confirm it prints ok (not host_resolve_failed). Mark live only after bare <code>curl -vI https://${_pd}/</code> works on that machine. The address is a <b>mesh</b> URL — Tailscale must be up; it is not a public website. Opening early = NXDOMAIN / dead tab.</div>
+                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;line-height:1.5;">Run the host command first and confirm it prints <code>ok</code> (not <code>host_resolve_failed</code>). Prefer mark-live after <code>curl -vI https://${_pd}/</code> shows a real HTTPS response on that machine — if curl still SSL-errors, wait and retry. The address is a <b>mesh</b> URL (Tailscale up; not a public website). Opening too early: NXDOMAIN if DNS is filtered, or <code>ERR_SSL_PROTOCOL_ERROR</code> while the cert is still issuing — wait and Reload.</div>
             </div>`;
         }
         const sub = ESC(item.cove_subdomain || '');
@@ -758,7 +768,10 @@ async function _addrRanCommand(btn) {
     // Confirm first — a plain "refresh" click used to mark live without running the
     // command and collapsed the card (Jules: never ran command, step still cleared).
     const ok = confirm(
-        'Only continue after the host command finished successfully.\n\n'
+        'Only continue after the host command finished successfully '
+        + '(printed ok / host_resolve ok).\n\n'
+        + 'HTTPS may still take 30–90s after that — Open my Cove can show '
+        + 'ERR_SSL_PROTOCOL_ERROR until the cert is ready; wait and Reload.\n\n'
         + 'Mark the address live and refresh setup?'
     );
     if (!ok) return;
@@ -1010,10 +1023,12 @@ async function saveDomain(btn, confirmChange) {
                 // like a DNS panel that vanished before you could act on it.)
                 // B14: the domain door — where your Cove now lives (signed-in operator link).
                 // No auto-redirect; the cert may still be issuing. Other devices need the mesh first.
+                // Jules 1827: make the cert lag + sign-on nature of the door prominent.
                 const _door = d.door || ('https://' + d.domain);
-                html = `<div style="color:var(--green);">&#10003; Address set to https://${ESC(d.domain)}. We created the DNS + certificate path for you. HTTPS finishes in under a minute.</div>`
-                    + `<div style="margin-top:10px;color:var(--text);">Your Cove lives at <b>https://${ESC(d.domain)}</b> on the <b>private mesh</b> (not the open internet). Open it when this device can resolve the name:</div>`
-                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>`
+                html = `<div style="color:var(--green);">&#10003; Address set to https://${ESC(d.domain)}. We created the DNS + certificate path for you.</div>`
+                    + `<div style="margin-top:10px;color:var(--text);">Your Cove lives at <b>https://${ESC(d.domain)}</b> on the <b>private mesh</b> (not the open internet). <b>Open my Cove</b> is your sign-on link — use it once HTTPS is up on this device:</div>`
+                    + `<div style="margin-top:8px;padding:8px 10px;border:1px solid var(--accent);border-radius:6px;background:rgba(255,180,60,.08);color:var(--text);font-size:0.72rem;line-height:1.45;"><b>First open can take a minute.</b> If you see <code>ERR_SSL_PROTOCOL_ERROR</code> / "can't provide a secure connection", wait 30–90s and hit <b>Reload</b> — the cert is still issuing. That is expected, not a dead address.</div>`
+                    + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:8px;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>`
                     + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;line-height:1.5;">If the browser says the site can't be found: confirm Tailscale is connected, wait ~1 min for DNS, disable DNS rebinding filters (NextDNS/AdGuard/Private Relay) for this network, then retry. Other devices need the mesh first (Settings &rarr; Connect a device / MESH.md).</div>`
                     + `<button class="btn-approve" style="margin-top:10px;" onclick="location.reload()">Done &mdash; refresh</button>`;
             } else if (recs.length) {
