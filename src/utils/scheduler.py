@@ -403,11 +403,44 @@ class AgentScheduler:
             except Exception as e:
                 print(f"{ts_log()} [scheduler] boot backstop {protocol} failed: {e}")
 
+    async def _boot_publish_cove_registry(self):
+        """Once after boot: land this Cove on the hub registrar if named.
+
+        Waits for Matrix/DB to settle. Never raises. Complements the 30m
+        _retry_hub_registration publish so a fresh box is nestable without
+        waiting half an hour or running admin ensure-space.
+        """
+        await asyncio.sleep(90)
+        try:
+            from src.dashboard.routes.matrix_spaces import publish_cove_to_registry
+            res = await publish_cove_to_registry()
+            if res.get("ok"):
+                print(f"{ts_log()} [scheduler] boot cove registry publish ok "
+                      f"({res.get('name') or res.get('cove_id')})")
+            elif res.get("reason") and res.get("reason") not in (
+                    "cove not named yet", "LP_REGISTRY_URL not set"):
+                print(f"{ts_log()} [scheduler] boot cove registry publish: "
+                      f"{res.get('reason')}")
+        except Exception as e:
+            print(f"{ts_log()} [scheduler] boot cove registry publish skipped: {e}")
+
     async def _retry_hub_registration(self):
         """C3-5: re-send a failed wizard-finalize hub registration (full payload,
-        incl. the set-once referred_by edge) until the hub acks. No-op otherwise."""
+        incl. the set-once referred_by edge) until the hub acks. No-op otherwise.
+
+        Also best-effort publish of this Cove's Space to the hub so Haven nest
+        works without an admin ensure-space checklist (2026-07-15). A Cove that
+        finished naming but never opened Connect still becomes nestable once
+        Matrix is up; publish_cove_to_registry is idempotent + no-ops when the
+        Cove is unnamed or the hub is unconfigured.
+        """
         from src.utils.hub_retry import retry_pending_registration
         await retry_pending_registration()
+        try:
+            from src.dashboard.routes.matrix_spaces import publish_cove_to_registry
+            await publish_cove_to_registry()
+        except Exception as e:
+            print(f"{ts_log()} [scheduler] cove registry publish skipped: {e}")
 
     async def _cleanup_old_logs(self, keep_days: int = 7):
         """Delete log files older than keep_days."""
@@ -1173,6 +1206,14 @@ class AgentScheduler:
         # past its cadence shortly after boot.
         try:
             asyncio.ensure_future(self._boot_overdue_backstop())
+        except Exception:
+            pass
+
+        # Haven nest readiness: after boot settle, publish this Cove to the hub
+        # (name + space_id if already built). Avoids "Cove not in registry" for
+        # boxes that finalized while the hub was down or never opened Connect.
+        try:
+            asyncio.ensure_future(self._boot_publish_cove_registry())
         except Exception:
             pass
 
