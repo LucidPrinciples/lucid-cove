@@ -773,47 +773,92 @@ function renderDestChips(items) {
 
 async function initDest() {
   try { DEST = localStorage.getItem("jules-dest") || ""; } catch (e) {}
-  // Show each agent by its NAME (Knight, Stuart, Mercer…), never a raw UUID and never
-  // the yaml seed label "Agent". Prefer chat_agents (has real manager names), then
-  // agents[], then top-level config.name for the host Presence agent.
+  // Dest chips are PEOPLE/AGENTS you route notes to — never the Cove/family name
+  // (Clearfield). Prefer the signed-in Presence's agent_name (Knight), then
+  // chat_agents / agents with real names. Skip seed "Agent" and family_name.
   const HIDDEN_DEST_AGENTS = new Set(["archimedes","arthur","gabe","ezra","julian","iris","vera","soren"]);
   function prettyLabel(raw) {
     let n = String(raw || "").trim();
     if (!n || /^agent$/i.test(n)) return "";
-    // Title-case words; keep existing internal caps (McDonald → Mcdonald is ok for chips)
-    return n.replace(/([a-z])(\w*)/gi, (_, a, b) => a.toUpperCase() + b.toLowerCase());
+    return n.replace(/\b([A-Za-z])([A-Za-z']*)/g, (_, a, b) => a.toUpperCase() + b.toLowerCase());
+  }
+  function slug(s) {
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   }
   let items = [];
   try {
     const r = await julesFetch("/api/config");
     const d = await r.json();
-    const hostName = prettyLabel(d.name || (d.instance && (d.instance.name || d.instance.operator)) || "");
-    // chat_agents first (host + steward + merchant with display names), else agents[]
+    const familyName = prettyLabel(
+      (d.instance && d.instance.family_name) || d.family_name || ""
+    );
+    const familySlug = slug(familyName);
+
+    // Authoritative personal agent for THIS session (Knight, not Clearfield).
+    let personalAgent = "";
+    try {
+      const pr = await julesFetch("/api/presence/me");
+      if (pr.ok) {
+        const me = await pr.json();
+        personalAgent = prettyLabel(me.agent_name || (me.agent_identity && me.agent_identity.agent_name) || "");
+      }
+    } catch (e) { /* no session — chips still work without personal target */ }
+
+    // Reject Cove/family labels that used to leak into config.name / instance.name
+    function isCoveLabel(n) {
+      const s = slug(n);
+      if (!s) return true;
+      if (familySlug && s === familySlug) return true;
+      // Bare product/host seeds that are not agent names
+      if (/^(clearfield|founders|woods|lucidcove|newcove|cove)$/i.test(n)) return true;
+      return false;
+    }
+
+    let hostName = prettyLabel(d.name || "");
+    if (!hostName || isCoveLabel(hostName)) {
+      hostName = prettyLabel(d.instance && d.instance.name) || "";
+    }
+    if (!hostName || isCoveLabel(hostName) || /^agent$/i.test(hostName)) {
+      hostName = personalAgent || "";
+    }
+    // Final preference: signed-in agent wins over any remaining host label
+    if (personalAgent) hostName = personalAgent;
+
     let ag = [];
     if (Array.isArray(d.chat_agents) && d.chat_agents.length) ag = d.chat_agents.slice();
     else if (Array.isArray(d.agents) && d.agents.length) ag = d.agents.slice();
     else if (d.config && Array.isArray(d.config.agents)) ag = d.config.agents.slice();
-    // If agents only has the seed "Agent", inject host name.
-    if (hostName && (!ag.length || ag.every(a => !prettyLabel(a && a.name)))) {
-      ag = [{ name: hostName, id: (ag[0] && ag[0].id) || "host" }].concat(ag.filter(a => prettyLabel(a && a.name)));
+
+    // Ensure personal agent is first chip candidate
+    if (hostName) {
+      const already = ag.some(a => slug(prettyLabel(a && a.name)) === slug(hostName));
+      if (!already) ag = [{ name: hostName, id: "personal" }].concat(ag);
+      else {
+        // Fix chat_agents[0] if it still carries Cove name / Agent
+        ag = ag.map((a, i) => {
+          const n = prettyLabel(a && a.name);
+          if (i === 0 && (!n || isCoveLabel(n) || /^agent$/i.test(n))) {
+            return { ...a, name: hostName };
+          }
+          return a;
+        });
+      }
     }
+
     const seen = new Set();
     for (const a of ag) {
       let name = prettyLabel(a && a.name);
-      // agents[0] often still says "Agent" while config.name is Knight — prefer host.
-      if (!name && hostName) name = hostName;
-      if (!name || /^agent$/i.test(name)) continue;
-      const idSlug = String((a && a.id) || "").split(".")[0].toLowerCase().replace(/[^a-z0-9]/g, "");
-      const nameSlug = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+      if (!name || /^agent$/i.test(name) || isCoveLabel(name)) continue;
+      const idSlug = slug(String((a && a.id) || "").split(".")[0]);
+      const nameSlug = slug(name);
       const v = nameSlug || idSlug;
-      if (!v || HIDDEN_DEST_AGENTS.has(v)) continue;
-      // Skip unresolved UUID-only entries
-      if (!name && /^[0-9a-f]{16,}$/.test(v)) continue;
+      if (!v || HIDDEN_DEST_AGENTS.has(v) || HIDDEN_DEST_AGENTS.has(idSlug)) continue;
+      if (/^[0-9a-f]{16,}$/.test(v)) continue;
       if (seen.has(v)) continue;
       seen.add(v);
       items.push({ v, label: name });
     }
-  } catch (e) { /* no agent list — Backlog/Hold chips still work */ }
+  } catch (e) { /* Backlog/Hold still work */ }
   renderDestChips(items.slice(0, 8));
 }
 initDest();
