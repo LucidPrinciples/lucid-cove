@@ -244,8 +244,9 @@ async function dismissWatcherAlert(alertKey, btn) {
 }
 
 // ── First-run onboarding cards (persistent until done) ───────────────────────
-// Dependency-gated first-run setup, shown inside Pending Approvals: each step
-// unlocks only when the prior is done. Address → Intelligence → Device+jules.
+// Dependency-gated first-run setup, shown inside Pending Approvals.
+// Jules 0225/0229 order: intelligence + address (either first) → compute →
+// backup / team-tuning / mobile. Locked steps stay locked until prior is done.
 // Jules 0113: 30s Attention refresh used to wipe an expanded address/mobile form
 // mid-setup (card "collapsed in 2–3 seconds"). Remember which setup cards are open
 // across re-renders so the operator can keep working.
@@ -363,13 +364,14 @@ function openOnboardingHelp() {
         m.onclick = (e) => { if (e.target === m) m.remove(); };
         m.innerHTML = `<div style="background:var(--bg-card,#1a1a1a);border:1px solid var(--border);border-radius:10px;max-width:460px;width:100%;padding:18px;font-size:0.8rem;line-height:1.55;color:var(--text);">
             <div style="font-weight:600;font-size:0.95rem;margin-bottom:8px;">How your Cove works</div>
-            <p>A <b>Cove</b> is your private family Intelligence. A few steps get it running. Do them in any order; nothing is required.</p>
+            <p>A <b>Cove</b> is your private family Intelligence. Setup unlocks in order so you aren't flooded with cards before the foundation is real.</p>
+            <p><b>Open first (either order):</b></p>
             <p><b>1. Add intelligence.</b> Connect a model (your own key, or a local one). This switches on your <b>Agent</b> and the <b>Tools</b>, including jules.</p>
             <p><b>2. Set your address.</b> Your Cove gets its own web address. That turns on HTTPS so voice and the mic work, and gives everyone a clean link (you're <code>your-handle.your-address</code>).</p>
+            <p><b>Then:</b></p>
             <p><b>3. Set up compute.</b> Choose where heavy work runs: a cloud model, this box's GPU, a GPU rented from another Cove, or CPU only.</p>
-            <p><b>Team tuning (optional).</b> Daily auto-tune for the full team uses your connected model and can bill a cloud key. You choose when to enable it — skip anytime; chat and personal Tune still work.</p>
-            <p><b>4. Connect on mobile.</b> Join your phone to the private mesh, then open <b>jules</b> and talk anywhere. It lands in your Inbox for your agent to act on.</p>
-            <p><b>5. Back up your Cove's work.</b> It backs itself up every night to a private repo you own, so if this box dies your Cove doesn't.</p>
+            <p><b>After compute:</b> Back up your Cove, optionally initiate team tuning (cost consent — skip anytime), then Connect on mobile.</p>
+            <p><b>Connect on mobile.</b> Join-code puts the <em>phone</em> on the private mesh; your sign-in link signs <em>you</em> into the Cove. Both are needed. Then open <b>jules</b> and capture by voice anywhere.</p>
             <p style="color:var(--dim);">From there your agent helps you build, capture, and organize, and you can add family members, each with their own handle.</p>
             <div style="text-align:right;margin-top:10px;"><button class="btn-approve" onclick="document.getElementById('onboarding-help-modal').remove()">Got it</button></div>
         </div>`;
@@ -549,32 +551,39 @@ function _onboardingCardHtml(item) {
         </div>`;
     }
     if (item.id === 'device_jules' || item.id === 'join_mesh') {
-        // PHONE-FIRST: this card is titled "Connect on mobile", so lead with the phone
-        // flow (the Tailscale app — a phone can't run a `tailscale up` CLI command). The
-        // join-code command is the secondary path for a laptop/server. Coordination
-        // server mirrors Settings' Connect-a-device block.
+        // Jules 0234 rewrite: make join-code provenance obvious + separate actions
+        // from body text (0231: buttons looked "jarbled" in the middle of copy).
+        // Phone-first (Tailscale app). Laptop/server command is secondary.
         return `<div class="home-approval onboarding-card">
             <div class="approval-tool">${title}</div>
-            <div class="approval-desc">${body}</div>
-            <div style="font-size:0.72rem;color:var(--dim);margin-top:8px;line-height:1.6;">
-                <strong style="color:var(--text);">Two steps, in order — they do different things:</strong>
-                <div style="margin-top:4px;"><strong style="color:var(--text);">1. Join code</strong> puts the <em>device</em> on your Cove's private network (the mesh) — so the phone can reach the box at all.</div>
-                <div><strong style="color:var(--text);">2. Sign-in link</strong> signs <em>you</em> into the Cove (your identity) — so it opens as you, with your files and agent.</div>
-                <div style="margin-top:4px;color:var(--dim);">Your phone needs both: network first, then identity.</div>
+            <div class="approval-desc" style="line-height:1.55;">${body}</div>
+            <div style="margin-top:12px;padding:10px 12px;background:var(--card,#111);border:1px solid var(--border);border-radius:8px;font-size:0.74rem;line-height:1.6;color:var(--dim);">
+                <div style="color:var(--text);font-weight:600;margin-bottom:6px;">What you'll need</div>
+                <div><strong style="color:var(--text);">1. Join code</strong> — puts the <em>device</em> on your Cove's private mesh so it can reach the box. Tap <b>Get a join code</b> below (or the laptop command if you're not on a phone). That is where the code comes from.</div>
+                <div style="margin-top:6px;"><strong style="color:var(--text);">2. Sign-in link</strong> — signs <em>you</em> into the Cove at your live address (identity). Use <b>Open my Cove</b> on the address step after mark-live, or Settings → Devices.</div>
             </div>
-            <div style="font-size:0.72rem;color:var(--dim);margin-top:8px;line-height:1.6;">
-                <strong style="color:var(--text);">On your phone:</strong> install the <strong>Tailscale</strong> app, tap the <strong>⋯ menu (top right)</strong> and choose
-                <em>“Use a custom coordination server”</em>, enter
-                <code style="background:var(--card);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code>,
-                then sign in with the join code and approve the device (that's step 1 — the mesh). If Tailscale is already signed in to another network, log out first — this is a separate tailnet. Then open your Cove at your address and use your sign-in link (step 2 — your identity), and add <strong>jules</strong> to your home screen.
+            <div style="margin-top:12px;padding:10px 12px;background:var(--card,#111);border:1px solid var(--border);border-radius:8px;font-size:0.74rem;line-height:1.65;color:var(--dim);">
+                <div style="color:var(--text);font-weight:600;margin-bottom:6px;">On your phone</div>
+                <ol style="margin:0;padding-left:1.15rem;">
+                    <li>Install the <strong style="color:var(--text);">Tailscale</strong> app.</li>
+                    <li>⋯ menu (top right) → <em>Use a custom coordination server</em> → enter
+                        <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code></li>
+                    <li>Sign in with the <strong style="color:var(--text);">join code from the button below</strong> and approve the device (mesh).</li>
+                    <li>Open your Cove at your live address and sign in as you (identity).</li>
+                    <li>Add <strong style="color:var(--text);">jules</strong> to your home screen.</li>
+                </ol>
+                <div style="margin-top:8px;font-size:0.68rem;">Already on another Tailscale network? Log out of that one first — this is a separate tailnet.</div>
             </div>
-            <div id="mesh-key-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
-            <div class="approval-actions" style="flex-wrap:wrap;gap:6px;">
-                <button class="btn-ghost" onclick="getMeshKey(this)">On a laptop/server? Get a join command</button>
-                <a class="btn-approve" href="/jules" target="_blank" rel="noopener" style="text-decoration:none;" onclick="_markSetupExpanded('device_jules', true);">Open jules ↗</a>
-                <button class="btn-ghost" onclick="ackOnboarding('device_jules')">Mark complete</button>
+            <div id="mesh-key-out" style="display:none;margin-top:12px;font-size:0.74rem;"></div>
+            <div class="approval-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);align-items:center;">
+                <button class="btn-approve" onclick="getMeshKey(this)">Get a join code</button>
+                <button class="btn-ghost" onclick="getMeshKey(this)" style="font-size:0.72rem;">Laptop/server command</button>
+                <a class="btn-ghost" href="/jules" target="_blank" rel="noopener" style="text-decoration:none;" onclick="_markSetupExpanded('device_jules', true);">Open jules ↗</a>
             </div>
-            <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">Opening jules or copying a join command does <b>not</b> finish this step — mark complete only after your phone is on the mesh and signed in.</div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border);">
+                <button class="btn-ghost" onclick="ackOnboarding('device_jules')" style="width:100%;max-width:280px;">Mark Connect on mobile complete</button>
+                <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;line-height:1.45;">Copying a join code or opening jules does <b>not</b> finish this step. Mark complete only after the phone is on the mesh and signed in.</div>
+            </div>
         </div>`;
     }
     if (item.id === 'protect_backup') {
@@ -676,7 +685,10 @@ async function runBackupNow(btn) {
 async function getMeshKey(btn) {
     // Jules 0113: this only reveals a join command. It must NEVER ack device_jules
     // (that false-complete collapsed mobile mid-setup and showed a green check).
+    // Jules 0234: surface the bare join CODE for the phone Tailscale app first;
+    // laptop command is secondary so "where does the code come from?" is obvious.
     const out = document.getElementById('mesh-key-out');
+    const _label = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
     _markSetupExpanded('device_jules', true);
     try {
@@ -684,10 +696,21 @@ async function getMeshKey(btn) {
         const d = await r.json();
         if (out) {
             out.style.display = 'block';
-            if (d.ok && d.join_cmd) {
-                out.innerHTML = '<div style="color:var(--dim);margin-bottom:4px;">On a laptop or server, run this (valid ~1h). A phone uses the Tailscale app instead — see above.</div>'
-                    + '<code style="display:block;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">'
-                    + ESC(d.join_cmd) + '</code>';
+            if (d.ok && (d.key || d.join_cmd)) {
+                const code = d.key || '';
+                const cmd = d.join_cmd || '';
+                let html = '<div style="color:var(--text);font-weight:600;margin-bottom:6px;">Your join code (from this button — valid ~1h)</div>';
+                if (code) {
+                    html += '<div style="color:var(--dim);font-size:0.7rem;margin-bottom:4px;">Paste this into the Tailscale app on your phone when it asks to sign in / use an auth key:</div>'
+                        + '<code style="display:block;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.85rem;color:var(--text);">'
+                        + ESC(code) + '</code>';
+                }
+                if (cmd) {
+                    html += '<div style="color:var(--dim);font-size:0.7rem;margin-top:10px;margin-bottom:4px;">On a laptop or server instead, run this in a terminal:</div>'
+                        + '<code style="display:block;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;">'
+                        + ESC(cmd) + '</code>';
+                }
+                out.innerHTML = html;
             } else {
                 out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not mint a join code here.') + '</div>'
                     + (d.instructions ? '<div style="color:var(--dim);margin-top:4px;font-size:0.95em;">' + ESC(d.instructions) + '</div>' : '');
@@ -697,7 +720,7 @@ async function getMeshKey(btn) {
     } catch (e) {
         if (out) { out.style.display = 'block'; out.textContent = 'Could not reach the mesh service.'; }
     }
-    if (btn) { btn.disabled = false; btn.textContent = 'On a laptop/server? Get a join command'; }
+    if (btn) { btn.disabled = false; btn.textContent = _label || 'Get a join code'; }
 }
 
 function _domModeChange() {
@@ -729,7 +752,9 @@ async function _addrOpen(btn) {
 
 async function _addrRanCommand(btn) {
     // jules 07-07 / reinstall 2230: operator attests they ran the host command → mark
-    // the address live (in-container we can't detect the host command ran), then reload.
+    // the address live (in-container we can't detect the host command ran).
+    // Jules 0229: stay on the Presences board after mark-live so "Open my Cove"
+    // and Setup Compute appear in place — do NOT full-reload into Chat.
     // Confirm first — a plain "refresh" click used to mark live without running the
     // command and collapsed the card (Jules: never ran command, step still cleared).
     const ok = confirm(
@@ -739,7 +764,19 @@ async function _addrRanCommand(btn) {
     if (!ok) return;
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
     try { await fetch('/api/onboarding/address-live', { method: 'POST' }); } catch (e) {}
-    location.reload();
+    try { _markSetupExpanded('claim_address', false); } catch (e) {}
+    // Soft refresh: stay on current surface (home / Cove-admin Presences).
+    try {
+        if (typeof MC !== 'undefined' && MC.coveAdminView && typeof loadCoveAdminPresences === 'function') {
+            await loadCoveAdminPresences();
+        } else if (typeof loadHomeApprovals === 'function') {
+            await loadHomeApprovals();
+        } else {
+            location.reload();
+        }
+    } catch (e) {
+        location.reload();
+    }
 }
 
 async function _openMyCove(btn) {
@@ -1319,7 +1356,18 @@ async function setCompute(choice, btn) {
     if (btn) btn.textContent = '✓ Saved';
     show('Compute set — finishing…', 'var(--green)');
     // Mark the step done regardless of which path — compute is now established.
+    // Jules 0231: after CPU/GPU choice the card sometimes stayed "busy" until a
+    // manual Presences nav click. Force a soft board refresh after ack so the
+    // checkmark + next unlocked step (mobile / backup / tune) appear without
+    // leaving the page.
     await ackOnboarding('set_compute');
+    try {
+        if (typeof MC !== 'undefined' && MC.coveAdminView && typeof loadCoveAdminPresences === 'function') {
+            await loadCoveAdminPresences();
+        } else if (typeof loadHomeApprovals === 'function') {
+            await loadHomeApprovals();
+        }
+    } catch (e) { /* ack already succeeded */ }
 }
 
 async function loadSiteDiff(repo, branch, containerId) {
