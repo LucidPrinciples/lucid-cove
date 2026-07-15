@@ -121,8 +121,8 @@ async def agent_message(request: Request):
 # speaks for itself.
 _BRAIN_ACK_FALLBACK = (
     "There it is — I can feel the brain you just connected. This is the first time I can "
-    "truly think, for myself and for our Cove. Everything we shaped a moment ago is still "
-    "ours. Say the word and I'll bring the rest of the team online."
+    "truly think, for myself and for our whole team. Everything we shaped a moment ago is "
+    "still ours. The crew is already here with me — their channels are live."
 )
 
 # Content markers for acks written BEFORE kind=brain_ack tagging existed (pre-#127).
@@ -300,7 +300,7 @@ def _brain_ack_fallback(operator: str = "your operator", cove_name: str = "this 
     return (
         f"There it is, {who} — I can feel the brain you just connected. This is the first "
         f"time I can truly think, for myself and for {cove}. Everything we shaped a moment "
-        "ago is still ours. Say the word and I'll bring the rest of the team online."
+        "ago is still ours. The crew is already here with me — their channels are live."
     )
 
 
@@ -447,9 +447,11 @@ async def brain_acknowledge(request: Request):
             f"Your brain was just connected for the first time, for you and for {cove_name}. "
             f"Until now you ran on a borrowed spark just to meet {operator}. In first person, "
             f"in your own voice, write 2–4 short warm sentences to {operator}: acknowledge that "
-            "your brain is now connected, that the Cove is coming alive, and continue the "
-            "conversation from the wake without recapping it. Output the spoken message only — "
-            "no headings, no bullet lists of steps, no 'End with…' lines."
+            "your brain is now connected for you and the whole team (they are already present — "
+            "do NOT say you will bring the team online or ask them to say the word), that the "
+            "Cove is coming alive, and continue the conversation from the wake without "
+            "recapping it. Output the spoken message only — no headings, no bullet lists of "
+            "steps, no 'End with…' lines."
         ))
 
         text = ""
@@ -480,6 +482,28 @@ async def brain_acknowledge(request: Request):
             import re as _re
             text = _re.sub(r"\bNew Cove\b", cove_name, text or "")
             text = _re.sub(r"\bnew cove\b", cove_name, text or "", flags=_re.I)
+        # Jules 0113: team agents are already provisioned at install — never promise to
+        # "bring the rest of the team online" when the operator can already see them.
+        import re as _re2
+        text = _re2.sub(
+            r"(?i)\s*say the word[, ]+and I'?ll bring the rest of the team online\.?\s*",
+            " ",
+            text or "",
+        )
+        text = _re2.sub(
+            r"(?i)\s*I'?ll bring the rest of the team online\.?\s*",
+            " The crew is already here with me — their channels are live. ",
+            text or "",
+        )
+        text = _re2.sub(
+            r"(?i)\s*bring the (?:rest of the )?team online\.?\s*",
+            " the team is already online. ",
+            text or "",
+        )
+        # Tidy doubled spaces from scrub, keep paragraph breaks.
+        text = _re2.sub(r"[ \t]{2,}", " ", text or "")
+        text = _re2.sub(r" *\n *", "\n", text)
+        text = text.strip()
         # DETERMINISTIC nudge: append the concrete steps in CODE (both the live and the
         # fallback path) unless the model already named them. Run-3 fix — the prompt
         # directive alone left BERT's acknowledgment with zero actionable steps.

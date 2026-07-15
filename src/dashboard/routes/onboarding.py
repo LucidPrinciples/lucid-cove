@@ -7,6 +7,8 @@ and they stay until dealt with — first login or whenever.
 
   - add_intelligence : connect a model (BYOK key, or local Ollama). Clears once a
     model provider is set on the presence (then it lives in Settings).
+  - initiate_team_tuning : one-time cost-aware consent before daily team auto-tune
+    spends the operator's cloud key. Skip is allowed — Cove still works.
   - jules_intro      : explain voice capture. Clears when acknowledged.
 """
 
@@ -309,6 +311,38 @@ async def onboarding_items(request: Request):
             ],
         })
 
+    # ── Initiate team tuning (cost consent) ────────────────────────────────
+    # Independent of address/compute: available once intelligence is connected.
+    # Admin-only. Done when team_tuning.auto_enabled is true OR they explicitly
+    # skipped (onboarding_team_tuning_skip). Skipping never blocks the Cove.
+    _team_tune_enabled = False
+    _team_tune_est = {}
+    try:
+        from src.tuning.team_consent import team_auto_tune_enabled, estimate_team_tune_cost
+        _team_tune_enabled = team_auto_tune_enabled(_cc)
+        if intel_done and not _team_tune_enabled and is_admin:
+            _team_tune_est = estimate_team_tune_cost()
+    except Exception as _e:
+        print(f"[onboarding] team-tune estimate failed: {_e}")
+    _team_tune_skipped = bool(ac.get("onboarding_team_tuning_skip"))
+    steps.append({
+        "id": "initiate_team_tuning",
+        "title": "Initiate team tuning",
+        "unlocks": "Daily auto-tune for the build team (optional — skip anytime)",
+        "done": (_team_tune_enabled or _team_tune_skipped),
+        "available": bool(intel_done and is_admin),
+        "admin_only": True,
+        "enabled": _team_tune_enabled,
+        "skipped": _team_tune_skipped,
+        "estimate": _team_tune_est,
+        "body": (
+            "Each morning the Cove can tune the full team (~10 agents) to the day's "
+            "frequency. That uses your connected model and can bill a cloud key. "
+            "Your Cove works either way — chat, tools, and personal Tune stay on. "
+            "Enable daily auto-tune when you're ready, or skip and leave it off."
+        ),
+    })
+
     done_count = sum(1 for s in steps if s["done"])
     # Back-compat `items` = the still-pending + available steps (old consumers).
     items = [s for s in steps if not s["done"] and s["available"]]
@@ -338,6 +372,10 @@ async def onboarding_ack(request: Request):
         # jules 07-07: "Skip for now" on backup wasn't handled here, so it 400'd and the nag
         # never cleared. Ack it (it still self-clears for real on the first green backup run).
         ac["onboarding_backup_ack"] = True
+    elif item == "initiate_team_tuning":
+        # Skip only — enable goes through /api/onboarding/team-tuning/enable so we
+        # can write cove.yaml consent + optionally kick the first sweep.
+        ac["onboarding_team_tuning_skip"] = True
     else:
         return JSONResponse(status_code=400, content={"ok": False, "error": "unknown item"})
     from src.memory.database import get_db
@@ -365,6 +403,100 @@ async def onboarding_address_live(request: Request):
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
     return {"ok": True}
+
+
+
+
+@router.post("/api/onboarding/team-tuning/enable")
+async def onboarding_team_tuning_enable(request: Request):
+    """One-time consent: enable daily team auto-tune and optionally run the first pass.
+
+    Body (optional): {"run_now": true} — after writing consent, kick a tuning sweep
+    in the background so the team tunes immediately rather than waiting for 06:30.
+    Admin-only. Safe to call twice (idempotent consent write).
+    """
+    from src.dashboard.routes.presence import get_current_presence
+    p = await get_current_presence(request)
+    if not p or not p.get("id"):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
+    # Admin only — same check as /api/onboarding/items (cove_role == admin).
+    is_admin = (p.get("cove_role") or "") == "admin"
+    if not is_admin:
+        return JSONResponse(status_code=403, content={
+            "ok": False, "error": "Only the Cove admin can enable team auto-tune",
+        })
+
+    run_now = True
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and "run_now" in body:
+            run_now = bool(body.get("run_now"))
+    except Exception:
+        pass
+
+    try:
+        from src.tuning.team_consent import (
+            enable_team_auto_tune, estimate_team_tune_cost, team_auto_tune_enabled,
+        )
+        result = enable_team_auto_tune(by=str(p.get("id") or "operator"))
+        estimate = estimate_team_tune_cost()
+        # Snapshot the estimate they consented under (audit trail).
+        try:
+            from src.config import save_cove_config
+            save_cove_config({"team_tuning": {
+                **(result.get("team_tuning") or {}),
+                "last_estimate": estimate,
+            }})
+        except Exception:
+            pass
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
+
+    started = False
+    if run_now:
+        try:
+            import asyncio
+            from src.utils.scheduler import AgentScheduler
+
+            async def _kick():
+                s = AgentScheduler()
+                await s._run_tuning_sweep(force=False)
+
+            asyncio.create_task(_kick())
+            started = True
+        except Exception as e:
+            print(f"[onboarding] team-tuning first sweep kick failed: {e}")
+
+    return {
+        "ok": True,
+        "enabled": True,
+        "already": bool(result.get("already")),
+        "estimate": estimate,
+        "sweep_started": started,
+        "message": (
+            "Team auto-tune enabled. First pass started."
+            if started else
+            "Team auto-tune enabled. Daily run starts at the next morning window."
+        ),
+    }
+
+
+@router.get("/api/onboarding/team-tuning/estimate")
+async def onboarding_team_tuning_estimate(request: Request):
+    """Live cost estimate for a full team tune on the current Cove brain."""
+    from src.dashboard.routes.presence import get_current_presence
+    p = await get_current_presence(request)
+    if not p or not p.get("id"):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
+    try:
+        from src.tuning.team_consent import estimate_team_tune_cost, team_auto_tune_enabled
+        return {
+            "ok": True,
+            "enabled": team_auto_tune_enabled(),
+            "estimate": estimate_team_tune_cost(),
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
 
 
 @router.post("/api/onboarding/cove-door")

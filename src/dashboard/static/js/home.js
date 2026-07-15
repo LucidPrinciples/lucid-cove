@@ -246,6 +246,11 @@ async function dismissWatcherAlert(alertKey, btn) {
 // ── First-run onboarding cards (persistent until done) ───────────────────────
 // Dependency-gated first-run setup, shown inside Pending Approvals: each step
 // unlocks only when the prior is done. Address → Intelligence → Device+jules.
+// Jules 0113: 30s Attention refresh used to wipe an expanded address/mobile form
+// mid-setup (card "collapsed in 2–3 seconds"). Remember which setup cards are open
+// across re-renders so the operator can keep working.
+window._setupExpanded = window._setupExpanded || {};
+
 function _renderSetup(obData) {
     const steps = obData.steps || [];
     const dc = obData.done_count || 0, tot = obData.total || steps.length;
@@ -259,7 +264,52 @@ function _renderSetup(obData) {
         else if (s.available) html += _onboardingCardHtml(s);
         else html += _setupLockedLine(s);
     });
+    // Restore expanded claim/mobile panels after the HTML is mounted.
+    setTimeout(_restoreSetupExpanded, 0);
     return html + `</div>`;
+}
+
+function _markSetupExpanded(id, open) {
+    try {
+        window._setupExpanded = window._setupExpanded || {};
+        if (open) window._setupExpanded[id] = open;  // true | 'mesh' | mode string
+        else delete window._setupExpanded[id];
+    } catch (e) {}
+}
+
+function _restoreSetupExpanded() {
+    const exp = window._setupExpanded || {};
+    // Address: if the operator had Claim open (or a host_command pending card is
+    // showing), keep the form visible instead of collapsing back to the CTA.
+    if (exp.claim_address) {
+        const form = document.getElementById('dom-form');
+        const cta = document.getElementById('dom-cta');
+        const mesh = document.getElementById('addr-mesh-step');
+        // Prefer the claim form when we left it open; mesh step only if that was open.
+        if (exp.claim_address === 'mesh' && mesh) {
+            mesh.style.display = 'block';
+            if (cta) cta.style.display = 'none';
+        } else if (form) {
+            form.style.display = 'block';
+            if (cta) cta.style.display = 'none';
+            if (mesh) mesh.style.display = 'none';
+        }
+    }
+    // Intelligence form
+    if (exp.add_intelligence) {
+        const f = document.getElementById('ai-form');
+        const c = document.getElementById('ai-cta');
+        if (f) f.style.display = 'block';
+        if (c) c.style.display = 'none';
+    }
+    // Mobile: restore join-command panel if it was open (never auto-ack).
+    if (exp.device_jules) {
+        const out = document.getElementById('mesh-key-out');
+        if (out && exp.device_jules_html) {
+            out.style.display = 'block';
+            out.innerHTML = exp.device_jules_html;
+        }
+    }
 }
 
 function _setupDoneLine(s) {
@@ -317,6 +367,7 @@ function openOnboardingHelp() {
             <p><b>1. Add intelligence.</b> Connect a model (your own key, or a local one). This switches on your <b>Agent</b> and the <b>Tools</b>, including jules.</p>
             <p><b>2. Set your address.</b> Your Cove gets its own web address. That turns on HTTPS so voice and the mic work, and gives everyone a clean link (you're <code>your-handle.your-address</code>).</p>
             <p><b>3. Set up compute.</b> Choose where heavy work runs: a cloud model, this box's GPU, a GPU rented from another Cove, or CPU only.</p>
+            <p><b>Team tuning (optional).</b> Daily auto-tune for the full team uses your connected model and can bill a cloud key. You choose when to enable it — skip anytime; chat and personal Tune still work.</p>
             <p><b>4. Connect on mobile.</b> Join your phone to the private mesh, then open <b>jules</b> and talk anywhere. It lands in your Inbox for your agent to act on.</p>
             <p><b>5. Back up your Cove's work.</b> It backs itself up every night to a private repo you own, so if this box dies your Cove doesn't.</p>
             <p style="color:var(--dim);">From there your agent helps you build, capture, and organize, and you can add family members, each with their own handle.</p>
@@ -429,7 +480,42 @@ function _onboardingCardHtml(item) {
             </div>
         </div>`;
     }
+    if (item.id === 'initiate_team_tuning') {
+        // Cost-aware consent before daily team auto-tune bills a cloud key.
+        // Skip is fine — Cove chat/tools/personal Tune still work.
+        const est = item.estimate || {};
+        const summary = est.summary
+            ? ESC(est.summary)
+            : 'Estimate unavailable until a model is connected.';
+        const sev = est.severity || '';
+        const sevColor = sev === 'high' ? 'var(--orange,#e6a23c)'
+            : sev === 'medium' ? 'var(--accent)'
+            : sev === 'free' || sev === 'low' ? 'var(--green)'
+            : 'var(--dim)';
+        const modelLine = est.display
+            ? `<div style="font-size:0.72rem;color:var(--dim);margin-top:4px;">Model: <code>${ESC(est.display)}</code> · ~${est.agent_count || 10} agents · ~${Math.round(((est.tokens_in||0)+(est.tokens_out||0))/1000)}k tokens/pass</div>`
+            : '';
+        return `<div class="home-approval onboarding-card">
+            <div class="approval-tool">${title}</div>
+            <div class="approval-desc" style="line-height:1.6;">${body}</div>
+            <div style="margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--card,#111);">
+                <div style="font-size:0.78rem;color:${sevColor};line-height:1.5;">💡 ${summary}</div>
+                ${modelLine}
+            </div>
+            <div style="margin-top:8px;font-size:0.68rem;color:var(--dim);line-height:1.5;">
+                Enabling starts daily auto-tune and runs the first pass now.
+                Skipping leaves auto-tune off — you can enable later from this card or Settings.
+                Personal Tune (you) and agent chat are never blocked.
+            </div>
+            <div class="approval-actions" style="flex-wrap:wrap;gap:6px;margin-top:8px;">
+                <button class="btn-approve" onclick="enableTeamTuning(this)">Enable daily team tuning</button>
+                <button class="btn-ghost" onclick="ackOnboarding('initiate_team_tuning')">Skip for now</button>
+            </div>
+            <div id="team-tune-status" style="display:none;margin-top:6px;font-size:0.72rem;"></div>
+        </div>`;
+    }
     if (item.id === 'jules_intro') {
+
         return `<div class="home-approval onboarding-card">
             <div class="approval-tool">${title}</div>
             <div class="approval-desc">${body}</div>
@@ -458,7 +544,7 @@ function _onboardingCardHtml(item) {
                 <div style="margin-top:6px;"><button class="btn-approve" onclick="saveIntelligence()">Save</button></div>
             </div>
             <div class="approval-actions" id="ai-cta">
-                <button class="btn-approve" onclick="document.getElementById('ai-form').style.display='block';this.parentElement.style.display='none';loadMachineProbe();">Add intelligence</button>
+                <button class="btn-approve" onclick="_markSetupExpanded('add_intelligence', true);document.getElementById('ai-form').style.display='block';this.parentElement.style.display='none';loadMachineProbe();">Add intelligence</button>
             </div>
         </div>`;
     }
@@ -485,9 +571,10 @@ function _onboardingCardHtml(item) {
             <div id="mesh-key-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
             <div class="approval-actions" style="flex-wrap:wrap;gap:6px;">
                 <button class="btn-ghost" onclick="getMeshKey(this)">On a laptop/server? Get a join command</button>
-                <a class="btn-approve" href="/jules" target="_blank" rel="noopener" style="text-decoration:none;">Open jules ↗</a>
-                <button class="btn-ghost" onclick="ackOnboarding('device_jules')">Done</button>
+                <a class="btn-approve" href="/jules" target="_blank" rel="noopener" style="text-decoration:none;" onclick="_markSetupExpanded('device_jules', true);">Open jules ↗</a>
+                <button class="btn-ghost" onclick="ackOnboarding('device_jules')">Mark complete</button>
             </div>
+            <div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">Opening jules or copying a join command does <b>not</b> finish this step — mark complete only after your phone is on the mesh and signed in.</div>
         </div>`;
     }
     if (item.id === 'protect_backup') {
@@ -587,8 +674,11 @@ async function runBackupNow(btn) {
 }
 
 async function getMeshKey(btn) {
+    // Jules 0113: this only reveals a join command. It must NEVER ack device_jules
+    // (that false-complete collapsed mobile mid-setup and showed a green check).
     const out = document.getElementById('mesh-key-out');
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    _markSetupExpanded('device_jules', true);
     try {
         const r = await fetch('/api/onboarding/mesh-key');
         const d = await r.json();
@@ -602,11 +692,12 @@ async function getMeshKey(btn) {
                 out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not mint a join code here.') + '</div>'
                     + (d.instructions ? '<div style="color:var(--dim);margin-top:4px;font-size:0.95em;">' + ESC(d.instructions) + '</div>' : '');
             }
+            try { window._setupExpanded.device_jules_html = out.innerHTML; } catch (e) {}
         }
     } catch (e) {
         if (out) { out.style.display = 'block'; out.textContent = 'Could not reach the mesh service.'; }
     }
-    if (btn) { btn.disabled = false; btn.textContent = 'Get join code'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'On a laptop/server? Get a join command'; }
 }
 
 function _domModeChange() {
@@ -627,8 +718,10 @@ async function _addrOpen(btn) {
     } catch (e) { /* status unreachable — fall through to the mesh step */ }
     if (btn && btn.parentElement) btn.parentElement.style.display = 'none';
     if (reach && reach.ok) {
+        _markSetupExpanded('claim_address', true);
         _addrShowClaim(reach);
     } else {
+        _markSetupExpanded('claim_address', 'mesh');
         const step = document.getElementById('addr-mesh-step');
         if (step) step.style.display = 'block';
     }
@@ -1102,12 +1195,60 @@ function _afterIntelligenceConnected() {
     loadHomeApprovals();
 }
 
+async function enableTeamTuning(btn) {
+    const st = document.getElementById('team-tune-status');
+    const show = (msg, color) => {
+        if (st) { st.style.display = 'block'; st.style.color = color || 'var(--dim)'; st.textContent = msg; }
+    };
+    if (btn) { btn.disabled = true; btn.textContent = 'Enabling…'; }
+    show('Writing consent and starting the first team tune…');
+    try {
+        const r = await fetch('/api/onboarding/team-tuning/enable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ run_now: true }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.error || d.ok === false) {
+            show(d.error || 'Could not enable team tuning.', 'var(--red,#e74c3c)');
+            if (btn) { btn.disabled = false; btn.textContent = 'Enable daily team tuning'; }
+            return;
+        }
+        const est = (d.estimate && d.estimate.summary) ? d.estimate.summary : '';
+        show((d.message || 'Team auto-tune enabled.') + (est ? ' ' + est : ''), 'var(--green)');
+        // Clear any skip flag path by refreshing cards — enable marks step done.
+        setTimeout(() => { try { loadHomeApprovals(); } catch (e) {} }, 600);
+    } catch (e) {
+        show('Could not enable: ' + (e.message || e), 'var(--red,#e74c3c)');
+        if (btn) { btn.disabled = false; btn.textContent = 'Enable daily team tuning'; }
+    }
+}
+
 async function ackOnboarding(item) {
+
+    // Jules 0113: mobile was false-completing when operators hit the nearby Done
+    // while still reading the join command. Confirm before clearing that step.
+    if (item === 'device_jules' || item === 'join_mesh') {
+        const ok = confirm(
+            'Mark Connect on mobile complete only after your phone is on the mesh '
+            + 'and signed into this Cove.\n\nContinue?'
+        );
+        if (!ok) return;
+    }
     try {
         await fetch('/api/onboarding/ack', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ item }),
         });
+        if (item === 'device_jules' || item === 'join_mesh') {
+            try {
+                if (window._setupExpanded) {
+                    delete window._setupExpanded.device_jules;
+                    delete window._setupExpanded.device_jules_html;
+                }
+            } catch (e) {}
+        }
         loadHomeApprovals();
     } catch (e) {}
 }
@@ -1685,6 +1826,13 @@ async function createProject() {
 setInterval(() => {
     const homePanel = document.getElementById('panel-home');
     if (homePanel && homePanel.classList.contains('active')) {
+        // Jules 0113: don't hard-refresh Attention while a setup form is open —
+        // that was collapsing Set address / mobile mid-flow every ~30s.
+        const setupBusy = document.querySelector(
+            '#dom-form[style*="block"], #addr-mesh-step[style*="block"], '
+            + '#ai-form[style*="block"], #mesh-key-out[style*="block"], #compute-rent[style*="block"]'
+        );
+        if (setupBusy) return;
         loadHomeApprovals();
     }
 }, 30000);

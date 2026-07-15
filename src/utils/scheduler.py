@@ -211,7 +211,24 @@ class AgentScheduler:
 
         force=True (#D4): override the per-Drop dedup and re-tune the whole Cove
         now (still bounded by the dispatch lock + 20-min cooldown in run_cove_sweep).
+
+        Team auto-tune consent (install-pass 2026-07-14): automatic team tuning
+        only runs after the Cove admin enables it from the Initiate team tuning
+        card. Drop pull and personal Tune practice are NOT gated. force=True from
+        an explicit operator-triggered API still requires consent — no silent
+        spend path.
         """
+        try:
+            from src.tuning.team_consent import team_auto_tune_allowed
+            if not await team_auto_tune_allowed():
+                print(f"{ts_log()} [scheduler] Tuning sweep skipped — team auto-tune "
+                      "not enabled yet (operator must Initiate team tuning)")
+                return {"status": "skipped", "reason": "team_auto_tune_disabled"}
+        except Exception as _e:
+            print(f"{ts_log()} [scheduler] team-auto-tune consent check failed "
+                  f"(continuing blocked for safety): {_e}")
+            return {"status": "skipped", "reason": "team_auto_tune_check_failed"}
+
         protocol = "tuning-sweep-force" if force else "tuning-sweep"
         run_id = await _log_run_start(protocol, f"sweep-{today_app()}")
         started = time.time()
@@ -254,13 +271,27 @@ class AgentScheduler:
         just after midnight (a late-night deploy, a power blip) would otherwise
         tune the whole team off the PREVIOUS day's Drop and burn the day on a
         stale package. A box awake before 07:00 is by definition awake for the
-        06:30 self-tune and the 07:00+ sweep ticks, so nothing is lost."""
+        06:30 self-tune and the 07:00+ sweep ticks, so nothing is lost.
+
+        Jules 0113: also skip while first-run setup is incomplete (no live domain
+        yet). A brand-new Cove that just got an API key must not spend dollars
+        tuning the whole build team off a first-chat install path.
+        """
         await asyncio.sleep(120)
         try:
             if self._now().hour < 7:
                 print(f"{ts_log()} [scheduler] Boot catch-up: before 07:00 — skipping "
                       "(pre-Drop window; the 06:30 self-tune / 07:00+ sweep handles today)")
                 return
+            try:
+                from src.utils.watcher import _first_run_setup_incomplete
+                if _first_run_setup_incomplete():
+                    print(f"{ts_log()} [scheduler] Boot catch-up: first-run setup incomplete "
+                          "— skipping team tuning (no live address yet)")
+                    return
+            except Exception as _e:
+                print(f"{ts_log()} [scheduler] Boot catch-up: setup-gate check failed "
+                      f"(continuing): {_e}")
             print(f"{ts_log()} [scheduler] Boot catch-up: checking today's tuning...")
             await self._run_tuning_sweep()
         except Exception as e:
