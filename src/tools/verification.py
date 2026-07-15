@@ -230,19 +230,28 @@ async def get_verification_summary(
 # =============================================================================
 # Nextcloud Helpers (shared by file verifiers)
 # =============================================================================
+# MUST use the same credential resolver as nextcloud_tools write ops.
+# Env-only auth was wrong on multi-presence Coves (NEXTCLOUD_USER empty or
+# not the acting identity): tools wrote fine via request/admin/founding-op
+# fallback, then Soren HEAD/PROPFIND'd with empty env creds → 401 noise.
 
 def _nc_auth() -> tuple[str, str]:
-    user = env("NEXTCLOUD_USER")
-    pw = env("NEXTCLOUD_PASSWORD")
-    return (user, pw)
+    """Same (user, password) path as nextcloud write tools."""
+    from src.tools.nextcloud_tools import _auth
+    return _auth()
 
 
 def _nc_webdav_url(path: str) -> str:
-    base_url = env("NEXTCLOUD_URL", "http://nextcloud:80")
-    user = env("NEXTCLOUD_USER")
-    from urllib.parse import quote
-    path = path.lstrip("/")
-    return f"{base_url}/remote.php/dav/files/{user}/{quote(path, safe='/')}"
+    """Same WebDAV URL builder as nextcloud tools (user segment matches auth)."""
+    from src.tools.nextcloud_tools import _webdav_url
+    return _webdav_url(path)
+
+
+def _nc_caldav_url(calendar: str) -> str:
+    """CalDAV collection URL for the acting NC identity."""
+    from src.tools.nextcloud_tools import _caldav_base
+    cal = (calendar or "personal").strip("/")
+    return f"{_caldav_base()}/{cal}/"
 
 
 # =============================================================================
@@ -372,11 +381,9 @@ async def verify_calendar_event(args: dict, result: str) -> tuple[bool, str]:
     if "error" in result.lower() and "created" not in result.lower():
         return (True, "Tool reported failure — no verification needed")
 
-    # Query CalDAV for events on the target date
+    # Query CalDAV for events on the target date (same creds as write tools)
     calendar = args.get("calendar", "personal")
-    base_url = env("NEXTCLOUD_URL", "http://nextcloud:80")
-    user = env("NEXTCLOUD_USER")
-    caldav_url = f"{base_url}/remote.php/dav/calendars/{user}/{calendar}/"
+    caldav_url = _nc_caldav_url(calendar)
 
     try:
         start = f"{date}T000000Z"
