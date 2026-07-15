@@ -1058,18 +1058,30 @@ body {
 .history-arrow { text-align: center; color: var(--dim); font-size: 0.8rem; }
 
 /* ── Settings ── */
+/* Jules 1357: subtle separation so stacked groups (Nextcloud / Matrix / LTP…) scan cleanly */
 .settings-group {
-  padding: 10px 1rem;
+  padding: 14px 1rem 16px;
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
   border-bottom: 1px solid var(--border);
 }
 
+.settings-group + .settings-group {
+  margin-top: 4px;
+}
+
 .settings-group-title {
-  font-size: 0.65rem;
+  font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--dim);
-  margin-bottom: 8px;
+  color: var(--text);
+  opacity: 0.72;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(42, 45, 58, 0.55);
 }
 
 .settings-row {

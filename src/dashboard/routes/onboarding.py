@@ -513,6 +513,31 @@ async def onboarding_team_tuning_estimate(request: Request):
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
 
 
+@router.post("/api/onboarding/team-tuning/disable")
+async def onboarding_team_tuning_disable(request: Request):
+    """Admin: turn off daily team auto-tune (Settings control). Cove still works."""
+    from src.dashboard.routes.presence import get_current_presence
+    p = await get_current_presence(request)
+    if not p or not p.get("id"):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
+    if (p.get("cove_role") or "") != "admin":
+        return JSONResponse(status_code=403, content={
+            "ok": False, "error": "Only the Cove admin can change team auto-tune",
+        })
+    try:
+        from src.tuning.team_consent import disable_team_auto_tune, estimate_team_tune_cost
+        result = disable_team_auto_tune(by=str(p.get("id") or "operator"))
+        return {
+            "ok": True,
+            "enabled": False,
+            "team_tuning": result.get("team_tuning"),
+            "estimate": estimate_team_tune_cost(),
+            "message": "Team auto-tune is off. Agents still chat; daily team pass will not run.",
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
+
+
 @router.post("/api/onboarding/cove-door")
 async def onboarding_cove_door(request: Request):
     """Mint a FRESH sign-in door for the current operator at the Cove's live domain, so

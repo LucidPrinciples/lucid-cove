@@ -620,9 +620,9 @@ async def update_presence_me(request: Request):
                     raise HTTPException(400, "Username must be 3-30 characters")
                 if not re.match(r'^[a-z0-9][a-z0-9_-]*[a-z0-9]$', val):
                     raise HTTPException(400, "Username can only contain lowercase letters, numbers, hyphens, underscores")
-            # Email cannot be empty
+            # Email is optional (Woods / Jules 1346) — blank clears it; do not block Save.
             if field == "email" and not val:
-                raise HTTPException(400, "Email cannot be empty")
+                val = None
             # Timezone must be valid IANA
             if field == "timezone" and val:
                 from zoneinfo import ZoneInfo

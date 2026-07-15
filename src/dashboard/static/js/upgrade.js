@@ -346,10 +346,15 @@ async function _upgradeStartCheckout(tierKey, opts) {
 }
 
 // Render the upgrade CTA card on the home tab (tier-aware)
-// Tuner: full card in dedicated section. Operator/Presence: inline card in approvals area.
+// Jules 1353: Build a Cove / upgrade ladder is for the public app (Tuner + Operator only).
+// Presence/Cove members already live inside a Cove — never show the upgrade card there.
 function _renderUpgradeCTA() {
     var currentTier = MC.tier?.current || 'free';
-    var info = UPGRADE_TIERS[currentTier];
+    // Inside a Cove (multi-presence session) or already on presence/cove — no upgrade CTA.
+    var inCove = !!(MC.presence && (MC.presence.cove_role || MC.presence.id));
+    var appLadderOnly = (currentTier === 'free' || currentTier === 'pro' || currentTier === 'operator');
+    var showCta = appLadderOnly && !inCove && !(MC.adminView || MC.coveAdminView);
+    var info = showCta ? UPGRADE_TIERS[currentTier] : null;
 
     // Tuner: dedicated upgrade section
     var el = document.getElementById('home-upgrade-cta');
@@ -369,7 +374,7 @@ function _renderUpgradeCTA() {
         }
     }
 
-    // Operator/Presence: inline upgrade in approvals area
+    // Operator (app): inline upgrade in approvals area — not Presence/Cove members
     var inlineEl = document.getElementById('home-upgrade-inline');
     if (inlineEl) {
         if (!info) { inlineEl.innerHTML = ''; }
