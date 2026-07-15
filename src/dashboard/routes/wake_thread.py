@@ -185,6 +185,7 @@ def _thread_already_has_brain_ack(messages) -> bool:
 # model ALREADY named a step (leave its phrasing) or skipped it (append ours).
 _STEP_ANCHORS = {
     "set your Cove's address": "address",
+    "open Connect to finish chat": "connect",
     "choose where heavy work runs": "heavy work",
     "connect your phone": "phone",
 }
@@ -195,34 +196,57 @@ def _ensure_setup_steps_line(text: str, remaining) -> str:
     in the brain-acknowledgment IN CODE. Run-3 proved the model (BERT) eats the prompt
     directive and names zero steps. If the generated text already names every remaining step
     (its anchor word is present), leave the model's phrasing; otherwise append one
-    deterministic line listing them. No remaining steps → unchanged."""
+    deterministic line listing them. No remaining steps → unchanged.
+
+    Mosswood 2124: nags match reality — address while still on the install door;
+    open Connect when the address is live (Matrix / Form Haven path); then compute
+    and phone from Attention.
+    """
     if not remaining:
         return text
     low = (text or "").lower()
     anchors = [_STEP_ANCHORS.get(s, s).lower() for s in remaining]
     if anchors and all(a in low for a in anchors):
         return text
-    # Address first when open — that's the step that gets them off localhost.
-    ordered = list(remaining)
-    if "set your Cove's address" in ordered:
-        ordered = (["set your Cove's address"]
-                   + [s for s in ordered if s != "set your Cove's address"])
+    # Priority order: address → Connect → compute → phone.
+    priority = [
+        "set your Cove's address",
+        "open Connect to finish chat",
+        "choose where heavy work runs",
+        "connect your phone",
+    ]
+    ordered = [s for s in priority if s in remaining]
+    ordered += [s for s in remaining if s not in ordered]
+
     if "set your Cove's address" in remaining:
-        # Jules 1825: after Open chat, the operator needs an explicit "go back to
-        # Attention" pointer — the old line said it well; keep that cadence.
+        # Still on install / no live door — address is the only path off localhost.
         rest = [s for s in ordered if s != "set your Cove's address"]
         if rest:
             line = (
                 "When you're ready, go back to Attention and set your Cove's address "
-                "so we can leave the local URL for a real door (HTTPS, voice, and access "
-                "from other devices) — Claim your address. After that: "
-                + ", ".join(rest) + "."
+                "so we can leave the local URL for a real door (HTTPS, voice, Matrix, "
+                "and access from other devices) — Claim your address. This can take a "
+                "few minutes. After that: " + ", ".join(rest) + "."
             )
         else:
             line = (
                 "When you're ready, go back to Attention and set your Cove's address "
-                "so we can leave the local URL for a real door (HTTPS, voice, and access "
-                "from other devices) — Claim your address."
+                "so we can leave the local URL for a real door (HTTPS, voice, Matrix, "
+                "and access from other devices) — Claim your address. This can take a "
+                "few minutes; open the Cove from the real door once it's live."
+            )
+    elif "open Connect to finish chat" in remaining:
+        rest = [s for s in ordered if s != "open Connect to finish chat"]
+        if rest:
+            line = (
+                "Your address is live — click Connect at the top of Chat to finish "
+                "Matrix (needed for Haven and family rooms). Then go back to Attention "
+                "for: " + ", ".join(rest) + "."
+            )
+        else:
+            line = (
+                "Your address is live — click Connect at the top of Chat to finish "
+                "Matrix (needed for Haven and family rooms)."
             )
     else:
         steps = ", ".join(ordered)
@@ -428,8 +452,21 @@ async def brain_acknowledge(request: Request):
             if isinstance(_ac, str):
                 _ac = _json.loads(_ac or "{}")
             _ac = _ac or {}
-            if not (_cfg.get("domain") or "").strip():
+            # Mirror onboarding.py address_done: domain alone is not live while a
+            # host command is still pending / domain_live is false.
+            _domain = (_cfg.get("domain") or "").strip()
+            _pending = (_cfg.get("pending_host_command") or "").strip()
+            if "domain_live" in _cfg:
+                _addr_live = bool(_cfg.get("domain_live"))
+            else:
+                _addr_live = bool(_domain) and not _pending
+            if _pending:
+                _addr_live = False
+            if not _domain or not _addr_live:
                 remaining.append("set your Cove's address")
+            else:
+                # Door is real — Matrix Connect is the next federated step (Haven).
+                remaining.append("open Connect to finish chat")
             _csec = (_cfg.get("compute") or {})
             # ONLY llm counts as a choice — the provisioner stamps voice.mode
             # AND video_asr.mode into every fresh cove.yaml (defaults/detection,

@@ -72,3 +72,24 @@ def test_brain_ack_fallback_personalizes():
     text = wt._brain_ack_fallback("Gary", "Garrison Cove")
     assert "Gary" in text
     assert "Garrison Cove" in text
+
+
+def test_connect_nag_when_address_live():
+    text = wt._ensure_setup_steps_line(
+        "My brain is on.",
+        ["open Connect to finish chat", "choose where heavy work runs"],
+    )
+    assert "click Connect" in text
+    assert "Matrix" in text
+    assert "choose where heavy work runs" in text
+    assert "set your Cove's address" not in text
+
+
+def test_address_nag_still_priority_over_connect():
+    text = wt._ensure_setup_steps_line(
+        "My brain is on.",
+        ["open Connect to finish chat", "set your Cove's address"],
+    )
+    assert "set your Cove's address" in text
+    # Address branch wins; Connect may appear in the "after that" rest list.
+    assert "Claim your address" in text
