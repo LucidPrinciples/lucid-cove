@@ -276,20 +276,40 @@ def _restamp_matrix_env(cove_dir: str, domain: str) -> dict:
 
 
 def _reconcile_matrix_identity(args, domain: str, result: dict) -> None:
-    """Host-side Matrix server_name regen (virgin-only, gated). See the call site."""
+    """Host-side Matrix server_name regen (first-claim / virgin, gated). See call site."""
     agents = [a.strip() for a in (args.agents or "").split(",") if a.strip()]
-    agents += ["steward", "lt", "agent"]   # shared bot localparts (mirror domain.py)
+    # netconfig.expand_matrix_agent_localparts always unions the standard team; keep
+    # explicit extras here for custom installs that pass --agents.
+    operators = [a.strip() for a in (getattr(args, "operators", "") or "").split(",") if a.strip()]
     cove_dir = (getattr(args, "cove_dir", "") or getattr(args, "compose_dir", "") or "").strip()
     if cove_dir in (".", ""):
         cove_dir = os.getcwd() if cove_dir == "." else cove_dir
     mx = netconfig.reconcile_matrix_identity(
         cove_id=args.cove_id, domain=domain, agent_localparts=agents,
+        operator_localparts=operators,
+        first_claim=True,
         postgres_container=(getattr(args, "postgres_container", "") or "").strip(),
         dendrite_container=(getattr(args, "dendrite_container", "") or "").strip(),
         cove_dir=cove_dir)
     result["matrix_identity"] = mx
     if mx.get("changed"):
         result["matrix_env"] = _restamp_matrix_env(cove_dir, domain)
+        # Pick up MATRIX_SERVER_NAME in the app so Form Haven / Connect match Dendrite.
+        # Best-effort — operator can still run the recreate line from matrix_env if this fails.
+        env_result = result["matrix_env"] or {}
+        if env_result.get("ok") and cove_dir:
+            try:
+                r = subprocess.run(
+                    ["docker", "compose", "up", "-d", "app"],
+                    cwd=cove_dir, capture_output=True, text=True, timeout=120,
+                )
+                result["matrix_app_recreate"] = {
+                    "ok": r.returncode == 0,
+                    "cwd": cove_dir,
+                    "stderr": (r.stderr or "")[:200],
+                }
+            except Exception as e:
+                result["matrix_app_recreate"] = {"ok": False, "reason": str(e)[:140]}
 
 
 
@@ -590,8 +610,13 @@ def main() -> int:
                          "used for the host-side Matrix server_name rewrite + env restamp. "
                          "Defaults to --compose-dir.")
     ap.add_argument("--agents", default="",
-                    help="comma-separated agent localparts — the virgin-check basis for the "
-                         "Matrix regen (any non-agent account present = NOT virgin, no regen)")
+                    help="comma-separated agent localparts — extra bots for the Matrix regen "
+                         "allowlist (standard team is always included; any unknown human "
+                         "account beyond --operators blocks regen)")
+    ap.add_argument("--operators", default="",
+                    help="comma-separated operator Matrix localparts already registered on "
+                         "first claim (e.g. mark). Allowed during first-claim regen so Open "
+                         "chat / Connect before mark-live does not lock identity on .localhost")
     ap.add_argument("--dendrite-container", default="",
                     help="override the Dendrite container name (default {cove-id}-dendrite)")
     ap.add_argument("--postgres-container", default="",

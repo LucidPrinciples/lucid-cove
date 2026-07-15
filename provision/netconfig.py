@@ -758,19 +758,75 @@ def _localpart_of(mxid: str) -> str:
     return m.split(":", 1)[0]
 
 
+# Standard team + shared bot localparts. Host-side set_domain often runs without
+# an in-app agent roster; without these, every real team account looks "human"
+# and claim-time regen falsely reports non-virgin (Calhoun Form Haven 2026-07-15).
+DEFAULT_MATRIX_AGENT_LOCALPARTS = (
+    "stuart", "mercer", "archimedes", "arthur", "gabe", "ezra", "julian",
+    "iris", "vera", "soren", "steward", "havensteward", "lt", "agent",
+)
+
+
+def expand_matrix_agent_localparts(agent_localparts=None) -> list:
+    """Union caller agents with the standard team/bot allowlist (deduped, lowercased)."""
+    out = []
+    seen = set()
+    for a in list(agent_localparts or []) + list(DEFAULT_MATRIX_AGENT_LOCALPARTS):
+        lp = (_localpart_of(a) or str(a or "")).strip().lower()
+        if lp and lp not in seen:
+            seen.add(lp)
+            out.append(lp)
+    return out
+
+
 def matrix_virgin_from_senders(senders, agent_localparts, ) -> bool:
     """Pure decision: is the homeserver VIRGIN (only agents present)? `senders` is
     the list of DISTINCT account localparts (or full mxids) seen in Dendrite;
-    `agent_localparts` is the Cove's own bot ids (stuart/atlas/lt/...). Any sender
+    `agent_localparts` is the Cove's own bot ids (stuart/mercer/lt/...). Any sender
     that isn't an agent = a human is present = NOT virgin. Empty = virgin. Fails
     SAFE elsewhere: callers treat an unreadable DB as NOT virgin (never wipe on
-    uncertainty)."""
-    agents = {(_localpart_of(a) or a).lower() for a in (agent_localparts or [])}
+    uncertainty). Always expands through expand_matrix_agent_localparts so a bare
+    host command without --agents still treats the standard team as bots."""
+    agents = set(expand_matrix_agent_localparts(agent_localparts))
     for s in senders or []:
         lp = _localpart_of(s)
         if lp and lp.lower() not in agents:
             return False
     return True
+
+
+def matrix_first_claim_eligible(senders, agent_localparts, operator_localparts=None) -> bool:
+    """True when claim-time regen is still safe even if a human operator already
+    registered (Open chat / Connect before mark-live). Safe = only agents + at most
+    the known operator localparts. Extra humans or unknown accounts → False."""
+    agents = set(expand_matrix_agent_localparts(agent_localparts))
+    ops = {(_localpart_of(a) or str(a or "")).strip().lower()
+           for a in (operator_localparts or []) if a}
+    allowed = agents | ops
+    if not ops:
+        return matrix_virgin_from_senders(senders, agent_localparts)
+    for s in senders or []:
+        lp = _localpart_of(s)
+        if lp and lp.lower() not in allowed:
+            return False
+    return True
+
+
+def _read_dendrite_server_name(cove_dir: str, cove_id: str) -> str:
+    """Best-effort current server_name from host-side dendrite.yaml ('' if unknown)."""
+    candidates = []
+    if cove_dir:
+        candidates.append(Path(cove_dir) / "docker" / "dendrite.yaml")
+        candidates.append(Path(cove_dir) / "dendrite.yaml")
+    candidates.append(Path(f"out/{cove_id}-cove/docker/dendrite.yaml"))
+    path = next((p for p in candidates if p.is_file()), None)
+    if path is None:
+        return ""
+    try:
+        m = re.search(r"(?m)^[ \t]*server_name:[ \t]*(\S+)", path.read_text())
+        return (m.group(1) if m else "").strip()
+    except Exception:
+        return ""
 
 
 def regenerate_dendrite_config(*, domain: str, db_password: str,
@@ -815,14 +871,22 @@ def reconcile_matrix_identity(*, cove_id: str, domain: str,
                               postgres_container: str = "",
                               dendrite_container: str = "",
                               cove_dir: str = "",
-                              enabled: bool = None) -> dict:
-    """Reconcile the running Dendrite's server_name to matrix.{domain} on claim,
-    but ONLY while virgin. Returns a structured result the claim surfaces:
-      {ok, virgin, changed, gated, message, reason}
-    - not virgin  -> changed False + "existing conversations" message.
-    - virgin + not enabled (default) -> report-only: changed False, gated True,
-      message says it WOULD regenerate (flip LP_MATRIX_REGEN_ENABLED to apply).
-    - virgin + enabled -> attempt the regen (stop→wipe→config→start); changed True/False.
+                              enabled: bool = None,
+                              operator_localparts=None,
+                              first_claim: bool = True) -> dict:
+    """Reconcile the running Dendrite's server_name to matrix.{domain} on claim.
+
+    Safe to wipe regenerable Matrix state when:
+      - only agents are present (classic virgin), OR
+      - first_claim and only agents + the known operator localparts are present
+        (Open chat / Connect before mark-live — still first-run, no other humans).
+
+    Returns a structured result the claim surfaces:
+      {ok, virgin, changed, gated, already_correct, message, reason, current_server_name}
+    - already on matrix.{domain} -> changed False, already_correct True (no wipe).
+    - not eligible  -> changed False + "existing conversations" message.
+    - eligible + not enabled (default) -> report-only: changed False, gated True.
+    - eligible + enabled -> attempt the regen (stop→wipe→config→start).
     Never raises; fires detached from the claim, never fatal.
 
     `postgres_container` default fix (run-3): a FRESH single-stack Cove has NO
@@ -832,34 +896,60 @@ def reconcile_matrix_identity(*, cove_id: str, domain: str,
     if not domain:
         return {"ok": False, "reason": "no domain set"}
     new_server = f"matrix.{domain}"
+    agents = expand_matrix_agent_localparts(agent_localparts)
     # FRESH stacks: dendrite DB is in `{cove_id}-postgres`, not a separate `-dendrite-postgres`.
     pg = (postgres_container or "").strip() or f"{cove_id}-postgres"
     dd = (dendrite_container or "").strip() or f"{cove_id}-dendrite"
     if enabled is None:
         enabled = os.getenv("LP_MATRIX_REGEN_ENABLED", "").strip() in ("1", "true", "yes")
 
-    # VIRGIN CHECK (fails SAFE: unreadable DB -> treat as NOT virgin).
+    current = _read_dendrite_server_name(cove_dir, cove_id)
+    if current and current.lower() == new_server.lower():
+        return {"ok": True, "virgin": True, "changed": False, "already_correct": True,
+                "server_name": new_server, "current_server_name": current,
+                "message": f"Matrix identity already {new_server}."}
+
+    # VIRGIN / first-claim CHECK (fails SAFE: unreadable DB -> treat as NOT eligible).
     parts, reason = _dendrite_account_localparts(pg)
     if parts is None:
         return {"ok": False, "virgin": None, "changed": False,
-                "server_name": new_server, "reason": f"virgin check unavailable ({reason})",
+                "server_name": new_server, "current_server_name": current,
+                "reason": f"virgin check unavailable ({reason})",
                 "message": "Couldn't verify the Matrix homeserver state; leaving Connect "
                            "address unchanged."}
-    virgin = matrix_virgin_from_senders(parts, agent_localparts)
-    if not virgin:
+    virgin = matrix_virgin_from_senders(parts, agents)
+    eligible = virgin or (
+        first_claim and matrix_first_claim_eligible(parts, agents, operator_localparts)
+    )
+    if not eligible:
+        stuck = current or f"matrix.{{cove-id}}.localhost"
         return {"ok": True, "virgin": False, "changed": False, "server_name": new_server,
+                "current_server_name": current,
                 "message": "Connect address can't change automatically (existing "
-                           "conversations). Matrix identity stays as provisioned."}
+                           f"conversations). Matrix identity stays as provisioned "
+                           f"({stuck}). Form Haven needs {new_server} — use a fresh "
+                           "Cove install before other people join Connect, or wipe "
+                           "Matrix only if you accept losing chat history on this Cove."}
     if not enabled:
-        return {"ok": True, "virgin": True, "changed": False, "gated": True,
-                "server_name": new_server,
-                "message": f"Matrix homeserver is virgin — it can be regenerated to "
-                           f"{new_server}. Enable LP_MATRIX_REGEN_ENABLED to apply "
-                           f"(agents re-register on next boot)."}
-    # ENABLED + virgin: attempt the regen. Best-effort, each step guarded.
-    return _apply_matrix_regen(cove_id=cove_id, domain=domain, new_server=new_server,
-                               postgres_container=pg, dendrite_container=dd,
-                               cove_dir=cove_dir)
+        return {"ok": True, "virgin": virgin, "changed": False, "gated": True,
+                "first_claim_eligible": eligible, "server_name": new_server,
+                "current_server_name": current,
+                "message": f"Matrix homeserver can be regenerated to {new_server} "
+                           f"(agents re-register; operator re-links on next Connect). "
+                           f"Enable LP_MATRIX_REGEN_ENABLED to apply."}
+    # ENABLED + eligible: attempt the regen. Best-effort, each step guarded.
+    result = _apply_matrix_regen(cove_id=cove_id, domain=domain, new_server=new_server,
+                                 postgres_container=pg, dendrite_container=dd,
+                                 cove_dir=cove_dir)
+    result["virgin"] = virgin
+    result["first_claim_eligible"] = eligible
+    result["current_server_name"] = current
+    if result.get("changed"):
+        result["message"] = (
+            f"Regenerated Matrix identity to {new_server}. Agents re-register on boot; "
+            f"open Connect once so your sign-in matches the new address."
+        )
+    return result
 
 
 def _rewrite_dendrite_server_name(cove_dir: str, cove_id: str, new_server: str):

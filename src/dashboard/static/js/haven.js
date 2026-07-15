@@ -54,13 +54,15 @@ async function loadHaven() {
         el.innerHTML = `
             <div style="font-weight:600;color:var(--text);">No Haven yet</div>
             <div style="font-size:0.72rem;color:var(--dim);margin-bottom:0.6rem;">A <strong>Haven</strong> is the network your Coves join. Naming one creates the Haven and its <strong>Commons</strong> — the shared room everyone in the Haven can talk in.</div>
+            <div id="haven-matrix-ready" style="font-size:0.72rem;color:var(--dim);min-height:1em;margin-bottom:0.5rem;"></div>
             <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.3rem;">
                 <input id="haven-name" class="settings-input" placeholder="Name your Haven (e.g. Covington)" style="flex:1;min-width:180px;" oninput="_havenPreview()">
-                <button class="btn-sm" onclick="havenCreate()">Form Haven</button>
+                <button id="haven-form-btn" class="btn-sm" onclick="havenCreate()">Form Haven</button>
             </div>
             <div id="haven-preview" style="font-size:0.68rem;color:var(--dim);min-height:1em;margin-bottom:0.3rem;"></div>
             <div id="haven-action-result" style="font-size:0.72rem;color:var(--dim);min-height:1em;"></div>
             <div style="margin-top:0.8rem;">${cards}</div>`;
+        _havenCheckMatrixReady();
         return;
     }
 
@@ -92,6 +94,33 @@ async function loadHaven() {
         </div>`;
 }
 
+
+async function _havenCheckMatrixReady() {
+    const banner = document.getElementById('haven-matrix-ready');
+    const btn = document.getElementById('haven-form-btn');
+    if (!banner) return;
+    try {
+        const r = await fetch('/api/haven/matrix-ready');
+        const d = await r.json().catch(() => ({}));
+        if (d.ok) {
+            banner.textContent = '';
+            if (btn) btn.disabled = false;
+            return;
+        }
+        banner.innerHTML = `<div style="padding:0.55rem 0.65rem;border:1px solid #c9a227;border-radius:6px;background:rgba(201,162,39,0.12);color:var(--text);">${ESC(d.message || 'Matrix identity is not ready for Form Haven.')}</div>`;
+        if (btn) btn.disabled = true;
+    } catch (e) {
+        banner.textContent = '';
+    }
+}
+
+function _havenErrDetail(err) {
+    const m = err && err.message;
+    if (!m) return 'Request failed';
+    if (typeof m === 'string') return m;
+    return String(m);
+}
+
 function _havenResult(msg) {
     const r = document.getElementById('haven-action-result');
     if (r) r.textContent = msg;
@@ -117,7 +146,13 @@ async function _havenPost(url, body) {
     let d = {};
     try { d = await r.json(); } catch (e) {}
     if (!r.ok || d.ok === false) {
-        throw new Error(d.detail || d.error || `Request failed (${r.status})`);
+        let detail = d.detail || d.error || d.message || `Request failed (${r.status})`;
+        if (Array.isArray(detail)) {
+            detail = detail.map(x => (x && x.msg) || JSON.stringify(x)).join('; ');
+        } else if (detail && typeof detail === 'object') {
+            detail = detail.message || JSON.stringify(detail);
+        }
+        throw new Error(detail);
     }
     return d;
 }
@@ -130,7 +165,10 @@ async function havenCreate() {
         const d = await _havenPost('/api/haven/create', { haven_id: _havenSlug(name), name });
         _havenResult(d.created === false ? `${name} already exists.` : `Formed ${name} + its ${name} Commons.`);
         loadHaven();
-    } catch (err) { _havenResult('Couldn\'t form the Haven: ' + err.message); }
+    } catch (err) {
+        _havenResult("Couldn't form the Haven: " + _havenErrDetail(err));
+        _havenCheckMatrixReady();
+    }
 }
 
 async function havenNest() {

@@ -66,6 +66,42 @@ def _configured() -> bool:
     return bool(_internal() and _server_name())
 
 
+def _live_dendrite_server_name() -> str:
+    """What Dendrite was provisioned/regenerated as — MATRIX_SERVER_NAME env, not the
+    domain-derived label. After a successful claim regen this equals matrix.{domain};
+    if claim left .localhost, Form Haven must not invent a federated destination."""
+    return (env("MATRIX_SERVER_NAME") or "").strip()
+
+
+def _matrix_identity_ready_for_haven() -> dict:
+    """Preflight: Form Haven needs Dendrite's real server_name to match matrix.{domain}.
+    Returns {ok, reason, expected, actual}."""
+    expected = _server_name()
+    actual = _live_dendrite_server_name()
+    if not expected:
+        return {"ok": False, "reason": "no_domain",
+                "message": "Set your Cove address first, then Form Haven."}
+    if not actual:
+        return {"ok": False, "reason": "unknown",
+                "expected": expected, "actual": actual,
+                "message": "Matrix identity is not configured on this Cove."}
+    if actual.lower() != expected.lower():
+        return {
+            "ok": False,
+            "reason": "stale_localhost" if "localhost" in actual.lower() else "mismatch",
+            "expected": expected,
+            "actual": actual,
+            "message": (
+                "Connect is still on the install address (%s), not %s. "
+                "Form Haven needs the claimed Matrix address. On a fresh install, "
+                "re-run the Set address host command (it regenerates Matrix while "
+                "only you and the team are present). If other people already joined "
+                "Connect, start a new Cove — changing identity would drop chat history."
+            ) % (actual, expected),
+        }
+    return {"ok": True, "expected": expected, "actual": actual}
+
+
 async def _has_state_table() -> bool:
     from src.memory.database import get_db
     try:
@@ -223,6 +259,9 @@ async def ensure_haven_space(request: Request, haven_id: str, name: str, members
     recorded as the Haven owner and invited in. Mirrors ids to the registrar."""
     if not _configured():
         return {"ok": False, "reason": "matrix not configured"}
+    ready = _matrix_identity_ready_for_haven()
+    if not ready.get("ok"):
+        raise HTTPException(409, ready.get("message") or "Matrix identity is not ready for Form Haven")
     if not await _has_state_table():
         return {"ok": False, "reason": "cove_haven table absent — Haven Spaces disabled here"}
     owner_mx, owner_handle = await _operator_matrix_id(request)
@@ -401,6 +440,13 @@ async def _sync_registry(haven_id, name, owner_handle, space_id, commons_id, mem
 
 
 # ── API ──────────────────────────────────────────────────────────────────────
+
+@router.get("/api/haven/matrix-ready")
+async def api_haven_matrix_ready(request: Request):
+    """Preflight for Form Haven — is Dendrite on matrix.{domain}? Product copy only."""
+    await _operator_matrix_id(request)  # enforce sign-in
+    return _matrix_identity_ready_for_haven()
+
 
 @router.post("/api/haven/create")
 async def api_create_haven(request: Request):
