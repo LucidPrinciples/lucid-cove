@@ -89,10 +89,23 @@ async def _seed_or_reuse_operator(inv: dict) -> str | None:
     placeholder_handle = "member-%s" % secrets.token_hex(2)      # matches ^.+-[0-9a-f]{4}$
     throwaway = _hash_token(secrets.token_urlsafe(16))            # replaced by the sign-in mint
     async with get_db() as conn:
-        await conn.execute(
-            """INSERT INTO accounts (id, display_name, username, cove_role, tier, auth_token)
-               VALUES (%s, %s, %s, 'member', 'presence', %s)""",
-            (acct_id, "New member", placeholder_handle, throwaway))
+        # Mint referral_code at seed so Affiliates never looks "signed out" for members.
+        ref_code = None
+        try:
+            from src.dashboard.routes.account import _generate_referral_code
+            ref_code = await _generate_referral_code(conn)
+        except Exception:
+            ref_code = None
+        if ref_code:
+            await conn.execute(
+                """INSERT INTO accounts (id, display_name, username, cove_role, tier, auth_token, referral_code)
+                   VALUES (%s, %s, %s, 'member', 'presence', %s, %s)""",
+                (acct_id, "New member", placeholder_handle, throwaway, ref_code))
+        else:
+            await conn.execute(
+                """INSERT INTO accounts (id, display_name, username, cove_role, tier, auth_token)
+                   VALUES (%s, %s, %s, 'member', 'presence', %s)""",
+                (acct_id, "New member", placeholder_handle, throwaway))
         await conn.execute(
             "UPDATE presence_invites SET seeded_account_id = %s WHERE id = %s",
             (acct_id, inv["id"]))
@@ -295,7 +308,10 @@ async def complete_invite(token: str, request: Request):
         raise HTTPException(403, "This invite is bound to a different sign-in.")
 
     body = await request.json()
-    display_name = _sanitize_name(body.get("display_name") or body.get("person") or "")
+    # Title-case the person name at write (parity with agent_name) — JOINING NOW
+    # and Settings were showing "jeff" because this path only sanitized.
+    display_name = _titlecase_name(
+        _sanitize_name(body.get("display_name") or body.get("person") or ""))
     agent_name = _titlecase_name(_sanitize_name(body.get("agent_name") or body.get("name") or ""))
     if not agent_name:
         raise HTTPException(400, "agent_name is required — your personal agent forms your Presence")

@@ -1598,7 +1598,7 @@ async function loadTeamShowcase() {
                 const me = await (await fetch('/api/presence/me')).json();
                 const mp = me && me.presence;
                 _meHandle = ((mp && mp.username) || '').replace(/^@/, '').toLowerCase();
-                _meName = (mp && mp.display_name) || '';
+                _meName = _titleCaseName((mp && mp.display_name) || '');
             } catch (e) { /* best-effort */ }
 
             // The new Presence: agent (title) + the person (as the new addition).
@@ -1622,8 +1622,8 @@ async function loadTeamShowcase() {
                     // #D6: each existing member as a paired Presence (operator + agent
                     // side by side), centered. A member without an agent shows their role.
                     const cards = members.map(m => {
-                        const pn = String(m.name || m.display_name || '').trim();
-                        const ag = String((m.personal_agent && m.personal_agent.name) || m.agent_name || '').split(' ')[0].trim();
+                        const pn = _titleCaseName(String(m.name || m.display_name || '').trim());
+                        const ag = _titleCaseName(String((m.personal_agent && m.personal_agent.name) || m.agent_name || '').split(' ')[0].trim());
                         const personAvatar = m.avatar_url || '';
                         const agentAvatar = (m.personal_agent && m.personal_agent.avatar) || '';
                         if (ag) {
@@ -1771,8 +1771,10 @@ async function buildReview() {
     // that agent INTO the existing Cove.
     const _firstrun = urlParams.get('firstrun') === '1';
     const provBtn = document.getElementById('btn-provision');
+    // Title-case the agent name on the CTA (Woods: "Bring jane into Woods" → Jane).
+    const _bringName = _titleCaseName(name);
     if (provBtn) provBtn.textContent = (_firstrun && familyName) ? `Bring ${familyName} to Life`
-        : (familyName ? `Bring ${name} into ${familyName}` : `Bring ${name} to life`);
+        : (familyName ? `Bring ${_bringName} into ${familyName}` : `Bring ${_bringName} to life`);
 
     // Hide the bottom tuning context — already shown in the card
     document.getElementById('review-tuning-context').style.display = 'none';

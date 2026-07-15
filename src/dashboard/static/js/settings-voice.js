@@ -49,13 +49,51 @@ async function loadSettingsVoice() {
     }
 
     // Determine which agents to show dropdowns for.
-    // Use chat_agents (host + steward + merchant) when available so any Presence
-    // can configure how Stuart and Mercer sound. Falls back to MC.agents.
-    const agents = MC.config?.chat_agents || MC.agents || [];
+    // Woods / Jules 1316: scope by role (was inverted — member saw full roster, admin only 3).
+    //   - Member: personal agent only.
+    //   - Admin: personal + steward/merchant + build-team roster (full voice map).
+    const isAdminDoor = !!(MC.adminView || MC.coveAdminView);
+    const isCoveAdmin = !!(MC.presence && MC.presence.cove_role === 'admin')
+        || !!MC.config?.is_cove_admin
+        || isAdminDoor;
+    const chatAgents = MC.config?.chat_agents || [];
+    const baseAgents = MC.agents || [];
     const agentList = [];
+    const seen = new Set();
+    const pushAgent = (a) => {
+        if (!a || !a.id) return;
+        const key = String(a.id).toLowerCase().replace(/-cove$/, '').replace(/_cove$/, '').trim();
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        agentList.push({ id: a.id, name: a.name || a.id, emoji: a.emoji || '' });
+    };
 
-    for (const agent of agents) {
-        agentList.push({ id: agent.id, name: agent.name, emoji: agent.emoji || '' });
+    if (isCoveAdmin) {
+        // Personal / host first
+        (baseAgents.length ? baseAgents : chatAgents).forEach(pushAgent);
+        chatAgents.forEach(pushAgent);
+        // Build-team roster so admin can set every team voice (Jules 1316).
+        try {
+            const rr = await fetch('/api/team/roster', { credentials: 'same-origin' });
+            if (rr.ok) {
+                const data = await rr.json();
+                const team = data.agents || data.team || {};
+                if (Array.isArray(team)) {
+                    team.forEach(pushAgent);
+                } else if (team && typeof team === 'object') {
+                    Object.keys(team).forEach((k) => {
+                        const a = team[k];
+                        if (a && typeof a === 'object') {
+                            pushAgent({ id: a.id || k, name: a.name || a.display_name || k, emoji: a.emoji || '' });
+                        }
+                    });
+                }
+            }
+        } catch (e) { /* roster best-effort */ }
+    } else {
+        // Member: personal agent only — never the full build-team dump.
+        if (baseAgents[0]) pushAgent(baseAgents[0]);
+        else if (chatAgents[0]) pushAgent(chatAgents[0]);
     }
 
     // If no agents loaded (shouldn't happen), fall back to hostname-based

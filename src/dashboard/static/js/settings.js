@@ -154,13 +154,20 @@ async function loadSettingsMyModel() {
             if (!hasModelOverride) return '';
             return ESC(find(data.primary || data.fallback));
         })();
+        // Woods / Jules 1310: members ride Cove default — don't alarm "no intelligence set"
+        // as if they must wire a provider. Admins still see the actionable setup prompt.
+        const isMember = !!(MC.presence && MC.presence.cove_role === 'member')
+            && !(MC.adminView || MC.coveAdminView || MC.config?.is_cove_admin);
+        const inheritMsg = isMember
+            ? `<strong>${ESC(agentName)}</strong> uses the <strong>Cove default</strong>${defaultSet ? ' — <span style="color:var(--text);">' + ESC(defaultStr) + '</span>' : ''} set by your Cove admins. You can connect your own provider below if you want.`
+            : `<strong>${ESC(agentName)}</strong> has <strong>no intelligence set yet</strong> — connect a provider below, or use the Add Intelligence setup card.`;
         const banner = `<div style="margin-bottom:10px;padding:8px 10px;border-radius:6px;background:var(--bg-card);border:1px solid ${usingOwn ? 'var(--accent)' : 'var(--border)'};">
             <div style="font-size:0.72rem;color:var(--text);">
                 ${usingOwn
                     ? `<strong>${ESC(agentName)}</strong> is running on <strong style="color:var(--accent);">your own setup</strong>${hasProvider ? ' · ' + ESC(mk.provider) + (mk.has_key ? ' (key set)' : '') : ''}${ownModelStr ? ' · ' + ownModelStr : ''}.`
                     : (defaultSet
                         ? `<strong>${ESC(agentName)}</strong> is running on the <strong>Cove default</strong> — <span style="color:var(--text);">${ESC(defaultStr)}</span>, set by your steward.`
-                        : `<strong>${ESC(agentName)}</strong> has <strong>no intelligence set yet</strong> — connect a provider below, or use the Add Intelligence setup card.`)}
+                        : inheritMsg)}
             </div>
             ${hasModelOverride ? `<div style="margin-top:6px;"><button class="btn-sm" onclick="resetToCoveDefault(this)">Use Cove default model</button> <span id="reset-default-status" style="font-size:0.68rem;color:var(--dim);"></span></div>` : ''}
         </div>`;

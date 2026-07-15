@@ -83,8 +83,9 @@ TAB_TIER_REQUIREMENTS = {
     # Presence tier — requires an agent
     "memory": Tier.PRESENCE,    # Memory requires agent for persistence
 
-    # Cove tier — full team
-    "team": Tier.COVE,
+    # Team directory: Presence+ can open it as a people map (members see
+    # presences; build-team detail stays admin-scoped in team.js). System stays Cove.
+    "team": Tier.PRESENCE,
     "system": Tier.COVE,
 }
 
@@ -128,9 +129,11 @@ ROUTE_TIER_REQUIREMENTS = {
     "/api/memory": Tier.PRESENCE,
 
     # Cove routes (team management, system ops)
-    "/api/team": Tier.COVE,
+    # Family + team roster readable at Presence so members get a people map;
+    # write/admin actions still gated in the route handlers / team.js view mode.
+    "/api/team": Tier.PRESENCE,
     "/api/system": Tier.COVE,
-    "/api/family": Tier.COVE,
+    "/api/family": Tier.PRESENCE,
 }
 
 
