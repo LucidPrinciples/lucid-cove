@@ -260,12 +260,46 @@ async def domain_set(body: DomainSet, request: Request):
         posixpath.dirname(posixpath.dirname(_host_instance_dir))
         if _host_instance_dir else "~/cove-*/"
     )
+    # Claim-time Matrix regen allowlist: standard team is always in netconfig, but
+    # bake live agent ids + the current operator's Matrix localpart into the host
+    # command so Open chat / Connect before mark-live does not lock .localhost
+    # (Calhoun Form Haven: Unrecognised server name matrix.{domain}).
+    _agent_csv = ""
+    _operator_csv = ""
+    try:
+        from src.config import get_agents
+        _ids = [a.get("id") for a in (get_agents() or []) if a.get("id")]
+        if _ids:
+            _agent_csv = ",".join(_ids)
+    except Exception:
+        pass
+    try:
+        from src.dashboard.routes.presence import get_current_presence as _gcp
+        from src.memory.database import get_db as _gdb
+        _op = await _gcp(request)
+        if _op and _op.get("id"):
+            async with _gdb() as _conn:
+                _r = await _conn.execute(
+                    "SELECT matrix_username, username FROM accounts WHERE id = %s",
+                    (_op["id"],))
+                _row = await _r.fetchone() or {}
+            _ops = []
+            for _k in ("matrix_username", "username"):
+                _v = (_row.get(_k) or _op.get(_k) or "").strip().lstrip("@").lower()
+                if _v and _v not in _ops:
+                    _ops.append(_v)
+            if _ops:
+                _operator_csv = ",".join(_ops)
+    except Exception:
+        pass
+    _agents_flag = f" --agents {_agent_csv}" if _agent_csv else ""
+    _operators_flag = f" --operators {_operator_csv}" if _operator_csv else ""
     host_command = (
         f"cd {_host_clone_dir} && LP_MATRIX_REGEN_ENABLED=1 "
         f"python3 provision/set_domain.py --domain {domain} "
         f"--cove-id {cove_id} --app-port {ports['app']} "
         f"--nextcloud-port {ports['nextcloud']} --matrix-port {ports['matrix']}"
-        f"{_mx_flag}{_mesh_flag}"
+        f"{_mx_flag}{_mesh_flag}{_agents_flag}{_operators_flag}"
     )
 
     # B14 + batch-10 #2: the domain door — once the Cove is live at https://{domain}, hand back
@@ -518,9 +552,10 @@ async def domain_set(body: DomainSet, request: Request):
             try:
                 from src.config import get_agents
                 _agent_lps = [a.get("id") for a in (get_agents() or []) if a.get("id")]
-                _agent_lps += ["steward", "lt", "agent"]  # steward + shared bot localparts
+                _op_lps = [p for p in (_operator_csv.split(",") if _operator_csv else []) if p]
                 steps["matrix_identity"] = netconfig.reconcile_matrix_identity(
-                    cove_id=cove_id, domain=domain, agent_localparts=_agent_lps)
+                    cove_id=cove_id, domain=domain, agent_localparts=_agent_lps,
+                    operator_localparts=_op_lps, first_claim=True)
             except Exception as e:
                 steps["matrix_identity"] = {"ok": False, "reason": f"Matrix step error: {e}"}
 
