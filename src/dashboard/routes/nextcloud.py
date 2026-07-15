@@ -124,6 +124,23 @@ OPERATOR_FOLDERS = BASE_FOLDERS
 # via WebDAV without accessing private folders.
 # ---------------------------------------------------------------------------
 
+# Stock Nextcloud skeleton junk left on the FIRST admin user (created before the
+# post-install hook empties skeletondirectory). Presence users created later via
+# OCS inherit the empty skeleton and stay clean; steward/admin does not. Remove
+# these on every ensure_nc_shape pass so Files matches the presence experience.
+DEFAULT_NC_JUNK = [
+    "Documents/Example.md",
+    "Templates",
+    "Nextcloud intro.mp4",
+    "Nextcloud Manual.pdf",
+    "Nextcloud.png",
+    "Readme.md",
+    "Reasons to use Nextcloud.pdf",
+    "Templates credits.md",
+    "Photos",
+]
+
+
 STEWARD_SHARED_FOLDERS = [
     "AgentSkills/Content",
     # batch8 #7b: Actions/ no longer seeded (DB-backed board superseded it), so it's
@@ -555,6 +572,39 @@ def _nc_username_from_handle(handle: str) -> str:
     return re.sub(r"[^a-z0-9._-]", "", h)
 
 
+async def _remove_nc_default_files(
+    dav_client, webdav_base: str, nc_username: str, nc_password: str,
+) -> int:
+    """Delete stock Nextcloud skeleton files/folders if present.
+
+    Idempotent: 404 is success. Returns count of unexpected failures (not 2xx/404).
+    Presence users usually have nothing to delete; admin/steward often does."""
+    from urllib.parse import quote
+    failures = 0
+    for rel in DEFAULT_NC_JUNK:
+        url = f"{webdav_base}/{quote(rel, safe='/')}"
+        try:
+            resp = await dav_client.request(
+                "DELETE", url, auth=(nc_username, nc_password),
+            )
+            # 204/200 deleted, 404 already gone — both fine
+            if resp.status_code >= 400 and resp.status_code != 404:
+                log.warning(
+                    "NC default cleanup DELETE %s for %s -> %s",
+                    rel, nc_username, resp.status_code,
+                )
+                failures += 1
+            else:
+                log.info(
+                    "NC default cleanup DELETE %s for %s -> %s",
+                    rel, nc_username, resp.status_code,
+                )
+        except Exception as e:
+            log.warning("NC default cleanup failed %s for %s: %s", rel, nc_username, e)
+            failures += 1
+    return failures
+
+
 async def ensure_nc_shape(nc_username: str, nc_password: str, display_name: str,
                           tier: str, role: str) -> int:
     """Ensure this NC user's folders, Context seeds, steward shares, and KB share.
@@ -574,6 +624,17 @@ async def ensure_nc_shape(nc_username: str, nc_password: str, display_name: str,
 
     webdav_base = f"{NC_URL}/remote.php/dav/files/{nc_username}"
     async with httpx.AsyncClient(timeout=30) as dav_client:
+        # Admin is created by the NC image before skeletondirectory is emptied, so
+        # steward space still gets Readme.md / intro.mp4 / Photos / etc. Presence
+        # users created later do not. Clear junk for EVERY user on shape pass.
+        try:
+            junk_fail = await _remove_nc_default_files(
+                dav_client, webdav_base, nc_username, nc_password)
+            failures += junk_fail
+        except Exception as e:
+            log.warning("NC default cleanup pass failed for %s: %s", nc_username, e)
+            failures += 1
+
         for folder in folders:
             try:
                 mkr = await dav_client.request(
