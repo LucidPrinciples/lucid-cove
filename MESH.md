@@ -92,6 +92,22 @@ curl -vI https://yourcove.lucidcove.org/
 **Other devices** must be on the mesh (section 2) and use Tailscale DNS / not block `100.64/10`.
 This is not "wait for Cloudflare" when public DoH already has the record.
 
+### Name resolves but browser says ERR_SSL_PROTOCOL_ERROR
+
+Different problem: DNS is fine; **HTTPS is still issuing**. After Set Address / the host
+command, Caddy reloads immediately and host resolve can already succeed while the ACME
+cert is mid-flight (often 30–90s). Chrome then shows *"This site can't provide a secure
+connection"* / `ERR_SSL_PROTOCOL_ERROR` on the first Open my Cove tab. Wait and **Reload** —
+or check on the host:
+
+```bash
+curl -vI https://yourcove.lucidcove.org/
+# look for HTTP/2 200 or a real TLS handshake; retry until it stops SSL-erroring
+```
+
+That is expected on first open, not a dead address. The product UI warns on the sign-on
+door for the same reason.
+
 ## Disconnect / troubleshoot
 - A join code is single-use and expires (~1 hour) — generate a new one anytime from your Cove.
 - Disconnect a device: `tailscale down` (computer) or toggle off in the app (phone).
