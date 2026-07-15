@@ -157,21 +157,42 @@ async function loadSettingsCoveAdmin() {
             <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 0;">Add or remove people and agents in the steward console. <a href="${stewardHref}" target="_blank" rel="noopener" style="color:var(--accent);">Open the steward console ↗</a></div>
         </div>`;
 
-    // Woods / Jules 1357: durable on/off for daily team auto-tune (not only the first-run card).
+    // Woods / Jules 1357 + 2026-07-15: durable on/off for daily team auto-tune
+    // (not only the first-run card). Active/inactive — one clear control.
     const teamTuneHtml = `
         <div style="padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
             <label class="settings-label">Team auto-tune</label>
             <div id="team-tune-status" style="font-size:0.7rem;color:var(--dim);margin:2px 0 8px;">Checking…</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <button class="btn-sm" id="team-tune-enable" onclick="setTeamAutoTune(true, this)">Enable daily team tune</button>
-                <button class="btn-sm" id="team-tune-disable" style="background:transparent;border:1px solid var(--border);color:var(--dim);" onclick="setTeamAutoTune(false, this)">Turn off</button>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:0.72rem;color:var(--dim);">Inactive</span>
+                    <div id="team-tune-toggle" role="switch" aria-checked="false"
+                         style="cursor:pointer;position:relative;width:44px;height:24px;flex-shrink:0;"
+                         onclick="setTeamAutoTune(!(window._teamTuneOn), this)">
+                        <span id="team-tune-track" style="pointer-events:none;position:absolute;inset:0;background:var(--border);border-radius:12px;transition:background 0.2s;"></span>
+                        <span id="team-tune-knob" style="pointer-events:none;position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:left 0.2s;"></span>
+                    </div>
+                    <span style="font-size:0.72rem;color:var(--dim);">Active</span>
+                </div>
+                <button class="btn-sm" id="team-tune-enable" style="display:none;" onclick="setTeamAutoTune(true, this)">Enable</button>
+                <button class="btn-sm" id="team-tune-disable" style="display:none;" onclick="setTeamAutoTune(false, this)">Turn off</button>
             </div>
-            <div style="font-size:0.62rem;color:var(--dim);margin-top:6px;">Morning pass for the build team (~10 agents). Personal Tune + chat stay available either way. Cost estimate uses the Cove brain.</div>
+            <div style="font-size:0.62rem;color:var(--dim);margin-top:6px;">When <strong>Active</strong>, the Cove runs one morning pass for the build team (~10 agents) plus safe catch-up. When <strong>Inactive</strong>, no automatic team spend — Personal Tune + chat stay available. Cost estimate uses the Cove brain.</div>
         </div>`;
 
     el.innerHTML = addrHtml + publicHtml + brainHtml + teamTuneHtml + membersHtml;
     // Wake / brain-ack live in Chat — not on the set-address settings surface.
     refreshTeamTuneSettings();
+}
+
+function _paintTeamTuneToggle(on) {
+    window._teamTuneOn = !!on;
+    const track = document.getElementById('team-tune-track');
+    const knob = document.getElementById('team-tune-knob');
+    const sw = document.getElementById('team-tune-toggle');
+    if (track) track.style.background = on ? 'var(--accent,#5ce1e6)' : 'var(--border)';
+    if (knob) knob.style.left = on ? '23px' : '3px';
+    if (sw) sw.setAttribute('aria-checked', on ? 'true' : 'false');
 }
 
 async function refreshTeamTuneSettings() {
@@ -187,13 +208,15 @@ async function refreshTeamTuneSettings() {
         }
         const est = d.estimate || {};
         const summary = est.summary || est.daily_label || '';
+        _paintTeamTuneToggle(!!d.enabled);
         if (d.enabled) {
-            status.innerHTML = '<strong style="color:var(--green);">On</strong> — daily team auto-tune is enabled.'
+            status.innerHTML = '<strong style="color:var(--green);">Active</strong> — one morning team pass (+ catch-up).'
                 + (summary ? ' <span style="color:var(--dim);">' + ESC(summary) + '</span>' : '');
         } else {
-            status.innerHTML = '<strong style="color:var(--text);">Off</strong> — team will not auto-tune until you enable it.'
+            status.innerHTML = '<strong style="color:var(--text);">Inactive</strong> — no automatic team tuning.'
                 + (summary ? ' <span style="color:var(--dim);">' + ESC(summary) + '</span>' : '');
         }
+        status.style.color = 'var(--dim)';
     } catch (e) {
         status.textContent = 'Could not load team-tune status.';
         status.style.color = '#ff6b6b';

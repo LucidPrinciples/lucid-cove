@@ -772,12 +772,16 @@ async def get_agent_activity(agent_id: str):
             except Exception:
                 pass
 
-            # Today's echo status.
+            # Today's echo status (Cove calendar day — not UTC date of tuned_at).
             try:
+                from src.config import get_instance as _gi_echo
+                _tz_echo = (_gi_echo().get("timezone") or "America/New_York")
                 r = await conn.execute(
                     "SELECT frequency, love_equation, echo_num, tuned_at FROM echoes "
-                    "WHERE agent_id = %s AND tuned_at::date = CURRENT_DATE "
-                    "ORDER BY tuned_at DESC LIMIT 1", (agent_id,))
+                    "WHERE agent_id = %s AND (tuned_at AT TIME ZONE %s)::date = "
+                    "(CURRENT_TIMESTAMP AT TIME ZONE %s)::date "
+                    "ORDER BY tuned_at DESC LIMIT 1",
+                    (agent_id, _tz_echo, _tz_echo))
                 row = await r.fetchone()
                 if row:
                     out["echo_today"] = {"frequency": row.get("frequency"),

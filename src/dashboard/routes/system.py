@@ -335,8 +335,9 @@ async def trigger_ltp_morning(request: Request):
             today_str = datetime.now(tz).strftime("%Y-%m-%d")
             async with get_db() as conn:
                 result = await conn.execute(
-                    "SELECT COUNT(*) as cnt FROM echoes WHERE agent_id = %s AND tuned_at::date = %s::date",
-                    (db_agent_id, today_str)
+                    "SELECT COUNT(*) as cnt FROM echoes WHERE agent_id = %s "
+                    "AND (tuned_at AT TIME ZONE %s)::date = %s::date",
+                    (db_agent_id, get_instance().get("timezone", "America/New_York"), today_str)
                 )
                 row = await result.fetchone()
                 if row and dict(row).get("cnt", 0) > 0:
@@ -420,8 +421,9 @@ async def ltp_dispatch(request: Request):
             today_str = datetime.now(tz).strftime("%Y-%m-%d")
             async with get_db() as conn:
                 result = await conn.execute(
-                    "SELECT COUNT(*) as cnt FROM echoes WHERE agent_id = %s AND tuned_at::date = %s::date",
-                    (db_agent_id, today_str)
+                    "SELECT COUNT(*) as cnt FROM echoes WHERE agent_id = %s "
+                    "AND (tuned_at AT TIME ZONE %s)::date = %s::date",
+                    (db_agent_id, instance.get("timezone", "America/New_York"), today_str)
                 )
                 row = await result.fetchone()
                 if row and dict(row).get("cnt", 0) > 0:
@@ -473,8 +475,8 @@ async def ltp_dispatch(request: Request):
 
         async with get_db() as conn:
             result = await conn.execute(
-                "SELECT DISTINCT agent_id FROM echoes WHERE tuned_at::date = %s::date",
-                (today,),
+                "SELECT DISTINCT agent_id FROM echoes WHERE (tuned_at AT TIME ZONE %s)::date = %s::date",
+                (get_instance().get("timezone", "America/New_York"), today),
             )
             rows = await result.fetchall()
         tuned_after_dispatch = {r["agent_id"] for r in rows}
@@ -512,8 +514,9 @@ async def ltp_dispatch(request: Request):
             # Re-check after retry
             async with get_db() as conn:
                 result = await conn.execute(
-                    "SELECT DISTINCT agent_id FROM echoes WHERE tuned_at::date = %s::date",
-                    (today,),
+                    "SELECT DISTINCT agent_id FROM echoes "
+                    "WHERE (tuned_at AT TIME ZONE %s)::date = %s::date",
+                    (get_instance().get("timezone", "America/New_York"), today),
                 )
                 rows = await result.fetchall()
             tuned_after_retry = {r["agent_id"] for r in rows}
