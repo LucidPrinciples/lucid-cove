@@ -428,9 +428,9 @@ function _onboardingCardHtml(item) {
                 <div class="approval-tool">${title}</div>
                 <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then mark it live:</div>
                 <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
-                <div style="margin-top:10px;color:var(--text);">When the command finishes, your Cove is live at <b>https://${_pd}</b>. Then mark it live — that unlocks the signed-in door:</div>
+                <div style="margin-top:10px;color:var(--text);">When the command finishes, Caddy + cert are on for <b>https://${_pd}</b>. The command also checks that <em>this computer</em> can resolve the name (mesh DNS / hosts repair if needed). Then mark live — that unlocks the signed-in door:</div>
                 <div style="margin-top:12px;"><button class="btn-approve" style="padding:12px 18px;font-size:0.9rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>
-                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;">Run the host command first. Mark live only after it succeeds — that reloads setup and unlocks Open my Cove. Opening early still hits the old host / unfinished DNS.</div>
+                <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;line-height:1.5;">Run the host command first and confirm it prints ok (not host_resolve_failed). Mark live only after bare <code>curl -vI https://${_pd}/</code> works on that machine. The address is a <b>mesh</b> URL — Tailscale must be up; it is not a public website. Opening early = NXDOMAIN / dead tab.</div>
             </div>`;
         }
         const sub = ESC(item.cove_subdomain || '');
@@ -1011,10 +1011,10 @@ async function saveDomain(btn, confirmChange) {
                 // B14: the domain door — where your Cove now lives (signed-in operator link).
                 // No auto-redirect; the cert may still be issuing. Other devices need the mesh first.
                 const _door = d.door || ('https://' + d.domain);
-                html = `<div style="color:var(--green);">&#10003; Address set to https://${ESC(d.domain)}. We handled the DNS and certificate for you &mdash; nothing to copy and nothing to do. The secure connection finishes in under a minute.</div>`
-                    + `<div style="margin-top:10px;color:var(--text);">Your Cove now lives at <b>https://${ESC(d.domain)}</b> &mdash; open it there:</div>`
+                html = `<div style="color:var(--green);">&#10003; Address set to https://${ESC(d.domain)}. We created the DNS + certificate path for you. HTTPS finishes in under a minute.</div>`
+                    + `<div style="margin-top:10px;color:var(--text);">Your Cove lives at <b>https://${ESC(d.domain)}</b> on the <b>private mesh</b> (not the open internet). Open it when this device can resolve the name:</div>`
                     + `<a class="btn-approve" style="text-decoration:none;display:inline-block;margin-top:6px;" href="#" onclick="_openMyCove(this); return false;">Open my Cove &#8599;</a>`
-                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;">Your other devices reach it once they're on your Cove's mesh (add them from Settings &rarr; Connect a device).</div>`
+                    + `<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;line-height:1.5;">If the browser says the site can't be found: confirm Tailscale is connected, wait ~1 min for DNS, disable DNS rebinding filters (NextDNS/AdGuard/Private Relay) for this network, then retry. Other devices need the mesh first (Settings &rarr; Connect a device / MESH.md).</div>`
                     + `<button class="btn-approve" style="margin-top:10px;" onclick="location.reload()">Done &mdash; refresh</button>`;
             } else if (recs.length) {
                 // Own domain, no token: hand back the exact records to paste — copy-paste, no files.

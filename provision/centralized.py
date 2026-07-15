@@ -1302,8 +1302,12 @@ if ! command -v tailscale >/dev/null 2>&1; then
   exit 1
 fi
 echo "Joining the mesh..."
-tailscale up --login-server https://headscale.lucidcove.org --authkey "$KEY" \
-  || sudo tailscale up --login-server https://headscale.lucidcove.org --authkey "$KEY"
+# --accept-dns=true: use mesh DNS when available so lucidcove.org mesh A records
+# are not dropped by local DNS-rebinding filters (install NXDOMAIN hard-stop).
+tailscale up --login-server https://headscale.lucidcove.org --authkey "$KEY" --accept-dns=true \
+  || sudo tailscale up --login-server https://headscale.lucidcove.org --authkey "$KEY" --accept-dns=true
+# Idempotent if already joined without accept-dns
+tailscale set --accept-dns=true 2>/dev/null || sudo tailscale set --accept-dns=true 2>/dev/null || true
 MESH_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
 if [ -z "$MESH_IP" ]; then
   echo "Joined, but the mesh IP isn't ready yet — wait a few seconds and re-run."

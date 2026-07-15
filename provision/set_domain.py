@@ -29,6 +29,12 @@ Usage (on the Cove's host):
 Needs CLOUDFLARE_API_TOKEN in the environment for the DNS step (the same token
 Caddy uses for the DNS-01 cert). Without it, DNS is skipped and you point records
 manually; Caddy still issues the cert once the records resolve.
+
+After Caddy is up, this CLI ALSO verifies the host can resolve and reach the domain.
+Public A records for mesh IPs (100.64.0.0/10) are often filtered by local resolvers
+(DNS rebinding protection) even when Cloudflare has the record — that is the install
+hard-stop (NXDOMAIN in the browser while the Cove is healthy). We repair host resolve:
+Tailscale accept-dns, DNS cache flush, then a scoped /etc/hosts pin if still broken.
 """
 import argparse
 import json
@@ -286,6 +292,271 @@ def _reconcile_matrix_identity(args, domain: str, result: dict) -> None:
         result["matrix_env"] = _restamp_matrix_env(cove_dir, domain)
 
 
+
+def _is_mesh_ip(ip: str) -> bool:
+    """True for Tailscale/Headscale CGNAT 100.64.0.0/10."""
+    ip = (ip or "").strip()
+    if not ip.startswith("100."):
+        return False
+    try:
+        second = int(ip.split(".")[1])
+    except Exception:
+        return False
+    return 64 <= second <= 127
+
+
+def _detect_mesh_ip_host() -> str:
+    """Best-effort mesh IPv4 on the host running set_domain."""
+    import shutil
+    import subprocess
+    try:
+        if shutil.which("tailscale"):
+            out = subprocess.run(
+                ["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=8)
+            if out.returncode == 0:
+                for line in (out.stdout or "").splitlines():
+                    cand = line.strip()
+                    if _is_mesh_ip(cand):
+                        return cand
+    except Exception:
+        pass
+    return ""
+
+
+def _resolve_a_system(host: str, timeout: float = 3.0) -> str:
+    """System resolver (same path curl/Chrome use). Empty on failure."""
+    import socket
+    old = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout)
+    try:
+        return socket.gethostbyname(host) or ""
+    except Exception:
+        return ""
+    finally:
+        socket.setdefaulttimeout(old)
+
+
+def _resolve_a_doh(host: str, timeout: float = 5.0) -> str:
+    """Public DNS via Cloudflare DoH — bypasses local rebinding filters."""
+    import json
+    import urllib.request
+    url = f"https://cloudflare-dns.com/dns-query?name={host}&type=A"
+    req = urllib.request.Request(
+        url, headers={"accept": "application/dns-json", "User-Agent": "LucidCove-set-domain/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = json.loads(r.read().decode() or "{}")
+        for ans in data.get("Answer") or []:
+            if ans.get("type") == 1 and ans.get("data"):
+                return str(ans["data"]).strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _tailscale_accept_dns() -> dict:
+    """Prefer mesh DNS on this host so public rebinding filters matter less."""
+    import shutil
+    import subprocess
+    if not shutil.which("tailscale"):
+        return {"ok": False, "skipped": True, "reason": "tailscale not installed"}
+    try:
+        r = subprocess.run(
+            ["tailscale", "set", "--accept-dns=true"],
+            capture_output=True, text=True, timeout=20)
+        if r.returncode != 0:
+            r = subprocess.run(
+                ["sudo", "tailscale", "set", "--accept-dns=true"],
+                capture_output=True, text=True, timeout=20)
+        ok = r.returncode == 0
+        return {
+            "ok": ok,
+            "reason": "" if ok else ((r.stderr or r.stdout or "").strip()[:200] or "tailscale set failed"),
+        }
+    except Exception as e:
+        return {"ok": False, "reason": str(e)[:160]}
+
+
+def _flush_host_dns_cache() -> dict:
+    """Best-effort OS DNS cache flush (macOS + common Linux)."""
+    import platform
+    import shutil
+    import subprocess
+    system = platform.system().lower()
+    actions = []
+    try:
+        if system == "darwin":
+            subprocess.run(["sudo", "dscacheutil", "-flushcache"],
+                           capture_output=True, text=True, timeout=15)
+            subprocess.run(["sudo", "killall", "-HUP", "mDNSResponder"],
+                           capture_output=True, text=True, timeout=15)
+            actions.append("macos-flush")
+        elif system == "linux":
+            if shutil.which("resolvectl"):
+                subprocess.run(["sudo", "resolvectl", "flush-caches"],
+                               capture_output=True, text=True, timeout=15)
+                actions.append("resolvectl")
+            elif shutil.which("systemd-resolve"):
+                subprocess.run(["sudo", "systemd-resolve", "--flush-caches"],
+                               capture_output=True, text=True, timeout=15)
+                actions.append("systemd-resolve")
+    except Exception as e:
+        return {"ok": False, "actions": actions, "reason": str(e)[:120]}
+    return {"ok": True, "actions": actions}
+
+
+def _hosts_path() -> Path:
+    return Path("/etc/hosts")
+
+
+def _ensure_hosts_pin(domain: str, ip: str) -> dict:
+    """Idempotent /etc/hosts pin for the Cove apex (install-host hard-stop escape hatch).
+
+    Public DNS for mesh A records is often correct while the local resolver still
+    returns NXDOMAIN (rebinding filters). Pinning on the Cove host unblocks Open my Cove
+    on that machine. Other mesh devices still need Tailscale + working mesh/public DNS.
+    """
+    domain = (domain or "").strip().lower().rstrip(".")
+    ip = (ip or "").strip()
+    if not domain or not ip:
+        return {"ok": False, "reason": "domain and ip required"}
+    path = _hosts_path()
+    marker = f"# lucidcove-set-domain {domain}"
+    line = f"{ip} {domain} {marker}"
+    try:
+        raw = path.read_text() if path.is_file() else ""
+    except Exception as e:
+        return {"ok": False, "reason": f"cannot read {path}: {e}"}
+    lines = raw.splitlines()
+    kept = []
+    for ln in lines:
+        # Drop prior pins for this domain (ours or bare).
+        parts = ln.split()
+        if parts and not ln.strip().startswith("#"):
+            names = {p.lower().rstrip(".") for p in parts[1:]}
+            if domain in names:
+                continue
+        if marker in ln:
+            continue
+        kept.append(ln)
+    kept.append(line)
+    new_text = "\n".join(kept) + "\n"
+    if new_text == (raw if raw.endswith("\n") or raw == "" else raw + "\n"):
+        # Still ensure our line present
+        if any(domain in (ln.split()[1:] if ln.split() and not ln.strip().startswith("#") else [])
+               for ln in kept):
+            return {"ok": True, "path": str(path), "action": "unchanged", "ip": ip, "domain": domain}
+    try:
+        path.write_text(new_text)
+        return {"ok": True, "path": str(path), "action": "updated", "ip": ip, "domain": domain}
+    except PermissionError:
+        # Fall back to sudo tee
+        import subprocess
+        try:
+            proc = subprocess.run(
+                ["sudo", "tee", str(path)],
+                input=new_text, capture_output=True, text=True, timeout=20)
+            if proc.returncode == 0:
+                return {"ok": True, "path": str(path), "action": "updated-sudo", "ip": ip, "domain": domain}
+            return {"ok": False, "reason": (proc.stderr or proc.stdout or "sudo tee failed")[:200]}
+        except Exception as e:
+            return {"ok": False, "reason": f"cannot write {path} (need root): {e}"}
+    except Exception as e:
+        return {"ok": False, "reason": f"cannot write {path}: {e}"}
+
+
+def ensure_host_resolves(domain: str, mesh_ip: str = "") -> dict:
+    """Make THIS host resolve `domain` to the Cove mesh IP when public DNS is filtered.
+
+    Install hard-stop (2026-07-15 Withers): Cloudflare DoH had the A record, mesh was
+    up, Caddy/TLS healthy — but macOS system DNS returned NXDOMAIN until a hosts pin.
+    Returns {ok, domain, expected_ip, system_ip, doh_ip, steps, method, message}.
+    """
+    domain = (domain or "").strip().lower().lstrip("*").lstrip(".").rstrip(".")
+    out = {
+        "ok": False,
+        "domain": domain,
+        "expected_ip": (mesh_ip or "").strip(),
+        "system_ip": "",
+        "doh_ip": "",
+        "steps": [],
+        "method": "",
+        "message": "",
+    }
+    if not domain:
+        out["message"] = "no domain"
+        return out
+
+    expected = out["expected_ip"] or _detect_mesh_ip_host()
+    out["expected_ip"] = expected
+
+    # 1) What the host already does
+    sys_ip = _resolve_a_system(domain)
+    out["system_ip"] = sys_ip
+    out["doh_ip"] = _resolve_a_doh(domain)
+
+    if sys_ip and (not expected or sys_ip == expected or _is_mesh_ip(sys_ip)):
+        out["ok"] = True
+        out["method"] = "system"
+        out["message"] = f"host resolves {domain} → {sys_ip}"
+        return out
+
+    # 2) Prefer Tailscale DNS path
+    ts = _tailscale_accept_dns()
+    out["steps"].append({"tailscale_accept_dns": ts})
+    flush = _flush_host_dns_cache()
+    out["steps"].append({"flush_dns": flush})
+    sys_ip = _resolve_a_system(domain)
+    out["system_ip"] = sys_ip
+    if sys_ip and (not expected or sys_ip == expected or _is_mesh_ip(sys_ip)):
+        out["ok"] = True
+        out["method"] = "system-after-tailscale-dns"
+        out["message"] = f"host resolves {domain} → {sys_ip} after enabling Tailscale DNS"
+        return out
+
+    # 3) Public DNS has the mesh A record but local resolver still fails → hosts pin
+    pin_ip = expected or out["doh_ip"]
+    if pin_ip and _is_mesh_ip(pin_ip):
+        pin = _ensure_hosts_pin(domain, pin_ip)
+        out["steps"].append({"hosts_pin": pin})
+        if pin.get("ok"):
+            _flush_host_dns_cache()
+            sys_ip = _resolve_a_system(domain)
+            out["system_ip"] = sys_ip
+            if sys_ip == pin_ip or (sys_ip and _is_mesh_ip(sys_ip)):
+                out["ok"] = True
+                out["method"] = "hosts"
+                out["message"] = (
+                    f"Local DNS was filtering the mesh address for {domain}. "
+                    f"Pinned {pin_ip} in /etc/hosts on this host so https://{domain} loads. "
+                    "Other devices: join the mesh (MESH.md). If a phone/laptop still "
+                    "NXDOMAINs, check DNS rebinding filters or add the same pin."
+                )
+                return out
+            out["message"] = (
+                f"Wrote hosts pin for {domain} → {pin_ip} but system still resolves "
+                f"to {sys_ip or 'nothing'}; flush DNS or check a VPN/filter."
+            )
+            return out
+        out["message"] = pin.get("reason") or "hosts pin failed"
+        return out
+
+    # 4) Cannot repair
+    if not expected and not out["doh_ip"]:
+        out["message"] = (
+            f"Cannot resolve {domain} on this host and public DNS has no A record yet. "
+            "Join the mesh, re-claim the address, or set CLOUDFLARE_API_TOKEN / hub DNS."
+        )
+    else:
+        out["message"] = (
+            f"Host still cannot resolve {domain} (system={sys_ip or 'none'}, "
+            f"DoH={out['doh_ip'] or 'none'}, expected={expected or 'unknown'}). "
+            "Check Tailscale is up and DNS rebinding filters (NextDNS/AdGuard/Private Relay)."
+        )
+    return out
+
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Attach a domain to a running Cove (DNS + Caddy + HTTPS).")
     ap.add_argument("--domain", help="e.g. smith.lucidcove.org")
@@ -417,14 +688,48 @@ def main() -> int:
         except Exception as e:
             result["matrix_identity"] = {"ok": False, "reason": f"matrix reconcile error: {e}"}
 
+    # Install hard-stop repair: Caddy can be healthy while THIS host still NXDOMAINs
+    # the mesh A record (public DoH OK, system resolver filtered). Fix resolve here.
+    mesh_for_resolve = (args.mesh_ip or "").strip() or _detect_mesh_ip_host()
+    if not mesh_for_resolve:
+        try:
+            # Prefer IP from DNS step when ensure_dns / hub returned one
+            mesh_for_resolve = (result.get("dns") or {}).get("ip") or ""
+        except Exception:
+            mesh_for_resolve = ""
+    try:
+        result["host_resolve"] = ensure_host_resolves(domain, mesh_for_resolve)
+    except Exception as e:
+        result["host_resolve"] = {"ok": False, "reason": f"host_resolve error: {e}"}
+
     result["ok"] = reloaded
-    result["message"] = (
-        f"Live: https://{domain} (cert issues in ~30-60s; mic/voice will work)."
-        if reloaded else
-        "Caddy did not come up — check the reason above (run on the Cove's host, with docker available)."
-    )
+    hr = result.get("host_resolve") or {}
+    if reloaded and hr.get("ok"):
+        extra = ""
+        if hr.get("method") == "hosts":
+            extra = " Host DNS was repaired via /etc/hosts (mesh A records are often filtered)."
+        result["message"] = (
+            f"Live on this host: https://{domain} "
+            f"(cert ~30-60s; mic/voice works once HTTPS is up).{extra} "
+            "Reachable from other devices only on the mesh — see MESH.md."
+        )
+    elif reloaded and not hr.get("ok"):
+        result["message"] = (
+            f"Caddy is up for https://{domain}, but THIS host still cannot resolve the name "
+            f"({hr.get('message') or 'host_resolve failed'}). "
+            "Open my Cove will NXDOMAIN until DNS works — re-run this command with sudo, "
+            "enable Tailscale DNS, or pin the mesh IP in /etc/hosts. Not fully live."
+        )
+        # Resolve failure is an install hard-stop even if Caddy reloaded.
+        result["ok"] = False
+        result["code"] = "host_resolve_failed"
+    else:
+        result["message"] = (
+            "Caddy did not come up — check the reason above "
+            "(run on the Cove's host, with docker available)."
+        )
     print(json.dumps(result, indent=2))
-    return 0 if reloaded else 1
+    return 0 if result.get("ok") else 1
 
 
 if __name__ == "__main__":

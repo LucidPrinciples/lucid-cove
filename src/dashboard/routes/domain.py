@@ -706,14 +706,28 @@ async def check_records(request: Request):
         _rec("Everything under it", "*." + domain, wild_ip),
     ]
     all_ok = all(r["ok"] for r in records)
+    mesh_hint = ""
+    exp = (expected or "").strip()
+    if exp.startswith("100.") and exp.count(".") == 3:
+        try:
+            if 64 <= int(exp.split(".")[1]) <= 127:
+                mesh_hint = (
+                    " This address is a mesh IP (100.64.0.0/10): some local resolvers hide it "
+                    "even when public DNS is correct. On the Cove host re-run set_domain / enable "
+                    "Tailscale DNS; see MESH.md if the browser still NXDOMAINs."
+                )
+        except Exception:
+            pass
     return {
         "ok": True, "all_ok": all_ok, "domain": domain, "expected_ip": expected,
         "records": records,
         "message": (
             f"Both records point at this box — HTTPS for https://{domain} will issue shortly."
+            + mesh_hint
             if all_ok else
             "Not pointing here yet. After you add the records at your registrar, DNS can take "
-            "a few minutes to propagate — check again shortly."),
+            "a few minutes to propagate — check again shortly."
+            + mesh_hint),
     }
 
 
