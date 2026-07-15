@@ -299,26 +299,101 @@ async def _sync_space_to_registry(cove_name: str, space_id: str):
     card is then sparse), and one that hit a brief hub outage never registered at all. Now
     it carries the admin handle + domain AND, on failure, queues the FULL payload through
     hub_retry so the scheduler lands it later (same durability the finalize path already has)."""
+    await publish_cove_to_registry(cove_name=cove_name, space_id=space_id)
+
+
+async def publish_cove_to_registry(*, cove_name: str = "", space_id: str = "") -> dict:
+    """Public, best-effort publish of this Cove → hub registrar (name + optional space_id).
+
+    Used by:
+      - ensure_cove_space / Connect (has space_id)
+      - scheduler boot + periodic self-heal (so a Cove that never opened Connect still
+        becomes nestable without an admin checklist)
+      - Haven nest product path (clear errors, not silent 404)
+
+    Returns {ok, reason?, queued?} — never raises for hub hiccups.
+    """
     try:
         from src.dashboard.routes import registry_client
-        if not (registry_client.configured() and space_id):
-            return
+        if not registry_client.configured():
+            return {"ok": False, "reason": "LP_REGISTRY_URL not set"}
+        name = (cove_name or "").strip()
+        if not name:
+            try:
+                name = await _live_cove_name()
+            except Exception:
+                name = ""
+        if not name:
+            try:
+                from src.config import load_cove_config
+                name = (load_cove_config().get("name") or "").strip()
+            except Exception:
+                name = ""
+        if not name or name.lower() in ("new cove", "your cove"):
+            return {"ok": False, "reason": "cove not named yet"}
+        sid = (space_id or "").strip()
+        if not sid:
+            try:
+                st = await _state()
+                sid = (st.get("space_id") or "").strip()
+            except Exception:
+                sid = ""
+        # Haven nest needs space_id. Do not wait for the operator to open Connect:
+        # if Matrix is configured and the Space table exists, build it here so
+        # registration is complete without a UI step. Best-effort — never block
+        # a name/domain-only register if Matrix is cold.
+        if not sid and _configured():
+            try:
+                if await _has_state_table():
+                    built = await ensure_cove_space()
+                    # ensure_cove_space publishes too (with space_id), so nested
+                    # publish skips this ensure branch. Fall through with sid so
+                    # we still return a truthful register result if nested only queued.
+                    if built.get("ok"):
+                        sid = (built.get("space_id") or sid or "").strip()
+            except Exception as e:
+                log.info("publish: ensure_cove_space before register skipped: %s", e)
         owner_handle, domain = await _admin_handle_and_domain()
+        # Prefer live cove.yaml id when present (matches finalize), else COVE_ID env.
+        cove_id = ""
+        try:
+            from src.config import get_instance, load_cove_config
+            cove_id = ((get_instance() or {}).get("id")
+                       or (load_cove_config().get("id") or "")
+                       or env("COVE_ID") or "")
+        except Exception:
+            cove_id = env("COVE_ID") or ""
+        if not cove_id:
+            cove_id = name.lower().replace(" ", "-")
         payload = {
-            "cove_id": env("COVE_ID") or cove_name.lower().replace(" ", "-"),
-            "name": cove_name, "owner_handle": owner_handle, "domain": domain,
-            "homeserver": _server_name(), "space_id": space_id,
+            "cove_id": cove_id,
+            "name": name,
+            "owner_handle": owner_handle,
+            "domain": domain,
+            "homeserver": _server_name(),
+            "space_id": sid,
         }
         try:
             res = await registry_client.register_cove(**payload)
         except Exception as e:
             res = {"ok": False, "reason": str(e)[:200]}
-        if not res.get("ok"):
+        if res.get("ok"):
+            try:
+                from src.utils.hub_retry import clear_registration_pending
+                await clear_registration_pending()
+            except Exception:
+                pass
+            return {"ok": True, "cove_id": cove_id, "name": name, "space_id": sid}
+        try:
             from src.utils.hub_retry import mark_registration_pending
             await mark_registration_pending(payload)
-            log.info("Cove Space registry sync queued for retry: %s", res.get("reason"))
+        except Exception:
+            pass
+        log.info("Cove registry publish queued for retry: %s", res.get("reason"))
+        return {"ok": False, "reason": res.get("reason") or "register failed", "queued": True}
     except Exception as e:
-        log.info("Cove Space registry sync skipped: %s", e)
+        log.info("Cove registry publish skipped: %s", e)
+        return {"ok": False, "reason": str(e)[:200]}
 
 
 async def invite_presence_to_cove_space(handle: str) -> dict:

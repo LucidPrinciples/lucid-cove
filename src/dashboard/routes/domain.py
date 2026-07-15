@@ -52,6 +52,20 @@ from src.config import load_cove_config, save_cove_config, resolve_voice_urls
 from src.dashboard.routes.settings import _is_admin_presence
 
 log = logging.getLogger(__name__)
+
+
+async def _publish_cove_after_address() -> None:
+    """Best-effort: land this Cove on the hub with the just-saved domain.
+
+    Address claim is a common point where name+domain become real; without this,
+    registration can sit on empty domain until Connect or the 30m scheduler.
+    Never raises — must not block set-address success.
+    """
+    try:
+        from src.dashboard.routes.matrix_spaces import publish_cove_to_registry
+        await publish_cove_to_registry()
+    except Exception as e:
+        log.info("post-address hub publish skipped: %s", e)
 router = APIRouter()
 
 # A conservative public-hostname check: labels of [a-z0-9-], at least one dot,
@@ -374,6 +388,7 @@ async def domain_set(body: DomainSet, request: Request):
             })
         if not _persist():
             return _ro_error
+        await _publish_cove_after_address()
         _mx_host = _matrix_needs_host()
         _next = list(live.get("next", []))
         if _change_matrix_note:
@@ -414,6 +429,7 @@ async def domain_set(body: DomainSet, request: Request):
             })
         if not _persist():
             return _ro_error
+        await _publish_cove_after_address()
         _mx_host = _matrix_needs_host()
         _next = list(live.get("next", []))
         if _change_matrix_note:

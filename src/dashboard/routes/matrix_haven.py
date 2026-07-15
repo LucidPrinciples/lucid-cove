@@ -272,22 +272,107 @@ async def ensure_haven_space(request: Request, haven_id: str, name: str, members
     return {"ok": True, "haven_id": haven_id, "space_id": space_id, "commons_id": commons_id, "created": True}
 
 
+def _nest_missing_registry_message(cove_key: str, reason: str = "") -> str:
+    """Product-facing copy when nest cannot resolve a Cove on the hub.
+
+    Operators must never be handed an admin checklist (ensure-space POST, registry
+    rows, iMac ceremony). A named Cove publishes itself on normal install/Connect;
+    if the hub has no row yet, tell them what to do on THAT Cove in product language.
+    """
+    key = (cove_key or "that Cove").strip() or "that Cove"
+    # If the missing Cove is THIS Cove (self-nest typo / same box), self-publish first.
+    return (
+        "%s is not on the network yet. On %s: finish first-run naming if needed, "
+        "open Connect once so it publishes, then try Nest again. "
+        "No admin tools required." % (key, key)
+    )
+
+
+def _nest_missing_space_message(cove_key: str, cove_name: str = "") -> str:
+    label = (cove_name or cove_key or "That Cove").strip() or "That Cove"
+    return (
+        "%s is on the network but has not published its Space yet. "
+        "Open Connect once on %s (that builds + publishes the Space), then Nest again."
+        % (label, label)
+    )
+
+
+async def _try_publish_local_if_matching(cove_key: str) -> dict:
+    """If the nest target is THIS Cove (id or name), publish ourselves to the hub.
+
+    Cross-Cove push is not possible from the owner's box without the member's
+    credentials — but self-nest and same-box re-register after a hub gap should
+    not require /api/admin/matrix/ensure-space. Best-effort; never raises.
+    """
+    key = (cove_key or "").strip()
+    if not key:
+        return {"ok": False, "reason": "empty key"}
+    try:
+        from src.config import get_instance, load_cove_config
+        from src.dashboard.routes.matrix_spaces import publish_cove_to_registry
+        cove = load_cove_config() or {}
+        inst = get_instance() or {}
+        local_id = (inst.get("id") or cove.get("id") or env("COVE_ID") or "").strip()
+        local_name = (cove.get("name") or env("COVE_NAME") or "").strip()
+        key_l = key.lower()
+        if key_l not in {
+            local_id.lower(),
+            local_name.lower(),
+            (local_name.lower().replace(" ", "-") if local_name else ""),
+        }:
+            return {"ok": False, "reason": "not local cove"}
+        # Prefer ensure so space_id exists, then publish (ensure already publishes).
+        try:
+            from src.dashboard.routes.matrix_spaces import ensure_cove_space
+            await ensure_cove_space()
+        except Exception as e:
+            log.info("local ensure before nest publish skipped: %s", e)
+        return await publish_cove_to_registry(cove_name=local_name)
+    except Exception as e:
+        log.info("local nest self-publish skipped: %s", e)
+        return {"ok": False, "reason": str(e)[:160]}
+
+
 async def nest_member_cove(request: Request, haven_id: str, cove_key: str) -> dict:
     """Nest a member Cove's Space under the Haven Space (m.space.child → the Cove's
-    space_id, via the Cove's homeserver). Resolves the Cove from the registrar."""
+    space_id, via the Cove's homeserver). Resolves the Cove from the registrar.
+
+    Product rule (2026-07-15): never hand the operator a multi-step admin checklist
+    for registry gaps. If the target is this Cove, self-heal publish. Otherwise
+    return clear product language so they open Connect on the member Cove once.
+    """
     st = await _haven_state(haven_id)
     if not st.get("space_id"):
         raise HTTPException(409, "Build the Haven Space first")
     await _operator_matrix_id(request)  # enforce operator sign-in
     steward = await ensure_haven_steward(haven_id)
     tok = steward["token"]
+
     cove = await registry_client.resolve_cove(cove_key)
     if not cove.get("ok"):
-        raise HTTPException(404, "Cove not in registry: %s" % cove.get("reason"))
+        # Self-heal when the missing row is THIS Cove (common after hub outage /
+        # pre-register install). Then re-resolve.
+        local = await _try_publish_local_if_matching(cove_key)
+        if local.get("ok"):
+            cove = await registry_client.resolve_cove(cove_key)
+        if not cove.get("ok"):
+            raise HTTPException(
+                404, _nest_missing_registry_message(cove_key, cove.get("reason") or ""))
+
     child_space = cove.get("space_id")
     via = cove.get("homeserver") or _server_name()
     if not child_space:
-        raise HTTPException(409, "That Cove has no Space registered yet")
+        # Local self-heal: build Space + re-publish, then re-resolve.
+        local = await _try_publish_local_if_matching(cove_key)
+        if local.get("ok") and local.get("space_id"):
+            cove = await registry_client.resolve_cove(cove_key)
+            child_space = cove.get("space_id") or local.get("space_id")
+            via = cove.get("homeserver") or via
+        if not child_space:
+            raise HTTPException(
+                409, _nest_missing_space_message(
+                    cove_key, cove.get("name") or cove.get("cove_id") or ""))
+
     s, r = await _http("PUT", "/_matrix/client/v3/rooms/%s/state/m.space.child/%s"
                        % (_up.quote(st["space_id"]), _up.quote(child_space)), tok, {"via": [via]})
     if s != 200:
