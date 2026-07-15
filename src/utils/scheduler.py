@@ -211,7 +211,24 @@ class AgentScheduler:
 
         force=True (#D4): override the per-Drop dedup and re-tune the whole Cove
         now (still bounded by the dispatch lock + 20-min cooldown in run_cove_sweep).
+
+        Team auto-tune consent (install-pass 2026-07-14): automatic team tuning
+        only runs after the Cove admin enables it from the Initiate team tuning
+        card. Drop pull and personal Tune practice are NOT gated. force=True from
+        an explicit operator-triggered API still requires consent — no silent
+        spend path.
         """
+        try:
+            from src.tuning.team_consent import team_auto_tune_allowed
+            if not await team_auto_tune_allowed():
+                print(f"{ts_log()} [scheduler] Tuning sweep skipped — team auto-tune "
+                      "not enabled yet (operator must Initiate team tuning)")
+                return {"status": "skipped", "reason": "team_auto_tune_disabled"}
+        except Exception as _e:
+            print(f"{ts_log()} [scheduler] team-auto-tune consent check failed "
+                  f"(continuing blocked for safety): {_e}")
+            return {"status": "skipped", "reason": "team_auto_tune_check_failed"}
+
         protocol = "tuning-sweep-force" if force else "tuning-sweep"
         run_id = await _log_run_start(protocol, f"sweep-{today_app()}")
         started = time.time()

@@ -367,6 +367,7 @@ function openOnboardingHelp() {
             <p><b>1. Add intelligence.</b> Connect a model (your own key, or a local one). This switches on your <b>Agent</b> and the <b>Tools</b>, including jules.</p>
             <p><b>2. Set your address.</b> Your Cove gets its own web address. That turns on HTTPS so voice and the mic work, and gives everyone a clean link (you're <code>your-handle.your-address</code>).</p>
             <p><b>3. Set up compute.</b> Choose where heavy work runs: a cloud model, this box's GPU, a GPU rented from another Cove, or CPU only.</p>
+            <p><b>Team tuning (optional).</b> Daily auto-tune for the full team uses your connected model and can bill a cloud key. You choose when to enable it — skip anytime; chat and personal Tune still work.</p>
             <p><b>4. Connect on mobile.</b> Join your phone to the private mesh, then open <b>jules</b> and talk anywhere. It lands in your Inbox for your agent to act on.</p>
             <p><b>5. Back up your Cove's work.</b> It backs itself up every night to a private repo you own, so if this box dies your Cove doesn't.</p>
             <p style="color:var(--dim);">From there your agent helps you build, capture, and organize, and you can add family members, each with their own handle.</p>
@@ -479,7 +480,42 @@ function _onboardingCardHtml(item) {
             </div>
         </div>`;
     }
+    if (item.id === 'initiate_team_tuning') {
+        // Cost-aware consent before daily team auto-tune bills a cloud key.
+        // Skip is fine — Cove chat/tools/personal Tune still work.
+        const est = item.estimate || {};
+        const summary = est.summary
+            ? ESC(est.summary)
+            : 'Estimate unavailable until a model is connected.';
+        const sev = est.severity || '';
+        const sevColor = sev === 'high' ? 'var(--orange,#e6a23c)'
+            : sev === 'medium' ? 'var(--accent)'
+            : sev === 'free' || sev === 'low' ? 'var(--green)'
+            : 'var(--dim)';
+        const modelLine = est.display
+            ? `<div style="font-size:0.72rem;color:var(--dim);margin-top:4px;">Model: <code>${ESC(est.display)}</code> · ~${est.agent_count || 10} agents · ~${Math.round(((est.tokens_in||0)+(est.tokens_out||0))/1000)}k tokens/pass</div>`
+            : '';
+        return `<div class="home-approval onboarding-card">
+            <div class="approval-tool">${title}</div>
+            <div class="approval-desc" style="line-height:1.6;">${body}</div>
+            <div style="margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--card,#111);">
+                <div style="font-size:0.78rem;color:${sevColor};line-height:1.5;">💡 ${summary}</div>
+                ${modelLine}
+            </div>
+            <div style="margin-top:8px;font-size:0.68rem;color:var(--dim);line-height:1.5;">
+                Enabling starts daily auto-tune and runs the first pass now.
+                Skipping leaves auto-tune off — you can enable later from this card or Settings.
+                Personal Tune (you) and agent chat are never blocked.
+            </div>
+            <div class="approval-actions" style="flex-wrap:wrap;gap:6px;margin-top:8px;">
+                <button class="btn-approve" onclick="enableTeamTuning(this)">Enable daily team tuning</button>
+                <button class="btn-ghost" onclick="ackOnboarding('initiate_team_tuning')">Skip for now</button>
+            </div>
+            <div id="team-tune-status" style="display:none;margin-top:6px;font-size:0.72rem;"></div>
+        </div>`;
+    }
     if (item.id === 'jules_intro') {
+
         return `<div class="home-approval onboarding-card">
             <div class="approval-tool">${title}</div>
             <div class="approval-desc">${body}</div>
@@ -1159,7 +1195,38 @@ function _afterIntelligenceConnected() {
     loadHomeApprovals();
 }
 
+async function enableTeamTuning(btn) {
+    const st = document.getElementById('team-tune-status');
+    const show = (msg, color) => {
+        if (st) { st.style.display = 'block'; st.style.color = color || 'var(--dim)'; st.textContent = msg; }
+    };
+    if (btn) { btn.disabled = true; btn.textContent = 'Enabling…'; }
+    show('Writing consent and starting the first team tune…');
+    try {
+        const r = await fetch('/api/onboarding/team-tuning/enable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ run_now: true }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.error || d.ok === false) {
+            show(d.error || 'Could not enable team tuning.', 'var(--red,#e74c3c)');
+            if (btn) { btn.disabled = false; btn.textContent = 'Enable daily team tuning'; }
+            return;
+        }
+        const est = (d.estimate && d.estimate.summary) ? d.estimate.summary : '';
+        show((d.message || 'Team auto-tune enabled.') + (est ? ' ' + est : ''), 'var(--green)');
+        // Clear any skip flag path by refreshing cards — enable marks step done.
+        setTimeout(() => { try { loadHomeApprovals(); } catch (e) {} }, 600);
+    } catch (e) {
+        show('Could not enable: ' + (e.message || e), 'var(--red,#e74c3c)');
+        if (btn) { btn.disabled = false; btn.textContent = 'Enable daily team tuning'; }
+    }
+}
+
 async function ackOnboarding(item) {
+
     // Jules 0113: mobile was false-completing when operators hit the nearby Done
     // while still reading the join command. Confirm before clearing that step.
     if (item === 'device_jules' || item === 'join_mesh') {

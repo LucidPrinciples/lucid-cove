@@ -229,6 +229,15 @@ async def _check_tuning_missing(conn) -> list[dict]:
         return []
     if not await _any_presence_has_intelligence(conn):
         return []
+    # Install-pass team-tuning consent: do not nag about missing team echoes
+    # while auto-tune is still off — the Initiate card is the real prompt.
+    # Legacy Coves (history, no key) still get the missing-tuning alert.
+    try:
+        from src.tuning.team_consent import team_auto_tune_allowed
+        if not await team_auto_tune_allowed():
+            return []
+    except Exception:
+        return []
     from src.tuning.sweep import _expected_team
     from src.tuning.dedup import tuned_today
     expected = _expected_team()
