@@ -52,6 +52,10 @@ header .status{font-size:0.7rem;color:#666}
 /* ── Status bar ── */
 .status-bar{flex-shrink:0;padding:6px 16px;padding-bottom:max(8px,env(safe-area-inset-bottom))}
 .save-status{font-size:0.8rem;color:#2ecc71;text-align:center;min-height:22px;padding:4px 0}
+.save-actions{display:flex;justify-content:center;gap:8px;min-height:0}
+.copy-btn{display:none;border:1px solid #333;background:#1a1a2e;color:#7eb8da;border-radius:8px;padding:6px 12px;font-size:0.75rem;cursor:pointer}
+.copy-btn.show{display:inline-block}
+.copy-btn:active{background:#252540}
 
 /* Queue panel */
 .queue-panel{display:none;border-top:1px solid #1a1a2e;max-height:45vh;overflow-y:auto;flex-shrink:0}
@@ -99,6 +103,9 @@ header .status{font-size:0.7rem;color:#666}
 </div>
 
 <div class="status-bar">
+  <div class="save-actions" id="saveActions">
+    <button type="button" class="copy-btn" id="copyTranscriptBtn" onclick="copyFullTranscript()" title="Copy full transcript">Copy text</button>
+  </div>
   <div class="save-status" id="saveStatus"></div>
 </div>
 
@@ -663,6 +670,36 @@ function resetPage() {
 function updateWordCount() {
   const total = segments.reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
   wordCountEl.textContent = total > 0 ? `${total} words` : "";
+  const copyBtn = document.getElementById("copyTranscriptBtn");
+  if (copyBtn) copyBtn.classList.toggle("show", total > 0);
+}
+
+async function copyFullTranscript() {
+  const text = getFullTranscript().trim();
+  if (!text) {
+    saveStatus.textContent = "Nothing to copy yet";
+    saveStatus.style.color = "#f39c12";
+    return;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    saveStatus.textContent = "Copied full transcript";
+    saveStatus.style.color = "#2ecc71";
+  } catch (e) {
+    saveStatus.textContent = "Couldn't copy — long-press a chunk and select all";
+    saveStatus.style.color = "#f39c12";
+  }
 }
 
 function getFullTranscript() {
@@ -735,18 +772,53 @@ async function doSave() {
   saveStatus.textContent = "Saving...";
   saveStatus.style.color = "#f39c12";
 
-  const text = getFullTranscript();
+  const text = getFullTranscript().trim();
   const wordCount = text.split(/\s+/).filter(Boolean).length;
   const ts = new Date().toISOString().slice(0,16).replace("T","_").replace(":","");
   const baseName = `jules-${destPrefix()}${ts}`;
 
-  // Save from the COMPLETE audio whenever we have a real recording. The live
-  // WebSocket transcript is for on-screen feedback only — it races the save and can
-  // drop the final utterance (the cutoff bug), while the full webm is always intact.
-  // Re-transcribing the whole file server-side makes the saved note complete + saves
-  // the audio too. Only fall back to the live transcript when there's no real audio.
+  // Save strategy:
+  // 1) Prefer re-transcribing the full webm when we have a real recording (fixes cutoff).
+  // 2) If re-transcribe returns empty/no-speech BUT the live on-screen transcript has
+  //    text, save THAT — the user already saw chunks land; never throw them away.
+  // 3) If there is no usable audio, save the live transcript path directly.
   const blobSizeKB = lastAudioBlob ? lastAudioBlob.size / 1024 : 0;
   const useFileFallback = lastAudioBlob && blobSizeKB > 20;
+  const hasLiveText = wordCount > 0;
+
+  async function saveLiveTranscript(sourceLabel) {
+    const saveBody = { text, filename: baseName };
+    const resp = await fetch("/api/jules/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(saveBody)
+    });
+    const data = await resp.json();
+
+    // Best-effort audio sidecar — never blocks the text save.
+    if (lastAudioBlob) {
+      try {
+        const formData = new FormData();
+        formData.append("audio", lastAudioBlob, "recording.webm");
+        formData.append("filename", baseName.replace(/\.md$/, "") + ".webm");
+        await fetch("/api/jules/save-audio", { method: "POST", body: formData });
+      } catch (e) { /* ignore audio sidecar failure */ }
+      lastAudioBlob = null;
+    }
+
+    if (data.ok) {
+      saveStatus.textContent = sourceLabel || "saved";
+      saveStatus.style.color = "#2ecc71";
+      clearDraft();
+      // Keep transcript on screen so the operator can still copy it; only clear
+      // after a short beat so "saved" is readable.
+      setTimeout(() => { if (!recording) resetAfterSave(); }, 2500);
+      return true;
+    }
+    saveStatus.textContent = data.error || "Error";
+    saveStatus.style.color = "#e74c3c";
+    return false;
+  }
 
   try {
     if (useFileFallback) {
@@ -756,57 +828,53 @@ async function doSave() {
       formData.append("filename", baseName);
       const resp = await fetch("/api/jules/transcribe-and-save", { method: "POST", body: formData });
       const data = await resp.json();
-      lastAudioBlob = null;
 
       if (data.ok) {
+        lastAudioBlob = null;
         saveStatus.textContent = "saved (re-transcribed)";
         saveStatus.style.color = "#2ecc71";
         clearDraft();
-        return;
-      } else {
-        // #17: an empty/no-speech result is normal (silence, a mis-tap) — neutral copy,
-        // not an alarming red "Empty transcript" error.
-        const _err = (data.error || "").toString();
-        if (/empty|no speech|no audio|silence/i.test(_err) || !_err) {
-          saveStatus.textContent = "Didn't catch any speech — tap the mic and try again.";
-          saveStatus.style.color = "#f39c12";
-        } else {
-          saveStatus.textContent = _err;
-          saveStatus.style.color = "#e74c3c";
+        // If re-transcribe succeeded but screen was empty, surface returned text.
+        if (!hasLiveText && data.transcript) {
+          addSegment(data.transcript);
         }
-      }
-    } else {
-      // Normal path — save transcript + audio via MC endpoints
-      const saveBody = { text, filename: baseName };
-      const resp = await fetch("/api/jules/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(saveBody)
-      });
-      const data = await resp.json();
-
-      // Save audio alongside transcript
-      if (lastAudioBlob) {
-        const formData = new FormData();
-        formData.append("audio", lastAudioBlob, "recording.webm");
-        formData.append("filename", baseName.replace(/\.md$/, "") + ".webm");
-        await fetch("/api/jules/save-audio", { method: "POST", body: formData });
-        lastAudioBlob = null;
-      }
-
-      if (data.ok) {
-        saveStatus.textContent = "saved";
-        saveStatus.style.color = "#2ecc71";
-        clearDraft();
+        setTimeout(() => { if (!recording) resetAfterSave(); }, 2500);
         return;
+      }
+
+      // Re-transcribe failed. Prefer the live transcript the user already has.
+      const _err = (data.error || "").toString();
+      const emptyish = /empty|no speech|no audio|silence/i.test(_err) || !_err;
+      if (hasLiveText) {
+        saveStatus.textContent = "Re-transcribe missed speech — saving live transcript…";
+        saveStatus.style.color = "#f39c12";
+        const ok = await saveLiveTranscript(emptyish ? "saved (live transcript)" : "saved (live fallback)");
+        if (ok) return;
+        // Fall through to keep copy affordance + error text
+      } else if (emptyish) {
+        lastAudioBlob = null;
+        saveStatus.textContent = "Didn't catch any speech — tap the mic and try again.";
+        saveStatus.style.color = "#f39c12";
       } else {
-        saveStatus.textContent = data.error || "Error";
+        // Keep blob so a retry can still try; show the real error.
+        saveStatus.textContent = _err;
         saveStatus.style.color = "#e74c3c";
       }
+    } else if (hasLiveText || lastAudioBlob) {
+      if (!hasLiveText) {
+        saveStatus.textContent = "Didn't catch any speech — tap the mic and try again.";
+        saveStatus.style.color = "#f39c12";
+      } else {
+        await saveLiveTranscript("saved");
+      }
+    } else {
+      saveStatus.textContent = "Didn't catch any speech — tap the mic and try again.";
+      saveStatus.style.color = "#f39c12";
     }
   } catch (e) {
     console.error("doSave error:", e);
-    saveStatus.textContent = "Save error: " + (e.message || "network");
+    // Network/save blow-up: if we still have on-screen text, make copy obvious.
+    saveStatus.textContent = "Save error: " + (e.message || "network") + (hasLiveText ? " — copy text below" : "");
     saveStatus.style.color = "#e74c3c";
   }
 }

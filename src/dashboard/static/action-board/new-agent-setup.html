@@ -1462,7 +1462,8 @@ function loveName(name) {
     } else {
         Object.keys(nameStates).forEach(n => { if (nameStates[n] === 'loved') nameStates[n] = null; });
         nameStates[name] = 'loved';
-        selectedName = name;
+        // Root casing: store the display form so every later CTA ("Bring X…") matches the Meet card.
+        selectedName = _titleCaseName(name);
         document.getElementById('custom-name').value = '';
     }
     refreshNameCards();
@@ -1518,7 +1519,8 @@ function onCustomName() {
         const warn = document.querySelector('.name-taken-warn');
         if (warn) warn.remove();
         Object.keys(nameStates).forEach(n => { if (nameStates[n] === 'loved') nameStates[n] = null; });
-        selectedName = val;
+        // Root casing: selectedName is always title-case so Bring-button + Meet card never diverge.
+        selectedName = _titleCaseName(val);
         refreshNameCards();
         _updateStep5Next();
     } else {
@@ -1669,7 +1671,7 @@ async function loadTeamShowcase() {
 // Step 5: Meet — Review + Provision
 // ══════════════════════════════════════════════════════════════════════════════
 async function buildReview() {
-    const name = selectedName || document.getElementById('custom-name').value.trim() || 'Unnamed';
+    const name = _titleCaseName(selectedName || document.getElementById('custom-name').value.trim() || 'Unnamed');
     const quals = [...selectedQualities];
     const feeling = document.getElementById('agent-feeling').value.trim();
     const situation = document.getElementById('reflect-situation').value.trim();
@@ -1819,9 +1821,10 @@ async function provisionAgent() {
     btn.disabled = true;
     const _isFirst = urlParams.get('firstrun') === '1';
     const _familyName = urlParams.get('familyName');
-    const _name = selectedName || document.getElementById('custom-name').value.trim();
+    const _name = _titleCaseName(selectedName || document.getElementById('custom-name').value.trim());
+    const _fam = _titleCaseName(_familyName || '');
     btn.textContent = _isFirst ? 'Creating your Lucid Cove…'
-        : (_familyName ? `Bringing ${_name} into ${_familyName}…` : `Bringing ${_name} into the Cove…`);
+        : (_fam ? `Bringing ${_name} into ${_fam}…` : `Bringing ${_name} into the Cove…`);
 
     const statusEl = document.getElementById('provision-status');
     statusEl.style.display = 'block';
