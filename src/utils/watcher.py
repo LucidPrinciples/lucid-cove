@@ -239,18 +239,31 @@ async def _check_tuning_missing(conn) -> list[dict]:
     except Exception:
         return []
     from src.tuning.sweep import _expected_team
-    from src.tuning.dedup import tuned_today
+    from src.tuning.dedup import tuned_for_package
+    from src.tuning.receiver import get_todays_tuning
     expected = _expected_team()
     if not expected:
         return []
-    tuned = await tuned_today(today_app())
+    # Drop identity only — never calendar "today" (operator policy 2026-07-15).
+    pkg = await get_todays_tuning(agent_id="stuart")
+    if pkg is None:
+        return []  # no latest Drop yet — not a "missing team" problem
+    try:
+        _pd = pkg.to_dict() if hasattr(pkg, "to_dict") else {}
+    except Exception:
+        _pd = {}
+    _freq = (_pd.get("frequency") or getattr(pkg, "frequency", "") or "")
+    _prin = (_pd.get("principle") or getattr(pkg, "principle", "") or "")
+    _key = (_pd.get("tuning_key") or getattr(pkg, "tuning_key", "") or "")
+    tuned = await tuned_for_package(_freq, _prin, _key)
     missing = sorted(expected - tuned)
     if not missing:
         return []
+    drop_label = f"{_freq or 'Drop'}" + (f" · {_prin}" if _prin else "")
     return [{
-        "alert_key": f"tuning-missing-{today_app()}",
+        "alert_key": f"tuning-missing-{_freq}-{_prin}-{(_key or '')[:40]}",
         "category": "tuning-missing",
-        "title": f"{len(missing)} team agent(s) missing today's tuning after {TUNING_ALERT_HOUR}:00",
+        "title": f"{len(missing)} team agent(s) missing latest Drop ({drop_label})",
         "detail": _clip(", ".join(missing)),
         "urgency": "high",
     }]

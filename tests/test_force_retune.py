@@ -50,7 +50,7 @@ async def test_non_force_still_respects_per_drop_dedup(monkeypatch):
         return {"agent_id": agent_id, "status": "tuned"}
     monkeypatch.setattr(pt, "tune_presence", _tune)
 
-    async def _tuned_today(today, freq, prin):
+    async def _tuned_today(today, freq, prin, key=""):
         return {"a"}
     monkeypatch.setattr("src.tuning.dedup.tuned_today", _tuned_today)
 

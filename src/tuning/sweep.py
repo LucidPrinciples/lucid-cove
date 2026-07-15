@@ -104,12 +104,14 @@ async def run_cove_sweep(force: bool = False) -> dict:
         _pd = {}
     _pkg_freq = (_pd.get("frequency") or getattr(package, "frequency", "") or "").strip()
     _pkg_prin = (_pd.get("principle") or getattr(package, "principle", "") or "").strip()
+    _pkg_key = (_pd.get("tuning_key") or getattr(package, "tuning_key", "") or "").strip()
 
     # Hold the lock so concurrent sweeps (07:00 + boot catch-up, or a manual
     # trigger) can't double-tune the same agents.
     set_dispatch_running(True)
     try:
-        tuned = await _tuned_today(today, _pkg_freq, _pkg_prin)
+        # Drop identity only — never calendar day (see src/tuning/dedup.py).
+        tuned = await _tuned_today(today, _pkg_freq, _pkg_prin, _pkg_key)
 
         # ---- Team agents (incl the steward, as the "The Steward" archetype) ----
         # `tuned` = already tuned off TODAY's Drop; `recent` = tuned in the last 20 min

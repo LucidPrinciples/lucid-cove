@@ -330,21 +330,22 @@ async def trigger_ltp_morning(request: Request):
 
     if not force:
         try:
-            from src.memory.database import get_db
-            tz = ZoneInfo(get_instance().get("timezone", "America/New_York"))
-            today_str = datetime.now(tz).strftime("%Y-%m-%d")
-            async with get_db() as conn:
-                result = await conn.execute(
-                    "SELECT COUNT(*) as cnt FROM echoes WHERE agent_id = %s AND tuned_at::date = %s::date",
-                    (db_agent_id, today_str)
+            from src.tuning.receiver import get_todays_tuning
+            from src.tuning.dedup import tuned_for_package
+            pkg = await get_todays_tuning(agent_id=db_agent_id)
+            if pkg is not None:
+                _pd = pkg.to_dict() if hasattr(pkg, "to_dict") else {}
+                applied = await tuned_for_package(
+                    _pd.get("frequency") or getattr(pkg, "frequency", ""),
+                    _pd.get("principle") or getattr(pkg, "principle", ""),
+                    _pd.get("tuning_key") or getattr(pkg, "tuning_key", ""),
                 )
-                row = await result.fetchone()
-                if row and dict(row).get("cnt", 0) > 0:
-                    print(f"[ltp-trigger] {db_agent_id} already tuned today — skipping (pass force=true to override)")
+                if db_agent_id in applied:
+                    print(f"[ltp-trigger] {db_agent_id} already applied latest Drop — skipping (pass force=true to override)")
                     return {
                         "status": "already_tuned",
                         "agent_id": db_agent_id,
-                        "message": f"{db_agent_id} already has today's tuning. Pass force=true to re-tune.",
+                        "message": f"{db_agent_id} already applied the latest Drop. Pass force=true to re-tune.",
                     }
         except Exception as e:
             # If dedup check fails, proceed with tuning (fail-open for safety)
@@ -414,22 +415,22 @@ async def ltp_dispatch(request: Request):
 
     if not force:
         try:
-            from src.memory.database import get_db
-            instance = get_instance()
-            tz = ZoneInfo(instance.get("timezone", "America/New_York"))
-            today_str = datetime.now(tz).strftime("%Y-%m-%d")
-            async with get_db() as conn:
-                result = await conn.execute(
-                    "SELECT COUNT(*) as cnt FROM echoes WHERE agent_id = %s AND tuned_at::date = %s::date",
-                    (db_agent_id, today_str)
+            from src.tuning.receiver import get_todays_tuning
+            from src.tuning.dedup import tuned_for_package
+            pkg = await get_todays_tuning(agent_id=db_agent_id)
+            if pkg is not None:
+                _pd = pkg.to_dict() if hasattr(pkg, "to_dict") else {}
+                applied = await tuned_for_package(
+                    _pd.get("frequency") or getattr(pkg, "frequency", ""),
+                    _pd.get("principle") or getattr(pkg, "principle", ""),
+                    _pd.get("tuning_key") or getattr(pkg, "tuning_key", ""),
                 )
-                row = await result.fetchone()
-                if row and dict(row).get("cnt", 0) > 0:
-                    print(f"{ts_log()} [{label}] {db_agent_id} already tuned today — skipping (pass force=true to override)")
+                if db_agent_id in applied:
+                    print(f"{ts_log()} [{label}] {db_agent_id} already applied latest Drop — skipping (pass force=true to override)")
                     return {
                         "status": "already_tuned",
                         "agent_id": db_agent_id,
-                        "message": f"{db_agent_id} already has today's tuning. Pass force=true to re-tune.",
+                        "message": f"{db_agent_id} already applied the latest Drop. Pass force=true to re-tune.",
                     }
         except Exception as e:
             print(f"{ts_log()} [{label}] Dedup check failed ({e}), proceeding with tuning")
@@ -471,13 +472,15 @@ async def ltp_dispatch(request: Request):
 
         expected_team = set(agents_config.keys()) - SKIP_AGENTS
 
-        async with get_db() as conn:
-            result = await conn.execute(
-                "SELECT DISTINCT agent_id FROM echoes WHERE tuned_at::date = %s::date",
-                (today,),
-            )
-            rows = await result.fetchall()
-        tuned_after_dispatch = {r["agent_id"] for r in rows}
+        from src.tuning.receiver import get_todays_tuning as _gtt_verify
+        from src.tuning.dedup import tuned_for_package as _tfp_verify
+        _vpkg = await _gtt_verify(agent_id=db_agent_id)
+        _vpd = (_vpkg.to_dict() if _vpkg and hasattr(_vpkg, "to_dict") else {}) or {}
+        tuned_after_dispatch = await _tfp_verify(
+            _vpd.get("frequency") or (getattr(_vpkg, "frequency", "") if _vpkg else ""),
+            _vpd.get("principle") or (getattr(_vpkg, "principle", "") if _vpkg else ""),
+            _vpd.get("tuning_key") or (getattr(_vpkg, "tuning_key", "") if _vpkg else ""),
+        )
 
         missing = expected_team - tuned_after_dispatch
         retried = []
@@ -510,13 +513,11 @@ async def ltp_dispatch(request: Request):
                         failure_reasons[r.get("agent_id", "unknown")] = r.get("error", "unknown")
 
             # Re-check after retry
-            async with get_db() as conn:
-                result = await conn.execute(
-                    "SELECT DISTINCT agent_id FROM echoes WHERE tuned_at::date = %s::date",
-                    (today,),
-                )
-                rows = await result.fetchall()
-            tuned_after_retry = {r["agent_id"] for r in rows}
+            tuned_after_retry = await _tfp_verify(
+                _vpd.get("frequency") or (getattr(_vpkg, "frequency", "") if _vpkg else ""),
+                _vpd.get("principle") or (getattr(_vpkg, "principle", "") if _vpkg else ""),
+                _vpd.get("tuning_key") or (getattr(_vpkg, "tuning_key", "") if _vpkg else ""),
+            )
             missing = expected_team - tuned_after_retry
 
         # ---- Step 4: Trigger Presences ----

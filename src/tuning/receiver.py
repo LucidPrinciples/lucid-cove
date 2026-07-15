@@ -205,15 +205,10 @@ def _public_drop_fallback(today: str) -> Optional["TuningPackage"]:
         data = public_drop_package()
         if not data:
             return None
-        # Tune off the LATEST available Drop, even when it isn't dated today. The Drop
-        # publishes ~05:30 ET, so a Cove that comes up before that (fresh install,
-        # reboot, wake-from-sleep) would otherwise find "no package for today" and skip
-        # tuning ENTIRELY until the next day's sweep — leaving a brand-new Cove blank
-        # (the regression re-found 2026-07-07: co-located Coves booted just after
-        # midnight, hit no_package, and one never tuned its team all day). Dedup is by
-        # calendar date (echoes.tuned_at::date), so accepting the latest can't
-        # double-tune — it only guarantees a Cove is never un-tuned for lack of TODAY's
-        # package. When today's Drop lands, the next force_pull refreshes what's served.
+        # Tune off the LATEST available Drop, even when it isn't dated "today".
+        # Dedup is package identity (frequency/principle/tuning_key) — never calendar
+        # day — so accepting the latest cannot double-apply the same Drop. When a
+        # newer Drop lands, force_pull refreshes and agents missing that identity run.
         drop_date = data.get("date")
         if drop_date and drop_date != today:
             print(f"{ts_log()} [tuning-receiver] Public Drop latest is {drop_date} "
