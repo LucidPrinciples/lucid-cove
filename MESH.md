@@ -66,6 +66,32 @@ join code**, good for ~1 hour).
 - Real HTTPS, so the microphone and voice work.
 - Nothing about your Cove is exposed to the public internet.
 
+
+## Address claimed but the browser says NXDOMAIN / "can't find the server"
+
+Your Cove's public DNS points at a **private mesh IP** (`100.64.0.0/10`). That is intentional
+(nothing is exposed on the open internet). Some Mac/phone resolvers and "secure DNS" / ad-block
+products **filter those answers** (DNS rebinding protection). Symptoms:
+
+- Cloudflare / DoH lookup shows `yourcove.lucidcove.org → 100.64.0.x`
+- `curl` / Chrome on the box still say **Could not resolve host** / NXDOMAIN
+- The Cove is fine on the mesh; only **name resolution on that device** is broken
+
+**On the Cove host** (after claim), re-run the host command from Set Address — current
+`set_domain.py` verifies resolve and repairs it (Tailscale DNS + scoped `/etc/hosts` pin when
+needed). Or by hand:
+
+```bash
+tailscale set --accept-dns=true   # or sudo
+# if still broken (host only):
+echo '100.64.0.X yourcove.lucidcove.org' | sudo tee -a /etc/hosts   # use your mesh IP
+sudo dscacheutil -flushcache 2>/dev/null; sudo killall -HUP mDNSResponder 2>/dev/null
+curl -vI https://yourcove.lucidcove.org/
+```
+
+**Other devices** must be on the mesh (section 2) and use Tailscale DNS / not block `100.64/10`.
+This is not "wait for Cloudflare" when public DoH already has the record.
+
 ## Disconnect / troubleshoot
 - A join code is single-use and expires (~1 hour) — generate a new one anytime from your Cove.
 - Disconnect a device: `tailscale down` (computer) or toggle off in the app (phone).
