@@ -55,3 +55,18 @@ def test_no_blob_uses_live():
 
 def test_no_blob_no_live_is_empty():
     assert choose_save_path(live_words=0, blob_kb=0, retranscribe_ok=False) == "empty"
+
+
+def should_start_save(*, saving: bool, save_completed: bool, has_text: bool) -> bool:
+    """Client race guard for concurrent doSave triggers."""
+    if saving:
+        return False
+    if save_completed and not has_text:
+        return False
+    return True
+
+
+def test_race_guard_skips_second_save():
+    assert should_start_save(saving=True, save_completed=False, has_text=True) is False
+    assert should_start_save(saving=False, save_completed=True, has_text=False) is False
+    assert should_start_save(saving=False, save_completed=False, has_text=True) is True

@@ -147,6 +147,9 @@ let connected = false;
 let recordingStartTime = null;
 let lastAudioBlob = null;
 let wakeLock = null;
+let saving = false;           // guard: only one doSave at a time
+let saveGeneration = 0;       // ignore stale async completions
+let saveCompleted = false;    // stopRecording backup must not re-fire after success
 
 // ── Voice server URL (injected by MC route) ───────────────
 // WebSocket connects to pipecat-voice for real-time STT.
@@ -361,9 +364,11 @@ function handleMessage(msg) {
       if (!recording) micBtn.classList.remove("processing");
       if (!recording) removePending();
       if (autoSaveTimeout) { clearTimeout(autoSaveTimeout); autoSaveTimeout = null; }
-      if (pendingAutoSave) {
+      if (pendingAutoSave && !saving && !saveCompleted) {
         pendingAutoSave = false;
         doSave();
+      } else {
+        pendingAutoSave = false;
       }
       break;
     case "error":
@@ -371,14 +376,17 @@ function handleMessage(msg) {
       micBtn.classList.remove("processing");
       removePending();
       if (autoSaveTimeout) { clearTimeout(autoSaveTimeout); autoSaveTimeout = null; }
-      connStatus.textContent = msg.message || "Error";
-      connStatus.style.color = "#e74c3c";
-      if (pendingAutoSave) {
+      // Keep this on the header chip only — never write to saveStatus (save path owns that).
+      // Prefer a soft label; raw "Error" next to a successful save looked like the note was lost.
+      const _wm = (msg.message || "").toString().trim();
+      connStatus.textContent = _wm && !/^error$/i.test(_wm) ? _wm : "voice hiccup";
+      connStatus.style.color = "#f39c12";
+      if (pendingAutoSave && !saving && !saveCompleted) {
         pendingAutoSave = false;
         doSave();
       }
       setTimeout(() => {
-        connStatus.textContent = connected ? "Ready" : "Offline";
+        connStatus.textContent = connected ? "ready" : "offline";
         connStatus.style.color = connected ? "#2ecc71" : "#e74c3c";
       }, 3000);
       break;
@@ -512,6 +520,7 @@ function stopRecording() {
   recording = false;
   const durationSec = recordingStartTime ? (Date.now() - recordingStartTime) / 1000 : 0;
   recordingStartTime = null;
+  saveCompleted = false;
   // Instant feedback: the tap registered — show processing immediately so the user
   // isn't left wondering if the button was pressed while transcription catches up.
   micBtn.classList.remove("recording");
@@ -576,7 +585,7 @@ function stopRecording() {
   }
 
   setTimeout(() => {
-    if (needsSave && !recording && segments.length > 0) {
+    if (needsSave && !recording && !saving && !saveCompleted && segments.length > 0) {
       console.warn("Backup save — normal save path did not fire");
       pendingAutoSave = false;
       processing = false;
@@ -768,6 +777,17 @@ async function initDest() {
 initDest();
 
 async function doSave() {
+  // Race guard: WS "done", WS "error", 30s timeout, and 45s backup can all fire.
+  // A second overlapping save was overwriting "saved (re-transcribed)" with bare "Error".
+  if (saving) {
+    console.warn("doSave skipped — already saving");
+    return;
+  }
+  if (saveCompleted && !getFullTranscript().trim()) {
+    return;
+  }
+  saving = true;
+  const gen = ++saveGeneration;
   needsSave = false;
   saveStatus.textContent = "Saving...";
   saveStatus.style.color = "#f39c12";
@@ -786,6 +806,35 @@ async function doSave() {
   const useFileFallback = lastAudioBlob && blobSizeKB > 20;
   const hasLiveText = wordCount > 0;
 
+  function stillCurrent() { return gen === saveGeneration; }
+
+  function finishOk(label) {
+    if (!stillCurrent()) return;
+    processing = false;
+    micBtn.classList.remove("processing");
+    removePending();
+    saveCompleted = true;
+    needsSave = false;
+    pendingAutoSave = false;
+    if (autoSaveTimeout) { clearTimeout(autoSaveTimeout); autoSaveTimeout = null; }
+    saveStatus.textContent = label || "saved";
+    saveStatus.style.color = "#2ecc71";
+    clearDraft();
+    // Keep transcript briefly so Copy still works; then clear.
+    setTimeout(() => {
+      if (!recording && stillCurrent()) resetAfterSave();
+    }, 4000);
+  }
+
+  function finishErr(msg, color) {
+    if (!stillCurrent()) return;
+    processing = false;
+    micBtn.classList.remove("processing");
+    removePending();
+    saveStatus.textContent = msg;
+    saveStatus.style.color = color || "#e74c3c";
+  }
+
   async function saveLiveTranscript(sourceLabel) {
     const saveBody = { text, filename: baseName };
     const resp = await fetch("/api/jules/save", {
@@ -793,7 +842,10 @@ async function doSave() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(saveBody)
     });
-    const data = await resp.json();
+    let data = {};
+    try { data = await resp.json(); } catch (e) {
+      throw new Error("Save returned non-JSON (" + resp.status + ")");
+    }
 
     // Best-effort audio sidecar — never blocks the text save.
     if (lastAudioBlob) {
@@ -807,16 +859,10 @@ async function doSave() {
     }
 
     if (data.ok) {
-      saveStatus.textContent = sourceLabel || "saved";
-      saveStatus.style.color = "#2ecc71";
-      clearDraft();
-      // Keep transcript on screen so the operator can still copy it; only clear
-      // after a short beat so "saved" is readable.
-      setTimeout(() => { if (!recording) resetAfterSave(); }, 2500);
+      finishOk(sourceLabel || "saved");
       return true;
     }
-    saveStatus.textContent = data.error || "Error";
-    saveStatus.style.color = "#e74c3c";
+    finishErr((data.error || ("Save failed (" + resp.status + ")")), "#e74c3c");
     return false;
   }
 
@@ -827,18 +873,18 @@ async function doSave() {
       formData.append("audio", lastAudioBlob, "recording.webm");
       formData.append("filename", baseName);
       const resp = await fetch("/api/jules/transcribe-and-save", { method: "POST", body: formData });
-      const data = await resp.json();
+      let data = {};
+      try { data = await resp.json(); } catch (e) {
+        data = { ok: false, error: "Re-transcribe returned non-JSON (" + resp.status + ")" };
+      }
 
       if (data.ok) {
         lastAudioBlob = null;
-        saveStatus.textContent = "saved (re-transcribed)";
-        saveStatus.style.color = "#2ecc71";
-        clearDraft();
         // If re-transcribe succeeded but screen was empty, surface returned text.
         if (!hasLiveText && data.transcript) {
           addSegment(data.transcript);
         }
-        setTimeout(() => { if (!recording) resetAfterSave(); }, 2500);
+        finishOk("saved (re-transcribed)");
         return;
       }
 
@@ -846,36 +892,37 @@ async function doSave() {
       const _err = (data.error || "").toString();
       const emptyish = /empty|no speech|no audio|silence/i.test(_err) || !_err;
       if (hasLiveText) {
-        saveStatus.textContent = "Re-transcribe missed speech — saving live transcript…";
-        saveStatus.style.color = "#f39c12";
+        if (stillCurrent()) {
+          saveStatus.textContent = "Re-transcribe missed speech — saving live transcript…";
+          saveStatus.style.color = "#f39c12";
+        }
         const ok = await saveLiveTranscript(emptyish ? "saved (live transcript)" : "saved (live fallback)");
         if (ok) return;
-        // Fall through to keep copy affordance + error text
+        // saveLiveTranscript already set error status
       } else if (emptyish) {
         lastAudioBlob = null;
-        saveStatus.textContent = "Didn't catch any speech — tap the mic and try again.";
-        saveStatus.style.color = "#f39c12";
+        finishErr("Didn't catch any speech — tap the mic and try again.", "#f39c12");
       } else {
-        // Keep blob so a retry can still try; show the real error.
-        saveStatus.textContent = _err;
-        saveStatus.style.color = "#e74c3c";
+        // Keep blob so a retry can still try; show the real error (never bare "Error").
+        finishErr(_err || ("Re-transcribe failed (" + resp.status + ")"), "#e74c3c");
       }
     } else if (hasLiveText || lastAudioBlob) {
       if (!hasLiveText) {
-        saveStatus.textContent = "Didn't catch any speech — tap the mic and try again.";
-        saveStatus.style.color = "#f39c12";
+        finishErr("Didn't catch any speech — tap the mic and try again.", "#f39c12");
       } else {
         await saveLiveTranscript("saved");
       }
     } else {
-      saveStatus.textContent = "Didn't catch any speech — tap the mic and try again.";
-      saveStatus.style.color = "#f39c12";
+      finishErr("Didn't catch any speech — tap the mic and try again.", "#f39c12");
     }
   } catch (e) {
     console.error("doSave error:", e);
-    // Network/save blow-up: if we still have on-screen text, make copy obvious.
-    saveStatus.textContent = "Save error: " + (e.message || "network") + (hasLiveText ? " — copy text below" : "");
-    saveStatus.style.color = "#e74c3c";
+    finishErr(
+      "Save error: " + (e.message || "network") + (hasLiveText ? " — use Copy text" : ""),
+      "#e74c3c"
+    );
+  } finally {
+    if (stillCurrent()) saving = false;
   }
 }
 
