@@ -70,3 +70,22 @@ def test_remove_nc_default_files_404_is_ok():
             FakeClient(), "https://nc.example/remote.php/dav/files/adminX",
             "adminX", "secret"))
     assert failures == 0
+
+
+def test_ensure_admin_nc_clean_exists_and_uses_admin_user():
+    """Stuart Files uses NC_ADMIN_USER — cleanup must target that account."""
+    src = (_ROOT / "src/dashboard/routes/nextcloud.py").read_text()
+    assert "async def ensure_admin_nc_clean" in src
+    assert "NC_ADMIN_USER" in src
+    # provision steward path cleans admin
+    assert "admin NC clean after steward provision" in src
+    # manager Files path triggers clean
+    assert "ensure_admin_nc_clean" in src
+
+
+def test_save_domain_soft_refresh_paints_host_command():
+    """Immediate paint of d.host_command so set-address does not look stuck."""
+    src = (_ROOT / "src/dashboard/static/js/home.js").read_text()
+    assert "paint host_command from THIS response" in src
+    assert "d.host_command" in src
+    assert "_addrRanCommand" in src

@@ -450,12 +450,15 @@ function _onboardingCardHtml(item) {
         // jules 07-07: domain saved but not live yet (self-host command pending). Show the command +
         // door directly so they survive a reload — previously the step collapsed to a command-less
         // done-line the instant the domain saved, stranding the operator.
-        if (item.host_command) {
-            const _pd = ESC(item.domain || '');
+        // Prefer server host_command; fall back to last claim response so soft-refresh
+        // still shows the command if pending_host_command lagged one poll.
+        const _hcCmd = (item.host_command || window._pendingHostCommand || '').trim();
+        if (_hcCmd) {
+            const _pd = ESC(item.domain || window._pendingHostDomain || '');
             return `<div class="home-approval onboarding-card">
                 <div class="approval-tool">${title}</div>
                 <div class="approval-desc">One step left, on the machine hosting your Cove. Run this, then mark it live (it may ask for your password):</div>
-                <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(item.host_command)}</code>
+                <code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">${ESC(_hcCmd)}</code>
                 <div style="margin-top:10px;color:var(--text);">When the command finishes, Caddy is up for <b>https://${_pd}</b> and the host can resolve the name (mesh DNS / hosts repair if needed). The TLS certificate often needs <b>another 30–90 seconds</b> after that. Then mark live — that unlocks the signed-in door:</div>
                 <div style="margin-top:12px;"><button class="btn-approve" style="padding:12px 18px;font-size:0.9rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>
                 <div style="color:var(--dim);font-size:0.66rem;margin-top:4px;line-height:1.5;">Run the host command first and confirm it prints <code>ok</code> (not <code>host_resolve_failed</code>). Prefer mark-live after <code>curl -vI https://${_pd}/</code> shows a real HTTPS response on that machine — if curl still SSL-errors, wait and retry. The address is a <b>mesh</b> URL (Tailscale up; not a public website). Opening too early: NXDOMAIN if DNS is filtered, or <code>ERR_SSL_PROTOCOL_ERROR</code> while the cert is still issuing — wait and Reload.</div>
@@ -1058,12 +1061,32 @@ async function saveDomain(btn, confirmChange) {
                     + `<div style="margin-top:8px;"><button class="btn-ghost" onclick="checkMyRecords(this)">Check my records</button></div>`
                     + `<div id="rec-check-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>`;
             } else {
-                // Jules 2315 + Mosswood 2202: self-host / co-located still owes the host command.
-                // Soft-refresh the checklist so the ONE canonical pending card shows
-                // (command + mark-live only; no Open my Cove until live).
-                // Remember the card was open so it doesn't collapse to CTA on refresh.
+                // Jules 2315 + Mosswood 2202: self-host still owes the host command.
+                // Soft-refresh the checklist AND paint host_command from THIS response
+                // immediately — pending_host_command can lag a tick, and re-rendering
+                // the claim form without the command looked like "nothing changed"
+                // (install pass after #151/#152).
                 _markSetupExpanded('claim_address', true);
-                if (out) out.style.display = 'none';
+                const _hc = (d.host_command || '').trim();
+                if (_hc) {
+                    try {
+                        window._pendingHostCommand = _hc;
+                        window._pendingHostDomain = d.domain || domain || '';
+                    } catch (e) {}
+                }
+                if (_hc && out) {
+                    const _pd = ESC(d.domain || domain || '');
+                    out.style.display = 'block';
+                    out.innerHTML = '<div style="color:var(--green);">&#10003; Address saved. One step left on the host:</div>'
+                        + '<div style="margin-top:8px;color:var(--text);">Run this on the machine hosting your Cove, then mark live (it may ask for your password):</div>'
+                        + '<code style="display:block;margin-top:6px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">'
+                        + ESC(_hc) + '</code>'
+                        + '<div style="margin-top:12px;"><button class="btn-approve" style="padding:12px 18px;font-size:0.9rem;" onclick="_addrRanCommand(this)">I ran the command — mark live</button></div>'
+                        + '<div style="color:var(--dim);font-size:0.66rem;margin-top:4px;line-height:1.5;">Prefer mark-live after the command prints ok. HTTPS cert may need 30–90s more for <b>https://'
+                        + _pd + '</b>.</div>';
+                } else if (out) {
+                    out.style.display = 'none';
+                }
                 await loadHomeApprovals();
                 return;
             }
