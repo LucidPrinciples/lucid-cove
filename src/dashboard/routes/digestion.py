@@ -51,7 +51,7 @@ async def archive_digestion_status():
         sessions = _extract_session_entries(archive_text)
         digested = await _get_digested_sessions()
 
-        return {
+        payload = {
             "status": "ok",
             "archive_path": str(ARCHIVE_PATH),
             "total_sessions": len(sessions),
@@ -62,5 +62,32 @@ async def archive_digestion_status():
             "pending_numbers": sorted([s["session_num"] for s in sessions
                                         if s["session_num"] not in digested]),
         }
+        # #D54: include semantic index health alongside digestion status
+        try:
+            from src.memory.archive_index import archive_index_status
+            payload["semantic_index"] = await archive_index_status()
+        except Exception as se:
+            payload["semantic_index"] = {"status": "error", "error": str(se)}
+        return payload
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.post("/api/system/archive-index")
+async def trigger_archive_index():
+    """#D54 — manually re-index vault Archive for semantic memory_search."""
+    try:
+        from src.memory.archive_index import index_vault_archive
+        return await index_vault_archive(force=False)
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.get("/api/system/archive-index")
+async def archive_index_status_route():
+    """#D54 — vault Archive semantic index status."""
+    try:
+        from src.memory.archive_index import archive_index_status
+        return await archive_index_status()
     except Exception as e:
         return {"status": "error", "error": str(e)}

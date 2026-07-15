@@ -987,6 +987,32 @@ async def agent_node(state: ChannelState) -> dict:
         except Exception as e:
             print(f"{ts_log()} [{label}] Semantic memory search failed (non-fatal): {e}")
 
+        # #D54: vault Archive semantic hits (session-log + dated files) — continuity
+        # across compaction. Separate block so archive noise never drowns agent_memory.
+        try:
+            from src.memory.archive_index import search_archive_semantic
+            arch_results = await search_archive_semantic(
+                query=last_human,
+                limit=3,
+                min_similarity=0.32,
+            )
+            if arch_results:
+                arch_lines = []
+                for r in arch_results:
+                    title = r.get("title") or r.get("doc_name") or "archive"
+                    snip = (r.get("text") or "")[:280]
+                    arch_lines.append(
+                        f"- [{title} · sim={r.get('similarity')}] {snip}"
+                    )
+                semantic_context += (
+                    "\n\n## Relevant Archive\n"
+                    "Vault session archive passages related by meaning "
+                    "(use memory_search / memory_get for more):\n"
+                    + "\n".join(arch_lines)
+                )
+        except Exception as e:
+            print(f"{ts_log()} [{label}] Archive semantic search failed (non-fatal): {e}")
+
     # Inject current date/time and location so the agent always knows "now" and "where"
     from datetime import datetime
     from zoneinfo import ZoneInfo

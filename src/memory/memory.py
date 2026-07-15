@@ -710,6 +710,33 @@ async def correct_memory(
     return new_mem
 
 
+async def get_memory(memory_id: int, agent_id: str | None = None) -> dict | None:
+    """Fetch a single active memory by id (#D54 memory_get)."""
+    agent_id = _default_agent_id(agent_id)
+    async with get_db() as conn:
+        result = await conn.execute(
+            """SELECT id, content, category, importance, tags,
+                      source_channel, source_summary, source_thread,
+                      access_count, last_accessed, reviewed, reviewed_at,
+                      created_at, updated_at, is_active,
+                      supersedes_id, superseded_by
+               FROM agent_memory
+               WHERE id = %s AND agent_id = %s""",
+            (memory_id, agent_id),
+        )
+        row = await result.fetchone()
+        if not row:
+            return None
+        await conn.execute(
+            """UPDATE agent_memory
+               SET access_count = access_count + 1,
+                   last_accessed = NOW()
+               WHERE id = %s""",
+            (memory_id,),
+        )
+        return _serialize_memory(row)
+
+
 async def get_memory_history(memory_id: int, agent_id: str | None = None) -> list[dict]:
     """Get the supersession history chain for a memory.
 

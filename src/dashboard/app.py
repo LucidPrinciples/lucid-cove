@@ -381,6 +381,30 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"{ts()} [app] Knowledge base indexing skipped: {e}")
 
+    # #D54: vault Archive semantic index (session-log-archive + dated sessions).
+    # Independent of framework KB; hash-guarded; retries while embed backend warms.
+    async def _archive_index_standup():
+        from src.memory.archive_index import index_vault_archive
+        delays = (15, 60, 120, 300, 600)
+        for attempt, delay in enumerate(delays, 1):
+            await asyncio.sleep(delay)
+            try:
+                result = await index_vault_archive(force=False)
+                if result.get("status") in ("ok", "up_to_date", "missing"):
+                    # missing vault is settled for this boot; ok/up_to_date too
+                    return
+                print(f"{ts()} [app] Archive index attempt {attempt} "
+                      f"not settled (will retry): {result.get('error') or result.get('status')}")
+            except Exception as e:
+                print(f"{ts()} [app] Archive index attempt {attempt} errored (will retry): {e}")
+        print(f"{ts()} [app] Archive index gave up after {len(delays)} attempts — "
+              f"nightly consolidation will re-kick it.")
+    try:
+        asyncio.create_task(_archive_index_standup())
+        print(f"{ts()} [app] Vault archive indexing started (background).")
+    except Exception as e:
+        print(f"{ts()} [app] Vault archive indexing skipped: {e}")
+
     # CF-6: mirror the canonical KB from the hub Drop into Nextcloud at standup,
     # not only at the 06:05 scheduler run, so a fresh Cove populates its NC KB
     # immediately. sync_kb() self-guards (no-ops when NC isn't configured or the
