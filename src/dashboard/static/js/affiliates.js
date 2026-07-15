@@ -9,11 +9,20 @@ async function loadAffiliates() {
     container.innerHTML = '<div class="loading">Loading affiliate data...</div>';
 
     try {
-        var res = await fetch('/api/account/affiliates');
-        var data = await res.json();
+        var res = await fetch('/api/account/affiliates', { credentials: 'same-origin' });
+        var data = await res.json().catch(function () { return {}; });
 
-        if (!data.referral_code) {
+        // Woods / Jules 1310: signed-in members with no referral_code used to look
+        // "signed out". Distinguish auth vs empty program vs load failure.
+        if (data && data.signed_in === false) {
             container.innerHTML = '<div class="empty-state">Sign in to view affiliate activity.</div>';
+            return;
+        }
+        if (!data || !data.referral_code) {
+            var msg = (data && data.error)
+                ? 'Unable to load affiliate data.'
+                : 'Your referral code is being set up — refresh in a moment.';
+            container.innerHTML = '<div class="empty-state">' + msg + '</div>';
             return;
         }
 

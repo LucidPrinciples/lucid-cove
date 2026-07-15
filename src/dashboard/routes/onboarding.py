@@ -590,7 +590,11 @@ async def claim_operator(request: Request):
         return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
     body = await request.json()
     handle = (body.get("handle") or "").lstrip("@").strip().lower()
-    name = (body.get("name") or body.get("display_name") or "").strip()
+    # Woods / Jules 1310: capitalize at write — "jeff" must become "Jeff" here, not
+    # only on later agent-provision paths. Same helper the create/provision routes use.
+    from src.dashboard.routes.presence import _sanitize_name, _titlecase_name
+    name = _titlecase_name(_sanitize_name(
+        body.get("name") or body.get("display_name") or ""))
     email = (body.get("email") or "").strip().lower()
     cur = (p.get("username") or "").strip().lower()
     is_placeholder = bool(re.match(r'^.+-[0-9a-f]{4}$', cur))

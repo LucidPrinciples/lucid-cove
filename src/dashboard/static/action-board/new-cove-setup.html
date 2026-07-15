@@ -172,6 +172,8 @@ const _joinMode = _params.get('join') === '1';
 const _inviteTok = _params.get('invite') || '';
 const _joinRole = _params.get('role') || 'member';
 const _reservedHandle = _params.get('handle') || '';
+// Invite label from /join (invited_label → for=Jerry). Prefill Your name.
+const _forName = (_params.get('for') || _params.get('person') || '').trim();
 
 function show(id) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -543,6 +545,15 @@ function toPresence(operatorBio) {
   if (_reservedHandle) {
     const oh = document.getElementById('op-handle');
     if (oh && !oh.value) { oh.value = _reservedHandle; oh.dispatchEvent(new Event('input')); }
+  }
+  // Woods / Jules 1310: for=Jerry (invited_label) must land in Your name, not only the URL.
+  if (_forName) {
+    const on = document.getElementById('op-name');
+    if (on && !(on.value || '').trim()) {
+      // Light title-case so "jerry" / "Jerry" both look right before claim-operator hardens it.
+      on.value = _forName.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+      on.dispatchEvent(new Event('input'));
+    }
   }
 })();
 </script>

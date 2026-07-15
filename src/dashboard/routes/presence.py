@@ -608,9 +608,11 @@ async def update_presence_me(request: Request):
                     raise HTTPException(400, f"Invalid tier: {val}. Must be one of: {', '.join(sorted(valid_tiers))}")
             if isinstance(val, str):
                 val = val.strip()
-            # Display name cannot be empty
-            if field == "display_name" and not val:
-                raise HTTPException(400, "Display name cannot be empty")
+            # Display name cannot be empty; title-case at write (Woods casing root)
+            if field == "display_name":
+                if not val:
+                    raise HTTPException(400, "Display name cannot be empty")
+                val = _titlecase_name(_sanitize_name(val))
             # Username validation
             if field == "username" and val:
                 val = val.lower()
@@ -931,13 +933,31 @@ async def _create_presence_record(
                     raise HTTPException(409, "That handle is already taken.")
             else:
                 handle = await _unique_handle(conn, _slugify_handle(display_name or agent_name))
-            await conn.execute(
-                """INSERT INTO accounts (id, display_name, username, email, agent_name, last_name,
-                                          cove_role, tier, auth_token, agent_config, agent_identity)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                (presence_id, display_name, handle, email or None, agent_name, _cove_name,
-                 cove_role, tier, hashed_token, json.dumps(agent_config), json.dumps(agent_identity))
-            )
+            ref_code = None
+            try:
+                from src.dashboard.routes.account import _generate_referral_code
+                ref_code = await _generate_referral_code(conn)
+            except Exception:
+                ref_code = None
+            if ref_code:
+                await conn.execute(
+                    """INSERT INTO accounts (id, display_name, username, email, agent_name, last_name,
+                                              cove_role, tier, auth_token, agent_config, agent_identity,
+                                              referral_code)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (presence_id, display_name, handle, email or None, agent_name, _cove_name,
+                     cove_role, tier, hashed_token, json.dumps(agent_config),
+                     json.dumps(agent_identity), ref_code)
+                )
+            else:
+                await conn.execute(
+                    """INSERT INTO accounts (id, display_name, username, email, agent_name, last_name,
+                                              cove_role, tier, auth_token, agent_config, agent_identity)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (presence_id, display_name, handle, email or None, agent_name, _cove_name,
+                     cove_role, tier, hashed_token, json.dumps(agent_config),
+                     json.dumps(agent_identity))
+                )
             # Also create a session for the initial token
             await _create_session(conn, presence_id, hashed_token, "initial")
     except HTTPException:

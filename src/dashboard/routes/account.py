@@ -570,19 +570,33 @@ async def get_affiliates(request: Request):
     from src.dashboard.routes.presence import get_current_presence
     presence = await get_current_presence(request)
     if not presence:
-        return {"referrals": [], "stats": {}}
+        # Explicit signed-out shape so the client doesn't confuse "no code" with auth.
+        return {"ok": False, "signed_in": False, "referrals": [], "stats": {}}
 
     my_id = presence.get("id")
     my_code = presence.get("referral_code")
     if not my_id:
-        return {"referrals": [], "stats": {}}
+        return {"ok": False, "signed_in": True, "referrals": [], "stats": {}}
 
     try:
         from src.memory.database import get_db
         async with get_db() as conn:
-            return await _get_affiliate_data(conn, my_id, my_code)
+            # Woods / Jules 1310: invitee seeds never got a referral_code on INSERT,
+            # so Affiliates showed "Sign in…" for a fully signed-in member. Mint once.
+            if not my_code:
+                my_code = await _generate_referral_code(conn)
+                await conn.execute(
+                    "UPDATE accounts SET referral_code = %s, updated_at = NOW() WHERE id = %s "
+                    "AND (referral_code IS NULL OR referral_code = '')",
+                    (my_code, my_id),
+                )
+            data = await _get_affiliate_data(conn, my_id, my_code)
+            data["ok"] = True
+            data["signed_in"] = True
+            return data
     except Exception:
-        return {"referrals": [], "stats": {}}
+        return {"ok": False, "signed_in": True, "referrals": [], "stats": {},
+                "error": "Could not load affiliate data"}
 
 
 async def _get_affiliate_data(conn, account_id: str, referral_code: str):
