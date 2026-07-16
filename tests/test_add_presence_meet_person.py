@@ -57,3 +57,26 @@ def test_provision_requires_person_on_admin_add_presence():
 def test_result_and_wake_operator_use_person_helper():
     assert "const forWhom = _personBeingAdded()" in HTML
     assert "operator_name: _personBeingAdded()" in HTML
+
+
+def test_already_in_cove_does_not_drop_admin_session():
+    """Admin Add Presence must show founder/existing presences (Cracker 2nd presence).
+
+    Old filter dropped whoever was signed in (the admin) from /api/family members,
+    so Meet only showed JOINING NOW + build team with nobody under already-in.
+    Session exclusion is self-join only.
+    """
+    assert "_selfJoin && _meHandle && un === _meHandle" in HTML
+    # Must not blindly exclude session handle for all joining flows
+    assert "!== _meHandle));" not in HTML
+    assert "toLowerCase() !== _meHandle" not in HTML
+    # Still has the already-in section
+    assert "who's already in the Cove" in HTML
+    # Self-join gate uses invite+self, not every admin add
+    assert "urlParams.get('self') === '1'" in HTML
+    assert "urlParams.get('invite')" in HTML
+
+
+def test_already_in_excludes_person_being_added_not_admin():
+    assert "_joinPerson && (dn === _joinPerson || un === _joinPerson)" in HTML
+    assert "_personName = _personBeingAdded()" in HTML

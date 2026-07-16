@@ -1611,18 +1611,24 @@ async function loadTeamShowcase() {
         // top, the person as the new addition), then who's ALREADY in the Cove (excluding the
         // person joining — they're the new one, not an existing member).
         if (joining) {
-            // Signed-in session is usually the ADMIN provisioning on someone else's
-            // behalf. Only use it to exclude that admin from "already in the Cove" —
-            // never as the person half of the new Presence pair.
+            // Session is usually the ADMIN provisioning on someone else's behalf.
+            // Never use session for the "joining now" person half (that is ?person=).
+            // Session IS used only on self-join to avoid listing yourself as already in.
             let _meHandle = '';
+            let _meDisplay = '';
             try {
                 const me = await (await fetch('/api/presence/me')).json();
                 const mp = me && me.presence;
                 _meHandle = ((mp && mp.username) || '').replace(/^@/, '').toLowerCase();
+                _meDisplay = String((mp && (mp.display_name || mp.name)) || '').trim().toLowerCase();
             } catch (e) { /* best-effort */ }
 
             // Person from step 1 (?person=), not the admin session.
             const _personName = _personBeingAdded();
+            const _joinPerson = String(_personName || '').trim().toLowerCase();
+            // Invite self-join only — admin Add Presence must KEEP the founder in
+            // "who's already in the Cove" (every add after the first has ≥1 Presence).
+            const _selfJoin = (urlParams.get('self') === '1') && !!urlParams.get('invite');
             // The new Presence: person being added + their agent, side by side.
             const _agentName = _titleCaseName((selectedName || (document.getElementById('custom-name')?.value || '')).trim());
             if (_agentName) {
@@ -1639,8 +1645,17 @@ async function loadTeamShowcase() {
                 const fr = await fetch('/api/family');
                 const fd = await fr.json();
                 coveName = (fd.family && fd.family.name) || '';
-                const members = (fd.members || []).filter(m => m && (m.name || m.display_name)
-                    && ((m.username || '').replace(/^@/, '').toLowerCase() !== _meHandle));
+                const members = (fd.members || []).filter(m => {
+                    if (!m || !(m.name || m.display_name)) return false;
+                    const un = (m.username || '').replace(/^@/, '').toLowerCase();
+                    const dn = String(m.name || m.display_name || '').trim().toLowerCase();
+                    // Self-join: don't list the joining account as already present
+                    if (_selfJoin && _meHandle && un === _meHandle) return false;
+                    if (_selfJoin && _meDisplay && dn === _meDisplay) return false;
+                    // Don't list the person currently being added (name/handle match)
+                    if (_joinPerson && (dn === _joinPerson || un === _joinPerson)) return false;
+                    return true;
+                });
                 if (members.length) {
                     // #D6: each existing member as a paired Presence (operator + agent
                     // side by side), centered. A member without an agent shows their role.
