@@ -6,11 +6,12 @@ Generates a complete, deploy-ready single-stack Cove from a small config file:
 one multi-presence app + Postgres + Nextcloud + Redis. Operators/presences are
 added later from the admin UI (magic link), NOT as separate containers.
 
-This is the clean replacement for the legacy per-agent-container provisioner
-(provision.py / provision_overlay.py), which is retained only for the enterprise
-multi-container archetype. Clearfield is the working reference this templatizes;
-the legacy drift (dead `presences` tables, `-{cove}` id suffixes, per-instance
-Canon tuning_keys, hand-patched env) is intentionally dropped here.
+This is the primary open-source provisioner. The legacy per-agent-container
+path (provision.py / provision_overlay.py) was retired under #SEC5/#99 — personal
+agents are presence-scoped inside the shared stack. Clearfield is the working
+reference this templatizes; the legacy drift (dead `presences` tables, `-{cove}`
+id suffixes, per-instance Canon tuning_keys, hand-patched env) is intentionally
+dropped here.
 
 Usage:
     python3 provision/centralized.py provision/your-cove.yaml [--output DIR]
@@ -638,7 +639,7 @@ def build_nc_db_sql(nc_db_pw: str) -> str:
 # `dendrite` database — the same pattern Nextcloud uses), so there is no extra DB
 # container and Dendrite's data rides the Cove's Postgres volume. Co-located Coves
 # and remote Coves federate identically (the deny_networks mesh fix is baked in).
-# Adapted from the proven per-machine builders in src/utils/provision_templates.py
+# Adapted from the proven per-machine builders (formerly provision_templates; dendrite in dendrite_config.py)
 # (the generators behind the founder Cove) into the per-Cove centralized model.
 
 def matrix_server_name(cove: dict, deploy: dict) -> str:

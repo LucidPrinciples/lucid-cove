@@ -836,7 +836,7 @@ def regenerate_dendrite_config(*, domain: str, db_password: str,
     the provisioner's build_dendrite_config so the claim-time regen and the first
     provision produce identical config for a given server_name. Lazy import keeps
     netconfig dependency-light for the CLI provisioner."""
-    from src.utils.provision_templates import build_dendrite_config
+    from dendrite_config import build_dendrite_config
     return build_dendrite_config(
         server_name=f"matrix.{domain}", db_password=db_password,
         registration_shared_secret=registration_shared_secret,

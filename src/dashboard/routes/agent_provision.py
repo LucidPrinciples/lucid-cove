@@ -666,39 +666,9 @@ async def provision_agent(request: Request):
     except Exception:
         pass
 
-    # Generate the full overlay directory (docker-compose, deploy script, etc.)
-    overlay_result = {}
-    if member_id:
-        try:
-            from src.utils.provision_overlay import generate_overlay
-
-            # Load family config for port/IP allocation
-            family_path = config_dir / "family.yaml"
-            if family_path.exists():
-                with open(family_path) as f:
-                    family_cfg = yaml.safe_load(f) or {}
-            else:
-                family_cfg = {}
-
-            # Get family name from instance config
-            from src.config import get_instance
-            inst = get_instance()
-            fam_name = inst.get("family_name", "Cove")
-
-            overlay_result = generate_overlay(
-                agent_name=name,
-                agent_id=agent_id,
-                agent_data=new_agent,
-                member_id=member_id,
-                operator_name=inst.get("operator", "Operator") if member_id == inst.get("operator_handle") else member_id.capitalize(),
-                family_config=family_cfg,
-                family_name=fam_name,
-            )
-            print(f"[agent_provision] Overlay generated at {overlay_result.get('overlay_dir')}")
-        except Exception as e:
-            print(f"[agent_provision] Warning: overlay generation failed: {e}")
-            import traceback
-            traceback.print_exc()
+    # #SEC5 / #99: legacy per-agent overlay generator retired.
+    # Centralized single-stack provisioner is provision/centralized.py.
+    # Personal agents are presence-scoped inside this Cove — no separate container.
 
     print(f"[agent_provision] Provisioned {name} ({agent_id}) — {archetype}, {frequency}, {pronouns}")
 
@@ -707,85 +677,31 @@ async def provision_agent(request: Request):
         "agent_id": agent_id,
         "agent": new_agent,
         "persona_path": str(persona_path),
-        "overlay": overlay_result,
     }
 
 
 @router.post("/api/flow/generate-overlay")
 async def generate_overlay_from_provisioned(request: Request):
-    """Generate the overlay directory from existing provisioned agent data.
+    """Retired (#SEC5 / #99).
 
-    Use this when an agent was provisioned before the overlay generator
-    was deployed, or to regenerate after changes.
-
-    Body: { "agent_id": "holden" }
+    Per-agent container overlays are no longer generated. New Coves use
+    ``provision/centralized.py`` (single-stack). Existing personal agents
+    run as presences inside the shared Cove container.
     """
-    try:
-        body = await request.json()
-    except Exception:
-        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    return JSONResponse(
+        {
+            "error": "generate-overlay is retired",
+            "detail": (
+                "Legacy per-agent overlay generation was removed under #SEC5/#99. "
+                "Use provision/centralized.py for new Coves; personal agents are "
+                "presence-scoped in the shared stack."
+            ),
+            "code": "overlay_retired",
+        },
+        status_code=410,
+    )
 
-    agent_id = body.get("agent_id", "").strip().lower()
-    if not agent_id:
-        return JSONResponse({"error": "agent_id required"}, status_code=400)
 
-    # Load provisioned agent data
-    provision_dir = Path("/app/data/provisioned")
-    prov_agents_path = provision_dir / "agents.yaml"
-    if not prov_agents_path.exists():
-        return JSONResponse({"error": "No provisioned agents found"}, status_code=404)
-
-    with open(prov_agents_path) as f:
-        prov_config = yaml.safe_load(f) or {}
-
-    agent_data = next((a for a in prov_config.get("agents", []) if a.get("id") == agent_id), None)
-    if not agent_data:
-        return JSONResponse({"error": f"Agent '{agent_id}' not found in provisioned data"}, status_code=404)
-
-    agent_name = agent_data.get("name", agent_id.capitalize())
-    member_id = ""
-    operator_name = ""
-
-    # Find member from family.yaml
-    config_dir = Path(__file__).parent.parent.parent.parent / "config"
-    family_path = config_dir / "family.yaml"
-    family_cfg = {}
-    if family_path.exists():
-        with open(family_path) as f:
-            family_cfg = yaml.safe_load(f) or {}
-
-    # Match agent to member by checking planned personal_agent IDs
-    for m in family_cfg.get("members", []):
-        pa = m.get("personal_agent", {})
-        # Match by member ID (agent was provisioned for this member)
-        if pa.get("id") == agent_id or m.get("id") == body.get("member_id", ""):
-            member_id = m["id"]
-            operator_name = m.get("display_name", m.get("name", member_id.capitalize()))
-            break
-
-    if not member_id:
-        member_id = body.get("member_id", agent_id)
-        operator_name = body.get("operator_name", member_id.capitalize())
-
-    try:
-        from src.utils.provision_overlay import generate_overlay
-        from src.config import get_instance
-
-        inst = get_instance()
-        fam_name = inst.get("family_name", "Cove")
-
-        result = generate_overlay(
-            agent_name=agent_name,
-            agent_id=agent_id,
-            agent_data=agent_data,
-            member_id=member_id,
-            operator_name=operator_name,
-            family_config=family_cfg,
-            family_name=fam_name,
-        )
-        return {"ok": True, **result}
-    except Exception as e:
-        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
 
 
 def _filter_tuning_keys_by_frequency(frequency: str) -> str:
