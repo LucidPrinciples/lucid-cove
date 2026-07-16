@@ -15,6 +15,8 @@
 body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 .flow-container { max-width: 680px; margin: 0 auto; padding: 24px; }
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.header .brand { display: flex; align-items: center; gap: 11px; }
+.header .brand svg { width: 30px; height: 26px; display: block; flex: none; }
 .header h1 { font-size: 18px; font-weight: 600; color: var(--accent); }
 .flow-subtitle { color: #777; font-size: 13px; margin-bottom: 28px; line-height: 1.6; }
 
@@ -51,7 +53,17 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 </head>
 <body>
 <div class="flow-container">
-  <div class="header"><h1>Set Up Your Lucid Cove</h1></div>
+  <div class="header">
+    <div class="brand">
+      <svg viewBox="0 0 500 440" xmlns="http://www.w3.org/2000/svg" aria-label="Lucid Cove">
+        <path d="M 75,370 Q 75,120 250,45 Q 425,120 425,370" fill="none" stroke="#4682b4" stroke-width="14"/>
+        <path d="M 150,370 Q 150,190 250,120 Q 350,190 350,370" fill="none" stroke="#5ce1e6" stroke-width="26"/>
+        <line x1="69" y1="370" x2="431" y2="370" stroke="#4682b4" stroke-width="8"/>
+        <circle cx="250" cy="272" r="16" fill="#5ce1e6"/>
+      </svg>
+      <h1>Set Up Your Lucid Cove</h1>
+    </div>
+  </div>
   <div class="flow-subtitle">Your private family intelligence haven. Name your Cove, then bring your own personal agent into being. The team comes standard.</div>
 
   <!-- PANEL 0: operator identity (first step — create or confirm who you are) -->
@@ -127,10 +139,6 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
       <label>Cove name</label>
       <input id="cove-name" type="text" placeholder="e.g. Clearfield, Riverside, The Workshop" autocomplete="off" spellcheck="false">
       <div class="status" id="name-status"></div>
-    </div>
-    <div class="field">
-      <label>What is this Cove for? <span style="opacity:0.55;font-weight:normal;">(optional — you can refine it anytime in Cove Settings)</span></label>
-      <input id="cove-mission" type="text" placeholder="e.g. Keep our family organized, connected, and building together" autocomplete="off" maxlength="500">
     </div>
     <div class="team-note">Every Cove comes with <strong>Stuart</strong>, your steward, and a standard team of 9 specialized agents. Next you'll bring your own Presence into being &mdash; you, and your personal agent.</div>
     <div class="nav-row">
@@ -529,9 +537,6 @@ function toPresence(operatorBio) {
   // One unified flow — always the creation journey (no door). door=guided keeps the
   // downstream route explicit; agent-setup.html now sends every path to new-agent-setup.
   const qs = new URLSearchParams({ firstrun: '1', cove_name: nameEl.value.trim(), door: 'guided', role: 'operator' });
-  // #D58: the Charter mission rides along to finalize (optional).
-  const _mission = (document.getElementById('cove-mission')?.value || '').trim();
-  if (_mission) qs.set('cove_mission', _mission);
   if (_bio) qs.set('operator_bio', _bio);   // best-effort passthrough; the durable path is the profile
   window.location.href = '/static/action-board/agent-setup.html?' + qs.toString();
 }
