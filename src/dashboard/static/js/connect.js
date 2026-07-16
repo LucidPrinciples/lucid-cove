@@ -201,8 +201,11 @@
     .cx-spin{margin:auto;opacity:.7;font-size:0.9rem;text-align:center;padding:24px}
     /* Invite (unaccepted) room badge + Accept bar (batch-10 #1). */
     .connect-room .cr-invite{background:var(--warn,#e0a53c);color:#0B1022;font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-radius:9px;padding:1px 7px;flex:0 0 auto}
-    .cx-invite{margin:auto;text-align:center;padding:24px;display:flex;flex-direction:column;gap:14px;align-items:center}
-    .cx-invite-msg{opacity:.8;font-size:0.95rem;line-height:1.5}
+    .cx-invite-banner{margin:0 0 10px;padding:10px 12px;border:1px solid rgba(224,165,60,.55);background:rgba(224,165,60,.12);border-radius:10px;font-size:0.82rem;line-height:1.45;color:var(--text,#F6F1E7)}
+    .cx-invite-banner b{color:var(--warn,#e0a53c)}
+    .cx-invite{margin:auto;text-align:center;padding:24px;display:flex;flex-direction:column;gap:12px;align-items:center;max-width:28rem}
+    .cx-invite-msg{opacity:.9;font-size:0.95rem;line-height:1.5}
+    .cx-invite-hint{opacity:.65;font-size:0.8rem;line-height:1.45;max-width:22rem}
     .cx-invite-accept{background:var(--daily-freq,#5ce1e6);color:#0B1022;border:none;border-radius:8px;padding:8px 22px;font-weight:700;cursor:pointer}
     .cx-invite-accept:disabled{opacity:.5;cursor:default}
     /* "Couldn't deliver — retry" affordance after send backoff gives up (batch-10 #1). */
@@ -1436,12 +1439,83 @@
     return (room && room.name) ? room.name : (room ? room.roomId.split(':')[0].replace('!', '') : '');
   }
 
+  // Localparts for durable agents — never show these raw in invite copy.
+  const SYSTEM_INVITER_LOCALPARTS = { havensteward: 1, steward: 1 };
+
+  function inviterLocalpart(mxid) {
+    return (mxid || '').split(':')[0].replace(/^@/, '').toLowerCase();
+  }
+
+  // Prefer a human label over @havensteward / @steward. Order: Matrix profile
+  // displayname (when not just the localpart) → member state → room name
+  // (Haven/Commons named at create) → soft system labels → localpart last.
+  function prettyInviterLabel(inviter, room) {
+    const local = inviterLocalpart(inviter);
+    function usable(label) {
+      const t = (label == null ? '' : String(label)).trim();
+      if (!t) return '';
+      // Reject labels that are just the bare localpart (with or without @).
+      if (inviterLocalpart('@' + t.replace(/^@/, '')) === local) return '';
+      return t;
+    }
+    if (client && inviter) {
+      try {
+        const u = client.getUser && client.getUser(inviter);
+        const dn = usable(u && (u.displayName || u.rawDisplayName));
+        if (dn) return dn;
+      } catch (e) { /* ignore */ }
+      try {
+        if (room && room.getMember) {
+          const m = room.getMember(inviter);
+          let n = m && (m.name || m.rawDisplayName);
+          if (!n && m && m.events && m.events.member && m.events.member.getContent) {
+            n = m.events.member.getContent().displayname;
+          }
+          n = usable(n);
+          if (n) return n;
+        }
+      } catch (e) { /* ignore */ }
+    }
+    const rn = roomName(room);
+    if (SYSTEM_INVITER_LOCALPARTS[local]) {
+      if (rn && !/^!/.test(rn)) return rn;  // "WoodsMann Haven" / "… Commons"
+      if (local === 'havensteward') return 'The Haven';
+      if (local === 'steward') return 'Your Cove';
+    }
+    return local || 'Someone';
+  }
+
+  function pendingInviteRooms() {
+    if (!client || !client.getRooms) return [];
+    return client.getRooms().filter(r => r && r.getMyMembership && r.getMyMembership() === 'invite');
+  }
+
   function renderTree() {
     const box = document.getElementById('cx-tree');
     if (!box || !client) return;
     const groups = buildTree();
-    if (!groups.length) { box.innerHTML = '<div class="connect-empty">No conversations yet.<br>Use + Add to invite someone.</div>'; return; }
-    box.innerHTML = groups.map(g => {
+    const pending = pendingInviteRooms();
+    // Invite-only Spaces often have no children yet and are skipped by buildTree —
+    // surface them so first-time operators can open + Accept without hunting.
+    const listed = new Set();
+    groups.forEach(g => (g.rooms || []).forEach(r => { if (r && r.roomId) listed.add(r.roomId); }));
+    const missingInvites = pending.filter(r => r && r.roomId && !listed.has(r.roomId));
+    if (missingInvites.length) {
+      groups.unshift({ label: 'Invites', rooms: missingInvites });
+    }
+    if (!groups.length && !pending.length) {
+      box.innerHTML = '<div class="connect-empty">No conversations yet.<br>Use + Add to invite someone.</div>';
+      return;
+    }
+    let banner = '';
+    if (pending.length) {
+      const n = pending.length;
+      banner = '<div class="cx-invite-banner" id="cx-invite-banner">'
+        + '<b>' + n + ' invite' + (n === 1 ? '' : 's') + ' waiting</b> — open a row marked '
+        + '<span class="cr-invite">invite</span>, then tap <b>Accept</b> to join the conversation.'
+        + '</div>';
+    }
+    const body = groups.map(g => {
       const rows = g.rooms.slice().sort((a, b) => roomName(a).localeCompare(roomName(b))).map(r => {
         const unread = r.getUnreadNotificationCount ? (r.getUnreadNotificationCount() || 0) : 0;
         const invited = r.getMyMembership && r.getMyMembership() === 'invite';
@@ -1453,6 +1527,7 @@
       }).join('');
       return `<div class="connect-space">${esc(g.label)}</div>${rows}`;
     }).join('');
+    box.innerHTML = banner + body;
     box.querySelectorAll('.connect-room').forEach(el => el.onclick = () => openRoom(el.dataset.id));
   }
 
@@ -1519,14 +1594,22 @@
     }
   }
 
-  // Cross-Cove/Haven invite: show who invited you + an Accept button before composing.
+  // Cross-Cove/Haven invite: show a human label (not @havensteward) + Accept.
   function renderAcceptBar(roomId, inviter) {
     const tl = document.getElementById('cx-timeline');
     if (!tl) return;
-    const who = (inviter || '').split(':')[0].replace('@', '') || 'Someone';
+    const room = client && client.getRoom ? client.getRoom(roomId) : null;
+    const title = roomName(room) || 'this conversation';
+    const who = prettyInviterLabel(inviter, room);
+    // Avoid "WoodsMann Haven invited you to WoodsMann Haven" — if who === title, one line.
+    const same = who.trim().toLowerCase() === String(title).trim().toLowerCase();
+    const msg = same
+      ? 'You\'re invited to <b>' + esc(title) + '</b>.'
+      : '<b>' + esc(who) + '</b> invited you to <b>' + esc(title) + '</b>.';
     tl.innerHTML = '<div class="cx-invite">'
-      + '<div class="cx-invite-msg">' + esc(who) + ' invited you to this conversation.</div>'
-      + '<button class="cx-invite-accept" id="cx-inv-accept">Accept</button></div>';
+      + '<div class="cx-invite-msg">' + msg + '</div>'
+      + '<div class="cx-invite-hint">Haven and Cove invites need an Accept before you can read or send. Same-Cove Family rooms join on their own.</div>'
+      + '<button class="cx-invite-accept" id="cx-inv-accept">Accept invite</button></div>';
     const b = document.getElementById('cx-inv-accept');
     if (b) b.onclick = () => { b.disabled = true; acceptInvite(roomId, inviter); };
   }

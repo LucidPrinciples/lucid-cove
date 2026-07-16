@@ -419,6 +419,13 @@ async def nest_member_cove(request: Request, haven_id: str, cove_key: str) -> di
     # jules 07-07: auto-invite the member Cove's operator to the Haven Space + Commons — nesting
     # alone only writes the structure (m.space.child); without this the Commons never shows on their
     # side until a SEPARATE invite. Best-effort; needs the member's registered owner_handle.
+    # Re-assert steward displayname so Accept UI never falls back to raw "havensteward"
+    # when profile was missing on first Form Haven (best-effort).
+    try:
+        _hn = (st.get("name") or haven_id or "").strip()
+        await _set_steward_displayname(tok, steward.get("user") or "", _hn)
+    except Exception:
+        pass
     _mop = (cove.get("owner_handle") or "").strip().lstrip("@")
     if _mop and via and st.get("commons_id"):
         await _invite(tok, [st["space_id"], st["commons_id"]], ["@%s:%s" % (_mop, via)])
