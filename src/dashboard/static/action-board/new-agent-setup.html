@@ -1572,17 +1572,27 @@ function _miniAvatar(ini, avatarUrl) {
 }
 // #D6: an operator + their agent shown SIDE BY SIDE as ONE Presence (icon + name,
 // agent next to them) — replaces the flat one-card-per-person grid.
-function _presencePairCard(personName, personAvatar, agentName, agentSub, agentAvatar) {
+// boxLabel (optional): caption for the whole pair (e.g. "new presence") — the
+// combination is the Presence; don't hang that label under the agent alone.
+// agentSub stays available for rare per-agent notes; leave empty when boxLabel is set.
+function _presencePairCard(personName, personAvatar, agentName, agentSub, agentAvatar, boxLabel) {
     const cell = (name, sub, avatar) =>
         '<div style="text-align:center;min-width:64px;">' +
             _miniAvatar((String(name)[0] || '?').toUpperCase(), avatar) +
             '<div style="font-size:12px;font-weight:600;color:#e1e4ea;">' + esc(name) + '</div>' +
             (sub ? '<div style="font-size:10px;color:#999;margin-top:1px;">' + esc(sub) + '</div>' : '') +
         '</div>';
-    return '<div style="background:#14141c;border:1px solid #24242f;border-radius:12px;padding:12px 16px;display:inline-flex;align-items:center;gap:12px;">' +
-        cell(personName || 'You', '', personAvatar) +
-        '<div style="color:#4a4a58;font-size:13px;">&#43;</div>' +
-        cell(agentName, agentSub, agentAvatar) +
+    const pairRow =
+        '<div style="display:inline-flex;align-items:center;gap:12px;">' +
+            cell(personName || 'You', '', personAvatar) +
+            '<div style="color:#4a4a58;font-size:13px;">&#43;</div>' +
+            cell(agentName, agentSub, agentAvatar) +
+        '</div>';
+    const cap = boxLabel
+        ? '<div style="font-size:10px;color:#999;text-align:center;margin-top:8px;text-transform:uppercase;letter-spacing:.06em;">' + esc(boxLabel) + '</div>'
+        : '';
+    return '<div style="background:#14141c;border:1px solid #24242f;border-radius:12px;padding:12px 16px;display:inline-block;text-align:center;">' +
+        pairRow + cap +
     '</div>';
 }
 // #D6: centered wrap so one or many Presence cards sit centered, not left-aligned.
@@ -1617,10 +1627,11 @@ async function loadTeamShowcase() {
             const _agentName = _titleCaseName((selectedName || (document.getElementById('custom-name')?.value || '')).trim());
             if (_agentName) {
                 const _newAvatar = (agentIdentity && agentIdentity.avatar) || '';
-                // #D6: the new Presence = the person + their agent, side by side, centered.
+                // Whole box = the new Presence (person + agent). Agent is already
+                // named big in the Meet title — no "new presence" under agent alone.
                 html += _showcaseHead('joining now') + _showcaseCenter([
                     _presencePairCard(_personName || 'New member', '', _agentName,
-                                      'new presence', _newAvatar),
+                                      '', _newAvatar, 'new presence'),
                 ]);
             }
 

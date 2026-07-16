@@ -24,6 +24,17 @@ def test_joining_now_pair_uses_person_being_added():
     assert "_presencePairCard(_meName || 'You'" not in HTML
 
 
+def test_new_presence_label_is_on_whole_box_not_under_agent():
+    # Presence = person + agent together; caption belongs on the box.
+    assert "boxLabel" in HTML
+    assert "new presence" in HTML
+    # Joining-now call: empty agentSub, boxLabel = 'new presence'
+    assert "'', _newAvatar, 'new presence')" in HTML
+    # Must not pass 'new presence' as the agent-only subtitle arg
+    assert "agentName,\n                                      'new presence'" not in HTML
+    assert "_presencePairCard(_personName || 'New member', '', _agentName,\n                                      'new presence'" not in HTML
+
+
 def test_meet_copy_names_person_and_agent_separately():
     assert "Meet ${_agentCap} for ${_personCap}" in HTML
     assert "${_personCap} and ${_agentCap} are forming a Presence" in HTML
