@@ -42,3 +42,18 @@ def test_member_wake_persists_thread_under_member():
     assert "WAKE_JOIN_ORIENT" in html
     # Must not early-return skip for member mode anymore
     assert "if (_wakeMode === 'member') return;" not in html
+
+
+def test_member_and_join_wake_guides_connect():
+    """Add-presence / join acks must name Connect — invites and family rooms wait on it."""
+    html = Path("src/dashboard/static/action-board/new-agent-setup.html").read_text()
+    # Orientation seeded into member + self-join Chat
+    assert "const WAKE_JOIN_ORIENT" in html
+    assert "click Connect at the top of Chat" in html
+    assert "family rooms" in html or "invites" in html
+    # Operator handoff after admin Add Presence (share link result)
+    assert "have them click" in html
+    assert "Connect" in html
+    # Self-join and admin-met member both get the orient trail message
+    assert "if (_wakeMode === 'self') msgs.push({ role: 'ai', content: WAKE_JOIN_ORIENT })" in html
+    assert "if (_wakeMode === 'member') msgs.push({ role: 'ai', content: WAKE_JOIN_ORIENT })" in html
