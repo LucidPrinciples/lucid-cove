@@ -603,6 +603,84 @@ async def mint_cove_dns(request: Request):
         raise HTTPException(502, f"DNS create failed: {str(e)[:160]}")
 
 
+@router.post("/api/registry/cove-dns/remove")
+async def remove_cove_dns_endpoint(request: Request):
+    """Deprovision mirror of /api/registry/cove-dns: delete apex + wildcard
+    (+ _acme-challenge) records for a lucidcove.org Cove subdomain. Idempotent.
+    Body: {domain} → {ok, domain, actions}. Does NOT touch registry rows — pair
+    with DELETE /api/registry/cove/{key} for full cleanup."""
+    body = await request.json()
+    sub = (body.get("domain") or "").strip().lower().lstrip("*").lstrip(".")
+    if not sub:
+        raise HTTPException(400, "domain required")
+    if sub == "lucidcove.org" or not sub.endswith(".lucidcove.org"):
+        raise HTTPException(400, "this endpoint removes lucidcove.org Cove subdomains only")
+    from src.memory.database import get_db
+    async with get_db() as conn:
+        await _authorize_write(request, conn)
+    try:
+        from provision.cloudflare_dns import remove_cove_dns
+    except Exception as e:
+        raise HTTPException(501, f"DNS tooling unavailable: {e}")
+    try:
+        return remove_cove_dns(sub)
+    except ValueError as e:
+        raise HTTPException(400, str(e)[:200])
+    except Exception as e:
+        raise HTTPException(502, f"DNS remove failed: {str(e)[:160]}")
+
+
+@router.delete("/api/registry/cove/{key}")
+async def delete_cove(key: str, request: Request):
+    """Unregister a Cove from the hub registry and best-effort remove its DNS.
+
+    key = cove_id OR name. Removes the registry_coves row (handles get cove_id
+    SET NULL via FK). If the row had a lucidcove.org domain, calls remove_cove_dns
+    so throwaway/test coves don't strand Cloudflare records. DNS failure does not
+    block the registry delete (reported under dns.ok=false). Auth: fleet secret
+    or operator token; operator mode may only delete their own Cove."""
+    key = (key or "").strip()
+    if not key:
+        raise HTTPException(400, "cove key required")
+    from src.memory.database import get_db
+    async with get_db() as conn:
+        r = await conn.execute(
+            "SELECT * FROM registry_coves WHERE cove_id = %s OR lower(name) = lower(%s)",
+            (key, key))
+        row = await r.fetchone()
+        if not row:
+            raise HTTPException(404, f"No Cove '{key}' in the registry")
+        owner = (row.get("owner_handle") or "").lstrip("@").strip().lower()
+        auth = await _authorize_write(request, conn, owner)
+        if auth.get("mode") == "operator":
+            uname = ((auth.get("account") or {}).get("username") or "").lstrip("@").strip().lower()
+            if owner and uname and owner != uname:
+                raise HTTPException(403, f"Only @{owner} (or fleet) can delete this Cove")
+        cid = row.get("cove_id")
+        domain = (row.get("domain") or "").strip().lower().rstrip(".")
+        # Detach handles first so a partial failure never leaves a live cove_id
+        # pointing at a deleted Cove; FK is ON DELETE SET NULL but explicit is clearer.
+        await conn.execute(
+            "UPDATE registry_handles SET cove_id = NULL WHERE cove_id = %s", (cid,))
+        await conn.execute("DELETE FROM registry_coves WHERE cove_id = %s", (cid,))
+
+    dns_result = {"ok": True, "skipped": True, "reason": "no lucidcove.org domain on row"}
+    if domain and domain.endswith(".lucidcove.org") and domain != "lucidcove.org":
+        try:
+            from provision.cloudflare_dns import remove_cove_dns
+            dns_result = remove_cove_dns(domain)
+        except Exception as e:
+            log.warning("delete_cove DNS remove failed for %s: %s", domain, e)
+            dns_result = {"ok": False, "domain": domain, "reason": str(e)[:200]}
+    return {
+        "ok": True,
+        "cove_id": cid,
+        "name": row.get("name"),
+        "domain": domain,
+        "dns": dns_result,
+    }
+
+
 @router.get("/api/registry/resolve/cove/{key}")
 async def resolve_cove(key: str):
     """Resolve a Cove by id OR name → its federation facts (homeserver, space_id,

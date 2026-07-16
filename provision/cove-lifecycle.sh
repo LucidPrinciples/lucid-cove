@@ -46,6 +46,39 @@ case "$cmd" in
 
   down)
     dir="${2:?usage: down <cove-dir>}"
+    # Best-effort: drop hub registry row + Cloudflare DNS so throwaway coves
+    # don't strand records (mirrors ensure_cove_dns on the way up).
+    if [ -f "$dir/cove.yaml" ] || [ -f "$dir/cove.config.yaml" ]; then
+      cfg="$dir/cove.yaml"; [ -f "$cfg" ] || cfg="$dir/cove.config.yaml"
+      # Prefer hub DELETE (registry + DNS). Falls back to local remove_dns if no hub auth.
+      HERE="$HERE" CFG="$cfg" python3 - <<'PY' 2>/dev/null || true
+import os, re, sys, urllib.request
+text = open(os.environ["CFG"]).read()
+def grab(key):
+    m = re.search(r"^\s*" + re.escape(key) + r"\s*:\s*[\"']?([^\s\"']+)", text, re.M)
+    return (m.group(1).strip() if m else "")
+cove_id = grab("id") or grab("cove_id")
+domain = grab("domain")
+base = (os.environ.get("LP_REGISTRY_URL") or "").rstrip("/")
+secret = os.environ.get("LP_REGISTRY_SECRET") or ""
+if base and secret and cove_id:
+    req = urllib.request.Request(base + "/api/registry/cove/" + cove_id, method="DELETE")
+    req.add_header("X-Registry-Secret", secret)
+    req.add_header("User-Agent", "LucidCove-Cove/1.0")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            print("registry+dns:", r.read().decode()[:200])
+    except Exception as e:
+        print("registry delete skipped:", e)
+elif domain and os.environ.get("CLOUDFLARE_API_TOKEN"):
+    sys.path.insert(0, os.environ.get("HERE", "."))
+    try:
+        from cloudflare_dns import remove_cove_dns
+        print("dns:", remove_cove_dns(domain))
+    except Exception as e:
+        print("dns remove skipped:", e)
+PY
+    fi
     echo "Tearing down $(_appcid "$dir") INCLUDING volumes/data..."
     ( cd "$dir" && docker compose down -v )
     echo "Gone. Re-run 'new' + 'up' for a clean test."
