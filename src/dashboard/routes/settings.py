@@ -622,14 +622,29 @@ async def set_model_override(request: Request, body: ModelOverrideUpdate):
                     content={"error": f"Unknown model '{override}' — not in registry"}
                 )
         
-        # Update cove.yaml
-        current = load_cove_config()
-        if override:
-            current["model_override"] = override
-        else:
-            current.pop("model_override", None)
+        # Update feature-overrides.yaml (runtime settings storage)
+        import yaml
+        from pathlib import Path
         
-        ok = save_cove_config(current)
+        overrides_path = Path("/app/data/feature-overrides.yaml")
+        current_overrides = {}
+        if overrides_path.exists():
+            with open(overrides_path) as f:
+                current_overrides = yaml.safe_load(f) or {}
+        
+        if override:
+            current_overrides["model_override"] = override
+        else:
+            current_overrides.pop("model_override", None)
+        
+        try:
+            with open(overrides_path, "w") as f:
+                yaml.dump(current_overrides, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            ok = True
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to save model override: {e}")
+            ok = False
         if not ok:
             return JSONResponse(status_code=500, content={"error": "Failed to save config"})
         

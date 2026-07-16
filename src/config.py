@@ -990,9 +990,22 @@ def get_model_override() -> str | None:
     - Locking to a known-good model during family events
     - Debugging model issues without config changes  
     - Emergency fallback when router misbehaves
+    
+    Reads from /app/data/feature-overrides.yaml (runtime settings storage)
     """
-    cfg = load_cove_config()
-    override = cfg.get("model_override")
-    if override and isinstance(override, str) and override.strip():
-        return override.strip()
+    import yaml
+    from pathlib import Path
+    
+    overrides_path = Path("/app/data/feature-overrides.yaml")
+    if not overrides_path.exists():
+        return None
+    
+    try:
+        with open(overrides_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        override = cfg.get("model_override")
+        if override and isinstance(override, str) and override.strip():
+            return override.strip()
+    except Exception:
+        pass
     return None
