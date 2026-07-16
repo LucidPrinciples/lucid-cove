@@ -28,6 +28,51 @@ from langchain_core.tools import tool
 
 from src.tools.approval import auto, notify
 
+# #SEC4 M2 — downloads land only under the agent data dir. Model-controlled
+# local_path used to open() anywhere the process can write.
+from pathlib import Path as _Path
+_DATA_DIR = _Path(env("STUART_DATA_DIR", "/app/data")).resolve()
+_DOWNLOAD_ROOTS = (
+    (_DATA_DIR / "downloads").resolve(),
+    (_DATA_DIR / "scratch").resolve(),
+)
+
+
+def _confine_download_path(local_path: str):
+    """Resolve local_path and require it under an allowed download root.
+
+    Returns (resolved_path_str, error). Rejects empty paths and anything outside
+    /app/data/downloads and /app/data/scratch (the agent write sandbox).
+    """
+    if not local_path or not str(local_path).strip():
+        return None, "local_path is required"
+    raw = str(local_path).strip()
+    if any(ord(c) == 0 for c in raw):
+        return None, "Invalid local_path"
+    p = _Path(raw)
+    if not p.is_absolute():
+        p = _DOWNLOAD_ROOTS[0] / p
+    try:
+        resolved = p.resolve()
+    except Exception as e:
+        return None, f"Invalid local_path: {e}"
+    allowed = False
+    for root in _DOWNLOAD_ROOTS:
+        root.mkdir(parents=True, exist_ok=True)
+        try:
+            resolved.relative_to(root)
+            allowed = True
+            break
+        except ValueError:
+            continue
+    if not allowed:
+        return None, (
+            f"local_path must be under {_DOWNLOAD_ROOTS[0]} or {_DOWNLOAD_ROOTS[1]} "
+            f"(got {resolved})"
+        )
+    return str(resolved), None
+
+
 # =============================================================================
 # Config
 # =============================================================================
@@ -708,11 +753,15 @@ async def nextcloud_download(path: str, local_path: str) -> str:
 
     Args:
         path: Nextcloud file path (e.g. '/Business Docs/report.pdf')
-        local_path: Local destination path (e.g. '/app/data/downloads/report.pdf')
+        local_path: Local destination under /app/data/downloads or /app/data/scratch
+                    (e.g. '/app/data/downloads/report.pdf'). #SEC4 M2: confined.
     """
     denied = check_nc_path_access(path, write=False)
     if denied:
         return denied
+    safe_local, path_err = _confine_download_path(local_path)
+    if path_err:
+        return f"Error: {path_err}"
     url = _webdav_url(path)
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=60) as client:
@@ -723,13 +772,16 @@ async def nextcloud_download(path: str, local_path: str) -> str:
                     resp = await client.get(_webdav_url(alt)); path = alt
         if resp.status_code == 200:
             import os
-            os.makedirs(os.path.dirname(local_path), exist_ok=True)
-            with open(local_path, "wb") as f:
+            parent = os.path.dirname(safe_local)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(safe_local, "wb") as f:
                 f.write(resp.content)
-            return f"Downloaded {path} → {local_path} ({len(resp.content):,} bytes)"
+            return f"Downloaded {path} → {safe_local} ({len(resp.content):,} bytes)"
         return f"Download failed for {path}: HTTP {resp.status_code}"
     except Exception as e:
         return f"Error: {e}"
+
 
 
 # =============================================================================

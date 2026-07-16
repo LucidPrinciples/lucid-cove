@@ -438,8 +438,12 @@ async def avatar_ingest(request: Request, handle: str = Form(...), kind: str = F
     supplied = request.headers.get("X-Shared-Secret", "")
     if not (SECRET and supplied and hmac.compare_digest(supplied, SECRET)):
         raise HTTPException(403, "Invalid secret")
-    handle = (handle or "").lstrip("@").lower()
-    if not handle:
+    # #SEC4 M1: basename-only handle — sibling image_ingest uses Path(fname).name;
+    # without this, handle="../x" or "a/b" writes outside AVATAR_DIR via write_bytes.
+    handle = pathlib.Path((handle or "").lstrip("@").lower()).name
+    # Drop residual path junk and keep a simple handle token
+    handle = "".join(c for c in handle if c.isalnum() or c in ("-", "_", "."))
+    if not handle or handle in (".", ".."):
         raise HTTPException(400, "handle required")
     kind = "agent" if kind == "agent" else "operator"
     ext = ext if ext in set(_IMG_EXT.values()) else "png"
@@ -448,6 +452,8 @@ async def avatar_ingest(request: Request, handle: str = Form(...), kind: str = F
         raise HTTPException(400, "Image too large (max 2MB)")
     pathlib.Path(AVATAR_DIR).mkdir(parents=True, exist_ok=True)
     fname = f"{handle}-{kind}.{ext}"
+    # Final belt: Path.name so fname can never contain a directory separator
+    fname = pathlib.Path(fname).name
     pathlib.Path(AVATAR_DIR, fname).write_bytes(data)
     return {"ok": True, "url": f"{LP_PUBLIC_BASE}/avatars/{fname}"}
 

@@ -25,8 +25,38 @@ COVE_MODE = env("COVE_MODE", "single")
 KB_PREFIX = "AgentSkills/Knowledge Base"
 
 
+def _clean_webdav_path(path: str):
+    """#SEC4 H3 — normalize a WebDAV relative path and reject traversal.
+
+    Returns (clean_path, error). clean_path has no leading/trailing slash and no
+    ``.`` / ``..`` segments. A path that would climb above the WebDAV root
+    (``../x``, ``AgentSkills/Knowledge Base/../../secret``) returns an error
+    instead of being forwarded to Nextcloud — critical because KB paths resolve
+    to the steward/admin credentials; without normalization a ``..`` chain kept
+    the admin-cred branch while escaping the KB tree.
+    """
+    if path is not None and "\x00" in str(path):
+        return None, "Invalid path"
+    raw = (path or "").replace("\\", "/")
+    parts = []
+    for seg in raw.split("/"):
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if not parts:
+                return None, "Path escapes root"
+            parts.pop()
+            continue
+        parts.append(seg)
+    return "/".join(parts), None
+
+
 def _is_kb_path(path: str) -> bool:
-    p = (path or "").strip("/")
+    """True if path is under the Cove Knowledge Base (after normalization)."""
+    p, err = _clean_webdav_path(path)
+    if err is not None:
+        # Unclean/escaping path is never treated as KB — never upgrade to admin creds.
+        return False
     return p == KB_PREFIX or p.startswith(KB_PREFIX + "/")
 
 
@@ -35,10 +65,16 @@ async def _resolve_webdav(request: Request = None, path: str = ""):
 
     KB paths resolve to the SINGLE Cove copy (the steward/NC-admin space) no matter
     which presence is asking — the same source kb_sync writes. Everything else
-    resolves to the current presence's own space as before."""
+    resolves to the current presence's own space as before.
+
+    #SEC4 H3: path is normalized first so ``KB/../../x`` cannot keep admin creds.
+    """
     from src.dashboard.routes.nextcloud import (get_nc_creds, resolve_tab_nc_creds,
                                                 NC_ADMIN_USER, NC_ADMIN_PASSWORD)
-    if _is_kb_path(path) and NC_ADMIN_PASSWORD:
+    clean, err = _clean_webdav_path(path)
+    if err is not None:
+        return None, None, None, err
+    if _is_kb_path(clean) and NC_ADMIN_PASSWORD:
         nc_url = env("NEXTCLOUD_URL")
         webdav_base = f"{nc_url}/remote.php/dav/files/{NC_ADMIN_USER}"
         return webdav_base, NC_ADMIN_USER, (NC_ADMIN_USER, NC_ADMIN_PASSWORD), None
@@ -67,11 +103,14 @@ async def _kb_write_guard(request: Request, path: str):
 @router.get("/api/files/list")
 async def list_files(request: Request, path: str = "/"):
     """List files and folders at a WebDAV path."""
-    webdav_base, nc_user, auth, error = await _resolve_webdav(request, path)
+    clean_path, path_err = _clean_webdav_path(path)
+    if path_err is not None:
+        return {"items": [], "error": path_err}
+
+    webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
         return {"items": [], "error": error}
 
-    clean_path = path.strip("/")
     url = f"{webdav_base}/{clean_path}" if clean_path else webdav_base
 
     propfind_body = """<?xml version="1.0" encoding="utf-8"?>
@@ -99,7 +138,7 @@ async def list_files(request: Request, path: str = "/"):
             # CF-6b: a 404 on the KB path means the Drop sync hasn't populated the
             # Cove copy yet (fresh install, NC still settling) — say that instead
             # of a raw WebDAV error.
-            if response.status_code == 404 and _is_kb_path(path):
+            if response.status_code == 404 and _is_kb_path(clean_path):
                 return {"items": [], "error": ("The Knowledge Base is still syncing "
                         "from the Drop — check back in a few minutes.")}
             return {"items": [], "error": f"WebDAV error: {response.status_code}"}
@@ -142,7 +181,7 @@ async def list_files(request: Request, path: str = "/"):
 
         # Sort: dirs first, then files alphabetically
         items.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
-        return {"items": items, "path": path}
+        return {"items": items, "path": clean_path or "/"}
 
     except Exception as e:
         return {"items": [], "error": str(e)}
@@ -151,11 +190,14 @@ async def list_files(request: Request, path: str = "/"):
 @router.get("/api/files/download")
 async def download_file(request: Request, path: str):
     """Stream a file from Nextcloud WebDAV."""
-    webdav_base, nc_user, auth, error = await _resolve_webdav(request, path)
+    clean_path, path_err = _clean_webdav_path(path)
+    if path_err is not None:
+        return {"error": path_err}
+
+    webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
         return {"error": error}
 
-    clean_path = path.strip("/")
     url = f"{webdav_base}/{clean_path}"
 
     try:
@@ -164,7 +206,7 @@ async def download_file(request: Request, path: str):
             if response.status_code != 200:
                 return {"error": f"File not found: {response.status_code}"}
 
-            filename = clean_path.split("/")[-1]
+            filename = clean_path.split("/")[-1] if clean_path else "download"
             content_type = response.headers.get("content-type", "application/octet-stream")
 
             return StreamingResponse(
@@ -179,39 +221,56 @@ async def download_file(request: Request, path: str):
 @router.post("/api/files/upload")
 async def upload_file(request: Request, path: str, file: UploadFile = File(...)):
     """Upload a file to Nextcloud WebDAV."""
-    guard = await _kb_write_guard(request, path)
+    clean_path, path_err = _clean_webdav_path(path)
+    if path_err is not None:
+        return {"success": False, "error": path_err}
+
+    guard = await _kb_write_guard(request, clean_path)
     if guard:
         return {"success": False, "error": guard}
-    webdav_base, nc_user, auth, error = await _resolve_webdav(request, path)
+    webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
         return {"success": False, "error": error}
 
-    clean_path = path.strip("/")
-    filename = file.filename or "upload"
-    url = f"{webdav_base}/{clean_path}/{filename}"
+    # #SEC4 H3: basename only for the uploaded filename (no path segments)
+    filename = Path_name_only(file.filename or "upload")
+    url = f"{webdav_base}/{clean_path}/{filename}" if clean_path else f"{webdav_base}/{filename}"
 
     try:
         content = await file.read()
         async with httpx.AsyncClient(auth=auth, timeout=60) as client:
             response = await client.put(url, content=content)
             if response.status_code in (200, 201, 204):
-                return {"success": True, "path": f"{clean_path}/{filename}"}
+                dest = f"{clean_path}/{filename}" if clean_path else filename
+                return {"success": True, "path": dest}
             return {"success": False, "error": f"Upload failed: {response.status_code}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
+def Path_name_only(name: str) -> str:
+    """Strip any directory components from an upload filename."""
+    # Use pure string ops to avoid importing pathlib at module top for one call
+    n = (name or "upload").replace("\\", "/").split("/")[-1].strip() or "upload"
+    if n in (".", ".."):
+        return "upload"
+    return n
+
+
 @router.delete("/api/files/delete")
 async def delete_file(request: Request, path: str):
     """Delete a file or folder from Nextcloud WebDAV."""
-    guard = await _kb_write_guard(request, path)
+    clean_path, path_err = _clean_webdav_path(path)
+    if path_err is not None:
+        return {"success": False, "error": path_err}
+
+    guard = await _kb_write_guard(request, clean_path)
     if guard:
         return {"success": False, "error": guard}
-    webdav_base, nc_user, auth, error = await _resolve_webdav(request, path)
+    webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
         return {"success": False, "error": error}
 
-    clean_path = path.strip("/")
     url = f"{webdav_base}/{clean_path}"
     try:
         async with httpx.AsyncClient(auth=auth, timeout=30) as client:
