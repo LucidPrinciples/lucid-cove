@@ -35,6 +35,13 @@
   let tokenBackoff = 2000;    // current cooldown; doubles on failure, resets on success
   let retryTimer = null;      // scheduled auto-retry after backoff / warm-up
   let syncWatchdog = null;    // hard timeout waiting for PREPARED
+  // One-shot fail lock for a single connect attempt. matrix-js-sdk often emits
+  // ERROR then STOPPED (or ERROR repeatedly) for one dead /sync. Without this,
+  // each event doubled tokenBackoff and stacked scheduleConnectRetry + a second
+  // createClient while the first was still alive (post-#154 retry-loop residue).
+  let connectFailLocked = false;
+  let connectAttempt = 0;     // consecutive failed open attempts (resets on PREPARED)
+  const CONNECT_MAX_AUTO = 5; // after this, stop auto-retry and offer manual Retry
   let marketLoading = false;  // guard against concurrent catalog fetches
   let mktFilters = { q: '', skill: '', archetype: '', rail: '', status: '', category: '' };  // marketplace search state
   let mktCfg = null;      // /api/market/config — launch-rail UI flags (credits hidden at launch)
@@ -291,10 +298,53 @@
     if (syncWatchdog) { clearTimeout(syncWatchdog); syncWatchdog = null; }
   }
 
+  // Tear down a half-open Matrix client so the next ensureChats starts clean.
+  // Must run on ERROR/STOPPED/timeout — otherwise the old client keeps /sync
+  // alive (and keeps emitting ERROR) while a new one is created on retry.
+  function teardownConnectClient(why) {
+    clearConnectTimers();
+    const c = client;
+    client = null;
+    if (!c) return;
+    // Drop listeners FIRST so stopClient's STOPPED/ERROR cannot re-enter failConnect
+    // (especially on ensureChats-start when connectFailLocked was just cleared).
+    try {
+      if (typeof c.removeAllListeners === 'function') c.removeAllListeners();
+    } catch (_) { /* noop */ }
+    try {
+      if (typeof c.stopClient === 'function') c.stopClient();
+    } catch (_) { /* noop */ }
+    try { console.info('[connect] client torn down', why || ''); } catch (_) {}
+  }
+
   // Schedule a real auto-retry. Old path said "retrying shortly" and never did —
   // operator sat on Connecting… until they left and came back (Quietgrove 10–15m).
+  // After CONNECT_MAX_AUTO consecutive failures, stop the storm and show Retry.
   function scheduleConnectRetry(delayMs, reason) {
     clearConnectTimers();
+    if (connectAttempt >= CONNECT_MAX_AUTO) {
+      const msg = (reason || 'Connect could not finish sync')
+        + ' — paused after ' + CONNECT_MAX_AUTO
+        + ' tries. Confirm the Matrix homeserver for this Cove is reachable, then Retry.';
+      const t = document.getElementById('cx-tree');
+      if (t) {
+        t.innerHTML = '<div class="connect-empty">' + esc(msg) + '</div>'
+          + '<div style="margin-top:10px;text-align:center">'
+          + '<button type="button" class="cx-wbtn" id="cx-retry-now">Retry now</button></div>';
+        const b = document.getElementById('cx-retry-now');
+        if (b) b.onclick = () => {
+          connectAttempt = 0;
+          tokenBackoff = 2000;
+          tokenRetryAt = 0;
+          connectFailLocked = false;
+          ensureChats();
+        };
+      } else {
+        chatsMsg(msg);
+      }
+      try { console.warn('[connect] auto-retry paused', reason || '', 'attempts=' + connectAttempt); } catch (_) {}
+      return;
+    }
     const wait = Math.max(500, delayMs | 0);
     const when = new Date(Date.now() + wait);
     const waitSec = Math.ceil(wait / 1000);
@@ -305,6 +355,23 @@
       ensureChats();
     }, wait);
     try { console.info('[connect] retry scheduled', wait + 'ms', reason || '', when.toISOString()); } catch (_) {}
+  }
+
+  // Single entry for sync/token failures: lock, count, tear down, back off, retry.
+  // Idempotent for one attempt (ERROR + STOPPED from the same client = one retry).
+  function failConnect(reason) {
+    if (connectFailLocked) {
+      try { console.info('[connect] fail suppressed (already handled)', reason || ''); } catch (_) {}
+      return;
+    }
+    connectFailLocked = true;
+    starting = false;
+    connectAttempt += 1;
+    teardownConnectClient(reason || 'fail');
+    tokenRetryAt = Date.now() + tokenBackoff;
+    const wait = tokenBackoff;
+    tokenBackoff = Math.min(tokenBackoff * 2, 30000);
+    scheduleConnectRetry(wait, reason || 'Connect is warming up');
   }
 
   // ── SSO: token from the MC session → start the SDK client. Renders into the
@@ -322,6 +389,9 @@
       return;
     }
     clearConnectTimers();
+    // Fresh attempt: allow failConnect again; drop any leftover half-open client.
+    connectFailLocked = false;
+    teardownConnectClient('ensureChats-start');
     starting = true;
     const t0 = Date.now();
     chatsProgress('Loading chat engine', t0);
@@ -344,6 +414,7 @@
       }
       if (r.status === 429) {
         // Rate limited — back off (exponential up to 30s) and REALLY retry.
+        // Do not count as connectAttempt storm (Dendrite warm-up is expected).
         starting = false;
         tokenRetryAt = Date.now() + tokenBackoff;
         const wait = tokenBackoff;
@@ -353,17 +424,14 @@
       }
       if (!r.ok) throw new Error('token ' + r.status);
       cfg = await r.json();
-      tokenBackoff = 2000;  // clean token → reset the cooldown ladder
+      // Token itself ok — keep attempt counter; only PREPARED clears the storm.
       try {
         console.info('[connect] token ok', ((Date.now() - t0) / 1000).toFixed(1) + 's',
-          'hs=' + (cfg.homeserver || ''), 'user=' + (cfg.user_id || ''));
+          'hs=' + (cfg.homeserver || ''), 'user=' + (cfg.user_id || ''),
+          'attempt=' + (connectAttempt + 1));
       } catch (_) {}
     } catch (e) {
-      starting = false;
-      tokenRetryAt = Date.now() + tokenBackoff;
-      const wait = tokenBackoff;
-      tokenBackoff = Math.min(tokenBackoff * 2, 30000);
-      scheduleConnectRetry(wait, "Couldn't reach chat right now");
+      failConnect("Couldn't reach chat right now");
       return;
     }
 
@@ -385,8 +453,7 @@
         userId: cfg.user_id, deviceId: cfg.device_id || undefined, timelineSupport: true,
       });
     } catch (e) {
-      starting = false;
-      chatsMsg('Chat engine error.');
+      failConnect('Chat engine error');
       return;
     }
 
@@ -396,16 +463,15 @@
       if (state === 'PREPARED' && !started) {
         started = true;
         starting = false;
+        connectFailLocked = false;
+        connectAttempt = 0;
+        tokenBackoff = 2000;
         clearConnectTimers();
         if (mode === 'chats') renderChats();
       } else if (!started && (state === 'ERROR' || state === 'STOPPED')) {
-        // Surface a real failure instead of spinning forever on a dead /sync.
-        starting = false;
-        clearConnectTimers();
-        tokenRetryAt = Date.now() + tokenBackoff;
-        const wait = tokenBackoff;
-        tokenBackoff = Math.min(tokenBackoff * 2, 30000);
-        scheduleConnectRetry(wait, 'Chat sync hit ' + state);
+        // Surface + tear down + single retry. stopClient often emits STOPPED after
+        // ERROR — failConnect is one-shot so that does not double the backoff.
+        failConnect('Chat sync hit ' + state);
       } else if (!started && state) {
         chatsProgress('Sync: ' + state, t0);
       }
@@ -422,26 +488,14 @@
     syncWatchdog = setTimeout(() => {
       syncWatchdog = null;
       if (started) return;
-      starting = false;
-      try {
-        if (client && typeof client.stopClient === 'function') client.stopClient();
-      } catch (_) { /* noop */ }
-      tokenRetryAt = Date.now() + tokenBackoff;
-      const wait = tokenBackoff;
-      tokenBackoff = Math.min(tokenBackoff * 2, 30000);
-      scheduleConnectRetry(wait, 'Chat sync timed out after ' + Math.round(SYNC_TIMEOUT_MS / 1000) + 's');
+      failConnect('Chat sync timed out after ' + Math.round(SYNC_TIMEOUT_MS / 1000) + 's');
     }, SYNC_TIMEOUT_MS);
 
     chatsProgress('Starting live sync', t0);
     try {
       await client.startClient({ initialSyncLimit: 30, lazyLoadMembers: true });
     } catch (e) {
-      starting = false;
-      clearConnectTimers();
-      tokenRetryAt = Date.now() + tokenBackoff;
-      const wait = tokenBackoff;
-      tokenBackoff = Math.min(tokenBackoff * 2, 30000);
-      scheduleConnectRetry(wait, 'Chat sync failed to start');
+      failConnect('Chat sync failed to start');
     }
   }
 
