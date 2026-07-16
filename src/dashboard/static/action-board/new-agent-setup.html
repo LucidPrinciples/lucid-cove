@@ -2262,10 +2262,10 @@ async function sendWakeReply() {
             document.getElementById('wake-nav').style.display = 'flex';
             _persistWakeThread();   // best-effort — put the exchange in the chat thread
         }, 700);
-    } else if (_wakeMode === 'self') {
-        // Self-onboard invitee: seed the spark exchange into their Chat. The orientation
-        // ("mirror") is NOT shown here during the spark — it's seeded as a separate trailing
-        // message so it's waiting as the most-recent message when they land in Chat.
+    } else if (_wakeMode === 'self' || _wakeMode === 'member') {
+        // Self-onboard invitee OR admin-provisioned member: seed the spark into Chat
+        // (member path writes under the new presence_id). Orientation is a trailing
+        // message so it waits as most-recent when they open their door.
         _persistWakeThread();
         document.getElementById('wake-nav').style.display = 'flex';
     } else {
@@ -2273,10 +2273,11 @@ async function sendWakeReply() {
     }
 }
 
-// Persist the first exchange into the operator's personal-agent chat thread, so the
+// Persist the first exchange into the personal-agent chat thread, so the
 // conversation that began at the spark is already there when they open the MC.
+// Member mode: write under the NEW presence's id so when they open their link
+// the wake exchange is waiting in Chat (not empty Attention).
 async function _persistWakeThread() {
-    if (_wakeMode === 'member') return;   // member mode seeds under the member's own presence
     const opener = _wakeGreeting + (_wakeQuestion ? '\n\n' + _wakeQuestion : '');
     const _fm = (_wakeFirstMemory || "Thank you. I'm keeping that.");
     // Founder appends the brain-connect handoff onto the first-memory message.
@@ -2289,10 +2290,16 @@ async function _persistWakeThread() {
     // Self-onboard invitee: the orientation ("mirror") is a SEPARATE trailing message so it
     // lands LAST — the most-recent message waiting when they open Chat, not part of the spark.
     if (_wakeMode === 'self') msgs.push({ role: 'ai', content: WAKE_JOIN_ORIENT });
+    // Admin-met member: same orientation, under the member's presence (they ride Cove brain).
+    if (_wakeMode === 'member') msgs.push({ role: 'ai', content: WAKE_JOIN_ORIENT });
+    const body = { messages: msgs };
+    if (_wakeMode === 'member' && _wakeMemberPresenceId) {
+        body.presence_id = _wakeMemberPresenceId;
+    }
     try {
         await fetch('/api/presence/wake-thread', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: msgs }),
+            body: JSON.stringify(body),
         });
     } catch (e) { /* best-effort */ }
 }

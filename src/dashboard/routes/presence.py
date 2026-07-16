@@ -979,6 +979,11 @@ async def _create_presence_record(
     else:
         host = request.headers.get("host", "localhost")
         signin_link = f"{scheme}://{host}/p/{raw_token}"
+    # Second-presence land: open Chat with their agent (not Attention + founder
+    # setup nags). /p/ honors internal ?next= (strictly same-origin path).
+    from urllib.parse import urlencode as _urlencode
+    _land = ("/?as=%s&tab=chat" % handle) if handle else "/?tab=chat"
+    signin_link = signin_link + ("&" if "?" in signin_link else "?") + _urlencode({"next": _land})
 
     # Provision Nextcloud user + folders + Context files
     nc_result = {"ok": False, "skipped": True}
@@ -1784,6 +1789,10 @@ async def regenerate_link(presence_id: str, request: Request):
     else:
         host = request.headers.get("host", "localhost")
         signin_link = f"{scheme}://{host}/p/{raw_token}"
+    # Same land-in-Chat next as create-presence (member opens Chat, not Attention nags).
+    from urllib.parse import urlencode as _urlencode
+    _land = ("/?as=%s&tab=chat" % handle) if handle else "/?tab=chat"
+    signin_link = signin_link + ("&" if "?" in signin_link else "?") + _urlencode({"next": _land})
 
     return {"signin_link": signin_link, "token": raw_token}
 
