@@ -388,14 +388,22 @@ async def youtube_schedule(req: ScheduleRequest, request: Request):
 
 
 @router.post("/api/youtube/process-queue")
-async def youtube_process_queue():
+async def youtube_process_queue(request: Request):
     """Manually trigger the YouTube queue processor.
 
     Checks for queued posts where upload_date has passed and uploads them.
     Same logic as the scheduler's 15-minute check, but on demand.
     """
-    # CF-1: left unscoped (processor path) — this is the manual trigger of the
-    # Cove-machinery uploader; it must see every presence's queued rows.
+    # CF-1: processor path stays unscoped so it can upload every presence's
+    # ready rows (the scheduler needs the full queue). #SEC4 M3: the *HTTP*
+    # entry point is admin-only — any authenticated member used to be able to
+    # trigger cross-presence read/publish by hitting this route.
+    from src.dashboard.routes.presence import get_current_presence
+    from src.env import env as _env
+    if _env("COVE_MODE", "single") == "multi":
+        actor = await get_current_presence(request)
+        if not actor or actor.get("cove_role") != "admin":
+            return JSONResponse(status_code=403, content={"error": "Operators only."})
     from src.memory.database import get_db
 
     try:
