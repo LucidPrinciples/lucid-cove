@@ -329,6 +329,7 @@ function familyPair(member) {
                 </div>
             </div>
             ${member.focus ? `<div style="font-size:0.7rem;color:var(--dim);margin-top:4px;line-height:1.4;">${esc(member.focus)}</div>` : ''}
+            ${member.mc_url ? `<button onclick="event.stopPropagation(); window.open('${esc(member.mc_url)}', '_blank')" style="margin-top:6px;font-size:0.62rem;padding:2px 8px;background:transparent;border:1px solid var(--accent);border-radius:4px;color:var(--accent);cursor:pointer;" title="Open ${esc(member.username || '')} door (sign in as this Presence)">Open MC ↗</button>` : ''}
             ${admin && member.is_presence ? `<button onclick="event.stopPropagation(); setPresenceRole('${esc(member.id)}','${member.cove_role === 'admin' ? 'member' : 'admin'}')" style="margin-top:6px;font-size:0.62rem;padding:2px 8px;background:transparent;border:1px solid var(--dim);border-radius:4px;color:var(--dim);cursor:pointer;">${member.cove_role === 'admin' ? 'Make member' : 'Make admin'}</button>` : ''}
         </div>
         <div class="family-pair-connector">⟷</div>

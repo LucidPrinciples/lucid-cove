@@ -182,6 +182,17 @@ async def _presences_as_members() -> list:
         return []
 
     role_label = {"admin": "Admin", "member": "Presence", "guest": "Guest"}
+    # Live MC door per Presence: {handle}.{cove.domain}. Without this, Launch MC
+    # buttons stay dead and operators type/guess subdomains — easy to open the
+    # wrong door while still holding another session cookie (Matthews install-pass).
+    _mc_domain = ""
+    try:
+        from src.config import load_cove_config as _lcc_mc
+        _cc_mc = _lcc_mc()
+        if _cc_mc.get("subdomain_routing"):
+            _mc_domain = (_cc_mc.get("domain") or "").strip().lower()
+    except Exception:
+        _mc_domain = ""
     members = []
     for row in rows:
         ident = row["agent_identity"] or {}
@@ -192,12 +203,15 @@ async def _presences_as_members() -> list:
             except Exception:
                 ident = {}
         agent_name = row["agent_name"]
-        _prof = profile_map.get((row["username"] or "").lstrip("@").lower()) or {}
+        _handle = (row["username"] or "").lstrip("@").lower()
+        _prof = profile_map.get(_handle) or {}
+        _mc_url = f"https://{_handle}.{_mc_domain}" if (_handle and _mc_domain) else ""
         members.append({
             "id": str(row["id"]),
-            "username": (row["username"] or "").lstrip("@").lower(),
+            "username": _handle,
             "name": row["display_name"],
             "display_name": row["display_name"],
+            "mc_url": _mc_url,
             # One avatar source for every surface (jules 1649).
             "avatar_url": _prof.get("avatar_url") or "",
             "role": role_label.get(row["cove_role"], "Presence"),
