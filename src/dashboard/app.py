@@ -679,6 +679,41 @@ def create_app() -> FastAPI:
                 response.delete_cookie("presence_token")
                 return response
 
+            # Door/session mismatch: cookie is shared across *.{cove.domain}, so
+            # opening barter.{cove} while signed in as @homer used to render Homer's
+            # MC (data from cookie) under Barter's URL. Team pairings looked right;
+            # the MC URL did not. Redirect to the session owner's own door.
+            # (host_context.host_match already reports this; nothing used it on /.)
+            try:
+                from src.dashboard.host_context import (
+                    resolve_host_context, request_host, host_match,
+                )
+                from src.config import load_cove_config as _lcc_door
+                from fastapi.responses import RedirectResponse as _DoorRedirect
+                _cc_door = _lcc_door()
+                _hc_door = resolve_host_context(request_host(request), _cc_door)
+                if (
+                    _hc_door.get("kind") == "handle"
+                    and account
+                    and not host_match(_hc_door, account)
+                ):
+                    _own = (account.get("username") or "").lstrip("@").strip().lower()
+                    _dom = (_cc_door.get("domain") or "").strip().lower()
+                    if _own and _dom and _cc_door.get("subdomain_routing"):
+                        _scheme = (
+                            (request.headers.get("x-forwarded-proto") or "")
+                            .split(",")[0].strip()
+                            or request.url.scheme
+                            or "https"
+                        )
+                        _qs = ("?" + request.url.query) if request.url.query else ""
+                        return _DoorRedirect(
+                            f"{_scheme}://{_own}.{_dom}/{_qs}",
+                            status_code=307,
+                        )
+            except Exception:
+                pass
+
         if template_path.exists():
             from src.dashboard.routes.core import _get_build_version
             bv = _get_build_version()  # Read per-request, not frozen at startup
