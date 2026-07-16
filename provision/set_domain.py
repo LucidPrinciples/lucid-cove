@@ -30,11 +30,14 @@ Needs CLOUDFLARE_API_TOKEN in the environment for the DNS step (the same token
 Caddy uses for the DNS-01 cert). Without it, DNS is skipped and you point records
 manually; Caddy still issues the cert once the records resolve.
 
-After Caddy is up, this CLI ALSO verifies the host can resolve and reach the domain.
-Public A records for mesh IPs (100.64.0.0/10) are often filtered by local resolvers
-(DNS rebinding protection) even when Cloudflare has the record — that is the install
-hard-stop (NXDOMAIN in the browser while the Cove is healthy). We repair host resolve:
-Tailscale accept-dns, DNS cache flush, then a scoped /etc/hosts pin if still broken.
+After Caddy is up, this CLI ALSO verifies the host can resolve and reach the domain
+AND matrix.{domain} (Connect's homeserver URL). Public A records for mesh IPs
+(100.64.0.0/10) are often filtered by local resolvers (DNS rebinding protection) even
+when Cloudflare has the record — that is the install hard-stop (NXDOMAIN in the browser
+while the Cove is healthy). Apex-only repair is not enough: Connect opens
+https://matrix.{domain} and fails with ERR_NAME_NOT_RESOLVED if that name is filtered.
+We repair host resolve for both names: Tailscale accept-dns, DNS cache flush, then
+scoped /etc/hosts pins if still broken.
 """
 import argparse
 import json
@@ -449,11 +452,12 @@ def _hosts_path() -> Path:
 
 
 def _ensure_hosts_pin(domain: str, ip: str) -> dict:
-    """Idempotent /etc/hosts pin for the Cove apex (install-host hard-stop escape hatch).
+    """Idempotent /etc/hosts pin for one hostname (install-host hard-stop escape hatch).
 
     Public DNS for mesh A records is often correct while the local resolver still
     returns NXDOMAIN (rebinding filters). Pinning on the Cove host unblocks Open my Cove
-    on that machine. Other mesh devices still need Tailscale + working mesh/public DNS.
+    and Connect (matrix.{domain}) on that machine. Other mesh devices still need
+    Tailscale + working mesh/public DNS.
     """
     domain = (domain or "").strip().lower().rstrip(".")
     ip = (ip or "").strip()
@@ -504,17 +508,17 @@ def _ensure_hosts_pin(domain: str, ip: str) -> dict:
         return {"ok": False, "reason": f"cannot write {path}: {e}"}
 
 
-def ensure_host_resolves(domain: str, mesh_ip: str = "") -> dict:
-    """Make THIS host resolve `domain` to the Cove mesh IP when public DNS is filtered.
+def _ensure_one_host_resolves(host: str, mesh_ip: str = "") -> dict:
+    """Make THIS host resolve a single name to the Cove mesh IP when public DNS is filtered.
 
     Install hard-stop (2026-07-15 Withers): Cloudflare DoH had the A record, mesh was
     up, Caddy/TLS healthy — but macOS system DNS returned NXDOMAIN until a hosts pin.
     Returns {ok, domain, expected_ip, system_ip, doh_ip, steps, method, message}.
     """
-    domain = (domain or "").strip().lower().lstrip("*").lstrip(".").rstrip(".")
+    host = (host or "").strip().lower().lstrip("*").lstrip(".").rstrip(".")
     out = {
         "ok": False,
-        "domain": domain,
+        "domain": host,
         "expected_ip": (mesh_ip or "").strip(),
         "system_ip": "",
         "doh_ip": "",
@@ -522,7 +526,7 @@ def ensure_host_resolves(domain: str, mesh_ip: str = "") -> dict:
         "method": "",
         "message": "",
     }
-    if not domain:
+    if not host:
         out["message"] = "no domain"
         return out
 
@@ -530,14 +534,14 @@ def ensure_host_resolves(domain: str, mesh_ip: str = "") -> dict:
     out["expected_ip"] = expected
 
     # 1) What the host already does
-    sys_ip = _resolve_a_system(domain)
+    sys_ip = _resolve_a_system(host)
     out["system_ip"] = sys_ip
-    out["doh_ip"] = _resolve_a_doh(domain)
+    out["doh_ip"] = _resolve_a_doh(host)
 
     if sys_ip and (not expected or sys_ip == expected or _is_mesh_ip(sys_ip)):
         out["ok"] = True
         out["method"] = "system"
-        out["message"] = f"host resolves {domain} → {sys_ip}"
+        out["message"] = f"host resolves {host} → {sys_ip}"
         return out
 
     # 2) Prefer Tailscale DNS path
@@ -545,35 +549,35 @@ def ensure_host_resolves(domain: str, mesh_ip: str = "") -> dict:
     out["steps"].append({"tailscale_accept_dns": ts})
     flush = _flush_host_dns_cache()
     out["steps"].append({"flush_dns": flush})
-    sys_ip = _resolve_a_system(domain)
+    sys_ip = _resolve_a_system(host)
     out["system_ip"] = sys_ip
     if sys_ip and (not expected or sys_ip == expected or _is_mesh_ip(sys_ip)):
         out["ok"] = True
         out["method"] = "system-after-tailscale-dns"
-        out["message"] = f"host resolves {domain} → {sys_ip} after enabling Tailscale DNS"
+        out["message"] = f"host resolves {host} → {sys_ip} after enabling Tailscale DNS"
         return out
 
     # 3) Public DNS has the mesh A record but local resolver still fails → hosts pin
     pin_ip = expected or out["doh_ip"]
     if pin_ip and _is_mesh_ip(pin_ip):
-        pin = _ensure_hosts_pin(domain, pin_ip)
+        pin = _ensure_hosts_pin(host, pin_ip)
         out["steps"].append({"hosts_pin": pin})
         if pin.get("ok"):
             _flush_host_dns_cache()
-            sys_ip = _resolve_a_system(domain)
+            sys_ip = _resolve_a_system(host)
             out["system_ip"] = sys_ip
             if sys_ip == pin_ip or (sys_ip and _is_mesh_ip(sys_ip)):
                 out["ok"] = True
                 out["method"] = "hosts"
                 out["message"] = (
-                    f"Local DNS was filtering the mesh address for {domain}. "
-                    f"Pinned {pin_ip} in /etc/hosts on this host so https://{domain} loads. "
+                    f"Local DNS was filtering the mesh address for {host}. "
+                    f"Pinned {pin_ip} in /etc/hosts on this host so https://{host} loads. "
                     "Other devices: join the mesh (MESH.md). If a phone/laptop still "
                     "NXDOMAINs, check DNS rebinding filters or add the same pin."
                 )
                 return out
             out["message"] = (
-                f"Wrote hosts pin for {domain} → {pin_ip} but system still resolves "
+                f"Wrote hosts pin for {host} → {pin_ip} but system still resolves "
                 f"to {sys_ip or 'nothing'}; flush DNS or check a VPN/filter."
             )
             return out
@@ -583,15 +587,89 @@ def ensure_host_resolves(domain: str, mesh_ip: str = "") -> dict:
     # 4) Cannot repair
     if not expected and not out["doh_ip"]:
         out["message"] = (
-            f"Cannot resolve {domain} on this host and public DNS has no A record yet. "
+            f"Cannot resolve {host} on this host and public DNS has no A record yet. "
             "Join the mesh, re-claim the address, or set CLOUDFLARE_API_TOKEN / hub DNS."
         )
     else:
         out["message"] = (
-            f"Host still cannot resolve {domain} (system={sys_ip or 'none'}, "
+            f"Host still cannot resolve {host} (system={sys_ip or 'none'}, "
             f"DoH={out['doh_ip'] or 'none'}, expected={expected or 'unknown'}). "
             "Check Tailscale is up and DNS rebinding filters (NextDNS/AdGuard/Private Relay)."
         )
+    return out
+
+
+def ensure_host_resolves(domain: str, mesh_ip: str = "", *, also_matrix: bool = True) -> dict:
+    """Make THIS host resolve the Cove apex — and matrix.{domain} — to the mesh IP.
+
+    Connect opens https://matrix.{domain} (not the apex). Cracker 2026-07-16: apex
+    resolve repair alone left Connect on ERR_NAME_NOT_RESOLVED for matrix.{domain}
+    until a second /etc/hosts pin. When also_matrix is True (default; Matrix Coves),
+    both names must resolve for ok=True.
+
+    Returns the apex result shape plus hosts/matrix_resolve when matrix is included.
+    """
+    domain = (domain or "").strip().lower().lstrip("*").lstrip(".").rstrip(".")
+    apex = _ensure_one_host_resolves(domain, mesh_ip)
+    out = dict(apex)
+    out["hosts"] = {domain: dict(apex)} if domain else {}
+    if not also_matrix or not domain:
+        return out
+
+    matrix_host = f"matrix.{domain}"
+    # Reuse mesh IP discovered while repairing apex (DoH/system may have filled it).
+    mesh = (mesh_ip or "").strip() or apex.get("expected_ip") or apex.get("system_ip") or ""
+    if mesh and not _is_mesh_ip(mesh):
+        mesh = (mesh_ip or "").strip() or apex.get("expected_ip") or ""
+    mx = _ensure_one_host_resolves(matrix_host, mesh)
+    out["hosts"][matrix_host] = mx
+    out["matrix_host"] = matrix_host
+    out["matrix_resolve"] = mx
+    out["ok"] = bool(apex.get("ok") and mx.get("ok"))
+    if apex.get("ok") and mx.get("ok"):
+        methods = [m for m in (apex.get("method"), mx.get("method")) if m]
+        # Prefer reporting hosts if either name needed a pin (install visibility).
+        if "hosts" in methods:
+            out["method"] = "hosts"
+        elif "system-after-tailscale-dns" in methods:
+            out["method"] = "system-after-tailscale-dns"
+        else:
+            out["method"] = apex.get("method") or mx.get("method") or "system"
+        if apex.get("method") == mx.get("method") == "system":
+            out["message"] = (
+                f"host resolves {domain} and {matrix_host} → "
+                f"{apex.get('system_ip') or mx.get('system_ip')}"
+            )
+        elif out["method"] == "hosts":
+            out["message"] = (
+                f"Local DNS was filtering mesh addresses. Pinned {domain} and/or "
+                f"{matrix_host} in /etc/hosts on this host so Cove + Connect load. "
+                "Other devices: join the mesh (MESH.md)."
+            )
+        else:
+            out["message"] = (
+                f"host resolves apex ({apex.get('method')}) and matrix "
+                f"({mx.get('method')})"
+            )
+    elif apex.get("ok") and not mx.get("ok"):
+        out["method"] = mx.get("method") or apex.get("method") or ""
+        out["system_ip"] = mx.get("system_ip") or apex.get("system_ip") or ""
+        out["doh_ip"] = mx.get("doh_ip") or apex.get("doh_ip") or ""
+        out["message"] = (
+            f"Apex {domain} resolves, but Matrix host does not — Connect will fail "
+            f"with ERR_NAME_NOT_RESOLVED. {mx.get('message') or ''}"
+        ).strip()
+        # Surface matrix steps after apex steps for operators reading the result.
+        out["steps"] = list(apex.get("steps") or []) + [
+            {"matrix_host": matrix_host},
+            *list(mx.get("steps") or []),
+        ]
+    else:
+        # Apex failed — keep apex message; still attach matrix attempt if we ran it.
+        out["steps"] = list(apex.get("steps") or []) + [
+            {"matrix_host": matrix_host},
+            *list(mx.get("steps") or []),
+        ]
     return out
 
 
@@ -742,7 +820,10 @@ def main() -> int:
         except Exception:
             mesh_for_resolve = ""
     try:
-        result["host_resolve"] = ensure_host_resolves(domain, mesh_for_resolve)
+        # also_matrix: Connect uses https://matrix.{domain}; apex-only pins leave
+        # ERR_NAME_NOT_RESOLVED on the homeserver (Cracker 2026-07-16).
+        result["host_resolve"] = ensure_host_resolves(
+            domain, mesh_for_resolve, also_matrix=matrix_on)
     except Exception as e:
         result["host_resolve"] = {"ok": False, "reason": f"host_resolve error: {e}"}
 
@@ -751,7 +832,10 @@ def main() -> int:
     if reloaded and hr.get("ok"):
         extra = ""
         if hr.get("method") == "hosts":
-            extra = " Host DNS was repaired via /etc/hosts (mesh A records are often filtered)."
+            extra = (
+                " Host DNS was repaired via /etc/hosts for the Cove address and "
+                "matrix.* (mesh A records are often filtered; Connect needs both)."
+            )
         result["message"] = (
             f"Live on this host: https://{domain} "
             f"(cert ~30-60s; mic/voice works once HTTPS is up).{extra} "
