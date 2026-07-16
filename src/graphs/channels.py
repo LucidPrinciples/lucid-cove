@@ -1102,6 +1102,8 @@ async def agent_node(state: ChannelState) -> dict:
     # its assigned primary (the Stuart-level team_models cascade); fall back to the
     # instance primary if unassigned or on error. Identity/memory are unaffected —
     # only the substrate (engine) changes.
+    _router_chain = []
+    _plan = None
     try:
         # NOTE: get_primary_agent_id is module-level (line 32). Re-importing it here
         # made it a function-local for all of agent_node, so the earlier use at
@@ -1109,24 +1111,75 @@ async def agent_node(state: ChannelState) -> dict:
         from src.config import (_is_steward_channel, _is_merchant_channel,
                                  get_steward_channel_config, get_merchant_channel_config,
                                  get_agent_model_assignment)
-        from src.models.provider import get_model_client
+        from src.models.provider import get_model_client, CLOUD_FALLBACK_MODEL
+        from src.models.router import plan_hops, format_plan_log
         _primary_id = None
+        _fallback_id = None
+        _route_agent = agent_id
+        _personal_primary = _personal_fallback = None
         if _is_steward_channel(channel):
-            _primary_id = get_agent_model_assignment(
-                (get_steward_channel_config() or {}).get("agent_id") or "stuart").get("primary")
+            _route_agent = (get_steward_channel_config() or {}).get("agent_id") or "stuart"
+            _asg = get_agent_model_assignment(_route_agent)
+            _primary_id = _asg.get("primary")
+            _fallback_id = _asg.get("fallback")
         elif _is_merchant_channel(channel):
-            _primary_id = get_agent_model_assignment(
-                (get_merchant_channel_config() or {}).get("agent_id") or "mercer").get("primary")
+            _route_agent = (get_merchant_channel_config() or {}).get("agent_id") or "mercer"
+            _asg = get_agent_model_assignment(_route_agent)
+            _primary_id = _asg.get("primary")
+            _fallback_id = _asg.get("fallback")
         else:
-            # Personal channel — the presence's own agent. A presence-set override
-            # lives in agent_identity.model; else fall to the team/instance default.
+            # Personal channel — presence model override = preference band; BYOK
+            # credentials are request-scoped in chat.py (not applied on managers).
             _ai = state.get("agent_identity")
             _ovr = (_ai.get("model") if isinstance(_ai, dict) else None) or {}
-            _primary_id = _ovr.get("primary") or get_agent_model_assignment(get_primary_agent_id()).get("primary")
-        model = get_model_client(_primary_id, temperature=0.7) if _primary_id else get_primary_model(temperature=0.7)
+            _personal_primary = _ovr.get("primary")
+            _personal_fallback = _ovr.get("fallback")
+            _asg = get_agent_model_assignment(get_primary_agent_id())
+            _primary_id = _personal_primary or _asg.get("primary")
+            _fallback_id = _personal_fallback or _asg.get("fallback")
+        # #D55 — score turn, pick first hop (local-first when easy).
+        _user_text = ""
+        try:
+            for _m in reversed(list(messages or [])):
+                if type(_m).__name__ == "HumanMessage" or getattr(_m, "type", "") == "human":
+                    _c = getattr(_m, "content", "") or ""
+                    if isinstance(_c, str) and _c.strip():
+                        _user_text = _c
+                        break
+        except Exception:
+            pass
+        _bias = "balanced"
+        try:
+            _ai2 = state.get("agent_identity") if isinstance(state.get("agent_identity"), dict) else {}
+            _bias = ((_ai2.get("model") or {}) if isinstance(_ai2.get("model"), dict) else {}).get(
+                "routing_bias"
+            ) or _bias
+        except Exception:
+            pass
+        _plan = plan_hops(
+            agent_id=_route_agent,
+            primary_id=_primary_id,
+            fallback_id=_fallback_id,
+            message_text=_user_text,
+            message_count=len(messages or []),
+            approx_tokens=0,
+            operation_type="channel",
+            routing_bias=_bias,
+            cloud_middle_id=CLOUD_FALLBACK_MODEL,
+            allow_cloud_middle=True,
+        )
+        print(f"{ts_log()} {format_plan_log(_plan, label=label)}")
+        # Stash plan for fallback path (next hop after primary fails).
+        state_router_plan = _plan  # local name; also set on response path via closure
+        _first = _plan.first_id or _primary_id
+        model = get_model_client(_first, temperature=0.7) if _first else get_primary_model(temperature=0.7)
+        _primary_id = _first  # so logs/metrics reflect chosen first hop
+        _router_chain = list(_plan.chain or [])
     except Exception as _e:
         print(f"{ts_log()} [{label}] per-agent model resolve failed ({_e}); using instance primary")
         model = get_primary_model(temperature=0.7)
+        _router_chain = []
+        _plan = None
     from langchain_openai import ChatOpenAI as _ChatOpenAI
     is_primary = isinstance(model, _ChatOpenAI)
     model_label = "OpenRouter" if is_primary else "local Ollama"
@@ -1393,6 +1446,14 @@ async def agent_node(state: ChannelState) -> dict:
         err_type = type(e).__name__
         err_msg = str(e) if str(e) else "(no error message)"
         print(f"{ts_log()} [{label}] PRIMARY FAILED: {err_type}: {err_msg}")
+        try:
+            from src.models.router import record_hop_failure
+            record_hop_failure(
+                getattr(model, "model", None) or model_label,
+                "openrouter" if is_primary else "ollama",
+            )
+        except Exception:
+            pass
         await _write_jw_metric(
             agent_id=agent_id, operation_type="channel",
             operation_label=f"channel-{channel}",
@@ -1401,94 +1462,173 @@ async def agent_node(state: ChannelState) -> dict:
             duration_ms=_duration_ms, succeeded=False,
         )
 
-        # Fallback: use the agent's CONFIGURED fallback model (the Team-page WORK-FALLBACK),
-        # resolved the SAME way as the primary above. Only drop to the local Ollama floor when
-        # no fallback is configured. (Prior code hardcoded get_local_model(), so the configured
-        # fallback was ignored and every rescue cold-loaded qwen3:32b on the GPU and timed out.)
+        # #D55/#D16: walk remaining hops from router chain (configured fallback,
+        # cross-provider cloud middle, installed local floor). Never hardcode a
+        # stranger-box ollama tag.
+        fb_err_type = fb_err_msg = None
         try:
-            print(f"{ts_log()} [{label}] Primary failed - resolving configured fallback...")
+            from src.models.provider import get_model_client, _resolve_model_string
+            from src.models.router import record_hop_failure as _rec_fail
             _t1 = time_module.monotonic()
-            # Never seed a hardcoded ollama tag here — stranger boxes don't have
-            # qwen3:32b. Real target is resolved below from assignment or installed.
             _fb_provider, _fb_model_str = "ollama", ""
-            _fallback_id = None
             try:
-                from src.config import (_is_steward_channel, _is_merchant_channel,
-                                        get_steward_channel_config, get_merchant_channel_config,
-                                        get_agent_model_assignment)
-                from src.models.provider import get_model_client, _resolve_model_string
-                if _is_steward_channel(channel):
-                    _fallback_id = get_agent_model_assignment((get_steward_channel_config() or {}).get("agent_id") or "stuart").get("fallback")
-                elif _is_merchant_channel(channel):
-                    _fallback_id = get_agent_model_assignment((get_merchant_channel_config() or {}).get("agent_id") or "mercer").get("fallback")
-                else:
-                    _ai = state.get("agent_identity")
-                    _ovr = (_ai.get("model") if isinstance(_ai, dict) else None) or {}
-                    _fallback_id = _ovr.get("fallback") or get_agent_model_assignment(get_primary_agent_id()).get("fallback")
-            except Exception as _fe:
-                print(f"{ts_log()} [{label}] fallback resolve failed ({_fe}); using local floor")
-                _fallback_id = None
-            if _fallback_id:
-                local = get_model_client(_fallback_id, temperature=0.7)
+                _rest = list(_router_chain or [])
+            except NameError:
+                _rest = []
+            if _rest:
+                _rest = _rest[1:]  # drop first hop already tried
+            if not _rest:
                 try:
-                    _fb_provider, _fb_model_str = _resolve_model_string(_fallback_id)
-                except Exception:
-                    _fb_provider, _fb_model_str = "cloud", str(_fallback_id)
-            else:
-                local = get_local_model(temperature=0.7)
-                _fb_provider, _fb_model_str = "ollama", getattr(local, "model", "") or "(installed-local)"
-            print(f"{ts_log()} [{label}] Fallback target: {_fb_provider}/{_fb_model_str}")
+                    from src.config import (
+                        _is_steward_channel, _is_merchant_channel,
+                        get_steward_channel_config, get_merchant_channel_config,
+                        get_agent_model_assignment,
+                    )
+                    if _is_steward_channel(channel):
+                        _rest = [get_agent_model_assignment(
+                            (get_steward_channel_config() or {}).get("agent_id") or "stuart"
+                        ).get("fallback")]
+                    elif _is_merchant_channel(channel):
+                        _rest = [get_agent_model_assignment(
+                            (get_merchant_channel_config() or {}).get("agent_id") or "mercer"
+                        ).get("fallback")]
+                    else:
+                        _ai = state.get("agent_identity")
+                        _ovr = (_ai.get("model") if isinstance(_ai, dict) else None) or {}
+                        _rest = [
+                            _ovr.get("fallback")
+                            or get_agent_model_assignment(get_primary_agent_id()).get("fallback")
+                        ]
+                except Exception as _fe:
+                    print(f"{ts_log()} [{label}] fallback resolve failed ({_fe}); using local floor")
+                    _rest = []
+                _rest = [x for x in _rest if x]
+
+            for _hop_id in _rest:
+                try:
+                    print(f"{ts_log()} [{label}] Primary failed - trying hop {_hop_id}...")
+                    local = get_model_client(_hop_id, temperature=0.7)
+                    try:
+                        _fb_provider, _fb_model_str = _resolve_model_string(_hop_id)
+                    except Exception:
+                        _fb_provider, _fb_model_str = "cloud", str(_hop_id)
+                    print(f"{ts_log()} [{label}] Fallback target: {_fb_provider}/{_fb_model_str}")
+                    try:
+                        local_with_tools = local.bind_tools(channel_tools(channel))
+                        response = await _invoke_retry(
+                            local_with_tools, full_messages, _FALLBACK_TIMEOUT, "fallback"
+                        )
+                    except Exception as tool_e:
+                        print(
+                            f"{ts_log()} [{label}] Tool-enabled fallback failed "
+                            f"({type(tool_e).__name__}), trying plain..."
+                        )
+                        response = await _invoke_retry(
+                            local, full_messages, _FALLBACK_TIMEOUT, "fallback-plain"
+                        )
+                    _rc = response.content
+                    if isinstance(_rc, list):
+                        _rc = " ".join(
+                            p.get("text", "") if isinstance(p, dict) else str(p) for p in _rc
+                        )
+                    if not isinstance(_rc, str):
+                        _rc = str(_rc) if _rc else ""
+                    import re as _re2
+                    _stripped = _re2.sub(
+                        r"<think>.*?</think>", "", _rc, flags=_re2.DOTALL
+                    ).strip()
+                    _has_tc = hasattr(response, "tool_calls") and response.tool_calls
+                    if not _stripped and not _has_tc:
+                        print(f"{ts_log()} [{label}] Hop {_hop_id} empty — next")
+                        _rec_fail(_hop_id, _fb_provider)
+                        continue
+
+                    _fb_duration_ms = int((time_module.monotonic() - _t1) * 1000)
+                    from datetime import datetime, timezone
+                    response.additional_kwargs["created_at"] = datetime.now(timezone.utc).isoformat()
+                    meta = getattr(response, "response_metadata", {}) or {}
+                    actual_model = meta.get("model") or _fb_model_str
+                    print(f"{ts_log()} [{label}] Fallback response via {actual_model}")
+                    await _write_jw_metric(
+                        agent_id=agent_id, operation_type="channel",
+                        operation_label=f"channel-{channel}",
+                        model_used=str(actual_model), provider=_fb_provider,
+                        tokens_in=None, tokens_out=None,
+                        duration_ms=_fb_duration_ms,
+                        tool_calls_made=(
+                            len(response.tool_calls)
+                            if hasattr(response, "tool_calls") and response.tool_calls
+                            else 0
+                        ),
+                        succeeded=True,
+                    )
+                    return {"messages": [response], "context_usage": context_usage}
+                except Exception as e2:
+                    fb_err_type = type(e2).__name__
+                    fb_err_msg = str(e2) if str(e2) else "(no error message)"
+                    print(f"{ts_log()} [{label}] Hop failed: {fb_err_type}: {fb_err_msg}")
+                    try:
+                        _rec_fail(_hop_id, _fb_provider)
+                    except Exception:
+                        pass
+                    await _write_jw_metric(
+                        agent_id=agent_id, operation_type="channel",
+                        operation_label=f"channel-{channel}",
+                        model_used=_fb_model_str, provider=_fb_provider,
+                        tokens_in=None, tokens_out=None,
+                        duration_ms=int((time_module.monotonic() - _t1) * 1000),
+                        succeeded=False,
+                    )
+
             try:
-                local_with_tools = local.bind_tools(channel_tools(channel))
-                response = await _invoke_retry(local_with_tools, full_messages, _FALLBACK_TIMEOUT, "fallback")
-            except Exception as tool_e:
-                # D16: Log why tool-enabled call failed before trying plain
-                print(f"{ts_log()} [{label}] Tool-enabled fallback failed ({type(tool_e).__name__}), trying plain...")
-                response = await _invoke_retry(local, full_messages, _FALLBACK_TIMEOUT, "fallback-plain")
-            _fb_duration_ms = int((time_module.monotonic() - _t1) * 1000)
-
-            from datetime import datetime, timezone
-            response.additional_kwargs["created_at"] = datetime.now(timezone.utc).isoformat()
-            meta = getattr(response, "response_metadata", {}) or {}
-            actual_model = meta.get("model") or _fb_model_str
-            print(f"{ts_log()} [{label}] Fallback response via {actual_model}")
-
-            await _write_jw_metric(
-                agent_id=agent_id, operation_type="channel",
-                operation_label=f"channel-{channel}",
-                model_used=str(actual_model), provider=_fb_provider,
-                tokens_in=meta.get("prompt_eval_count"),
-                tokens_out=meta.get("eval_count"),
-                duration_ms=_fb_duration_ms,
-                tool_calls_made=len(response.tool_calls) if hasattr(response, 'tool_calls') and response.tool_calls else 0,
-                succeeded=True,
-            )
-            return {"messages": [response], "context_usage": context_usage}
+                local = get_local_model(temperature=0.7)
+                _fb_provider, _fb_model_str = (
+                    "ollama",
+                    getattr(local, "model", "") or "(installed-local)",
+                )
+                print(f"{ts_log()} [{label}] Last-resort local floor: {_fb_model_str}")
+                try:
+                    local_with_tools = local.bind_tools(channel_tools(channel))
+                    response = await _invoke_retry(
+                        local_with_tools, full_messages, _FALLBACK_TIMEOUT, "fallback-floor"
+                    )
+                except Exception:
+                    response = await _invoke_retry(
+                        local, full_messages, _FALLBACK_TIMEOUT, "fallback-floor-plain"
+                    )
+                _fb_duration_ms = int((time_module.monotonic() - _t1) * 1000)
+                from datetime import datetime, timezone
+                response.additional_kwargs["created_at"] = datetime.now(timezone.utc).isoformat()
+                await _write_jw_metric(
+                    agent_id=agent_id, operation_type="channel",
+                    operation_label=f"channel-{channel}",
+                    model_used=_fb_model_str, provider=_fb_provider,
+                    tokens_in=None, tokens_out=None,
+                    duration_ms=_fb_duration_ms, succeeded=True,
+                )
+                return {"messages": [response], "context_usage": context_usage}
+            except Exception as e3:
+                fb_err_type = type(e3).__name__
+                fb_err_msg = str(e3) if str(e3) else "(no error message)"
+                print(f"{ts_log()} [{label}] FALLBACK ALSO FAILED: {fb_err_type}: {fb_err_msg}")
 
         except Exception as e2:
-            _fb_duration_ms = int((time_module.monotonic() - _t1) * 1000)
-            # D16: Better error logging for fallback failures
             fb_err_type = type(e2).__name__
             fb_err_msg = str(e2) if str(e2) else "(no error message)"
             print(f"{ts_log()} [{label}] FALLBACK ALSO FAILED: {fb_err_type}: {fb_err_msg}")
-            await _write_jw_metric(
-                agent_id=agent_id, operation_type="channel",
-                operation_label=f"channel-{channel}",
-                model_used=_fb_model_str, provider=_fb_provider,
-                tokens_in=None, tokens_out=None,
-                duration_ms=_fb_duration_ms, succeeded=False,
-            )
 
-        # D16: Surface meaningful error to user (primary error dominates; fallback info if different)
         primary_err = f"{err_type}: {err_msg}"
-        user_error_msg = f"I'm having trouble responding right now. Primary model failed ({primary_err})."
-        if 'fb_err_type' in locals():
+        user_error_msg = (
+            f"I'm having trouble responding right now. Primary model failed ({primary_err})."
+        )
+        if fb_err_type:
             user_error_msg += f" Fallback also failed ({fb_err_type}: {fb_err_msg})."
         return {
             "messages": [AIMessage(content=user_error_msg)],
             "error": primary_err,
             "context_usage": context_usage,
         }
+
 
 
 async def tool_node(state: ChannelState) -> dict:
