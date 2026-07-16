@@ -278,7 +278,7 @@ async function loadSettingsModel() {
         el.querySelectorAll('.team-model-sel').forEach(sel => {
             sel.addEventListener('change', () => _saveTeamModel(sel.dataset.agent, el));
         });
-        _loadTruthGateCard();
+        _loadTruthGateCard(catalog);
     } catch (err) {
         el.innerHTML = `<div class="error-msg">${ESC(err.message)}</div>`;
     }
@@ -793,7 +793,7 @@ async function _presenceRegenLink(presenceId, name) {
 // ── Truth Gate card (#D57) — admin Intelligence panel ─────────────────────────
 // Pinned judge model + on/off per role class + recent fires, from
 // /api/truth-gate/settings + /api/truth-gate/events. Saved instantly, no restart.
-async function _loadTruthGateCard() {
+async function _loadTruthGateCard(catalog) {
     const el = document.getElementById('cove-truthgate-card');
     if (!el) return;
     try {
@@ -819,8 +819,13 @@ async function _loadTruthGateCard() {
             </div>
             <div style="display:flex;align-items:center;gap:6px;margin:6px 0;">
                 <span style="font-size:0.66rem;color:var(--dim);">Judge model:</span>
-                <input id="tg-judge" class="settings-input" style="max-width:220px;font-size:0.66rem;" value="${ESC(s.judge_model || '')}" placeholder="${ESC(s.judge_model_default || 'kimi-k2.5')}">
-                <button class="btn-secondary" id="tg-judge-save" style="font-size:0.62rem;">Save</button>
+                <select id="tg-judge" class="settings-input" style="max-width:260px;font-size:0.66rem;">${(() => {
+                    const cur = s.judge_model || '';
+                    const list = (catalog || []).map(m => `<option value="${ESC(m.id)}"${m.id === cur ? ' selected' : ''}>${ESC(m.name)}${m.type ? ' · ' + ESC(m.type) : ''}</option>`);
+                    if (cur && !(catalog || []).some(m => m.id === cur)) list.unshift(`<option value="${ESC(cur)}" selected>${ESC(cur)} · custom</option>`);
+                    list.unshift(`<option value=""${cur ? '' : ' selected'}>(default — ${ESC(s.judge_model_default || 'kimi-k2.5')})</option>`);
+                    return list.join('');
+                })()}</select>
                 <span id="tg-status" style="font-size:0.62rem;color:var(--dim);"></span>
             </div>
             <div style="font-size:0.62rem;color:var(--dim);margin:4px 0 2px;">Recent fires ${rows ? '' : '— none logged yet'}</div>
@@ -834,8 +839,8 @@ async function _loadTruthGateCard() {
         };
         el.querySelectorAll('.tg-toggle').forEach(cb =>
             cb.addEventListener('change', () => put({ [cb.dataset.key]: cb.checked })));
-        el.querySelector('#tg-judge-save')?.addEventListener('click', () =>
-            put({ judge_model: el.querySelector('#tg-judge').value.trim() }));
+        el.querySelector('#tg-judge')?.addEventListener('change', () =>
+            put({ judge_model: el.querySelector('#tg-judge').value }));
     } catch (err) {
         el.innerHTML = `<div style="font-size:0.62rem;color:var(--dim);">Truth Gate card unavailable: ${ESC(err.message)}</div>`;
     }

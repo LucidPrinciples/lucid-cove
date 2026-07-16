@@ -1955,6 +1955,9 @@ async function provisionAgent() {
         // seed placeholder.
         const _coveName = coveNameParam.trim() || (await resolveCoveName());
         if (_firstrun && _coveName) _body.cove_name = _coveName;
+        // #D58: Charter mission from the new-cove wizard (optional).
+        const _coveMission = (urlParams.get('cove_mission') || '').trim();
+        if (_firstrun && _coveMission) _body.cove_mission = _coveMission;
         // Self-onboard (invite link opened on the invitee's OWN device): complete through the
         // token-gated invite endpoint, which provisions on the COVE's model + mints THEIR door.
         const _invite = urlParams.get('invite');
