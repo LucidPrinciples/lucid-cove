@@ -981,3 +981,18 @@ def save_cove_config(updates: dict) -> bool:
         import logging
         logging.getLogger(__name__).error(f"Failed to save cove config: {e}")
         return False
+
+
+def get_model_override() -> str | None:
+    """Emergency admin override — when set, all chat routes to this model.
+    
+    Bypasses the pressure-based router entirely. Used for:
+    - Locking to a known-good model during family events
+    - Debugging model issues without config changes  
+    - Emergency fallback when router misbehaves
+    """
+    cfg = load_cove_config()
+    override = cfg.get("model_override")
+    if override and isinstance(override, str) and override.strip():
+        return override.strip()
+    return None
