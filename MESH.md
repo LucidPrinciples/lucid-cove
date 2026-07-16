@@ -73,8 +73,9 @@ Your Cove's public DNS points at a **private mesh IP** (`100.64.0.0/10`). That i
 (nothing is exposed on the open internet). Some Mac/phone resolvers and "secure DNS" / ad-block
 products **filter those answers** (DNS rebinding protection). Symptoms:
 
-- Cloudflare / DoH lookup shows `yourcove.lucidcove.org → 100.64.0.x`
+- Cloudflare / DoH lookup shows `yourcove.lucidcove.org → 100.64.0.x` (and `matrix.yourcove…`)
 - `curl` / Chrome on the box still say **Could not resolve host** / NXDOMAIN
+- Cove UI may load after an apex pin while **Connect** still fails with `ERR_NAME_NOT_RESOLVED` for `matrix.yourcove…` — both names need to resolve
 - The Cove is fine on the mesh; only **name resolution on that device** is broken
 
 **On the Cove host** (after claim), re-run the host command from Set Address — current
@@ -83,10 +84,12 @@ needed). Or by hand:
 
 ```bash
 tailscale set --accept-dns=true   # or sudo
-# if still broken (host only):
+# if still broken (host only) — pin BOTH names (Connect uses matrix.*):
 echo '100.64.0.X yourcove.lucidcove.org' | sudo tee -a /etc/hosts   # use your mesh IP
+echo '100.64.0.X matrix.yourcove.lucidcove.org' | sudo tee -a /etc/hosts
 sudo dscacheutil -flushcache 2>/dev/null; sudo killall -HUP mDNSResponder 2>/dev/null
 curl -vI https://yourcove.lucidcove.org/
+curl -sS -o /dev/null -w "%{http_code}\n" https://matrix.yourcove.lucidcove.org/_matrix/client/versions
 ```
 
 **Other devices** must be on the mesh (section 2) and use Tailscale DNS / not block `100.64/10`.

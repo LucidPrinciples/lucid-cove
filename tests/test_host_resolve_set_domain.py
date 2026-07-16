@@ -1,4 +1,5 @@
 # Install hard-stop: host must resolve mesh A records (or repair) before set_domain says live.
+# Apex alone is not enough — Connect opens matrix.{domain} (Cracker 2026-07-16).
 import pathlib
 import sys
 
@@ -25,6 +26,9 @@ def test_ensure_host_resolves_ok_when_system_already_has_mesh(monkeypatch):
     assert r["ok"] is True
     assert r["method"] == "system"
     assert r["system_ip"] == "100.64.0.9"
+    assert r["hosts"]["withers.lucidcove.org"]["ok"] is True
+    assert r["hosts"]["matrix.withers.lucidcove.org"]["ok"] is True
+    assert r["matrix_host"] == "matrix.withers.lucidcove.org"
 
 
 def test_ensure_host_resolves_pins_hosts_when_system_nxdomain(monkeypatch, tmp_path):
@@ -36,12 +40,10 @@ def test_ensure_host_resolves_pins_hosts_when_system_nxdomain(monkeypatch, tmp_p
     monkeypatch.setattr(sd, "_tailscale_accept_dns", lambda: {"ok": True})
     monkeypatch.setattr(sd, "_flush_host_dns_cache", lambda: {"ok": True, "actions": []})
 
-    state = {"n": 0}
-
     def _sys(h, timeout=3.0):
-        state["n"] += 1
-        # Fail until hosts pin written
-        if "withers.lucidcove.org" in hosts.read_text():
+        text = hosts.read_text()
+        # Fail until hosts pin written for THIS name
+        if h in text:
             return "100.64.0.9"
         return ""
 
@@ -52,6 +54,47 @@ def test_ensure_host_resolves_pins_hosts_when_system_nxdomain(monkeypatch, tmp_p
     text = hosts.read_text()
     assert "100.64.0.9 withers.lucidcove.org" in text
     assert "lucidcove-set-domain withers.lucidcove.org" in text
+    # Connect homeserver must be pinned too (not just apex)
+    assert "100.64.0.9 matrix.withers.lucidcove.org" in text
+    assert "lucidcove-set-domain matrix.withers.lucidcove.org" in text
+
+
+def test_ensure_host_resolves_fails_when_only_matrix_filtered(monkeypatch, tmp_path):
+    """Cracker: apex OK / matrix NXDOMAIN → Connect ERR_NAME_NOT_RESOLVED; must repair matrix."""
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n")
+    monkeypatch.setattr(sd, "_hosts_path", lambda: hosts)
+    monkeypatch.setattr(sd, "_detect_mesh_ip_host", lambda: "100.64.0.9")
+    monkeypatch.setattr(sd, "_resolve_a_doh", lambda h, timeout=5.0: "100.64.0.9")
+    monkeypatch.setattr(sd, "_tailscale_accept_dns", lambda: {"ok": True})
+    monkeypatch.setattr(sd, "_flush_host_dns_cache", lambda: {"ok": True, "actions": []})
+
+    def _sys(h, timeout=3.0):
+        if h == "cracker.lucidcove.org":
+            return "100.64.0.9"  # apex already fine
+        text = hosts.read_text()
+        if h in text:
+            return "100.64.0.9"
+        return ""  # matrix filtered until pin
+
+    monkeypatch.setattr(sd, "_resolve_a_system", _sys)
+    r = sd.ensure_host_resolves("cracker.lucidcove.org", "100.64.0.9")
+    assert r["ok"] is True
+    assert r["hosts"]["cracker.lucidcove.org"]["ok"] is True
+    assert r["hosts"]["matrix.cracker.lucidcove.org"]["ok"] is True
+    assert r["method"] == "hosts"
+    text = hosts.read_text()
+    assert "matrix.cracker.lucidcove.org" in text
+
+
+def test_ensure_host_resolves_apex_only_when_also_matrix_false(monkeypatch):
+    monkeypatch.setattr(sd, "_resolve_a_system", lambda h, timeout=3.0: "100.64.0.9")
+    monkeypatch.setattr(sd, "_resolve_a_doh", lambda h, timeout=5.0: "100.64.0.9")
+    monkeypatch.setattr(sd, "_detect_mesh_ip_host", lambda: "100.64.0.9")
+    r = sd.ensure_host_resolves("solo.lucidcove.org", "100.64.0.9", also_matrix=False)
+    assert r["ok"] is True
+    assert "matrix_host" not in r
+    assert list(r["hosts"].keys()) == ["solo.lucidcove.org"]
 
 
 def test_ensure_hosts_pin_idempotent(tmp_path, monkeypatch):
