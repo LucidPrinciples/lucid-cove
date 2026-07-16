@@ -33,6 +33,8 @@
   let chatsBlockedMsg = null; // set once Matrix is known unavailable (stops token re-fetch)
   let tokenRetryAt = 0;       // epoch ms before which we must NOT re-fetch the token
   let tokenBackoff = 2000;    // current cooldown; doubles on failure, resets on success
+  let retryTimer = null;      // scheduled auto-retry after backoff / warm-up
+  let syncWatchdog = null;    // hard timeout waiting for PREPARED
   let marketLoading = false;  // guard against concurrent catalog fetches
   let mktFilters = { q: '', skill: '', archetype: '', rail: '', status: '', category: '' };  // marketplace search state
   let mktCfg = null;      // /api/market/config — launch-rail UI flags (credits hidden at launch)
@@ -267,6 +269,41 @@
     if (tl) tl.innerHTML = '<div class="connect-empty">Switch to Market to browse the Haven.</div>';
   }
 
+  // Stage line while Connecting — Quietgrove hung 10–15m on a silent spinner.
+  // Always show where we are + elapsed so a stall is diagnosable without DevTools.
+  function chatsProgress(stage, t0) {
+    const ms = Math.max(0, Date.now() - (t0 || Date.now()));
+    const sec = (ms / 1000).toFixed(1);
+    try { console.info('[connect]', stage, sec + 's'); } catch (_) { /* noop */ }
+    const t = document.getElementById('cx-tree');
+    if (t) {
+      t.innerHTML = '<div class="cx-spin">Connecting…</div>'
+        + '<div class="connect-empty" style="margin-top:8px;font-size:0.78rem;opacity:.75">'
+        + esc(stage) + ' · ' + sec + 's</div>';
+    }
+  }
+
+  function clearConnectTimers() {
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (syncWatchdog) { clearTimeout(syncWatchdog); syncWatchdog = null; }
+  }
+
+  // Schedule a real auto-retry. Old path said "retrying shortly" and never did —
+  // operator sat on Connecting… until they left and came back (Quietgrove 10–15m).
+  function scheduleConnectRetry(delayMs, reason) {
+    clearConnectTimers();
+    const wait = Math.max(500, delayMs | 0);
+    const when = new Date(Date.now() + wait);
+    const waitSec = Math.ceil(wait / 1000);
+    chatsMsg((reason || 'Connect is warming up') + ' — retrying in ' + waitSec + 's…');
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (started || starting) return;
+      ensureChats();
+    }, wait);
+    try { console.info('[connect] retry scheduled', wait + 'ms', reason || '', when.toISOString()); } catch (_) {}
+  }
+
   // ── SSO: token from the MC session → start the SDK client. Renders into the
   // Chats content ONLY, never the whole panel, so Market works for Operators
   // without a Matrix account (501 just shows a note in Chats). ──
@@ -275,34 +312,55 @@
     if (starting) return;
     // Backoff guard (run-3): a tight token re-fetch on every renderChats tripped
     // Dendrite's login rate limit (M_LIMIT_EXCEEDED), which then looked like a broken
-    // Connect. Honor a cooldown window before hitting /api/matrix/token again.
+    // Connect. Honor a cooldown window before hitting /api/matrix/token again —
+    // AND actually re-enter when the window ends (scheduleConnectRetry).
     if (Date.now() < tokenRetryAt) {
-      chatsMsg('Connect is warming up — one moment…');
+      scheduleConnectRetry(tokenRetryAt - Date.now(), 'Connect is warming up');
       return;
     }
+    clearConnectTimers();
     starting = true;
-    try { await loadSdk(); } catch (e) { starting = false; chatsMsg('Could not load the chat engine.'); return; }
+    const t0 = Date.now();
+    chatsProgress('Loading chat engine', t0);
+
+    try { await loadSdk(); } catch (e) {
+      starting = false;
+      chatsMsg('Could not load the chat engine.');
+      return;
+    }
 
     let cfg;
+    chatsProgress('Signing in to chat', t0);
     try {
       const r = await fetch(TOKEN_ENDPOINT, { credentials: 'same-origin' });
-      if (r.status === 501) { starting = false; chatsBlockedMsg = "Chat isn't set up for this Presence yet. The Market still works."; chatsMsg(chatsBlockedMsg); return; }
+      if (r.status === 501) {
+        starting = false;
+        chatsBlockedMsg = "Chat isn't set up for this Presence yet. The Market still works.";
+        chatsMsg(chatsBlockedMsg);
+        return;
+      }
       if (r.status === 429) {
-        // Rate limited — back off (exponential up to 30s) and stop hammering.
+        // Rate limited — back off (exponential up to 30s) and REALLY retry.
         starting = false;
         tokenRetryAt = Date.now() + tokenBackoff;
+        const wait = tokenBackoff;
         tokenBackoff = Math.min(tokenBackoff * 2, 30000);
-        chatsMsg('Connect is warming up (busy) — retrying shortly…');
+        scheduleConnectRetry(wait, 'Connect is warming up (busy)');
         return;
       }
       if (!r.ok) throw new Error('token ' + r.status);
       cfg = await r.json();
       tokenBackoff = 2000;  // clean token → reset the cooldown ladder
+      try {
+        console.info('[connect] token ok', ((Date.now() - t0) / 1000).toFixed(1) + 's',
+          'hs=' + (cfg.homeserver || ''), 'user=' + (cfg.user_id || ''));
+      } catch (_) {}
     } catch (e) {
       starting = false;
       tokenRetryAt = Date.now() + tokenBackoff;
+      const wait = tokenBackoff;
       tokenBackoff = Math.min(tokenBackoff * 2, 30000);
-      chatsMsg("Couldn't reach chat right now.");
+      scheduleConnectRetry(wait, "Couldn't reach chat right now");
       return;
     }
 
@@ -318,15 +376,36 @@
           _hs = u.toString().replace(/\/+$/, '');
         }
       } catch (_) { /* leave _hs as-is */ }
+      chatsProgress('Opening homeserver ' + (_hs || '(unknown)'), t0);
       client = window.mxcs.createClient({
         baseUrl: _hs, accessToken: cfg.access_token,
         userId: cfg.user_id, deviceId: cfg.device_id || undefined, timelineSupport: true,
       });
-    } catch (e) { starting = false; chatsMsg('Chat engine error.'); return; }
+    } catch (e) {
+      starting = false;
+      chatsMsg('Chat engine error.');
+      return;
+    }
 
     const { ClientEvent, RoomEvent } = window.mxcs;
     client.on(ClientEvent.Sync, (state) => {
-      if (state === 'PREPARED' && !started) { started = true; starting = false; if (mode === 'chats') renderChats(); }
+      try { console.info('[connect] sync state', state, ((Date.now() - t0) / 1000).toFixed(1) + 's'); } catch (_) {}
+      if (state === 'PREPARED' && !started) {
+        started = true;
+        starting = false;
+        clearConnectTimers();
+        if (mode === 'chats') renderChats();
+      } else if (!started && (state === 'ERROR' || state === 'STOPPED')) {
+        // Surface a real failure instead of spinning forever on a dead /sync.
+        starting = false;
+        clearConnectTimers();
+        tokenRetryAt = Date.now() + tokenBackoff;
+        const wait = tokenBackoff;
+        tokenBackoff = Math.min(tokenBackoff * 2, 30000);
+        scheduleConnectRetry(wait, 'Chat sync hit ' + state);
+      } else if (!started && state) {
+        chatsProgress('Sync: ' + state, t0);
+      }
     });
     client.on(RoomEvent.Timeline, (event, room) => {
       if (!started || mode !== 'chats') return;
@@ -334,8 +413,33 @@
       renderTree();
     });
 
-    try { await client.startClient({ initialSyncLimit: 30, lazyLoadMembers: true }); }
-    catch (e) { starting = false; chatsMsg('Chat sync failed.'); }
+    // Hard watchdog: never sit on Connecting… for 10–15 minutes with no signal.
+    // If PREPARED never arrives, stop, show the stage we stalled on, and auto-retry.
+    const SYNC_TIMEOUT_MS = 45000;
+    syncWatchdog = setTimeout(() => {
+      syncWatchdog = null;
+      if (started) return;
+      starting = false;
+      try {
+        if (client && typeof client.stopClient === 'function') client.stopClient();
+      } catch (_) { /* noop */ }
+      tokenRetryAt = Date.now() + tokenBackoff;
+      const wait = tokenBackoff;
+      tokenBackoff = Math.min(tokenBackoff * 2, 30000);
+      scheduleConnectRetry(wait, 'Chat sync timed out after ' + Math.round(SYNC_TIMEOUT_MS / 1000) + 's');
+    }, SYNC_TIMEOUT_MS);
+
+    chatsProgress('Starting live sync', t0);
+    try {
+      await client.startClient({ initialSyncLimit: 30, lazyLoadMembers: true });
+    } catch (e) {
+      starting = false;
+      clearConnectTimers();
+      tokenRetryAt = Date.now() + tokenBackoff;
+      const wait = tokenBackoff;
+      tokenBackoff = Math.min(tokenBackoff * 2, 30000);
+      scheduleConnectRetry(wait, 'Chat sync failed to start');
+    }
   }
 
   // ── Render the full client shell, then populate ──

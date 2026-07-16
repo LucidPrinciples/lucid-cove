@@ -190,9 +190,46 @@ async def _provision_operator_matrix(presence: dict) -> tuple[str, str]:
     return await register_matrix_account(_matrix_localpart(presence))
 
 
+def _kick_space_ensure(handle: str) -> None:
+    """Fire-and-forget Cove Space ensure/invite.
+
+    Quietgrove Connect hang: invite_presence_to_cove_space ran ON the token request
+    path. Exceptions were non-fatal, but a slow/stuck Dendrite call still held the
+    HTTP response open — the browser sat on "Connecting…" with no stage signal.
+    Token must return as soon as login succeeds; Space builds in the background.
+    """
+    if not handle:
+        return
+    import asyncio
+
+    async def _run():
+        t0 = __import__("time").monotonic()
+        try:
+            from src.dashboard.routes.matrix_spaces import invite_presence_to_cove_space
+            await invite_presence_to_cove_space(handle)
+            log.info(
+                "matrix space ensure ok handle=%s elapsed=%.2fs",
+                handle, __import__("time").monotonic() - t0,
+            )
+        except Exception as e:
+            log.warning(
+                "ensure/invite Cove Space (background, non-fatal) handle=%s elapsed=%.2fs: %s",
+                handle, __import__("time").monotonic() - t0, e,
+            )
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_run())
+    except RuntimeError:
+        # No running loop (tests / sync callers) — best-effort skip; Connect still opens.
+        log.debug("matrix space ensure skipped (no event loop) handle=%s", handle)
+
+
 @router.get("/api/matrix/token")
 async def matrix_token(request: Request):
     """Return a fresh Matrix access token for the current operator (SSO for Connect)."""
+    import time as _time
+    t0 = _time.monotonic()
     if COVE_MODE == "multi":
         presence = await get_current_presence(request)
         if not presence:
@@ -226,6 +263,8 @@ async def matrix_token(request: Request):
             # First Chat use → auto-provision this operator's Matrix account.
             user, pw = await _provision_operator_matrix(presence)
             await _persist_creds(user, pw)
+            log.info("matrix token provisioned operator elapsed=%.2fs user=%s",
+                     _time.monotonic() - t0, user)
 
         login = await _try_login(hs, user, pw)
         if not login.get("ok"):
@@ -233,6 +272,8 @@ async def matrix_token(request: Request):
             if ec == "M_LIMIT_EXCEEDED":
                 # Dendrite rate-limited the login — re-registering would only add load.
                 # Tell the client to back off (connect.js honors the 429 with a cooldown).
+                log.info("matrix token rate-limited elapsed=%.2fs user=%s",
+                         _time.monotonic() - t0, user)
                 raise HTTPException(429, "Connect is warming up (rate limited) — retry in a few seconds.")
             if ec in ("M_FORBIDDEN", "M_USER_DEACTIVATED", "M_UNKNOWN"):
                 # Stored creds no longer valid against the LIVE homeserver. Run-3 mystery:
@@ -258,14 +299,13 @@ async def matrix_token(request: Request):
         # claimed domain → https://matrix.{domain}; on localhost/mesh-IP → the
         # provision-stamped local URL (the env stamp goes stale after a claim).
         result["homeserver"] = (_client_homeserver(request) or hs).rstrip("/")
-        # Ensure the steward-owned Cove Space exists and this operator is in it.
-        # Idempotent and self-healing (builds the Space + Family room on the first
-        # Connect open). Never let a space hiccup block the token — Connect must open.
-        try:
-            from src.dashboard.routes.matrix_spaces import invite_presence_to_cove_space
-            await invite_presence_to_cove_space(user)
-        except Exception as e:
-            log.warning("ensure/invite Cove Space (non-fatal): %s", e)
+        # Space ensure is BACKGROUND — never hold the token response on Dendrite room
+        # create / invite (Connect hang root cause on Quietgrove first open).
+        _kick_space_ensure(user)
+        log.info(
+            "matrix token ok mode=multi elapsed=%.2fs user=%s hs=%s",
+            _time.monotonic() - t0, user, result.get("homeserver"),
+        )
         return result
 
     # Single mode — one fixed operator from env (a Cove Presence like Atlas).
@@ -274,7 +314,17 @@ async def matrix_token(request: Request):
     pw = env("MATRIX_OPERATOR_PASSWORD")
     if not (hs and user and pw):
         raise HTTPException(501, "Matrix not configured for this Presence")
-    return await _login(hs, user, pw)
+    result = await _login(hs, user, pw)
+    # Browser must reach the homeserver; env MATRIX_HOMESERVER can be docker-internal.
+    result["homeserver"] = (_client_homeserver(request) or result.get("homeserver") or hs).rstrip("/")
+    # Same background Space path as multi (single-mode Cove installs still use Connect).
+    localpart = (user or "").lstrip("@").split(":")[0]
+    _kick_space_ensure(localpart)
+    log.info(
+        "matrix token ok mode=single elapsed=%.2fs user=%s hs=%s",
+        _time.monotonic() - t0, user, result.get("homeserver"),
+    )
+    return result
 
 
 @router.get("/api/matrix/credentials")
