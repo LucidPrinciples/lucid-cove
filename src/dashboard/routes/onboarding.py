@@ -53,12 +53,19 @@ async def onboarding_items(request: Request):
     ac = _agent_config(p)
     is_admin = (p.get("cove_role") or "") == "admin"
 
-    # JOINER GATE: anyone who came in through an invite (their account was consumed by a
-    # presence_invites row) never SET UP this Cove — the founder did. The cove-config
-    # checklist (add intelligence / address / compute / mobile / backup) is founder-only;
-    # a joiner (member OR admin-invitee) can't even complete those (the Cove is already
-    # configured), so the nags are pure confusion. Suppress them — a joiner's orientation
-    # is the agent's welcome in Chat (the spark), not owner setup cards.
+    # FOUNDER-ONLY GATE: Cove setup cards (address / intelligence / compute / backup /
+    # team tuning / mobile) belong to the person who founded this Cove. A second
+    # Presence — whether invited by link OR provisioned by the admin — never
+    # configures the Cove brain or the host door. They ride the Cove default model
+    # and land in Chat with their agent. Showing "Add intelligence" + a locked chain
+    # on Attention is pure confusion (install-pass 2026-07-15).
+    if not is_admin:
+        return {"steps": [], "items": [], "done_count": 0,
+                "total": 0, "complete": True}
+
+    # JOINER GATE (co-admin invitees): role may be admin, but they still did not
+    # found this Cove — their account was consumed by a presence_invites row.
+    # Same empty checklist; orientation is the spark in Chat.
     try:
         import uuid as _uuid
         from src.memory.database import get_db as _get_db

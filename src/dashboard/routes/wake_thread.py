@@ -21,18 +21,28 @@ from src.config import get_default_channel
 router = APIRouter()
 
 
-async def _append_messages(request: Request, channel: str, items: list[dict]) -> dict:
-    """Append [{role:'ai'|'human', content, kind?}] to the CURRENT presence's active
-    thread for `channel`, with no model call. Scoped to the requester's own personal
-    agent via the same helpers chat.py uses. Optional `kind` is stored in
-    additional_kwargs (e.g. kind='brain_ack') so later writes can detect it."""
+async def _append_messages(
+    request: Request,
+    channel: str,
+    items: list[dict],
+    *,
+    agent_id: str | None = None,
+) -> dict:
+    """Append [{role:'ai'|'human', content, kind?}] to a personal-agent chat thread
+    for `channel`, with no model call.
+
+    Default agent_id = the CURRENT presence's personal agent (same as chat.py).
+    Callers may pass agent_id explicitly when an admin seeds a NEW member's wake
+    exchange under that member's presence id (install-pass 2026-07-15).
+    Optional `kind` is stored in additional_kwargs (e.g. kind='brain_ack')."""
     from langchain_core.messages import HumanMessage, AIMessage
     from src.memory.checkpointer import get_checkpointer
     from src.graphs.channels import get_channel_graph
     from src.memory.database import channel_db_scope
     from src.dashboard.routes.chat import _personal_agent_id, _get_active_thread_id
 
-    agent_id = await _personal_agent_id(request)
+    if not agent_id:
+        agent_id = await _personal_agent_id(request)
     now_iso = datetime.now(timezone.utc).isoformat()
     msgs = []
     for it in items:
@@ -50,7 +60,19 @@ async def _append_messages(request: Request, channel: str, items: list[dict]) ->
     if not msgs:
         return {"ok": True, "count": 0}
     async with channel_db_scope(channel):
-        thread_id = await _get_active_thread_id(channel, request)
+        # When writing for another presence, open/create THAT presence's active
+        # thread by agent_id (not the admin caller's personal thread).
+        _caller = await _personal_agent_id(request)
+        if agent_id and str(agent_id) != str(_caller):
+            from src.memory.threads import get_active_thread, create_thread
+            _t = await get_active_thread(channel, agent_id)
+            if _t:
+                thread_id = _t["thread_id"]
+            else:
+                _new = await create_thread(channel=channel, agent_id=agent_id)
+                thread_id = _new["thread_id"]
+        else:
+            thread_id = await _get_active_thread_id(channel, request)
         # Fix C: wake writes bypass the interactive pre-send critical check too.
         # Rotate first if the thread is over the limit so wake-driven channels
         # don't accumulate unbounded either. Best-effort — never breaks the write.
@@ -80,10 +102,40 @@ async def _append_messages(request: Request, channel: str, items: list[dict]) ->
     return {"ok": True, "count": len(msgs), "thread_id": thread_id}
 
 
+async def _resolve_wake_target_agent(request: Request, body: dict) -> str | None:
+    """Optional presence_id retarget (admin only) — same rule as seed-memory."""
+    req_id = (str(body.get("presence_id")).strip() if body.get("presence_id") else "")
+    if not req_id:
+        return None
+    from src.dashboard.routes.presence import get_current_presence
+    presence = await get_current_presence(request)
+    if not presence or not presence.get("id"):
+        return None
+    if str(req_id) == str(presence["id"]):
+        return str(presence["id"])
+    if presence.get("cove_role") != "admin":
+        return None
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            _r = await conn.execute(
+                "SELECT id FROM accounts WHERE id = %s AND active = TRUE",
+                (req_id,))
+            _row = await _r.fetchone()
+        if not _row:
+            return None
+        return str(req_id)
+    except Exception:
+        return None
+
+
 @router.post("/api/presence/wake-thread")
 async def wake_thread(request: Request):
     """Persist the wake exchange into the personal agent's chat thread so it's already
-    there as history when the operator opens chat. Best-effort, never fatal."""
+    there as history when the operator opens chat. Best-effort, never fatal.
+
+    Optional body.presence_id (admin only): write under a newly provisioned member's
+    agent so when THEY open their sign-in link the spark exchange is already in Chat."""
     try:
         body = await request.json()
     except Exception:
@@ -91,7 +143,8 @@ async def wake_thread(request: Request):
     items = body.get("messages") or []
     channel = (body.get("channel") or "").strip() or get_default_channel()
     try:
-        return await _append_messages(request, channel, items)
+        target = await _resolve_wake_target_agent(request, body)
+        return await _append_messages(request, channel, items, agent_id=target)
     except Exception as e:
         # Best-effort: don't break the flow if the thread write fails.
         return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=200)
