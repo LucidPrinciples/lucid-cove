@@ -273,11 +273,12 @@ async function loadSettingsModel() {
                 <span class="tm-caret">▾</span>
                 <span style="font-size:0.7rem;color:var(--dim);">Build-team models — <strong>working</strong> (chat/build) + <strong>tuning</strong> per agent. Saved instantly, no restart. Presences override their own personal agent in their settings.</span>
             </div>
-            ${brainLine}${coveXai}<div>${headRow}${rows}</div>`;
+            ${brainLine}${coveXai}<div id="cove-truthgate-card"></div><div>${headRow}${rows}</div>`;
 
         el.querySelectorAll('.team-model-sel').forEach(sel => {
             sel.addEventListener('change', () => _saveTeamModel(sel.dataset.agent, el));
         });
+        _loadTruthGateCard();
     } catch (err) {
         el.innerHTML = `<div class="error-msg">${ESC(err.message)}</div>`;
     }
@@ -786,5 +787,56 @@ async function _presenceRegenLink(presenceId, name) {
             linkEl.style.display = 'block';
             linkEl.innerHTML = `<span style="color:var(--red);">Error: ${ESC(err.message)}</span>`;
         }
+    }
+}
+
+// ── Truth Gate card (#D57) — admin Intelligence panel ─────────────────────────
+// Pinned judge model + on/off per role class + recent fires, from
+// /api/truth-gate/settings + /api/truth-gate/events. Saved instantly, no restart.
+async function _loadTruthGateCard() {
+    const el = document.getElementById('cove-truthgate-card');
+    if (!el) return;
+    try {
+        const [s, ev] = await Promise.all([
+            fetch('/api/truth-gate/settings').then(r => r.json()),
+            fetch('/api/truth-gate/events?limit=8').then(r => r.json()).catch(() => ({ events: [] })),
+        ]);
+        const tgl = (key, label, on) =>
+            `<label style="display:inline-flex;align-items:center;gap:4px;font-size:0.66rem;color:var(--text);margin-right:12px;">
+                <input type="checkbox" class="tg-toggle" data-key="${key}" ${on ? 'checked' : ''}> ${label}</label>`;
+        const rows = (ev.events || []).map(e =>
+            `<div style="font-size:0.6rem;color:var(--dim);padding:2px 0;border-top:1px solid var(--border);">
+                ${ESC((e.ts || '').replace('T', ' ').slice(0, 16))} · <strong>${ESC(e.agent_id || '')}</strong>
+                ${e.fabrication ? '· fabrication' : '· accommodation'}${e.regenerated ? ' · regenerated' : ' · NOT regenerated'}
+                · <span title="${ESC(e.evidence_quote || '')}">${ESC((e.description || '').slice(0, 110))}</span></div>`).join('');
+        el.innerHTML = `<div style="margin:8px 0 10px;padding:10px;border-radius:6px;background:var(--bg-card);border:1px solid var(--border);">
+            <div style="font-size:0.72rem;color:var(--text);margin-bottom:2px;"><strong>Truth Gate</strong> <span style="color:var(--dim);font-weight:normal;">(Canon-anchored self-check — one pinned judge, no fallback)</span></div>
+            <div style="margin:6px 0;">
+                ${tgl('enabled', 'Gate on', s.enabled)}
+                ${tgl('enabled_managers', 'Managers', s.enabled_managers)}
+                ${tgl('enabled_presences', 'Presences', s.enabled_presences)}
+                ${tgl('enabled_team', 'Team', s.enabled_team)}
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin:6px 0;">
+                <span style="font-size:0.66rem;color:var(--dim);">Judge model:</span>
+                <input id="tg-judge" class="settings-input" style="max-width:220px;font-size:0.66rem;" value="${ESC(s.judge_model || '')}" placeholder="${ESC(s.judge_model_default || 'kimi-k2.5')}">
+                <button class="btn-secondary" id="tg-judge-save" style="font-size:0.62rem;">Save</button>
+                <span id="tg-status" style="font-size:0.62rem;color:var(--dim);"></span>
+            </div>
+            <div style="font-size:0.62rem;color:var(--dim);margin:4px 0 2px;">Recent fires ${rows ? '' : '— none logged yet'}</div>
+            ${rows}
+        </div>`;
+        const status = (t, ok) => { const st = el.querySelector('#tg-status'); if (st) { st.textContent = t; st.style.color = ok ? 'var(--green)' : 'var(--red)'; setTimeout(() => { st.textContent = ''; }, 2500); } };
+        const put = async (body) => {
+            const r = await fetch('/api/truth-gate/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const d = await r.json().catch(() => ({}));
+            status(d.ok ? 'saved' : (d.detail || 'error'), !!d.ok);
+        };
+        el.querySelectorAll('.tg-toggle').forEach(cb =>
+            cb.addEventListener('change', () => put({ [cb.dataset.key]: cb.checked })));
+        el.querySelector('#tg-judge-save')?.addEventListener('click', () =>
+            put({ judge_model: el.querySelector('#tg-judge').value.trim() }));
+    } catch (err) {
+        el.innerHTML = `<div style="font-size:0.62rem;color:var(--dim);">Truth Gate card unavailable: ${ESC(err.message)}</div>`;
     }
 }
