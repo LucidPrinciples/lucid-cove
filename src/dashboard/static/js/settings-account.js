@@ -186,10 +186,18 @@ async function loadSettingsCoveAdmin() {
     const charterHtml = `
         <div style="padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
             <label class="settings-label">The Cove Charter</label>
-            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">What this Cove is for and how it operates. Every agent carries this in its context — it's the Cove-level equivalent of a mission statement plus house rules.</div>
-            <input type="text" id="charter-mission" class="settings-input" placeholder="What is this Cove for? One line." style="width:100%;" maxlength="500">
-            <textarea id="charter-principles" class="settings-input" rows="5" placeholder="Operating principles (one per line, markdown list)" style="width:100%;margin-top:6px;font-size:0.72rem;" maxlength="4000"></textarea>
-            <div style="margin-top:6px;"><button class="btn-sm" onclick="saveCharter()">Save Charter</button> <span id="charter-status" style="font-size:0.72rem;color:var(--dim);"></span></div>
+            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 8px;">What this Cove is for and how it operates. Every agent carries this in its context — it's the Cove-level equivalent of a mission statement plus house rules.</div>
+            <div style="display:flex;flex-direction:column;gap:8px;width:100%;">
+                <div style="width:100%;">
+                    <div style="font-size:0.68rem;color:var(--dim);margin-bottom:3px;">Mission</div>
+                    <textarea id="charter-mission" class="settings-input" rows="2" placeholder="What is this Cove for?" style="display:block;width:100%;max-width:none;flex:none;box-sizing:border-box;resize:vertical;font-size:0.78rem;" maxlength="500"></textarea>
+                </div>
+                <div style="width:100%;">
+                    <div style="font-size:0.68rem;color:var(--dim);margin-bottom:3px;">Principles</div>
+                    <textarea id="charter-principles" class="settings-input" rows="5" placeholder="Operating principles (one per line, markdown list)" style="display:block;width:100%;max-width:none;flex:none;box-sizing:border-box;resize:vertical;font-size:0.72rem;" maxlength="4000"></textarea>
+                </div>
+            </div>
+            <div style="margin-top:8px;"><button class="btn-sm" onclick="saveCharter()">Save Charter</button> <span id="charter-status" style="font-size:0.72rem;color:var(--dim);"></span></div>
         </div>`;
     el.innerHTML = addrHtml + publicHtml + charterHtml + brainHtml + teamTuneHtml + membersHtml;
     loadCharterCard();
