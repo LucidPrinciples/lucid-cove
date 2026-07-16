@@ -789,178 +789,157 @@ async def invoke_with_fallback(
     label: str = "llm",
     agent_id: str = "stuart",
     operation_type: str = "protocol",
+    routing_bias: str = "balanced",
+    message_text: str = "",
 ) -> str:
-    """Invoke the agent's 2-tier model chain: primary → fallback.
+    """Invoke the agent's model chain with #D55 score-ordered hops + #D16 rescue.
 
-    Resolves the calling agent's model assignment from agent.yaml,
-    looks up provider details from the models registry, and routes
-    through the appropriate client.
+    Resolves assignment (working or tuning slot), plans hops via
+    ``src.models.router`` (local-first when easy, API-first when hard), then
+    walks the chain on timeout / empty / error. Cloud middle hop and installed
+    local floor remain available when runnable.
 
-    Returns response text as a plain string.
-    Treats empty content as failure — fires the fallback rather than
-    returning a blank string silently.
-    Writes a JouleWork metric row for every call attempt.
-
-    Args:
-        messages: List of LangChain message objects (SystemMessage, HumanMessage, etc.)
-        temperature: Sampling temperature.
-        timeout: Seconds to wait before falling back to next tier.
-        label: Log prefix (e.g. 'stuart/ltp-morning').
-        agent_id: Agent making the call — determines which models to use.
-        operation_type: Category for JW tracking ('protocol', 'task', 'tunnel', etc.)
+    Returns response text as a plain string. Writes a JouleWork metric row per attempt.
     """
-    # Resolve this agent's model assignments. TUNING is a SEPARATE axis from the agent's
-    # working/chat model: when operation_type=="tuning" we consult the agent's `tuning`
-    # slot (team_models[agent].slots.tuning) so an agent can chat on one model (e.g. GLM-5.2,
-    # for reasoning + tools) while tuning on another (e.g. kimi-k2.5, to keep daily-tuning
-    # reasoning-token cost down). If no tuning slot is set, get_agent_model_assignment
-    # transparently falls back to the agent's primary — so every existing agent is
-    # unaffected. (Same slots mechanism that will back per-request specialty brains, e.g.
-    # Ezra's fine-tunes, and the future Team-page model manager.)
+    # Last user-ish text for the scorer when caller didn't pass message_text.
+    if not message_text and messages:
+        try:
+            for _m in reversed(list(messages)):
+                _c = getattr(_m, "content", None)
+                if isinstance(_c, str) and _c.strip():
+                    # skip pure system blobs
+                    _cls = type(_m).__name__.lower()
+                    if "system" in _cls:
+                        continue
+                    message_text = _c
+                    break
+        except Exception:
+            pass
+
     _slot = "tuning" if operation_type == "tuning" else None
     assignment = get_agent_model_assignment(agent_id, slot=_slot)
-    # No explicit per-agent assignment → use the Cove's BRAIN (the operator's
-    # Add-Intelligence choice). This makes a self-host Cove tune on the model the
-    # operator actually configured — a local Ollama model, or a BYOK provider whose
-    # key apply_cove_model() stashed in the env — the same model chat uses.
-    # current_cove_brain() already supplies the correct open-source floor when no
-    # brain is set: OpenRouter (if a key is present) → local Ollama. We deliberately
-    # do NOT hardcode a moonshot-direct default here: moonshot is a founder-only
-    # single-provider touchpoint, never something a public install would have keyed.
     primary_id = assignment.get("primary") or current_cove_brain().get("model")
     fallback_id = assignment.get("fallback")
 
-    primary_provider, primary_model_str = _resolve_model_string(primary_id)
+    # Tuning: prefer ltp-tuner-v2 as local candidate when installed (#D44).
+    if operation_type == "tuning" and not fallback_id:
+        try:
+            from src.models.local_fallback import resolve_tuner_model
+            _tuner = resolve_tuner_model()
+            if _tuner:
+                fallback_id = _tuner
+                print(f"[{label}] Tuning work — resolved ltp-tuner-v2 '{_tuner}'")
+        except Exception:
+            pass
 
-    # ── Tier 1: Agent's primary model ────────────────────────────────────────
-    t0 = time.monotonic()
-    try:
-        primary = get_model_client(primary_id, temperature=temperature)
-        response = await asyncio.wait_for(primary.ainvoke(messages), timeout=timeout)
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        content = (response.content or "").strip()
-        if content:
-            usage = getattr(response, "usage_metadata", {}) or {}
-            meta = getattr(response, "response_metadata", {}) or {}
+    from src.models.router import plan_hops, format_plan_log, record_hop_failure
+    plan = plan_hops(
+        agent_id=agent_id,
+        primary_id=primary_id,
+        fallback_id=fallback_id,
+        message_text=message_text or "",
+        message_count=len(messages or []),
+        operation_type=operation_type,
+        routing_bias=routing_bias or "balanced",
+        cloud_middle_id=CLOUD_FALLBACK_MODEL,
+        allow_cloud_middle=True,
+    )
+    print(format_plan_log(plan, label=label))
+
+    chain = list(plan.chain or [])
+    if not chain:
+        # Absolute last ditch — same as pre-router single primary
+        if primary_id:
+            chain = [primary_id]
+        if fallback_id and fallback_id not in chain:
+            chain.append(fallback_id)
+
+    last_err: Exception | None = None
+    for hop_i, model_id in enumerate(chain):
+        provider, model_str = _resolve_model_string(model_id)
+        # Local hops get the longer cold-load budget; others use caller timeout
+        hop_timeout = LOCAL_FALLBACK_TIMEOUT if provider == "ollama" else timeout
+        # First hop: keep fail-fast spirit of #D16 when not local
+        if hop_i == 0 and provider != "ollama":
+            hop_timeout = min(hop_timeout, max(90, timeout))
+        t0 = time.monotonic()
+        try:
+            client = get_model_client(model_id, temperature=temperature)
+            response = await asyncio.wait_for(client.ainvoke(messages), timeout=hop_timeout)
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            content = (response.content or "").strip()
+            if content:
+                usage = getattr(response, "usage_metadata", {}) or {}
+                meta = getattr(response, "response_metadata", {}) or {}
+                await _write_jw_metric(
+                    agent_id=agent_id, operation_type=operation_type, operation_label=label,
+                    model_used=model_str, provider=provider,
+                    tokens_in=usage.get("input_tokens") or meta.get("prompt_eval_count"),
+                    tokens_out=usage.get("output_tokens") or meta.get("eval_count"),
+                    duration_ms=duration_ms, succeeded=True,
+                )
+                print(
+                    f"[{label}] Completed via {provider}/{model_str} "
+                    f"(hop {hop_i + 1}/{len(chain)}, score={plan.score.score}, {len(content)} chars)"
+                )
+                return content
+            print(f"[{label}] {provider}/{model_str} returned empty — next hop")
             await _write_jw_metric(
                 agent_id=agent_id, operation_type=operation_type, operation_label=label,
-                model_used=primary_model_str, provider=primary_provider,
-                tokens_in=usage.get("input_tokens") or meta.get("prompt_eval_count"),
-                tokens_out=usage.get("output_tokens") or meta.get("eval_count"),
-                duration_ms=duration_ms, succeeded=True,
+                model_used=model_str, provider=provider,
+                tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
             )
-            print(f"[{label}] Completed via {primary_provider}/{primary_model_str} ({len(content)} chars)")
-            return content
-        print(f"[{label}] {primary_provider}/{primary_model_str} returned empty — trying fallback")
-        await _write_jw_metric(
-            agent_id=agent_id, operation_type=operation_type, operation_label=label,
-            model_used=primary_model_str, provider=primary_provider,
-            tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
-        )
-    except Exception as e:
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        print(f"[{label}] {primary_provider}/{primary_model_str} failed ({type(e).__name__}: {e}) — trying fallback")
-        await _write_jw_metric(
-            agent_id=agent_id, operation_type=operation_type, operation_label=label,
-            model_used=primary_model_str, provider=primary_provider,
-            tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
-        )
-
-    # ── Tier 2: Cloud middle hop (different upstream, no GPU cold-load) ──────
-    # Proven live 2026-07-10: local qwen3:32b can't cold-load + eval a 19k-token
-    # delegation turn inside 120s.  A second cloud model (deepseek via openrouter)
-    # gives us a genuinely different path before the local last resort.
-    cloud_id = CLOUD_FALLBACK_MODEL
-    cloud_provider, cloud_model_str = _resolve_model_string(cloud_id)
-    t1 = time.monotonic()
-    try:
-        cloud = get_model_client(cloud_id, temperature=temperature)
-        response = await asyncio.wait_for(cloud.ainvoke(messages), timeout=timeout)
-        duration_ms = int((time.monotonic() - t1) * 1000)
-        content = (response.content or "").strip()
-        if content:
-            usage = getattr(response, "usage_metadata", {}) or {}
-            meta = getattr(response, "response_metadata", {}) or {}
+            record_hop_failure(model_id, provider)
+            last_err = RuntimeError(f"empty content from {provider}/{model_str}")
+        except Exception as e:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            print(
+                f"[{label}] {provider}/{model_str} failed ({type(e).__name__}: {e}) — next hop"
+            )
             await _write_jw_metric(
                 agent_id=agent_id, operation_type=operation_type, operation_label=label,
-                model_used=cloud_model_str, provider=cloud_provider,
-                tokens_in=usage.get("input_tokens") or meta.get("prompt_eval_count"),
-                tokens_out=usage.get("output_tokens") or meta.get("eval_count"),
-                duration_ms=duration_ms, succeeded=True,
+                model_used=model_str, provider=provider,
+                tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
             )
-            print(f"[{label}] Completed via cloud fallback {cloud_provider}/{cloud_model_str} ({len(content)} chars)")
-            return content
-        print(f"[{label}] Cloud fallback {cloud_provider}/{cloud_model_str} returned empty — trying local")
-        await _write_jw_metric(
-            agent_id=agent_id, operation_type=operation_type, operation_label=label,
-            model_used=cloud_model_str, provider=cloud_provider,
-            tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
-        )
-    except Exception as e:
-        duration_ms = int((time.monotonic() - t1) * 1000)
-        print(f"[{label}] Cloud fallback {cloud_provider}/{cloud_model_str} failed ({type(e).__name__}: {e}) — trying local")
-        await _write_jw_metric(
-            agent_id=agent_id, operation_type=operation_type, operation_label=label,
-            model_used=cloud_model_str, provider=cloud_provider,
-            tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
-        )
+            record_hop_failure(model_id, provider)
+            last_err = e
 
-    # ── Tier 3: Local last resort (longer timeout for cold-load) ─────────────
-    # No configured fallback? Resolve one from the best INSTALLED local model
-    # rather than dead-ending (#11/CF-106).
-    # For TUNING-shaped work, prefer ltp-tuner-v2 if installed (#D44).
-    if not fallback_id:
-        from src.models.local_fallback import (
-            resolve_local_fallback_model, resolve_tuner_model, LocalModelUnavailable
-        )
-        # TUNING tier: prefer tuner model when available
-        if operation_type == "tuning":
-            tuner_id = resolve_tuner_model()
-            if tuner_id:
-                fallback_id = tuner_id
-                print(f"[{label}] Tuning work — resolved ltp-tuner-v2 '{tuner_id}'")
-        if not fallback_id:
-            try:
-                fallback_id = resolve_local_fallback_model()
-                print(f"[{label}] No configured fallback — resolved installed local '{fallback_id}'")
-            except LocalModelUnavailable as _le:
-                raise RuntimeError(
-                    f"[{label}] Primary + cloud fallback failed for {agent_id} and no local is "
-                    f"available: {_le}"
-                ) from _le
-
-    local_provider, local_model_str = _resolve_model_string(fallback_id)
-    t2 = time.monotonic()
+    # If chain never included a local floor, try installed local once more
     try:
-        local = get_model_client(fallback_id, temperature=temperature)
-        response = await asyncio.wait_for(
-            local.ainvoke(messages),
-            timeout=LOCAL_FALLBACK_TIMEOUT,
-        )
-        duration_ms = int((time.monotonic() - t2) * 1000)
-        content = (response.content or "").strip()
-        usage = getattr(response, "usage_metadata", {}) or {}
-        meta = getattr(response, "response_metadata", {}) or {}
-        await _write_jw_metric(
-            agent_id=agent_id, operation_type=operation_type, operation_label=label,
-            model_used=local_model_str, provider=local_provider,
-            tokens_in=usage.get("input_tokens") or meta.get("prompt_eval_count"),
-            tokens_out=usage.get("output_tokens") or meta.get("eval_count"),
-            duration_ms=duration_ms, succeeded=bool(content),
-        )
-        if not content:
-            raise RuntimeError(f"[{label}] All 3 model tiers returned empty content for {agent_id}")
-        print(f"[{label}] Completed via local fallback {local_provider}/{local_model_str} ({len(content)} chars)")
-        return content
-    except RuntimeError:
-        raise
-    except Exception as e:
-        duration_ms = int((time.monotonic() - t2) * 1000)
-        await _write_jw_metric(
-            agent_id=agent_id, operation_type=operation_type, operation_label=label,
-            model_used=local_model_str, provider=local_provider,
-            tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
-        )
+        from src.models.local_fallback import resolve_local_fallback_model, LocalModelUnavailable
+        try:
+            floor_id = resolve_local_fallback_model()
+        except LocalModelUnavailable:
+            floor_id = None
+    except Exception:
+        floor_id = None
+    if floor_id and floor_id not in chain:
+        provider, model_str = _resolve_model_string(floor_id)
+        t0 = time.monotonic()
+        try:
+            client = get_model_client(floor_id, temperature=temperature)
+            response = await asyncio.wait_for(
+                client.ainvoke(messages), timeout=LOCAL_FALLBACK_TIMEOUT
+            )
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            content = (response.content or "").strip()
+            await _write_jw_metric(
+                agent_id=agent_id, operation_type=operation_type, operation_label=label,
+                model_used=model_str, provider=provider,
+                tokens_in=None, tokens_out=None, duration_ms=duration_ms,
+                succeeded=bool(content),
+            )
+            if content:
+                print(f"[{label}] Completed via local floor {provider}/{model_str}")
+                return content
+            record_hop_failure(floor_id, provider)
+        except Exception as e:
+            record_hop_failure(floor_id, provider)
+            last_err = e
+
+    if last_err is not None:
         raise RuntimeError(
-            f"[{label}] All 3 model tiers failed for {agent_id}. Last: {type(e).__name__}: {e}"
-        ) from e
+            f"[{label}] All model hops failed for {agent_id}. "
+            f"Last: {type(last_err).__name__}: {last_err}"
+        ) from last_err
+    raise RuntimeError(f"[{label}] All model hops failed for {agent_id} (no hops runnable)")
