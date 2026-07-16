@@ -1759,7 +1759,13 @@ async def regenerate_link(presence_id: str, request: Request):
     if COVE_MODE != "multi":
         raise HTTPException(400, "Not in multi-Presence mode")
 
-    # TODO: Operator auth check
+    # #SEC1: admin-only. Regenerating a link resets auth_token + mints a session
+    # for the target presence — without this gate ANY authenticated member could
+    # take over ANY account by UUID. Same gate as set_presence_role below.
+    actor = await get_current_presence(request)
+    if not actor or actor.get("cove_role") != "admin":
+        raise HTTPException(403, "Operators only.")
+
     raw_token = secrets.token_urlsafe(32)
     hashed_token = _hash_token(raw_token)
 
