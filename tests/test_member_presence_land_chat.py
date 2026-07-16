@@ -10,6 +10,17 @@ def test_onboarding_suppresses_non_admin_checklist():
     assert 'return {"steps": [], "items": [], "done_count": 0' in src
 
 
+def test_onboarding_suppresses_admin_provisioned_coadmin():
+    """Admin-provisioned co-admin must match invite path: no Intel nag on Attention."""
+    src = Path("src/dashboard/routes/onboarding.py").read_text()
+    # Invite path still covered
+    assert "presence_invites WHERE consumed_by" in src
+    # Founder = earliest admin by created_at — not every cove_role=admin
+    assert "ORDER BY created_at ASC" in src
+    assert "cove_role = 'admin'" in src
+    assert "str(_founder" in src or '_founder["id"]' in src
+
+
 def test_create_presence_signin_lands_on_chat():
     src = Path("src/dashboard/routes/presence.py").read_text()
     assert "tab=chat" in src

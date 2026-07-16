@@ -54,18 +54,21 @@ async def onboarding_items(request: Request):
     is_admin = (p.get("cove_role") or "") == "admin"
 
     # FOUNDER-ONLY GATE: Cove setup cards (address / intelligence / compute / backup /
-    # team tuning / mobile) belong to the person who founded this Cove. A second
-    # Presence — whether invited by link OR provisioned by the admin — never
-    # configures the Cove brain or the host door. They ride the Cove default model
-    # and land in Chat with their agent. Showing "Add intelligence" + a locked chain
-    # on Attention is pure confusion (install-pass 2026-07-15).
+    # team tuning / mobile / jules intro) belong to the person who founded this Cove.
+    # A second Presence — invited by link OR admin-provisioned, admin OR member —
+    # never configures the Cove brain or the host door. They ride the Cove default
+    # model and land in Chat with their agent. Showing "Add intelligence" + a locked
+    # chain on Attention is pure confusion (install-pass 2026-07-15).
     if not is_admin:
         return {"steps": [], "items": [], "done_count": 0,
                 "total": 0, "complete": True}
 
-    # JOINER GATE (co-admin invitees): role may be admin, but they still did not
-    # found this Cove — their account was consumed by a presence_invites row.
-    # Same empty checklist; orientation is the spark in Chat.
+    # JOINER GATE (any non-founder admin): role may be admin, but founding is a
+    # single account — the earliest admin row (seed that finalize filled). Two paths
+    # used to diverge:
+    #   • invite-consumed co-admin → presence_invites row → empty checklist ✓
+    #   • admin-provisioned co-admin → no invite row → looked like founder → Intel nag ✗
+    # Install-pass 2026-07-16: both must match invite (Chat, no Attention nags).
     try:
         import uuid as _uuid
         from src.memory.database import get_db as _get_db
@@ -74,6 +77,16 @@ async def onboarding_items(request: Request):
                 "SELECT 1 FROM presence_invites WHERE consumed_by = %s LIMIT 1",
                 (_uuid.UUID(str(p["id"])),))
             if await _r.fetchone():
+                return {"steps": [], "items": [], "done_count": 0,
+                        "total": 0, "complete": True}
+            # Earliest admin = founder. Any later admin (Add Presence as admin) is a joiner.
+            _r2 = await _conn.execute(
+                """SELECT id FROM accounts
+                   WHERE cove_role = 'admin'
+                   ORDER BY created_at ASC NULLS LAST, id ASC
+                   LIMIT 1""")
+            _founder = await _r2.fetchone()
+            if _founder and str(_founder["id"]) != str(p["id"]):
                 return {"steps": [], "items": [], "done_count": 0,
                         "total": 0, "complete": True}
     except Exception:
