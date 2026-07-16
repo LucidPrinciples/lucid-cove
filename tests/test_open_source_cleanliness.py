@@ -5,7 +5,7 @@ these run anywhere (CI, a fresh clone, the sandbox). They go red the moment a
 founder value, a hardcoded founder host, or an undocumented env var sneaks back
 into the runtime code. They protect the 2026-06-22 founder-value scrub.
 
-When `provision_overlay.py` is retired under #99, the SKIP entry below can go.
+#SEC5/#99 retired provision_overlay.py — no longer in SKIP_FILES.
 """
 import re
 from pathlib import Path
@@ -18,17 +18,12 @@ STATIC = SRC / "dashboard" / "static"
 
 # Legacy/founder artifacts pending their own GATED cleanup — do not let new code
 # join this list:
-#  - provision_overlay.py: standalone personal-agent generator slated for
-#    retirement under #99; founder values tracked by test_provisioner.py.
-#  - family.config.example.yaml: the legacy CLI provisioner's example config —
-#    pinned verbatim by test_provisioner_cli.py (the #99 characterization net);
-#    scrub it together with that suite when #99 lands.
 #  - jag-clearfield.yaml: batch8 #14 REMOVED this from git (git rm; moved to
 #    ClearfieldCove). Kept here only because the autopilot sandbox can't unlink
 #    the working-tree copy (EPERM); once Chords' deploy checks out the clean tree
 #    the file is gone and this entry is a harmless no-op — DROP it then.
-SKIP_FILES = {"provision_overlay.py", "family.config.example.yaml",
-              "jag-clearfield.yaml"}
+#  - provision_overlay.py + family.config.example.yaml: RETIRED under #SEC5/#99.
+SKIP_FILES = {"jag-clearfield.yaml"}
 
 # Static assets whose removal is confirmation-gated (CF-108). batch8 #14 REMOVED
 # jason.png from git (git rm; the founder Cove keeps its live copy in instance

@@ -1,5 +1,5 @@
-# Pinned dependencies from Stuart production container (2026-06-10)
-# Generated via: docker exec stuart-cove-app pip freeze
+# Pinned dependencies from a Lucid Cove production container (2026-06-10)
+# Generated via: docker exec <cove-app-container> pip freeze
 # Use: pip install --no-cache-dir -r requirements.lock
 # Update: run pip freeze on a working container after testing upgrades
 aiohappyeyeballs==2.6.1
