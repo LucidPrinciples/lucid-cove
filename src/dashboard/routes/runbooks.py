@@ -20,6 +20,14 @@ router = APIRouter()
 RUNBOOKS_DIR = Path(env("RUNBOOKS_DIR", "/app/data/runbooks"))
 SEED_DIR = Path(env("RUNBOOKS_SEED_DIR", "/cove-core/runbooks"))
 
+# Host-specific ops that must NEVER ship as a universal seed. RB16 talks to
+# Clearfield + Founders host paths via ssh to lp-homebase — useless (and confusing)
+# on a fresh Woods/Quietgrove/iMac install. Keep those on the Clearfield operator's
+# Nextcloud at AgentSkills/Ops/runbooks/ (NC merge still shows them on Clearfield).
+_REMOVED_SEED_FILES = frozenset({
+    "16-deploy-main-clearfield-founders.json",
+})
+
 
 def _ensure_dir():
     RUNBOOKS_DIR.mkdir(parents=True, exist_ok=True)
@@ -28,7 +36,17 @@ def _ensure_dir():
     # a permanent change, update the seed JSON in cove-core/runbooks/.
     if SEED_DIR.exists():
         for f in SEED_DIR.glob("*.json"):
+            if f.name in _REMOVED_SEED_FILES:
+                continue
             shutil.copy2(f, RUNBOOKS_DIR / f.name)
+    # Drop orphans left from older seeds (e.g. RB16 shipped to every Cove once).
+    for name in _REMOVED_SEED_FILES:
+        p = RUNBOOKS_DIR / name
+        if p.exists():
+            try:
+                p.unlink()
+            except OSError:
+                pass
 
 
 # ── Role scoping (CF-35) ─────────────────────────────────────────────────────
