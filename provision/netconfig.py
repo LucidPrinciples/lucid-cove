@@ -1130,6 +1130,25 @@ def ensure_dns(domain: str, target_ip: str = "") -> dict:
         return {"ok": False, "reason": f"DNS provisioning failed: {e}"}
 
 
+def remove_dns(domain: str) -> dict:
+    """Deprovision mirror of ensure_dns: delete apex + wildcard (+ acme-challenge)
+    for a Cove domain. Best-effort; needs CLOUDFLARE_API_TOKEN. Prefer the hub
+    DELETE /api/registry/cove/{key} path in production so registry + DNS stay paired."""
+    if not os.getenv("CLOUDFLARE_API_TOKEN", "").strip():
+        return {"ok": False, "reason": "CLOUDFLARE_API_TOKEN not set (skipping DNS remove)"}
+    try:
+        from cloudflare_dns import remove_cove_dns  # sibling module
+    except ImportError:
+        try:
+            from provision.cloudflare_dns import remove_cove_dns
+        except ImportError as e:
+            return {"ok": False, "reason": f"cloudflare_dns import failed: {e}"}
+    try:
+        return remove_cove_dns(domain)
+    except Exception as e:
+        return {"ok": False, "reason": f"DNS remove failed: {e}"}
+
+
 # ---------------------------------------------------------------------------
 # #133 — register the Cove with the Hub registrar at provision time
 # ---------------------------------------------------------------------------

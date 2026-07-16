@@ -117,6 +117,20 @@ async def register_cove(*, cove_id, name, owner_handle="", domain="", homeserver
         "matrix_user": matrix_user, "referred_by": referred_by})
 
 
+async def delete_cove(key: str) -> dict:
+    """Unregister a Cove (by cove_id or name) and best-effort remove its DNS.
+    Hub-side: DELETE /api/registry/cove/{key}. Best-effort — returns {ok:False}
+    on hub hiccup rather than raising."""
+    return await _req("DELETE", f"/api/registry/cove/{key}", auth=True)
+
+
+async def remove_cove_dns(domain: str) -> dict:
+    """Delete Cloudflare apex + wildcard for a lucidcove.org Cove subdomain
+    without touching registry rows. POST /api/registry/cove-dns/remove."""
+    return await _req("POST", "/api/registry/cove-dns/remove", auth=True,
+                      body={"domain": domain})
+
+
 async def spark_complete(*, system_prompt: str, messages: list, model_id: str = None,
                          temperature: float = 0.7, flow_id: str = None,
                          timeout: float = 110.0) -> dict:

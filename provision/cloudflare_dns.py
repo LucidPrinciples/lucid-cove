@@ -24,6 +24,8 @@ Usage (CLI, run on the Cove's machine so the mesh IP is local):
   python3 cloudflare_dns.py <cove_domain> [target_ip]
     cove_domain : e.g. testcove.lucidcove.org
     target_ip   : mesh IP; if omitted, auto-detected via `tailscale ip -4`
+  python3 cloudflare_dns.py --remove <cove_domain>
+    Delete the apex + wildcard (+ acme-challenge) records for that Cove.
 """
 import os
 import subprocess
@@ -157,6 +159,64 @@ def ensure_cove_dns(cove_domain: str, target_ip: str = "") -> dict:
     return {"ok": True, "ip": ip, "zone_id": zid, "actions": actions}
 
 
+def _assert_safe_cove_domain(cove_domain: str) -> str:
+    """Normalize and refuse zone-apex / bare-domain targets so remove never wipes the
+    whole lucidcove.org zone (or any registrable zone apex)."""
+    cove_domain = (cove_domain or "").strip().lower().rstrip(".")
+    if not cove_domain:
+        raise ValueError("cove_domain is required")
+    labels = [p for p in cove_domain.split(".") if p]
+    if len(labels) < 3:
+        # e.g. lucidcove.org (2 labels) — never a single Cove's DNS bundle
+        raise ValueError(
+            f"refusing DNS remove/ensure target {cove_domain!r}: need a Cove subdomain "
+            f"(e.g. mycove.lucidcove.org), not the zone apex")
+    zone = _zone_name(cove_domain)
+    if cove_domain == zone:
+        raise ValueError(f"refusing DNS op on zone apex {cove_domain!r}")
+    return cove_domain
+
+
+def _delete_all_at_name(client: httpx.Client, zone_id: str, name: str) -> list:
+    """Delete every A/AAAA/CNAME record at `name`. Idempotent. Returns action strings."""
+    name = name.rstrip(".")
+    actions = []
+    for t in ("A", "AAAA", "CNAME"):
+        r = client.get(CF_API + f"/zones/{zone_id}/dns_records", params={"type": t, "name": name})
+        r.raise_for_status()
+        for rec in (r.json().get("result") or []):
+            rid = rec.get("id")
+            if not rid:
+                continue
+            d = client.delete(CF_API + f"/zones/{zone_id}/dns_records/{rid}")
+            d.raise_for_status()
+            actions.append(f"deleted {t} {name}")
+    if not actions:
+        actions.append(f"ok (absent) {name}")
+    return actions
+
+
+def remove_cove_dns(cove_domain: str) -> dict:
+    """Deprovision mirror of ensure_cove_dns: delete the Cove's apex + wildcard A/AAAA/CNAME
+    records (and the hub-minted `_acme-challenge.{cove}` CNAME if present).
+
+    Idempotent — missing records are reported as absent, not errors. Refuses zone-apex
+    targets so a bad call cannot wipe lucidcove.org itself. Returns {ok, domain, zone_id,
+    actions:[...]}."""
+    cove_domain = _assert_safe_cove_domain(cove_domain)
+    names = [
+        cove_domain,
+        f"*.{cove_domain}",
+        f"_acme-challenge.{cove_domain}",
+    ]
+    with _client() as client:
+        zid = _zone_id(client, cove_domain)
+        actions = []
+        for n in names:
+            actions.extend(_delete_all_at_name(client, zid, n))
+    return {"ok": True, "domain": cove_domain, "zone_id": zid, "actions": actions}
+
+
 def ensure_cove_dns_tunnel(cove_domain: str, tunnel_id: str, wildcard: bool = False) -> dict:
     """PUBLIC-reachability variant: point the Cove's domain at its Cloudflare named tunnel
     (CNAME -> {tunnel_id}.cfargotunnel.com, PROXIED) instead of the mesh IP. This is what
@@ -221,7 +281,22 @@ def _ensure_cname_proxied(client: httpx.Client, zone_id: str, name: str, target:
 def main():
     if len(sys.argv) < 2:
         print("usage: cloudflare_dns.py <cove_domain> [target_ip]")
+        print("       cloudflare_dns.py --remove <cove_domain>")
         sys.exit(1)
+    if sys.argv[1] in ("--remove", "remove", "delete"):
+        if len(sys.argv) < 3:
+            print("usage: cloudflare_dns.py --remove <cove_domain>")
+            sys.exit(1)
+        cove_domain = sys.argv[2]
+        try:
+            res = remove_cove_dns(cove_domain)
+        except Exception as e:
+            print(f"DNS remove FAILED for {cove_domain}: {e}")
+            sys.exit(1)
+        print(f"DNS removed for {res['domain']}:")
+        for a in res["actions"]:
+            print("  " + a)
+        return
     cove_domain = sys.argv[1]
     target_ip = sys.argv[2] if len(sys.argv) > 2 else ""
     try:
