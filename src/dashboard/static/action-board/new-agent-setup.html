@@ -2083,6 +2083,10 @@ async function enterWakeMember(memberPresenceId, resultHTML, memberName) {
 
 // Wake chat state
 let _wakeGreeting = '', _wakeQuestion = '', _wakeOpReply = '', _wakeIsFirstrun = false, _wakeFirstMemory = '';
+// In-flight spark → Chat write. finishWake MUST await this before navigating —
+// otherwise the browser cancels the POST and Chat only ever shows brain-ack
+// (install-pass 2026-07-15: address + intelligence clean, spark missing).
+let _wakePersistPromise = null;
 
 // Everything the agent actually knows — fed to both wake calls so its words are about
 // THEM (reflection, qualities, feeling, lens, shade), not a generic greeting.
@@ -2255,18 +2259,20 @@ async function sendWakeReply() {
     // The handoff is the one canned part. The plain "AI model" line is NOT shown here —
     // it lives only on the pending "add your intelligence" card in the MC.
     if (_wakeIsFirstrun) {
+        // Start the Chat write NOW (content already includes WAKE_HANDOFF). Do not
+        // wait on the handoff bubble animation — that delay used to race Continue.
+        _wakePersistPromise = _persistWakeThread();
         setTimeout(() => {
             _addWakeBubble('agent', esc(WAKE_HANDOFF), { html: true, cls: 'handoff' });
             // System framing of the next step — outside the chat, by the CTA (not the agent).
             const note = document.getElementById('wake-next-note'); if (note) note.style.display = 'block';
             document.getElementById('wake-nav').style.display = 'flex';
-            _persistWakeThread();   // best-effort — put the exchange in the chat thread
         }, 700);
     } else if (_wakeMode === 'self' || _wakeMode === 'member') {
         // Self-onboard invitee OR admin-provisioned member: seed the spark into Chat
         // (member path writes under the new presence_id). Orientation is a trailing
         // message so it waits as most-recent when they open their door.
-        _persistWakeThread();
+        _wakePersistPromise = _persistWakeThread();
         document.getElementById('wake-nav').style.display = 'flex';
     } else {
         document.getElementById('wake-nav').style.display = 'flex';
@@ -2297,19 +2303,37 @@ async function _persistWakeThread() {
         body.presence_id = _wakeMemberPresenceId;
     }
     try {
+        // keepalive + credentials: survive a fast Continue navigation and carry the
+        // founding session cookie (multi-mode presence) so the write scopes correctly.
         await fetch('/api/presence/wake-thread', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
+            keepalive: true,
         });
     } catch (e) { /* best-effort */ }
 }
 
 async function finishWake() {
     const btn = document.getElementById('wake-continue');
-    btn.disabled = true; btn.textContent = 'Entering…';
+    btn.disabled = true; btn.textContent = 'Saving…';
+    // Ensure the spark is on the personal Chat thread BEFORE leaving the wizard.
+    // Old path: fire-and-forget POST + immediate location.href → browser aborted the
+    // write; later brain-ack landed alone (only message in Chat).
+    if (!_wakePersistPromise) {
+        _wakePersistPromise = _persistWakeThread();
+    }
+    try {
+        await Promise.race([
+            _wakePersistPromise,
+            new Promise((resolve) => setTimeout(resolve, 8000)),
+        ]);
+    } catch (e) { /* still enter MC — brain-ack path remains a safety net */ }
     // Member mode: don't redirect. Return to the signin-link result so the operator can
     // hand over the link to the family member.
     if (_wakeMode === 'member') {
+        btn.textContent = 'Entering…';
         document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
         document.getElementById('step-5').classList.add('active');
         const statusEl = document.getElementById('provision-status');
@@ -2318,6 +2342,7 @@ async function finishWake() {
         document.querySelector('.flow-container').scrollIntoView({ behavior: 'smooth' });
         return;
     }
+    btn.textContent = 'Entering…';
     window.location.href = _wakeRedirect;
 }
 
