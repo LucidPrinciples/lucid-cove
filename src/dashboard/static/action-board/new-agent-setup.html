@@ -2001,7 +2001,7 @@ async function provisionAgent() {
                 <h3 style="color:${fc}">${esc(_agentReady)} is ready${forWhom && forWhom !== _agentReady ? ' for ' + esc(forWhom) : ''}.</h3>
                 <p>${esc(agentIdentity?.archetype || '')} · ${esc(agentIdentity?.frequency || '')}${forWhom && forWhom !== _agentReady ? ' · for ' + esc(forWhom) : ''}</p>
                 ${data.signin_link ? `<div style="margin-top:12px;padding:10px;background:#0e0e16;border:1px solid #24242f;border-radius:8px;font-size:0.8rem;color:${fc};word-break:break-all;">${esc(data.signin_link)}</div>
-                <p style="color:#888;font-size:0.8rem;margin-top:8px;">Share this link to open their Mission Control.${data.email_sent ? ' A copy was emailed.' : ''} For a clean test, open it in a private window (or a browser that is not already signed into this Cove).</p>` : ''}
+                <p style="color:#888;font-size:0.8rem;margin-top:8px;">Share this link to open their Mission Control.${data.email_sent ? ' A copy was emailed.' : ''} When they open Chat, have them click <strong>Connect</strong> at the top so invites and family rooms land. For a clean test, open it in a private window (or a browser that is not already signed into this Cove).</p>` : ''}
             </div>`;
 
             // The operator brings the member's agent to life and MEETS it on the
@@ -2127,9 +2127,10 @@ const WAKE_PLAIN_LINE =
 // already set up + where to look, and prompts them to engage. Seeded into their Chat.
 const WAKE_JOIN_ORIENT =
     "One thing before we dive in: your Cove is already set up and running — the model we think " +
-    "on, the tools, jules, all of it. Nothing to configure to get started. If you ever want to " +
-    "look under the hood — the model, the GPU, your settings — it's all in Settings. For now, " +
-    "tell me what you're hoping to get done and we'll start right there.";
+    "on, the tools, jules, all of it. First, click Connect at the top of Chat so Matrix can " +
+    "finish (family rooms, invites, Haven). Nothing else to configure to get started. If you " +
+    "ever want to look under the hood — the model, the GPU, your settings — it's all in " +
+    "Settings. Then tell me what you're hoping to get done and we'll start right there.";
 
 async function enterWake(redirect, coveName, isFirstrun) {
     _wakeMode = 'firstrun';
