@@ -155,6 +155,31 @@ MODEL_AGNOSTIC_IDENTITY = (
 )
 
 
+def _charter_block() -> str:
+    """#D58 — The Cove Charter: cove-level mission + operating principles.
+
+    Injected into EVERY agent's system prompt right after the identity
+    directive. Reads the sync settings cache (charter.mission /
+    charter.principles — migration 038 seeds defaults; the install wizard
+    writes mission at finalize; admins refine in Cove Settings → Charter).
+    Empty charter = no block (back-compat).
+    """
+    try:
+        from src.utils.settings import get_setting_sync
+        mission = (get_setting_sync("charter.mission", "") or "").strip()
+        principles = (get_setting_sync("charter.principles", "") or "").strip()
+    except Exception:
+        return ""
+    if not (mission or principles):
+        return ""
+    parts = ["## The Cove Charter"]
+    if mission:
+        parts.append(f"This Cove's mission: {mission}")
+    if principles:
+        parts.append("How this Cove operates:\n" + principles)
+    return "\n".join(parts)
+
+
 def _identity_directive(name: str, archetype: str) -> str:
     return MODEL_AGNOSTIC_IDENTITY.format(name=name or "this observer", archetype=archetype or "an observer of this Cove")
 
@@ -417,6 +442,11 @@ def build_system_prompt(
         f"**Role:** {agent['role']}",
         f"\n{_identity_directive(agent.get('name'), agent.get('archetype'))}",
     ]
+
+    # ── 1b. The Cove Charter (#D58) — what this Cove is for + how it operates
+    _charter = _charter_block()
+    if _charter:
+        prompt_parts.append(f"\n{_charter}")
 
     # ── 2. Persona (soul doc content) ────────────────────────────────────────
     if persona:

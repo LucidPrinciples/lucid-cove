@@ -180,7 +180,19 @@ async function loadSettingsCoveAdmin() {
             <div style="font-size:0.62rem;color:var(--dim);margin-top:6px;">When <strong>Active</strong>, the Cove runs one morning pass for the build team (~10 agents) plus safe catch-up. When <strong>Inactive</strong>, no automatic team spend — Personal Tune + chat stay available. Cost estimate uses the Cove brain.</div>
         </div>`;
 
-    el.innerHTML = addrHtml + publicHtml + brainHtml + teamTuneHtml + membersHtml;
+    // #D58 — The Cove Charter: mission + operating principles, injected into every
+    // agent's prompt. Seeded at onboarding (wizard mission question + default
+    // principles); refined here. Saved instantly, no restart.
+    const charterHtml = `
+        <div style="padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--border);">
+            <label class="settings-label">The Cove Charter</label>
+            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">What this Cove is for and how it operates. Every agent carries this in its context — it's the Cove-level equivalent of a mission statement plus house rules.</div>
+            <input type="text" id="charter-mission" class="settings-input" placeholder="What is this Cove for? One line." style="width:100%;" maxlength="500">
+            <textarea id="charter-principles" class="settings-input" rows="5" placeholder="Operating principles (one per line, markdown list)" style="width:100%;margin-top:6px;font-size:0.72rem;" maxlength="4000"></textarea>
+            <div style="margin-top:6px;"><button class="btn-sm" onclick="saveCharter()">Save Charter</button> <span id="charter-status" style="font-size:0.72rem;color:var(--dim);"></span></div>
+        </div>`;
+    el.innerHTML = addrHtml + publicHtml + charterHtml + brainHtml + teamTuneHtml + membersHtml;
+    loadCharterCard();
     // Wake / brain-ack live in Chat — not on the set-address settings surface.
     refreshTeamTuneSettings();
 }
@@ -795,4 +807,32 @@ function copyAffiliateLink(inputId) {
         const btn = input.nextElementSibling;
         if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 1500); }
     });
+}
+
+// ── #D58 Cove Charter (admin) ────────────────────────────────────────────────
+async function loadCharterCard() {
+    const m = document.getElementById('charter-mission');
+    const pr = document.getElementById('charter-principles');
+    if (!m || !pr) return;
+    try {
+        const d = await fetch('/api/charter').then(r => r.json());
+        m.value = d.mission || '';
+        pr.value = d.principles || '';
+    } catch (e) { /* leave placeholders */ }
+}
+
+async function saveCharter() {
+    const st = document.getElementById('charter-status');
+    const body = {
+        mission: (document.getElementById('charter-mission')?.value || '').trim(),
+        principles: (document.getElementById('charter-principles')?.value || '').trim(),
+    };
+    if (st) { st.textContent = '…'; st.style.color = 'var(--dim)'; }
+    try {
+        const r = await fetch('/api/charter', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        if (st) { st.textContent = d.ok ? 'saved — agents pick it up next turn' : (d.detail || 'error'); st.style.color = d.ok ? 'var(--green)' : 'var(--red)'; if (d.ok) setTimeout(() => { st.textContent = ''; }, 3000); }
+    } catch (e) {
+        if (st) { st.textContent = 'error'; st.style.color = 'var(--red)'; }
+    }
 }

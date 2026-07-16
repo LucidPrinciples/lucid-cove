@@ -46,6 +46,19 @@ _DEFAULTS = {
     "admin_agent_display_name": "Stuart",
     "location": "",
     "tuning_package_folder": "default",
+    # #D58 Cove Charter — cove-level mission + operating principles, injected
+    # into every agent's system prompt (identity.py). DB rows (seeded by
+    # migration 038, wizard-set mission, admin-edited) override these.
+    "charter.mission": "",
+    "charter.principles": (
+        "- Truth over comfort, warmth over coldness. Both, not either.\n"
+        "- New breakage outranks the plan. When something breaks or a more urgent issue "
+        "appears mid-task, stop, name it, and re-prioritize with the operator before "
+        "continuing. Never push the original task through a fire. Finishing the wrong "
+        "thing is not progress.\n"
+        "- Say what you don't know. Never invent file paths, names, numbers, or artifacts.\n"
+        "- The operator decides priorities. Surface, propose, then follow their call."
+    ),
 }
 
 

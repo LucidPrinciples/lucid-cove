@@ -128,6 +128,10 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
       <input id="cove-name" type="text" placeholder="e.g. Clearfield, Riverside, The Workshop" autocomplete="off" spellcheck="false">
       <div class="status" id="name-status"></div>
     </div>
+    <div class="field">
+      <label>What is this Cove for? <span style="opacity:0.55;font-weight:normal;">(optional — you can refine it anytime in Cove Settings)</span></label>
+      <input id="cove-mission" type="text" placeholder="e.g. Keep our family organized, connected, and building together" autocomplete="off" maxlength="500">
+    </div>
     <div class="team-note">Every Cove comes with <strong>Stuart</strong>, your steward, and a standard team of 9 specialized agents. Next you'll bring your own Presence into being &mdash; you, and your personal agent.</div>
     <div class="nav-row">
       <button class="btn btn-ghost" onclick="show('panel-operator')">&larr; Back</button>
@@ -525,6 +529,9 @@ function toPresence(operatorBio) {
   // One unified flow — always the creation journey (no door). door=guided keeps the
   // downstream route explicit; agent-setup.html now sends every path to new-agent-setup.
   const qs = new URLSearchParams({ firstrun: '1', cove_name: nameEl.value.trim(), door: 'guided', role: 'operator' });
+  // #D58: the Charter mission rides along to finalize (optional).
+  const _mission = (document.getElementById('cove-mission')?.value || '').trim();
+  if (_mission) qs.set('cove_mission', _mission);
   if (_bio) qs.set('operator_bio', _bio);   // best-effort passthrough; the durable path is the profile
   window.location.href = '/static/action-board/agent-setup.html?' + qs.toString();
 }

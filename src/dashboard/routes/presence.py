@@ -1378,6 +1378,16 @@ async def finalize_setup(request: Request):
                 await update_setting("family_name", cove_name.strip())
         except Exception as _e:
             log.warning("family_name setting mirror skipped (non-fatal): %s", _e)
+        # #D58: the Charter mission from the wizard ("What is this Cove for?").
+        # Optional; admins refine it later in Cove Settings → Charter. Principles
+        # come from the migration-038 defaults.
+        try:
+            from src.utils.settings import update_setting as _upd
+            _mission = str(body.get("cove_mission") or "").strip()[:500]
+            if _mission:
+                await _upd("charter.mission", _mission)
+        except Exception as _e:
+            log.warning("charter.mission mirror skipped (non-fatal): %s", _e)
     except HTTPException:
         raise
     except Exception as e:
