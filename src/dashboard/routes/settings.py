@@ -564,3 +564,79 @@ async def patch_features(request: Request):
             status_code=500,
             content={"error": "Failed to save feature flags"},
         )
+
+
+# ── Emergency Model Override ────────────────────────────────────────────────
+# Admin can force all chat to a specific model, bypassing the D55 router.
+
+@router.get("/api/settings/model-override")
+async def get_model_override_setting(request: Request):
+    """Get current model override (admin only) + catalog of available models."""
+    gate = await _admin_gate(request)
+    if gate:
+        return gate
+    try:
+        from src.config import get_model_override, load_models_registry
+        override = get_model_override()
+        catalog = [
+            {
+                "id": m.get("id"),
+                "name": m.get("name", m.get("id")),
+                "provider": m.get("provider", ""),
+                "type": m.get("type", ""),
+            }
+            for m in load_models_registry() if m.get("id")
+        ]
+        return {
+            "override": override or "",
+            "catalog": catalog,
+            "active": bool(override),
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+class ModelOverrideUpdate(BaseModel):
+    override: Optional[str] = None  # empty string = clear
+
+
+@router.put("/api/settings/model-override")
+async def set_model_override(request: Request, body: ModelOverrideUpdate):
+    """Set or clear the emergency model override (admin only).
+    
+    Empty string clears the override. Any valid model ID forces all chat to that model.
+    """
+    gate = await _admin_gate(request)
+    if gate:
+        return gate
+    try:
+        from src.config import load_models_registry, save_cove_config, load_cove_config
+        
+        # Validate if setting
+        override = (body.override or "").strip()
+        if override:
+            valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
+            if override not in valid_ids:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Unknown model '{override}' — not in registry"}
+                )
+        
+        # Update cove.yaml
+        current = load_cove_config()
+        if override:
+            current["model_override"] = override
+        else:
+            current.pop("model_override", None)
+        
+        ok = save_cove_config(current)
+        if not ok:
+            return JSONResponse(status_code=500, content={"error": "Failed to save config"})
+        
+        return {
+            "ok": True,
+            "override": override or "",
+            "active": bool(override),
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})

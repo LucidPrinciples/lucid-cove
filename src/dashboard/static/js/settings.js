@@ -82,6 +82,7 @@ async function loadSettings() {
             loadSettingsNextcloud(),
             loadSettingsMatrixAdmin(),
             loadSettingsModel(),
+            loadSettingsModelOverride(),
             loadSettingsModelRegistry(),
             loadSettingsCompute(),
             loadSettingsLTP(),

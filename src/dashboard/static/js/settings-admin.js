@@ -845,3 +845,111 @@ async function _loadTruthGateCard(catalog) {
         el.innerHTML = `<div style="font-size:0.62rem;color:var(--dim);">Truth Gate card unavailable: ${ESC(err.message)}</div>`;
     }
 }
+
+
+// =============================================================================
+// Emergency Model Override — Force all chat to a specific model (bypasses router)
+// =============================================================================
+
+async function loadSettingsModelOverride() {
+    const el = document.getElementById('settings-model-override');
+    if (!el) return;
+    try {
+        const data = await fetch('/api/settings/model-override').then(r => r.json());
+        if (data.error) {
+            el.innerHTML = `<div class="error-msg">${ESC(data.error)}</div>`;
+            return;
+        }
+        
+        const catalog = data.catalog || [];
+        const current = data.override || '';
+        const active = data.active;
+        
+        // Build dropdown options
+        const opts = ['<option value="">— Router decides (default) —</option>']
+            .concat(catalog.map(m => 
+                `<option value="${ESC(m.id)}"${m.id === current ? ' selected' : ''}>${ESC(m.name)}${m.type ? ' · ' + ESC(m.type) : ''}</option>`
+            )).join('');
+        
+        const statusClass = active ? 'active' : 'inactive';
+        const statusText = active ? `Active — locked to ${current}` : 'Inactive — router decides';
+        const statusColor = active ? 'var(--red, #f44336)' : 'var(--dim)';
+        
+        el.innerHTML = `
+            <div style="margin-bottom:8px;">
+                <div class="settings-row" style="flex-wrap:wrap;gap:8px;align-items:center;">
+                    <span class="settings-label">Force Model</span>
+                    <select id="model-override-select" class="settings-input" style="max-width:280px;">${opts}</select>
+                    <button class="btn-sm" onclick="saveModelOverride()">${active ? 'Update' : 'Lock'}</button>
+                    ${active ? `<button class="btn-sm" style="background:var(--red-bg, #5c3a3a);color:var(--red, #f44336);" onclick="clearModelOverride()">Clear</button>` : ''}
+                </div>
+                <div style="font-size:0.62rem;color:${statusColor};margin-top:4px;">
+                    ${active ? '⚠ Override active — all chat uses this model, bypassing pressure routing' : 'Router selects local/API based on turn pressure'}
+                </div>
+                <div style="font-size:0.58rem;color:var(--dim);margin-top:2px;">
+                    Use for family events or debugging. Saves instantly to cove.yaml.
+                </div>
+            </div>
+            <div id="model-override-status" style="font-size:0.65rem;"></div>
+        `;
+    } catch (err) {
+        el.innerHTML = `<div class="error-msg">${ESC(err.message)}</div>`;
+    }
+}
+
+async function saveModelOverride() {
+    const sel = document.getElementById('model-override-select');
+    if (!sel) return;
+    const override = sel.value;
+    const status = document.getElementById('model-override-status');
+    
+    if (!override) {
+        if (status) { status.textContent = 'Select a model or Clear to disable'; status.style.color = 'var(--dim)'; }
+        return;
+    }
+    
+    try {
+        const r = await fetch('/api/settings/model-override', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ override }),
+        });
+        const d = await r.json();
+        if (status) {
+            if (d.ok) {
+                status.textContent = 'Saved — override active';
+                status.style.color = 'var(--green, #4caf50)';
+                setTimeout(() => loadSettingsModelOverride(), 500);
+            } else {
+                status.textContent = d.error || 'Save failed';
+                status.style.color = 'var(--red, #f44336)';
+            }
+        }
+    } catch (e) {
+        if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--red)'; }
+    }
+}
+
+async function clearModelOverride() {
+    const status = document.getElementById('model-override-status');
+    try {
+        const r = await fetch('/api/settings/model-override', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ override: '' }),
+        });
+        const d = await r.json();
+        if (status) {
+            if (d.ok) {
+                status.textContent = 'Cleared — router active';
+                status.style.color = 'var(--green)';
+                setTimeout(() => loadSettingsModelOverride(), 500);
+            } else {
+                status.textContent = d.error || 'Clear failed';
+                status.style.color = 'var(--red)';
+            }
+        }
+    } catch (e) {
+        if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--red)'; }
+    }
+}

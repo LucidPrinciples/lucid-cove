@@ -421,6 +421,25 @@ def plan_for_agent(
     tool_names: Iterable[str] | None = None,
 ) -> HopPlan:
     """Resolve assignment + plan hops for an agent (protocol and channel shared entry)."""
+    
+    # === EMERGENCY OVERRIDE ===
+    # Admin can force all chat to a specific model via cove.yaml model_override
+    from src.config import get_model_override, load_models_registry
+    override = get_model_override()
+    if override:
+        # Validate the override is a real model
+        valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
+        if override in valid_ids:
+            return HopPlan(
+                first_id=override,
+                chain=[override],
+                score=ScoreResult(score=0, reasons=["admin_override"], role="", bias=""),
+                mode="override",
+                detail=f"admin_override:{override}",
+            )
+        # Invalid override logged but falls through to normal routing
+        print(f"[router] WARNING: Invalid model_override '{override}' — ignoring")
+    
     from src.config import get_agent_model_assignment
     try:
         from src.models.provider import current_cove_brain, CLOUD_FALLBACK_MODEL

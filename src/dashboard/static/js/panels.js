@@ -398,6 +398,10 @@ function _defaultPanelHTML(tabId) {
                     <div id="settings-model" class="settings-row-list"></div>
                 </div>
                 <div class="settings-group">
+                    <div class="settings-group-title">Emergency Override</div>
+                    <div id="settings-model-override" class="settings-row-list"></div>
+                </div>
+                <div class="settings-group">
                     <div class="settings-group-title">Model Registry</div>
                     <div id="settings-model-registry" class="settings-row-list"></div>
                 </div>
