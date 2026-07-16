@@ -92,13 +92,23 @@ def load_agents_config() -> dict:
 PROVISIONED_DIR = Path("/app/data/provisioned")
 PROVISIONED_PERSONAS = PROVISIONED_DIR / "personas"
 
+# Repo-mount fallback: on the centralized stacks the instance config mount
+# shadows the image's config dir (only agent.yaml/cove.yaml are generated), and
+# no provisioned personas exist — so without this fallback load_persona returns
+# None and every team agent runs WITHOUT its soul doc (found 2026-07-16; live
+# since the June-28 migration). Instance/provisioned copies still win when
+# present — this is the lowest-priority layer, and it means a `git pull` on the
+# box refreshes personas for every Cove.
+COVE_CORE_PERSONAS = Path("/cove-core/config/personas")
+
 
 def load_persona(agent_id: str) -> Optional[str]:
     """Load the persona markdown for an agent.
 
-    Checks two locations, for both the exact id and the base archetype name:
+    Checks three locations, for both the exact id and the base archetype name:
       1. config/personas/{id}.md — standard config mount (read-only)
       2. /app/data/provisioned/personas/{id}.md — newly provisioned agents (writable volume)
+      3. /cove-core/config/personas/{id}.md — repo mount (shipped defaults; refreshed by git pull)
 
     Instance ids are often family-suffixed (e.g. "mercer-clearfield"); the
     shipped repo personas are bare archetype names ("mercer.md"). We try the
@@ -110,7 +120,7 @@ def load_persona(agent_id: str) -> Optional[str]:
     if base and base != agent_id:
         candidates.append(base)
     for cid in candidates:
-        for d in (PERSONAS_DIR, PROVISIONED_PERSONAS):
+        for d in (PERSONAS_DIR, PROVISIONED_PERSONAS, COVE_CORE_PERSONAS):
             f = d / f"{cid}.md"
             if f.exists():
                 return f.read_text(encoding="utf-8")
