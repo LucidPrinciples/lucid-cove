@@ -61,7 +61,10 @@ services:
     volumes:
       - nextcloud_data:/var/www/html
     ports:
-      - "8081:80"
+      # #SEC3: localhost-only. Docker port-publish bypasses the host firewall —
+      # a bare "8081:80" exposes Nextcloud to the whole LAN/internet. Front it
+      # with the reverse proxy (Caddy) for outside access, don't publish direct.
+      - "127.0.0.1:8081:80"
 
   redis:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
@@ -93,13 +96,19 @@ services:
       NEXTCLOUD_URL: http://nextcloud:80
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       PORT: ${PORT:-8200}
+      # #SEC3: COVE_MODE=single makes OperatorAuthMiddleware pass ALL /api/* with
+      # no auth. That is fine ONLY because the app port below is bound to
+      # 127.0.0.1 and reached through the reverse proxy. If you publish this port
+      # on 0.0.0.0, switch to COVE_MODE=multi (per-presence auth) first.
       COVE_MODE: ${COVE_MODE:-single}
     volumes:
       - ..:/cove-core:ro            # the repo IS cove-core (mounted read-only)
       - ../config:/app/config:ro    # your cove.yaml + agent.yaml live here
       - app_data:/app/data          # persistent data (logs, projects, runbooks)
     ports:
-      - "${PORT:-8200}:${PORT:-8200}"
+      # #SEC3: localhost-only — the reverse proxy (Caddy) terminates TLS and
+      # forwards here. Publishing on 0.0.0.0 exposes every route (see COVE_MODE).
+      - "127.0.0.1:${PORT:-8200}:${PORT:-8200}"
 
 # Plain named volumes — no external/founder-specific names.
 volumes:
