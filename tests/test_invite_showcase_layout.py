@@ -36,3 +36,11 @@ def test_flat_grid_no_longer_used_for_presence_sections():
     # the joining/already sections must not fall back to the old left-aligned grid
     assert "_showcaseHead('joining now') + _showcaseGrid(" not in HTML
     assert 'who\'s already in the Cove") + _showcaseGrid(' not in HTML
+
+
+def test_admin_add_presence_keeps_existing_members_filter():
+    # Filter body must be multi-line object form with self-join gate, not session-only drop
+    block = HTML.split("const members = (fd.members || []).filter")[1][:900]
+    assert "_selfJoin" in block
+    assert "_joinPerson" in block
+    assert "return true" in block
