@@ -749,8 +749,10 @@ async def _truth_gate_check(
     )
 
     try:
-        from src.models.provider import invoke_with_fallback
-        gate_response = await invoke_with_fallback(
+        # #D57: ONE pinned judge (settings-backed), no divergent fallback —
+        # any failure raises into the except below = pass-through.
+        from src.graphs.truth_gate_events import judge_invoke
+        gate_response, judge_model, judge_latency_ms = await judge_invoke(
             [
                 SystemMessage(content=(
                     "You evaluate an agent's response for accommodation — choosing the "
@@ -774,11 +776,8 @@ async def _truth_gate_check(
                 )),
                 HumanMessage(content=gate_prompt),
             ],
-            temperature=0.3,
-            timeout=30,
             label=f"{agent_id}/truth-gate",
-            agent_id=agent_id,
-            operation_type="truth-gate",
+            timeout=30,
         )
 
         import json as _json
@@ -808,9 +807,12 @@ async def _truth_gate_check(
             "passed": False,
             "fired": True,
             "fabrication": bool(fabrication),
+            "accommodation": bool(accommodation and evidence_quote),
             "evidence_quote": evidence_quote,
             "description": description,
             "truth_available": truth_available,
+            "judge_model": judge_model,
+            "latency_ms": judge_latency_ms,
         }
 
     except Exception as e:
@@ -1247,6 +1249,10 @@ async def agent_node(state: ChannelState) -> dict:
         # Fires on non-tool-call responses only (actual conversation).
         # Uses day's frequency as rotating anchor + permanent Truth/Lies anchor.
         # If accommodation detected, regenerate with anchor active.
+        _gate_role_class = (
+            "manager" if is_manager
+            else ("team" if channel in ("day", "deep") else "presence")
+        )
         _gate_cd_key = (agent_id, channel)
         _gate_cd_len = _TRUTH_GATE_COOLDOWN.get(_gate_cd_key)
         _gate_on_cooldown = (
@@ -1263,13 +1269,18 @@ async def agent_node(state: ChannelState) -> dict:
                         last_human = getattr(msg, "content", "")
                         break
 
-                gate_result = await _truth_gate_check(
-                    response_text=resp_stripped,
-                    last_human=last_human,
-                    agent_id=agent_id,
-                    channel=channel,
-                    tuning_state=tuning_state,
-                )
+                # #D57: settings-backed on/off (master + per role class)
+                from src.graphs.truth_gate_events import gate_enabled, log_gate_event
+                if await gate_enabled(_gate_role_class):
+                    gate_result = await _truth_gate_check(
+                        response_text=resp_stripped,
+                        last_human=last_human,
+                        agent_id=agent_id,
+                        channel=channel,
+                        tuning_state=tuning_state,
+                    )
+                else:
+                    gate_result = {"passed": True, "fired": False}
 
                 if gate_result.get("fired"):
                     # Regenerate — the rewrite must land as a normal reply to the
@@ -1318,11 +1329,30 @@ async def agent_node(state: ChannelState) -> dict:
                         # re-fire turn after turn (tension loop).
                         _TRUTH_GATE_COOLDOWN[_gate_cd_key] = len(messages)
                         print(f"{ts_log()} [{label}] Truth Gate: REGENERATED response")
+                        await log_gate_event(
+                            agent_id=agent_id, channel=channel,
+                            judge_model=gate_result.get("judge_model", ""),
+                            accommodation=gate_result.get("accommodation", False),
+                            fabrication=fabrication,
+                            description=truth_desc, truth_available=truth_avail,
+                            evidence_quote=evidence_quote, regenerated=True,
+                            latency_ms=gate_result.get("latency_ms"),
+                        )
                         return {"messages": [regen_response], "context_usage": context_usage}
                     except asyncio.TimeoutError as regen_te:
                         print(f"{ts_log()} [{label}] Truth Gate regen TIMED OUT, using original: {regen_te}")
                     except Exception as regen_e:
                         print(f"{ts_log()} [{label}] Truth Gate regen failed, using original: {regen_e}")
+                    # Regen failed — original response ships; still record the fire.
+                    await log_gate_event(
+                        agent_id=agent_id, channel=channel,
+                        judge_model=gate_result.get("judge_model", ""),
+                        accommodation=gate_result.get("accommodation", False),
+                        fabrication=fabrication,
+                        description=truth_desc, truth_available=truth_avail,
+                        evidence_quote=evidence_quote, regenerated=False,
+                        latency_ms=gate_result.get("latency_ms"),
+                    )
             except Exception as gate_e:
                 print(f"{ts_log()} [{label}] Truth Gate error (non-fatal): {gate_e}")
 
