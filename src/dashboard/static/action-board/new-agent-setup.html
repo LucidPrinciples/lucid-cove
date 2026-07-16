@@ -801,6 +801,13 @@ const modelProviderParam = urlParams.get('model_provider');
 let coveMode = 'single';
 fetch('/api/presence/me').then(r => r.json()).then(d => { if (d && d.cove_mode) coveMode = d.cove_mode; }).catch(() => {});
 
+// Person this Presence belongs to — from Agent Setup step 1 (?person= / ?name= / ?for=).
+// Admin Add Presence runs under the admin's session cookie; /api/presence/me is the
+// ADMIN, not the person being added. Meet + provision must use this, never me.display_name.
+function _personBeingAdded() {
+    return _titleCaseName(personParam || memberNameParam || forLabelParam || '');
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Quality mappings (for keyword extraction from step 1)
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1594,23 +1601,26 @@ async function loadTeamShowcase() {
         // top, the person as the new addition), then who's ALREADY in the Cove (excluding the
         // person joining — they're the new one, not an existing member).
         if (joining) {
-            // Who is joining (the signed-in seed) — used to exclude self + label the new card.
-            let _meHandle = '', _meName = '';
+            // Signed-in session is usually the ADMIN provisioning on someone else's
+            // behalf. Only use it to exclude that admin from "already in the Cove" —
+            // never as the person half of the new Presence pair.
+            let _meHandle = '';
             try {
                 const me = await (await fetch('/api/presence/me')).json();
                 const mp = me && me.presence;
                 _meHandle = ((mp && mp.username) || '').replace(/^@/, '').toLowerCase();
-                _meName = _titleCaseName((mp && mp.display_name) || '');
             } catch (e) { /* best-effort */ }
 
-            // The new Presence: agent (title) + the person (as the new addition).
+            // Person from step 1 (?person=), not the admin session.
+            const _personName = _personBeingAdded();
+            // The new Presence: person being added + their agent, side by side.
             const _agentName = _titleCaseName((selectedName || (document.getElementById('custom-name')?.value || '')).trim());
             if (_agentName) {
                 const _newAvatar = (agentIdentity && agentIdentity.avatar) || '';
                 // #D6: the new Presence = the person + their agent, side by side, centered.
                 html += _showcaseHead('joining now') + _showcaseCenter([
-                    _presencePairCard(_meName || 'You', '', _agentName,
-                                      'your new presence', _newAvatar),
+                    _presencePairCard(_personName || 'New member', '', _agentName,
+                                      'new presence', _newAvatar),
                 ]);
             }
 
@@ -1696,17 +1706,30 @@ async function buildReview() {
     // #2.5 — reframe the Meet header for JOINING (adding a member to an existing Cove) vs
     // FOUNDING (first run). Founding keeps the "bring this team into being" copy; a member
     // join says plainly you're adding someone to a Cove that already exists.
+    // Person = step-1 name; agent = selected agent name. Never collapse them, and never
+    // use the signed-in admin as the person (admin Add Presence runs under admin session).
     if (urlParams.get('firstrun') !== '1' && familyName) {
         const _l = document.querySelector('#step-5 .step-label');
         const _t = document.querySelector('#step-5 .step-title');
         const _d = document.querySelector('#step-5 .step-desc');
-        const _cap = _titleCaseName(name);
+        const _agentCap = _titleCaseName(name);
+        const _personCap = _personBeingAdded();
         const _admin = roleParam === 'admin';
-        if (_l) _l.textContent = _admin ? 'Join as admin' : 'Join the Cove';
-        if (_t) _t.textContent = `Meet ${_cap}`;
-        if (_d) _d.textContent = _admin
-            ? `You and ${_cap} are joining the ${familyName} Cove as an admin. You'll work with ${_cap}, Stuart, and the build team. Here's everyone already here — welcome to the family.`
-            : `You and ${_cap} are forming a Presence in the ${familyName} Cove. Here's everyone already here — welcome to the family. The moment you hit the button, ${_cap} comes online.`;
+        if (_l) _l.textContent = _admin ? 'Add as admin' : 'Add a Presence';
+        if (_t) _t.textContent = _personCap
+            ? `Meet ${_agentCap} for ${_personCap}`
+            : `Meet ${_agentCap}`;
+        if (_d) {
+            if (_personCap) {
+                _d.textContent = _admin
+                    ? `${_personCap} and ${_agentCap} are joining the ${familyName} Cove as an admin. ${_personCap} will work with ${_agentCap}, Stuart, and the build team. Here's everyone already here — welcome to the family.`
+                    : `${_personCap} and ${_agentCap} are forming a Presence in the ${familyName} Cove. Here's everyone already here — welcome to the family. The moment you hit the button, ${_agentCap} comes online for ${_personCap}.`;
+            } else {
+                _d.textContent = _admin
+                    ? `You and ${_agentCap} are joining the ${familyName} Cove as an admin. You'll work with ${_agentCap}, Stuart, and the build team. Here's everyone already here — welcome to the family.`
+                    : `You and ${_agentCap} are forming a Presence in the ${familyName} Cove. Here's everyone already here — welcome to the family. The moment you hit the button, ${_agentCap} comes online.`;
+            }
+        }
     }
 
     // Show loading, hide content
@@ -1817,14 +1840,25 @@ async function provisionAgent() {
     const name = selectedName || document.getElementById('custom-name').value.trim();
     if (!name) { alert('Choose or type a name first.'); return; }
 
+    const _isFirst = urlParams.get('firstrun') === '1';
+    const _selfJoinEarly = (urlParams.get('self') === '1') && !!urlParams.get('invite');
+    // Admin Add Presence must have the person from step 1 — do not fall through
+    // and stamp the agent name (or the admin session) as display_name.
+    if (!_isFirst && !_selfJoinEarly && coveMode === 'multi' && !_personBeingAdded()) {
+        alert('Missing the person\'s name from the first step. Go back to Agent Setup and enter who this Presence belongs to.');
+        return;
+    }
+
     const btn = document.getElementById('btn-provision');
     btn.disabled = true;
-    const _isFirst = urlParams.get('firstrun') === '1';
     const _familyName = urlParams.get('familyName');
     const _name = _titleCaseName(selectedName || document.getElementById('custom-name').value.trim());
     const _fam = _titleCaseName(_familyName || '');
+    const _personBtn = _personBeingAdded();
     btn.textContent = _isFirst ? 'Creating your Lucid Cove…'
-        : (_fam ? `Bringing ${_name} into ${_fam}…` : `Bringing ${_name} into the Cove…`);
+        : (_fam
+            ? (_personBtn ? `Bringing ${_name} in for ${_personBtn}…` : `Bringing ${_name} into ${_fam}…`)
+            : `Bringing ${_name} into the Cove…`);
 
     const statusEl = document.getElementById('provision-status');
     statusEl.style.display = 'block';
@@ -1853,9 +1887,14 @@ async function provisionAgent() {
         // otherwise the agent name would overwrite it. The member-finalize keeps the claimed
         // name when display_name is blank.
         const _selfJoin = (urlParams.get('self') === '1') && !!urlParams.get('invite');
+        // Person from step 1 only — NEVER fall back to agent `name`. That fallback stored
+        // the agent as display_name when person params were missing, and Meet already
+        // mis-paired the admin session as the person. Empty → server rejects; better than
+        // corrupting the Presence with the wrong human.
+        const _personForProvision = _personBeingAdded();
         const _body = {
             // Jules 2230: capitalize operator + agent at the root (typed "walt"/"hal").
-            display_name: _selfJoin ? '' : _titleCaseName(personParam || memberNameParam || name),
+            display_name: _selfJoin ? '' : _personForProvision,
             agent_name: _titleCaseName(name),
             handle: urlParams.get('handle') || undefined,
             email: emailParam,
@@ -1927,14 +1966,16 @@ async function provisionAgent() {
                 await _runWake(data.door || '/', false);
                 return;
             }
-            const forWhom = forLabelParam || personParam || memberNameParam || name;
+            // Person from step 1 — not agent name, not signed-in admin.
+            const forWhom = _personBeingAdded() || _titleCaseName(name);
+            const _agentReady = _titleCaseName(name);
             // Build the existing signin-link result (shown after the wake, or now
             // if there's no usable presence id to wake under).
             const resultHTML = `<div class="provision-status">
-                <h3 style="color:${fc}">${esc(name)} is ready.</h3>
-                <p>${esc(agentIdentity?.archetype || '')} · ${esc(agentIdentity?.frequency || '')} · for ${esc(forWhom)}</p>
+                <h3 style="color:${fc}">${esc(_agentReady)} is ready${forWhom && forWhom !== _agentReady ? ' for ' + esc(forWhom) : ''}.</h3>
+                <p>${esc(agentIdentity?.archetype || '')} · ${esc(agentIdentity?.frequency || '')}${forWhom && forWhom !== _agentReady ? ' · for ' + esc(forWhom) : ''}</p>
                 ${data.signin_link ? `<div style="margin-top:12px;padding:10px;background:#0e0e16;border:1px solid #24242f;border-radius:8px;font-size:0.8rem;color:${fc};word-break:break-all;">${esc(data.signin_link)}</div>
-                <p style="color:#888;font-size:0.8rem;margin-top:8px;">Share this link to open their Mission Control.${data.email_sent ? ' A copy was emailed.' : ''}</p>` : ''}
+                <p style="color:#888;font-size:0.8rem;margin-top:8px;">Share this link to open their Mission Control.${data.email_sent ? ' A copy was emailed.' : ''} For a clean test, open it in a private window (or a browser that is not already signed into this Cove).</p>` : ''}
             </div>`;
 
             // The operator brings the member's agent to life and MEETS it on the
@@ -2234,7 +2275,7 @@ async function sendWakeReply() {
                 agent_name: name,
                 question: _wakeQuestion,
                 reply: ans,
-                operator_name: _titleCaseName(personParam || memberNameParam || ''),
+                operator_name: _personBeingAdded(),
             })),
         });
         const d = await r.json();
