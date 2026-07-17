@@ -179,18 +179,9 @@ def _approve_via_api(user: str, key: str) -> dict | None:
     import urllib.request
     import urllib.parse
     _ensure_user_via_api(api_url, api_key, str(user))
-    uid = str(user)
-    if not uid.isdigit():
-        try:
-            ureq = urllib.request.Request(api_url + "/api/v1/user",
-                                          headers={"Authorization": "Bearer " + api_key})
-            with urllib.request.urlopen(ureq, timeout=15) as ur:
-                for u in (json.loads(ur.read().decode()).get("users") or []):
-                    if (u.get("name") or "") == user:
-                        uid = str(u.get("id")); break
-        except Exception:
-            pass
-    q = urllib.parse.urlencode({"user": uid, "key": key})
+    # Headscale v0.28 nodes/register expects the user NAME, not the numeric id (unlike
+    # preauthkey creation). Passing the id returns "user not found".
+    q = urllib.parse.urlencode({"user": str(user), "key": key})
     req = urllib.request.Request(api_url + "/api/v1/node/register?" + q, data=b"", method="POST",
                                  headers={"Authorization": "Bearer " + api_key,
                                           "Content-Type": "application/json"})
@@ -222,18 +213,7 @@ def approve_node(key: str, *, user: str = DEFAULT_USER, container: str = DEFAULT
     if not base:
         return {"ok": False, "reason": "Headscale not reachable here",
                 "instructions": f"On the coordinator: headscale nodes register --user {user} --key {key}"}
-    uid = str(user)
-    if not uid.isdigit():
-        try:
-            ulist = subprocess.run(base + ["users", "list", "--output", "json"],
-                                   capture_output=True, text=True, timeout=15)
-            if ulist.returncode == 0:
-                for u in (json.loads(ulist.stdout or "[]") or []):
-                    if (u.get("name") or "") == user:
-                        uid = str(u.get("id")); break
-        except Exception:
-            pass
-    cmd = base + ["nodes", "register", "--user", uid, "--key", key, "--output", "json"]
+    cmd = base + ["nodes", "register", "--user", str(user), "--key", key, "--output", "json"]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
     except Exception as e:
