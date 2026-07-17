@@ -9,7 +9,7 @@
 
 const _onboardingSteps = [
     {
-        title: "Welcome to Lucid Tuner",
+        title: "Welcome to Lucid Cove",
         body: "This is your daily tuning space. Each day, a frequency is selected based on 22 core principles. Let's walk through the basics.",
         target: null,
     },
