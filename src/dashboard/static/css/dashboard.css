@@ -171,12 +171,19 @@ body {
   overflow-y: auto;
   flex: 1;
 }
+.help-section {
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.help-section:first-child { padding-top: 0; margin-top: 0; border-top: none; }
 .help-section-title {
-  font-size: 0.6rem;
-  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--dim);
-  margin-bottom: 0.75rem;
+  color: var(--accent, #5ce1e6);
+  font-weight: 700;
+  margin-bottom: 0.6rem;
 }
 .help-glossary { margin: 0; }
 .help-glossary dt {
