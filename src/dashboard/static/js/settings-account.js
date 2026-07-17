@@ -609,6 +609,25 @@ async function loadSettingsDevices() {
             </div>
         </div>` : '';
 
+    // ── Connect a device to the mesh — ALWAYS available. A Presence's {handle}.{cove}
+    // MC is mesh-only even when the Cove has a public domain, so this must NOT be hidden
+    // on domained Coves the way the old join-code "Step 1" (showMesh) is. The proven
+    // no-terminal path, mirroring the Attention "Connect this computer" card: install the
+    // Tailscale app, point it at the coordinator, sign in, paste the /register CODE, Approve.
+    // (Chords 2026-07-17 — "connect functionality permanently in Settings near the sign-in link.") ──
+    const approveHtml = p ? `
+        <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
+            <label class="settings-label">Connect a device to your private network (mesh)</label>
+            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Put a new phone or computer on your Cove's private network so it can open your space. Install the <strong>Tailscale</strong> app, point it at <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code> — on a phone, that's the <strong>⋯ menu → “Use a custom coordination server.”</strong> Sign in, and a page opens whose address ends in <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">/register/CODE</code>. Paste that CODE here:</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+                <input type="text" id="settings-approve-input" placeholder="paste the code from the Tailscale page" autocapitalize="off" autocorrect="off" spellcheck="false" style="flex:1;min-width:0;font-size:0.72rem;padding:5px 7px;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:5px;">
+                <button class="btn-sm" style="white-space:nowrap;" onclick="approveDeviceSettings(this)">Approve this device</button>
+            </div>
+            <div id="settings-approve-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
+            <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">On <strong>Linux</strong>, or if you'd rather use a one-time join code instead, <a href="#" onclick="getSettingsConnectCmd(this);return false;" style="color:var(--accent);">show the terminal command</a>.</div>
+            <div id="settings-connect-cmd-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
+        </div>` : '';
+
     // ── Sign-in link — the ONE way in on any device. Consolidated 2026-07-17 (was two
     // identical buttons, "Add another device" + "My door link", both minting the same
     // /p/ link — which just made people grab the wrong one). Chords. ──
@@ -630,9 +649,79 @@ async function loadSettingsDevices() {
             <div id="devices-sessions" style="margin-top:6px;font-size:0.72rem;color:var(--dim);">Loading…</div>
         </div>` : '';
 
-    if (!signinHtml && !sessionsHtml && !meshHtml) { el.innerHTML = `<div style="font-size:0.7rem;color:var(--dim);">No device options for this account.</div>`; return; }
-    el.innerHTML = layersHtml + meshHtml + signinHtml + sessionsHtml;
+    if (!signinHtml && !sessionsHtml && !meshHtml && !approveHtml) { el.innerHTML = `<div style="font-size:0.7rem;color:var(--dim);">No device options for this account.</div>`; return; }
+    el.innerHTML = layersHtml + meshHtml + approveHtml + signinHtml + sessionsHtml;
     if (sessionsHtml) loadDeviceSessions();
+}
+
+// Approve THIS presence's pending Tailscale device from Settings — the no-terminal,
+// no-SSH path (POST /api/onboarding/approve-device), mirroring home.js::approveDevice
+// but with Settings-scoped element IDs so both surfaces can coexist on one page.
+async function approveDeviceSettings(btn) {
+    const inp = document.getElementById('settings-approve-input');
+    const out = document.getElementById('settings-approve-out');
+    const code = ((inp && inp.value) || '').trim();
+    if (!code) { if (out) { out.style.display = 'block'; out.style.color = 'var(--orange)'; out.textContent = 'Paste the code from the Tailscale page first.'; } return; }
+    const _label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Approving…'; }
+    try {
+        const r = await fetch('/api/onboarding/approve-device', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: code }) });
+        const d = await r.json();
+        if (out) {
+            out.style.display = 'block';
+            if (d.ok) {
+                out.style.color = 'var(--green)';
+                out.innerHTML = '✓ Approved. This device is joining your Cove now — it should connect within a few seconds.';
+                if (inp) inp.value = '';
+            } else {
+                out.style.color = 'var(--orange)';
+                out.textContent = d.reason || 'Could not approve that device. Check the code and try again.';
+            }
+        }
+    } catch (e) {
+        if (out) { out.style.display = 'block'; out.style.color = 'var(--orange)'; out.textContent = 'Could not reach the approval service.'; }
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = _label || 'Approve this device'; }
+    }
+}
+
+// Linux / terminal fallback — reveal a fresh self-registering join command
+// (/api/onboarding/mesh-key already carries --accept-dns=true). Mirrors home.js::getConnectCmd.
+async function getSettingsConnectCmd(link) {
+    const out = document.getElementById('settings-connect-cmd-out');
+    if (!out) return;
+    if (link) { link.style.pointerEvents = 'none'; link.style.opacity = '0.6'; }
+    try {
+        const r = await fetch('/api/onboarding/mesh-key');
+        const d = await r.json();
+        out.style.display = 'block';
+        const cmd = d.join_cmd || '';
+        if (d.ok && cmd) {
+            out.innerHTML = '<div style="color:var(--dim);line-height:1.6;margin-bottom:6px;">On <strong style="color:var(--text);">Linux</strong>, install then join:</div>'
+                + '<code style="display:block;padding:8px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;color:var(--text);">curl -fsSL https://tailscale.com/install.sh | sh</code>'
+                + '<button class="btn-sm" style="margin-top:4px;" onclick="_copyPrevSettings(this)">Copy</button>'
+                + '<code style="display:block;margin-top:8px;padding:8px;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;color:var(--text);">sudo ' + ESC(cmd) + '</code>'
+                + '<button class="btn-sm" style="margin-top:4px;" onclick="_copyPrevSettings(this)">Copy</button>'
+                + '<div style="color:var(--dim);margin-top:8px;font-size:0.68rem;line-height:1.5;">A fresh command each time, so it never expires. On Mac, Windows, or a phone, the app plus Approve above is simpler.</div>';
+        } else {
+            out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not get a command here.') + '</div>';
+        }
+    } catch (e) {
+        out.style.display = 'block'; out.textContent = 'Could not reach the mesh service.';
+    } finally {
+        if (link) { link.style.pointerEvents = ''; link.style.opacity = ''; }
+    }
+}
+
+function _copyPrevSettings(btn) {
+    const el = btn && btn.previousElementSibling;
+    const text = el ? el.textContent : '';
+    if (!text) return;
+    const done = () => { const t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = t; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done).catch(() => {}); }
+    else { try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); } catch (e) {} }
 }
 
 // Mint + show the operator's current working door link (batch-10 #2). Reuses the
