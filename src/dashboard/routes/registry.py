@@ -523,6 +523,40 @@ async def mint_mesh_key(request: Request):
     return res
 
 
+@router.post("/api/registry/approve-device")
+async def approve_device(request: Request):
+    """Approve a pending Tailscale device registration (the app's /register/<key> flow) for the
+    requesting Cove's OWN mesh user. Runs on the HUB (Headscale API access); same auth +
+    per-Cove namespace as /api/registry/mesh-key. Body: {key}. Returns {ok, node}."""
+    body = await request.json()
+    key = (body.get("key") or "").strip()
+    if not key:
+        raise HTTPException(400, "registration code required")
+    from src.memory.database import get_db
+    async with get_db() as conn:
+        auth = await _authorize_write(request, conn)
+        mesh_user = ""
+        if auth.get("mode") == "operator":
+            uname = (auth.get("account", {}).get("username") or "").lstrip("@").strip().lower()
+            if uname:
+                r = await conn.execute(
+                    "SELECT cove_id FROM registry_handles WHERE lower(handle) = %s", (uname,))
+                row = await r.fetchone()
+                cid = ((row or {}).get("cove_id") or "").strip() if row else ""
+                mesh_user = cid or uname
+        else:
+            mesh_user = (body.get("cove_id") or body.get("user") or "").strip()
+        mesh_user = mesh_user or "lucid"
+    try:
+        from provision.mesh import approve_node
+    except Exception as e:
+        raise HTTPException(501, f"mesh tooling unavailable: {e}")
+    res = approve_node(key, user=mesh_user)
+    if not res.get("ok"):
+        raise HTTPException(502, res.get("reason") or "could not approve the device")
+    return res
+
+
 @router.post("/api/registry/verify-operator")
 async def verify_operator(request: Request):
     """Server-to-server: validate an operator's app-account token → their @handle.

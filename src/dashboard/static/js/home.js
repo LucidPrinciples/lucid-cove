@@ -397,10 +397,23 @@ function _onboardingCardHtml(item) {
         return `<div class="home-approval onboarding-card">
             <div class="approval-tool">${title}</div>
             <div class="approval-desc" style="line-height:1.55;">${body}</div>
-            <div id="connect-cmd-out" style="display:none;margin-top:12px;font-size:0.74rem;"></div>
-            <div class="approval-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
-                <button class="btn-approve" onclick="getConnectCmd(this)">Get my connect command</button>
-                <button class="btn-ghost" onclick="ackOnboarding('connect_computer')">I'm connected</button>
+            <div style="margin-top:12px;padding:10px 12px;background:var(--card,#111);border:1px solid var(--border);border-radius:8px;font-size:0.75rem;line-height:1.65;">
+                <div style="color:var(--text);font-weight:600;margin-bottom:6px;">On a computer</div>
+                <ol style="margin:0;padding-left:1.15rem;color:var(--dim);">
+                    <li>Install the <strong style="color:var(--text);">Tailscale</strong> app: <a href="https://tailscale.com/download" target="_blank" rel="noopener" style="color:var(--accent,#7c5cff);">tailscale.com/download</a></li>
+                    <li>Open it, choose <em>Add account</em>, tap the small arrow, pick <em>Add Account Using Alternate Server</em>, enter <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">headscale.lucidcove.org</code>, then <em>Add Account</em>.</li>
+                    <li>A page opens whose web address ends in <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">/register/CODE</code>. Copy that <strong style="color:var(--text);">CODE</strong> and paste it here:</li>
+                </ol>
+                <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+                    <input id="approve-code-input" type="text" placeholder="paste the code from the page" style="flex:1;min-width:170px;font-size:0.78rem;padding:8px 10px;background:var(--bg-card,#0c0c12);color:var(--text);border:1px solid var(--border);border-radius:6px;">
+                    <button class="btn-approve" onclick="approveDevice(this)">Approve this device</button>
+                </div>
+                <div id="approve-out" style="display:none;margin-top:10px;font-size:0.78rem;line-height:1.5;"></div>
+            </div>
+            <div style="margin-top:12px;padding-top:8px;border-top:1px dashed var(--border);">
+                <button class="btn-ghost" style="font-size:0.7rem;" onclick="getConnectCmd(this)">On Linux, or prefer the terminal? Show the command</button>
+                <div id="connect-cmd-out" style="display:none;margin-top:10px;font-size:0.74rem;"></div>
+                <div style="margin-top:8px;"><button class="btn-ghost" style="font-size:0.68rem;" onclick="ackOnboarding('connect_computer')">I'm connected — dismiss</button></div>
             </div>
         </div>`;
     }
@@ -724,9 +737,40 @@ async function runBackupNow(btn) {
     }
 }
 
+async function approveDevice(btn) {
+    // Approve THIS presence's pending Tailscale device through the Cove (headscale API) — the
+    // no-terminal, no-SSH path. The person pastes the code from the app's /register page.
+    const inp = document.getElementById('approve-code-input');
+    const out = document.getElementById('approve-out');
+    const code = ((inp && inp.value) || '').trim();
+    if (!code) { if (out) { out.style.display = 'block'; out.style.color = 'var(--orange)'; out.textContent = 'Paste the code from the Tailscale page first.'; } return; }
+    const _label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Approving…'; }
+    try {
+        const r = await fetch('/api/onboarding/approve-device', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: code }) });
+        const d = await r.json();
+        if (out) {
+            out.style.display = 'block';
+            if (d.ok) {
+                out.style.color = 'var(--green)';
+                out.innerHTML = '✓ Approved. This device is joining your Cove now — it should connect within a few seconds. Then open your Cove and you are in.';
+            } else {
+                out.style.color = 'var(--orange)';
+                out.textContent = d.reason || 'Could not approve that device. Check the code and try again.';
+            }
+        }
+    } catch (e) {
+        if (out) { out.style.display = 'block'; out.style.color = 'var(--orange)'; out.textContent = 'Could not reach the approval service.'; }
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = _label || 'Approve this device'; }
+    }
+}
+
 async function getConnectCmd(btn) {
-    // Invited-presence connect step: fetch a FRESH mesh join command each click
-    // (/api/onboarding/mesh-key already carries --accept-dns=true), so it never expires.
+    // Terminal / Linux option: fetch a FRESH mesh join command (the auth key self-registers,
+    // no approval). /api/onboarding/mesh-key already carries --accept-dns=true.
     const out = document.getElementById('connect-cmd-out');
     const _label = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
@@ -737,34 +781,30 @@ async function getConnectCmd(btn) {
             out.style.display = 'block';
             const cmd = d.join_cmd || '';
             if (d.ok && cmd) {
-                out.innerHTML = '<div style="color:var(--text);font-weight:600;margin-bottom:6px;">Connect this computer</div>'
-                    + '<div style="color:var(--dim);margin-bottom:6px;line-height:1.6;">Open the <strong style="color:var(--text);">Terminal</strong> app on this computer, paste the line below, and press return:</div>'
-                    + '<code id="connect-cmd-code" style="display:block;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.78rem;color:var(--text);">'
-                    + ESC(cmd) + '</code>'
-                    + '<button class="btn" style="margin-top:8px;" onclick="_copyConnectCmd(this)">Copy command</button>'
-                    + '<div style="color:var(--dim);margin-top:8px;line-height:1.5;">A fresh command is generated every time you tap the button, so it never expires. On a phone, use the Tailscale app instead (ask your agent).</div>';
+                out.innerHTML = '<div style="color:var(--dim);line-height:1.6;margin-bottom:6px;">On <strong style="color:var(--text);">Linux</strong>, install then join:</div>'
+                    + '<code style="display:block;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;color:var(--text);">curl -fsSL https://tailscale.com/install.sh | sh</code>'
+                    + '<button class="btn" style="margin-top:4px;font-size:0.68rem;padding:3px 9px;" onclick="_copyPrev(this)">Copy</button>'
+                    + '<code style="display:block;margin-top:8px;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;color:var(--text);">sudo ' + ESC(cmd) + '</code>'
+                    + '<button class="btn" style="margin-top:4px;font-size:0.68rem;padding:3px 9px;" onclick="_copyPrev(this)">Copy</button>'
+                    + '<div style="color:var(--dim);margin-top:8px;font-size:0.68rem;line-height:1.5;">A fresh command each time, so it never expires. On Mac or Windows the app plus Approve above is simpler.</div>';
             } else {
-                out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not get a connect command here.') + '</div>'
-                    + (d.instructions ? '<div style="color:var(--dim);margin-top:4px;">' + ESC(d.instructions) + '</div>' : '');
+                out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not get a command here.') + '</div>';
             }
         }
     } catch (e) {
         if (out) { out.style.display = 'block'; out.textContent = 'Could not reach the mesh service.'; }
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = _label || 'Get my connect command'; }
+        if (btn) { btn.disabled = false; btn.textContent = _label || 'Show the command'; }
     }
 }
 
-function _copyConnectCmd(btn) {
-    const el = document.getElementById('connect-cmd-code');
+function _copyPrev(btn) {
+    const el = btn && btn.previousElementSibling;
     const text = el ? el.textContent : '';
     if (!text) return;
-    const done = () => { if (btn) { const t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = t; }, 1600); } };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done).catch(() => {});
-    } else {
-        try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); } catch (e) {}
-    }
+    const done = () => { const t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = t; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done).catch(() => {}); }
+    else { try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); } catch (e) {} }
 }
 
 async function getMeshKey(btn) {
