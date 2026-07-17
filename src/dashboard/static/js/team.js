@@ -278,6 +278,47 @@ function directoryCard(agent) {
     </div>`;
 }
 
+// #MESH1 — presence MC doors ({handle}.{cove}) are mesh-only. Gate Open MC only
+// when the VIEWER is that Presence and they have not finished "Connect this
+// computer". Admins opening someone else's door stay unblocked (they're on-mesh).
+function _isSelfMember(member) {
+    try {
+        const me = (typeof MC !== 'undefined' && MC.presence) || {};
+        const myHandle = String(me.username || me.handle || '').replace(/^@/, '').toLowerCase();
+        const myId = String(me.id || '');
+        const h = String((member && member.username) || '').replace(/^@/, '').toLowerCase();
+        const id = String((member && member.id) || '');
+        return (!!myHandle && myHandle === h) || (!!myId && myId === id);
+    } catch (e) { return false; }
+}
+function _selfNeedsMesh(member) {
+    if (!_isSelfMember(member)) return false;
+    // Prefer live /api/presence/me flag when present; fall back to family payload.
+    try {
+        const me = (typeof MC !== 'undefined' && MC.presence) || {};
+        if (Object.prototype.hasOwnProperty.call(me, 'mesh_connected')) {
+            return me.mesh_connected === false || me.mesh_connected === 0;
+        }
+    } catch (e) {}
+    return member && (member.mesh_connected === false || member.mesh_connected === 0);
+}
+function meshMcAction(member, label) {
+    const mcUrl = member && member.mc_url;
+    if (!mcUrl) return '';
+    if (_selfNeedsMesh(member)) {
+        return `<button onclick="event.stopPropagation(); if (typeof switchTab === 'function') switchTab('home'); else location.hash = '#home';" style="margin-top:6px;font-size:0.62rem;padding:2px 8px;background:transparent;border:1px solid var(--orange,#e67e22);border-radius:4px;color:var(--orange,#e67e22);cursor:pointer;" title="Connect this computer to the mesh first — personal MC is mesh-only">Connect mesh first →</button>`;
+    }
+    return `<button onclick="event.stopPropagation(); window.open('${esc(mcUrl)}', '_blank')" style="margin-top:6px;font-size:0.62rem;padding:2px 8px;background:transparent;border:1px solid var(--accent);border-radius:4px;color:var(--accent);cursor:pointer;" title="Open ${esc(member.username || '')} door (sign in as this Presence)">${label || 'Open MC ↗'}</button>`;
+}
+function meshMcLaunchBtn(member, label) {
+    const mcUrl = member && member.mc_url;
+    if (!mcUrl) return '';
+    if (_selfNeedsMesh(member)) {
+        return `<button class="btn btn-action" onclick="if (typeof switchTab === 'function') switchTab('home'); else location.hash = '#home';" style="margin-top:12px;width:100%;border-color:var(--orange,#e67e22);color:var(--orange,#e67e22);">Connect this computer first →</button>`;
+    }
+    return `<button class="btn btn-action" onclick="window.open('${esc(mcUrl)}', '_blank')" style="margin-top:12px;width:100%;">${label}</button>`;
+}
+
 function familyPair(member) {
     const admin    = (typeof _teamViewMode === 'function') && _teamViewMode() === 'admin';
     const pa       = member.personal_agent || null;
@@ -329,7 +370,7 @@ function familyPair(member) {
                 </div>
             </div>
             ${member.focus ? `<div style="font-size:0.7rem;color:var(--dim);margin-top:4px;line-height:1.4;">${esc(member.focus)}</div>` : ''}
-            ${member.mc_url ? `<button onclick="event.stopPropagation(); window.open('${esc(member.mc_url)}', '_blank')" style="margin-top:6px;font-size:0.62rem;padding:2px 8px;background:transparent;border:1px solid var(--accent);border-radius:4px;color:var(--accent);cursor:pointer;" title="Open ${esc(member.username || '')} door (sign in as this Presence)">Open MC ↗</button>` : ''}
+            ${meshMcAction(member, 'Open MC ↗')}
             ${admin && member.is_presence ? `<button onclick="event.stopPropagation(); setPresenceRole('${esc(member.id)}','${member.cove_role === 'admin' ? 'member' : 'admin'}')" style="margin-top:6px;font-size:0.62rem;padding:2px 8px;background:transparent;border:1px solid var(--dim);border-radius:4px;color:var(--dim);cursor:pointer;">${member.cove_role === 'admin' ? 'Make member' : 'Make admin'}</button>` : ''}
         </div>
         <div class="family-pair-connector">⟷</div>
@@ -448,9 +489,7 @@ async function showFamilyMemberDetail(memberId) {
         if (pa && pa.name) {
             const paStatus = pa.status || 'planned';
             const isPaLive = paStatus === 'active';
-            const launchBtn = (isPaLive && member.mc_url)
-                ? `<button class="btn btn-action" onclick="window.open('${esc(member.mc_url)}', '_blank')" style="margin-top:12px;width:100%;">Launch ${esc(pa.name)} MC →</button>`
-                : '';
+            const launchBtn = isPaLive ? meshMcLaunchBtn(member, `Launch ${esc(pa.name)} MC →`) : '';
             agentEl.innerHTML = `
                 <div class="agp-stat-row"><span class="agp-stat-label">Name</span><span>${esc(pa.name)}</span></div>
                 <div class="agp-stat-row"><span class="agp-stat-label">Archetype</span><span>${esc(pa.archetype || '')}</span></div>
@@ -539,9 +578,7 @@ async function showPersonalAgentPreview(memberId) {
             : `Personal agent for ${member.display_name || member.name} · Container pending deployment at port ${member.mc_port || '—'}`;
         focusEl.style.display = '';
 
-        const launchBtn = (isPaLive && member.mc_url)
-            ? `<button class="btn btn-action" onclick="window.open('${esc(member.mc_url)}', '_blank')" style="margin-top:12px;width:100%;">Launch Mission Control →</button>`
-            : '';
+        const launchBtn = isPaLive ? meshMcLaunchBtn(member, 'Launch Mission Control →') : '';
 
         document.getElementById('hmp-agent-only').innerHTML = `
             <div class="agp-stat-row"><span class="agp-stat-label">Status</span><span>${statusDotHTML(paStatus)} ${esc(paStatus)}</span></div>

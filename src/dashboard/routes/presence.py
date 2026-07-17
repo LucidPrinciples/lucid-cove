@@ -548,6 +548,23 @@ async def presence_me(request: Request):
     uname = presence.get("username") or ""
     _needs_username = bool(re.match(r'^.+-[0-9a-f]{4}$', uname))
 
+    # #MESH1 — personal MC subdomains are mesh-only. Invitees who have not
+    # finished "Connect this computer" still reach the Cove root via the tunnel;
+    # their {handle}.{cove} door only works after mesh join. UI gates Open MC on this.
+    _ac = presence.get("agent_config") or {}
+    if isinstance(_ac, str):
+        try:
+            import json as _json
+            _ac = _json.loads(_ac) or {}
+        except Exception:
+            _ac = {}
+    if not isinstance(_ac, dict):
+        _ac = {}
+    _mesh_ack = _ac.get("onboarding_mesh_ack")
+    # Explicit False only when the invitee card is still outstanding.
+    # Missing key → assume connected (founder/legacy host already on mesh).
+    _mesh_connected = True if _mesh_ack is None else bool(_mesh_ack)
+
     return {
         "cove_mode": "multi",
         "authenticated": True,
@@ -570,6 +587,7 @@ async def presence_me(request: Request):
             "has_cloud": bool(presence.get("nc_username")),
             "timezone": presence.get("timezone"),
             "agent_identity": presence.get("agent_identity") or {},
+            "mesh_connected": _mesh_connected,
             "created_at": presence["created_at"].isoformat() if presence.get("created_at") else None,
         },
         "cove": {

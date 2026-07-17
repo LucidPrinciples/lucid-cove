@@ -40,7 +40,7 @@ join code**, good for ~1 hour).
 1. Install Tailscale: https://tailscale.com/download
 2. Run:
    ```bash
-   tailscale up --login-server https://headscale.lucidcove.org --authkey <JOIN-CODE>
+   tailscale up --login-server https://headscale.lucidcove.org --authkey <JOIN-CODE> --accept-dns=true
    ```
 3. Open your Cove: `https://yourcove.lucidcove.org`
 
@@ -110,6 +110,38 @@ curl -vI https://yourcove.lucidcove.org/
 
 That is expected on first open, not a dead address. The product UI warns on the sign-on
 door for the same reason.
+
+
+
+## Family node durability (do not silently expire)
+
+Join **codes** expire (~1 hour, single-use) — that is intentional. **Devices that have
+already joined** should not silently drop off the mesh and force a re-auth.
+
+Headscale defaults can age out unused node keys. For a family Cove we want durable
+nodes:
+
+1. Prefer non-ephemeral pre-auth keys when minting device joins (`ephemeral: false` —
+   already the path in `provision/mesh.py` for both the HTTP API and CLI mint).
+2. On the coordinator, keep family nodes from expiring. With Headscale CLI (on the
+   VPS that runs the `headscale` container), list nodes and disable key expiry for
+   each family device after first join:
+
+   ```bash
+   docker exec headscale headscale nodes list
+   docker exec headscale headscale nodes expire --identifier <NODE_ID> --expiry 0
+   # If your Headscale version uses a different flag, use the equivalent
+   # "disable key expiry" / "set expiry far in the future" command from
+   # `headscale nodes --help` for that version.
+   ```
+
+3. Document for operators: if a device that used to work suddenly cannot resolve
+   `*.lucidcove.org` mesh names, check `tailscale status` first. If the node is gone
+   from the coordinator, mint a fresh join code from the Cove (**Connect this
+   computer** / Settings → Devices) and re-join with `--accept-dns=true`.
+
+Product path still mints short-lived **join codes** only; durability is about the
+**registered node**, not the one-time key.
 
 ## Disconnect / troubleshoot
 - A join code is single-use and expires (~1 hour) — generate a new one anytime from your Cove.

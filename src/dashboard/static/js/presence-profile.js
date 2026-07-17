@@ -233,9 +233,26 @@
     // subdomain itself is CF-90 (mesh-first).
     const _dom = (typeof MC !== 'undefined' && MC.config && MC.config.domain) || '';
     const _onDomain = _dom && location.host.endsWith(_dom);
-    const mcHref = !p.handle ? '' : (_onDomain
-      ? location.protocol + '//' + p.handle + '.' + _dom
-      : location.origin + '/?as=' + encodeURIComponent(p.handle));
+    // #MESH1: personal MC is mesh-only. Gate Open MC only on YOUR profile when
+    // you have not finished Connect-this-computer (avoid dead subdomain).
+    let _meshOk = true;
+    try {
+      const me = (typeof MC !== 'undefined' && MC.presence) || {};
+      const myHandle = String(me.username || me.handle || MY_HANDLE || '').replace(/^@/, '').toLowerCase();
+      const isSelf = myHandle && String(p.handle || '').replace(/^@/, '').toLowerCase() === myHandle;
+      if (isSelf && Object.prototype.hasOwnProperty.call(me, 'mesh_connected')) {
+        _meshOk = !(me.mesh_connected === false || me.mesh_connected === 0);
+      } else if (isSelf && Object.prototype.hasOwnProperty.call(p, 'mesh_connected')) {
+        _meshOk = !(p.mesh_connected === false || p.mesh_connected === 0);
+      }
+    } catch (e) { _meshOk = true; }
+    const mcHref = !p.handle ? '' : (!_meshOk
+      ? ''
+      : (_onDomain
+        ? location.protocol + '//' + p.handle + '.' + _dom
+        : location.origin + '/?as=' + encodeURIComponent(p.handle)));
+    const meshGateBtn = (!p.handle || _meshOk) ? ''
+      : `<button class="pp-edit-btn" id="pp-mesh-gate" title="Personal MC is mesh-only — connect this computer first">Connect mesh first</button>`;
     const agentFacets = [
       ag.archetype ? `<div class="pp-facet"><b>Archetype</b><span>${esc(ag.archetype)}</span></div>` : '',
       ag.frequency ? `<div class="pp-facet"><b>Frequency</b><span>${esc(ag.frequency)}</span></div>` : '',
@@ -244,7 +261,7 @@
     panel.innerHTML = `
       <div class="pp-banner">
         <div class="pp-controls">
-          ${mcHref ? `<a class="pp-edit-btn" style="text-decoration:none" href="${esc(mcHref)}" target="_blank" rel="noopener" title="Open ${esc(op.name || p.handle)}'s Mission Control">Open MC &#8599;</a>` : ''}
+          ${mcHref ? `<a class="pp-edit-btn" style="text-decoration:none" href="${esc(mcHref)}" target="_blank" rel="noopener" title="Open ${esc(op.name || p.handle)}'s Mission Control">Open MC &#8599;</a>` : meshGateBtn}
           ${canEdit ? '<button class="pp-edit-btn" id="pp-edit">Edit</button>' : ''}
           <button class="pp-x" title="Close">&times;</button>
         </div>
@@ -276,6 +293,12 @@
       </div>
       <div class="pp-offers"><div class="pp-offers-h">Offerings</div>${offersHTML(p.offerings)}</div>`;
     panel.querySelector('.pp-x').onclick = () => root.remove();
+    const meshGate = panel.querySelector('#pp-mesh-gate');
+    if (meshGate) meshGate.onclick = () => {
+      root.remove();
+      if (typeof switchTab === 'function') switchTab('home');
+      else location.hash = '#home';
+    };
     const eb = panel.querySelector('#pp-edit');
     if (eb) eb.onclick = () => startEdit(root, p);
     panel.querySelectorAll('[data-pp-tier]').forEach(b => b.onclick = () => buyTier(parseInt(b.dataset.ppTier, 10), b));

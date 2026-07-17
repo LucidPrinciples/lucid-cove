@@ -410,6 +410,14 @@ function _onboardingCardHtml(item) {
                 </div>
                 <div id="approve-out" style="display:none;margin-top:10px;font-size:0.78rem;line-height:1.5;"></div>
             </div>
+            <div style="margin-top:12px;padding:10px 12px;background:var(--card,#111);border:1px solid var(--border);border-radius:8px;font-size:0.72rem;line-height:1.55;color:var(--dim);">
+                <strong style="color:var(--text);">Why this step matters.</strong>
+                Chat on the Cove root works off-mesh via the tunnel. Your personal Mission Control
+                (<code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">you.yourcove…</code>)
+                is mesh-only on purpose — nothing public. Until this computer is connected,
+                <em>Open MC</em> sends you here instead of a dead link. After join, give it a
+                minute if chat or names are still catching up (relay before direct is normal).
+            </div>
             <div style="margin-top:12px;padding-top:8px;border-top:1px dashed var(--border);">
                 <button class="btn-ghost" style="font-size:0.7rem;" onclick="getConnectCmd(this)">On Linux, or prefer the terminal? Show the command</button>
                 <div id="connect-cmd-out" style="display:none;margin-top:10px;font-size:0.74rem;"></div>
