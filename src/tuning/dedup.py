@@ -35,9 +35,14 @@ async def tuned_for_package(
     principle: str = "",
     tuning_key: str = "",
 ) -> set:
-    """Agent ids that already have an echo for this Drop identity.
+    """Agent ids that already tuned to THIS Drop, in the current cycle.
 
-    No calendar. Match on package fields only.
+    Match on package identity (freq/principle/key) AND a recency window. The
+    22-frequency Drop REPEATS (~3-week cycle), so identity-only matching falsely
+    dedups an agent that tuned to this same Drop a cycle ago — established agents
+    then never re-tune when a frequency comes back around, while brand-new
+    presences (no prior cycle) tune. The 20h window means "this cycle's tune",
+    not "ever", without the midnight/timezone fragility of a calendar-day match.
     """
     freq = (freq or "").strip()
     principle = (principle or "").strip()
@@ -52,30 +57,30 @@ async def tuned_for_package(
         if key and freq and principle:
             r = await conn.execute(
                 "SELECT DISTINCT agent_id FROM echoes "
-                "WHERE frequency = %s AND principle = %s AND tuning_key = %s",
+                "WHERE frequency = %s AND principle = %s AND tuning_key = %s AND created_at > NOW() - INTERVAL '20 hours'",
                 (freq, principle, key),
             )
         elif key and freq:
             r = await conn.execute(
                 "SELECT DISTINCT agent_id FROM echoes "
-                "WHERE frequency = %s AND tuning_key = %s",
+                "WHERE frequency = %s AND tuning_key = %s AND created_at > NOW() - INTERVAL '20 hours'",
                 (freq, key),
             )
         elif key:
             # Key alone is the Drop phrase — strongest single field when present.
             r = await conn.execute(
-                "SELECT DISTINCT agent_id FROM echoes WHERE tuning_key = %s",
+                "SELECT DISTINCT agent_id FROM echoes WHERE tuning_key = %s AND created_at > NOW() - INTERVAL '20 hours'",
                 (key,),
             )
         elif freq and principle:
             r = await conn.execute(
                 "SELECT DISTINCT agent_id FROM echoes "
-                "WHERE frequency = %s AND principle = %s",
+                "WHERE frequency = %s AND principle = %s AND created_at > NOW() - INTERVAL '20 hours'",
                 (freq, principle),
             )
         else:
             r = await conn.execute(
-                "SELECT DISTINCT agent_id FROM echoes WHERE frequency = %s",
+                "SELECT DISTINCT agent_id FROM echoes WHERE frequency = %s AND created_at > NOW() - INTERVAL '20 hours'",
                 (freq,),
             )
         return {row["agent_id"] for row in await r.fetchall()}
