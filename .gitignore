@@ -27,3 +27,9 @@ data/scratch/
 
 # OS
 .DS_Store
+
+# Per-instance / provisioner-generated — never track
+/out/
+/_to_delete/
+cove.config.yaml
+*.patch
