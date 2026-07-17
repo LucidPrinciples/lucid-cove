@@ -258,6 +258,30 @@ def plan_hops(
     allow_cloud_middle: bool = True,
 ) -> HopPlan:
     """Build ordered hop chain from assignments + score + what's runnable."""
+    # === EMERGENCY OVERRIDE (jules 2026-07-17) ===
+    # The admin "force all chat to this model" override was checked only in
+    # plan_for_agent(), but the LIVE chat path (channels.py) and invoke_with_fallback
+    # (provider.py) call plan_hops() DIRECTLY — so the override was silently bypassed
+    # and setting it did nothing (Stuart kept local-first routing to qwen/kimi despite
+    # a Grok override). Check it HERE, the shared entry point every path uses, so a set
+    # override truly forces the model. Same shape as plan_for_agent's check.
+    try:
+        from src.config import get_model_override, load_models_registry as _lmr
+        _override = get_model_override()
+        if _override:
+            _valid_ids = {m.get("id") for m in _lmr() if m.get("id")}
+            if _override in _valid_ids:
+                return HopPlan(
+                    first_id=_override,
+                    chain=[_override],
+                    score=ScoreResult(score=0, reasons=["admin_override"], role="", bias=""),
+                    mode="override",
+                    detail=f"admin_override:{_override}",
+                )
+            print(f"[router] WARNING: invalid model_override '{_override}' — ignoring")
+    except Exception as _ovr_e:
+        print(f"[router] override check skipped: {_ovr_e}")
+
     sc = score or score_turn(
         agent_id=agent_id,
         message_text=message_text,
