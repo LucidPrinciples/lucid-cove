@@ -576,11 +576,16 @@ async function loadSettingsDevices() {
     const p = MC.presence;
     const hasAgent = !!(MC.config && MC.config.has_personal_agent)
         || !!(MC.tier && (MC.tier.has_agent || MC.tier.level >= 20));
+    // Mesh (Tailscale) is only a prerequisite on a LAN-only self-host — a phone can't
+    // reach the box without it. When the Cove has a PUBLIC address (Cloudflare tunnel),
+    // the sign-in link alone works, so hide the mesh detour entirely. (Chords 2026-07-17:
+    // the mesh "Step 1" was steering family toward Tailscale they don't need.)
+    const showMesh = hasAgent && !(MC.config && MC.config.domain);
 
     // ── B12: the two layers, up front. A phone needs BOTH, in order: the join code puts
     // the DEVICE on the mesh (network); the sign-in link signs the PERSON into the Cove
     // (identity). Only show the framing when this account actually has both controls. ──
-    const layersHtml = (p && hasAgent) ? `
+    const layersHtml = (p && showMesh) ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);font-size:0.7rem;color:var(--dim);line-height:1.55;">
             <strong style="color:var(--text);">Two layers, in order:</strong>
             a <strong style="color:var(--text);">join code</strong> puts a <em>device</em> on your Cove's private network (the mesh) so it can reach the box; a
@@ -590,7 +595,7 @@ async function loadSettingsDevices() {
     // ── Mesh join code FIRST — it's the prerequisite (a phone can't use a sign-in
     // link until it can reach the box). Chords, run-3 T5 note, 2026-07-04. Only
     // meaningful on a self-hosted Cove; hosted Operators don't run a box. ──
-    const meshHtml = hasAgent ? `
+    const meshHtml = showMesh ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
             <label class="settings-label">Step 1 — Connect a device to your private network (mesh)</label>
             <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">A <strong>join code</strong> puts a device (laptop, server, or phone) on your Cove's mesh so it can reach the box. This is the network layer — the phone then needs a sign-in link (below) to open as you.</div>
@@ -604,27 +609,19 @@ async function loadSettingsDevices() {
             </div>
         </div>` : '';
 
-    // ── Sign-in link — multi-Presence accounts can add a phone/laptop/tablet ──
+    // ── Sign-in link — the ONE way in on any device. Consolidated 2026-07-17 (was two
+    // identical buttons, "Add another device" + "My door link", both minting the same
+    // /p/ link — which just made people grab the wrong one). Chords. ──
     const signinHtml = p ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
-            <label class="settings-label">${hasAgent ? 'Step 2 — ' : ''}Add another device (identity)</label>
-            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">A personal <strong>sign-in link</strong> signs <em>you</em> into the Cove on a phone or another browser — your files and agent. Your current sessions stay signed in.${hasAgent ? ' (On a phone, put it on the mesh first, above.)' : ''}</div>
-            <button class="btn-sm" onclick="createSigninLink(this)">Create sign-in link</button>
+            <label class="settings-label">${showMesh ? 'Step 2 — ' : ''}Sign-in link</label>
+            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Your personal link into the Cove. Open it on any device — a phone, a laptop, another browser — to sign in as you, or bookmark it as your own way back in. It's minted fresh each time so it's always current; your other signed-in devices stay signed in.${showMesh ? ' (On a phone, put it on the mesh first, above.)' : ''}</div>
+            <button class="btn-sm" onclick="createSigninLink(this)">Get my sign-in link</button>
             <div id="signin-link-out" style="display:none;margin-top:8px;"></div>
         </div>` : '';
 
-    // ── My door link — batch-10 #2. The operator's own signed-in link to their Cove.
-    // `/p/` tokens are stored hashed only, so we can't read the current raw token back;
-    // this row MINTS a fresh working link from the live token store on demand (old links
-    // stay valid — sessions are never invalidated). This is the reliable door that the
-    // done-cards used to try to build from the stale cove.yaml token (and 401 on). ──
-    const doorHtml = p ? `
-        <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
-            <label class="settings-label">My door link</label>
-            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Your personal signed-in link to this Cove. Bookmark it, or open it on another browser to sign in as you. Always current — it's minted fresh from your Cove, not a stored link that can go stale.</div>
-            <button class="btn-sm" onclick="showMyDoorLink(this)">Show my door link</button>
-            <div id="my-door-out" style="display:none;margin-top:8px;"></div>
-        </div>` : '';
+    // ── "My door link" REMOVED 2026-07-17 — it was a duplicate of the Sign-in link
+    // above (identical regenerate-link call), and the two names made people pick wrong. ──
 
     // ── Active sessions — every signed-in device, with revoke (not this one) ──
     const sessionsHtml = p ? `
@@ -633,8 +630,8 @@ async function loadSettingsDevices() {
             <div id="devices-sessions" style="margin-top:6px;font-size:0.72rem;color:var(--dim);">Loading…</div>
         </div>` : '';
 
-    if (!signinHtml && !sessionsHtml && !meshHtml && !doorHtml) { el.innerHTML = `<div style="font-size:0.7rem;color:var(--dim);">No device options for this account.</div>`; return; }
-    el.innerHTML = layersHtml + meshHtml + doorHtml + signinHtml + sessionsHtml;
+    if (!signinHtml && !sessionsHtml && !meshHtml) { el.innerHTML = `<div style="font-size:0.7rem;color:var(--dim);">No device options for this account.</div>`; return; }
+    el.innerHTML = layersHtml + meshHtml + signinHtml + sessionsHtml;
     if (sessionsHtml) loadDeviceSessions();
 }
 
