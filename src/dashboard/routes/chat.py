@@ -645,6 +645,18 @@ async def send_message(request: Request):
     if _byok_provider and (_is_steward_channel(ch) or _is_merchant_channel(ch)):
         _byok_provider = _byok_key = ""
         _byok_model = ""
+    # jules 2026-07-17: an active emergency model override must win over presence BYOK
+    # too. Managers already skip BYOK (above), so Stuart honored the override — but a
+    # presence's OWN connected model (Atlas, Knight, family agents) bypassed it, since
+    # BYOK is applied request-scoped and skips the router. When an override is in force,
+    # clear BYOK here so plan_hops' override applies to EVERY chat, presences included.
+    try:
+        from src.config import get_model_override as _gmo
+        if _byok_provider and _gmo():
+            _byok_provider = _byok_key = ""
+            _byok_model = ""
+    except Exception:
+        pass
 
     if not user_message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
