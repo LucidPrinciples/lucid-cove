@@ -40,6 +40,31 @@ def _agent_config(p: dict) -> dict:
     return ac if isinstance(ac, dict) else {}
 
 
+def _connect_computer_steps(ac: dict) -> list:
+    """An invited / non-founder Presence gets ONE onboarding card: connect THIS computer
+    to the Cove's private mesh so their (mesh-only) MC opens from anywhere. Cleared once
+    they mark it done (onboarding_mesh_ack). The join command is fetched fresh per click
+    (/api/onboarding/mesh-key, which already carries --accept-dns=true), so it never expires."""
+    if bool((ac or {}).get("onboarding_mesh_ack")):
+        return []
+    return [{
+        "id": "connect_computer",
+        "title": "Connect this computer",
+        "unlocks": "Reach your private space from any device",
+        "done": False,
+        "available": True,
+        "body": ("Your private space lives on your Cove's private network (the mesh). Connect "
+                 "this computer to it with one command and it opens for you from anywhere, with "
+                 "nothing exposed to the public internet. Tap below for your connect command."),
+    }]
+
+
+def _invitee_result(ac: dict) -> dict:
+    _cc = _connect_computer_steps(ac)
+    return {"steps": _cc, "items": _cc, "done_count": 0,
+            "total": len(_cc), "complete": len(_cc) == 0}
+
+
 @router.get("/api/onboarding/items")
 async def onboarding_items(request: Request):
     """The first-run cards still pending for the current operator."""
@@ -60,8 +85,7 @@ async def onboarding_items(request: Request):
     # model and land in Chat with their agent. Showing "Add intelligence" + a locked
     # chain on Attention is pure confusion (install-pass 2026-07-15).
     if not is_admin:
-        return {"steps": [], "items": [], "done_count": 0,
-                "total": 0, "complete": True}
+        return _invitee_result(ac)
 
     # JOINER GATE (any non-founder admin): role may be admin, but founding is a
     # single account — the earliest admin row (seed that finalize filled). Two paths
@@ -77,8 +101,7 @@ async def onboarding_items(request: Request):
                 "SELECT 1 FROM presence_invites WHERE consumed_by = %s LIMIT 1",
                 (_uuid.UUID(str(p["id"])),))
             if await _r.fetchone():
-                return {"steps": [], "items": [], "done_count": 0,
-                        "total": 0, "complete": True}
+                return _invitee_result(ac)
             # Earliest admin = founder. Any later admin (Add Presence as admin) is a joiner.
             _r2 = await _conn.execute(
                 """SELECT id FROM accounts
@@ -87,8 +110,7 @@ async def onboarding_items(request: Request):
                    LIMIT 1""")
             _founder = await _r2.fetchone()
             if _founder and str(_founder["id"]) != str(p["id"]):
-                return {"steps": [], "items": [], "done_count": 0,
-                        "total": 0, "complete": True}
+                return _invitee_result(ac)
     except Exception:
         pass
 
@@ -402,7 +424,7 @@ async def onboarding_ack(request: Request):
     body = await request.json()
     item = (body.get("item") or "").strip()
     ac = dict(_agent_config(p))
-    if item in ("device_jules", "join_mesh"):
+    if item in ("device_jules", "join_mesh", "connect_computer"):
         ac["onboarding_mesh_ack"] = True
         ac["onboarding_jules_ack"] = True
     elif item == "jules_intro":

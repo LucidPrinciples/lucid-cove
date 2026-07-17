@@ -893,6 +893,16 @@ async def _create_presence_record(
     """
     agent_config = agent_config or {}
     agent_identity = agent_identity or {}
+    # Every ADDED / provisioned Presence (the founder is seeded elsewhere) gets pointed to
+    # the "Connect this computer" step on their Attention page, so whatever device they are
+    # on can join the Cove mesh and reach their (mesh-only) MC. Idempotent — the invite path
+    # may have already appended it.
+    _connect_ptr = (" One thing to do first: open your Attention page and tap "
+                    "\"Connect this computer\". That puts this machine on your Cove's "
+                    "private network so your space opens from anywhere.")
+    _cur_fm = (agent_identity.get("first_message") or "").rstrip()
+    if _connect_ptr.strip() not in _cur_fm:
+        agent_identity["first_message"] = (_cur_fm + _connect_ptr) if _cur_fm else _connect_ptr.strip()
     # Belt-and-suspenders: normalize the operator-supplied names server-side too, so a
     # direct API call or stale cached JS can't store junk (idempotent on names the
     # client already cleaned).

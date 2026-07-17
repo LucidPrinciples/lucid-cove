@@ -345,8 +345,11 @@ async def complete_invite(token: str, request: Request):
     # to show them around. The agent IS the orientation, in Chat, in its own words.
     _tour = (" Want me to walk you through where everything is?" if inv["role"] == "admin"
              else " Want me to show you around?")
+    _connect = (" One thing to do first: open your Attention page and tap "
+                "\"Connect this computer\". That puts this machine on your Cove's "
+                "private network so your space opens from anywhere.")
     _fm = (agent_identity.get("first_message") or "").rstrip()
-    agent_identity["first_message"] = (_fm + _tour) if _fm else _tour.strip()
+    agent_identity["first_message"] = ((_fm + _tour) if _fm else _tour.strip()) + _connect
 
     # last_name = the live Cove name (the agent's full name is "{agent} {Cove}").
     _cove = load_cove_config()
