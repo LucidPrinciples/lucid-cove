@@ -393,6 +393,17 @@ function openOnboardingHelp() {
 
 function _onboardingCardHtml(item) {
     const title = ESC(item.title || ''), body = ESC(item.body || '');
+    if (item.id === 'connect_computer') {
+        return `<div class="home-approval onboarding-card">
+            <div class="approval-tool">${title}</div>
+            <div class="approval-desc" style="line-height:1.55;">${body}</div>
+            <div id="connect-cmd-out" style="display:none;margin-top:12px;font-size:0.74rem;"></div>
+            <div class="approval-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
+                <button class="btn-approve" onclick="getConnectCmd(this)">Get my connect command</button>
+                <button class="btn-ghost" onclick="ackOnboarding('connect_computer')">I'm connected</button>
+            </div>
+        </div>`;
+    }
     if (item.id === 'set_compute') {
         // Compute establishment (#12): the operator picks WHERE heavy work runs.
         // The VIDEO pipeline gates on compute.video_asr (local/cloud/external/cpu).
@@ -710,6 +721,49 @@ async function runBackupNow(btn) {
     } catch (e) {
         if (out) out.innerHTML = `<span style="color:var(--orange);">${ESC(e.message)}</span>`;
         if (btn) { btn.disabled = false; btn.textContent = 'Back up now'; }
+    }
+}
+
+async function getConnectCmd(btn) {
+    // Invited-presence connect step: fetch a FRESH mesh join command each click
+    // (/api/onboarding/mesh-key already carries --accept-dns=true), so it never expires.
+    const out = document.getElementById('connect-cmd-out');
+    const _label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try {
+        const r = await fetch('/api/onboarding/mesh-key');
+        const d = await r.json();
+        if (out) {
+            out.style.display = 'block';
+            const cmd = d.join_cmd || '';
+            if (d.ok && cmd) {
+                out.innerHTML = '<div style="color:var(--text);font-weight:600;margin-bottom:6px;">Connect this computer</div>'
+                    + '<div style="color:var(--dim);margin-bottom:6px;line-height:1.6;">Open the <strong style="color:var(--text);">Terminal</strong> app on this computer, paste the line below, and press return:</div>'
+                    + '<code id="connect-cmd-code" style="display:block;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.78rem;color:var(--text);">'
+                    + ESC(cmd) + '</code>'
+                    + '<button class="btn" style="margin-top:8px;" onclick="_copyConnectCmd(this)">Copy command</button>'
+                    + '<div style="color:var(--dim);margin-top:8px;line-height:1.5;">A fresh command is generated every time you tap the button, so it never expires. On a phone, use the Tailscale app instead (ask your agent).</div>';
+            } else {
+                out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not get a connect command here.') + '</div>'
+                    + (d.instructions ? '<div style="color:var(--dim);margin-top:4px;">' + ESC(d.instructions) + '</div>' : '');
+            }
+        }
+    } catch (e) {
+        if (out) { out.style.display = 'block'; out.textContent = 'Could not reach the mesh service.'; }
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = _label || 'Get my connect command'; }
+    }
+}
+
+function _copyConnectCmd(btn) {
+    const el = document.getElementById('connect-cmd-code');
+    const text = el ? el.textContent : '';
+    if (!text) return;
+    const done = () => { if (btn) { const t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = t; }, 1600); } };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => {});
+    } else {
+        try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); } catch (e) {}
     }
 }
 
