@@ -51,12 +51,12 @@ async def generate_cove_names(request: Request):
 
     system_prompt = f"""You are helping someone name their Lucid Cove — the private home for their family's AI, a space that holds who they are. The name is theirs for good; it becomes part of every agent's identity (each agent's last name is the Cove name). It should feel like a place and a belonging, not a tech brand.
 
-Draw the felt sense from what they share. A Cove name is ALWAYS a SINGLE word — one alphanumeric token, NO spaces (a hyphen is allowed, e.g. Clear-Field, but prefer one clean word). Warm and evocative — like a homestead, a harbor, a hearth, or a quiet landmark. You may coin a word by fusing or shortening two (Stillwater, Hearthstone, Brighthollow). Examples of the FEEL only (never reuse these): Clearfield, Riverside, Stillwater, Hearthstone, Lantern, Wayhold.
+Draw the felt sense from what they share. A Cove name is ALWAYS a SINGLE clean word — letters only, NO spaces, NO hyphens, NO apostrophes, NO punctuation of any kind. Warm and evocative — like a homestead, a harbor, a hearth, or a quiet landmark. You may coin a word by fusing or shortening two (Stillwater, Hearthstone, Brighthollow). Examples of the FEEL only (never reuse these): Clearfield, Riverside, Stillwater, Hearthstone, Lantern, Wayhold.
 
 Avoid (case-insensitive): {avoid_str}.
 
 Generate exactly 6 names. For each provide:
-- "name": the Cove name — ONE word, no spaces (a hyphen is allowed), easy to say
+- "name": the Cove name — ONE clean word, letters only, no spaces, no hyphens, no apostrophes, easy to say
 - "why": one short line connecting it to what they reflected
 
 Return ONLY a JSON array, nothing else:
@@ -80,7 +80,24 @@ Return ONLY a JSON array, nothing else:
         names = json.loads(match.group())
     except Exception:
         return JSONResponse({"error": "Naming returned malformed output. Try again."}, status_code=502)
-    return {"names": names}
+
+    # jules 2026-07-16: the model sometimes returns names with dashes/apostrophes
+    # (e.g. "Clear-Field", "O'Haven") which aren't valid Cove names. Sanitize each
+    # to a single clean word — strip everything but letters, titlecase, drop any
+    # that come back empty. Keeps suggestions to what the operator can actually use.
+    cleaned = []
+    for n in names if isinstance(names, list) else []:
+        if not isinstance(n, dict):
+            continue
+        raw = str(n.get("name") or "")
+        word = re.sub(r"[^A-Za-z]", "", raw)
+        if not word:
+            continue
+        n["name"] = word[:1].upper() + word[1:]
+        cleaned.append(n)
+    if not cleaned:
+        return JSONResponse({"error": "Naming returned no usable suggestions. Try again."}, status_code=502)
+    return {"names": cleaned}
 
 
 def _wake_context(body: dict) -> str:
