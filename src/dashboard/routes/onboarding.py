@@ -413,6 +413,50 @@ async def onboarding_items(request: Request):
             "total": len(steps), "complete": done_count >= len(steps)}
 
 
+@router.post("/api/onboarding/approve-device")
+async def approve_my_device(request: Request):
+    """Approve THIS presence's pending Tailscale device (the app's /register/<key> page) so it
+    joins the Cove mesh — no terminal, no SSH. Tries the local Headscale, else the hub (same
+    control-plane pattern as /api/onboarding/mesh-key). Body: {key}."""
+    from src.dashboard.routes.presence import get_current_presence
+    p = await get_current_presence(request)
+    if not p or not p.get("id"):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
+    body = await request.json()
+    key = (body.get("key") or "").strip()
+    if not key:
+        return {"ok": False, "reason": "Paste the code from the Tailscale page first."}
+    try:
+        from provision.mesh import approve_node
+        res = approve_node(key)
+        if res.get("ok"):
+            return res
+    except Exception:
+        pass
+    reg = (os.environ.get("LP_REGISTRY_URL", "") or "").strip().rstrip("/")
+    try:
+        from src.dashboard.routes.registry_client import _operator_token as _ot
+        op_tok = _ot()
+    except Exception:
+        op_tok = (os.environ.get("LP_OPERATOR_TOKEN", "") or "").strip()
+    if reg and op_tok:
+        try:
+            import urllib.request
+            _hdrs = {"Content-Type": "application/json", "X-Operator-Token": op_tok,
+                     "User-Agent": "LucidCove-Cove/1.0"}
+            _fleet = (os.environ.get("LP_REGISTRY_SECRET", "") or "").strip()
+            if _fleet:
+                _hdrs["X-Registry-Secret"] = _fleet
+            req = urllib.request.Request(
+                reg + "/api/registry/approve-device",
+                data=json.dumps({"key": key}).encode(), method="POST", headers=_hdrs)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode())
+        except Exception as e:
+            return {"ok": False, "reason": f"hub approve failed: {str(e)[:180]}"}
+    return {"ok": False, "reason": "no local mesh + no hub token configured — ask your Cove host to approve this device."}
+
+
 @router.post("/api/onboarding/ack")
 async def onboarding_ack(request: Request):
     """Mark a first-run card done (currently the jules intro; add_intelligence clears

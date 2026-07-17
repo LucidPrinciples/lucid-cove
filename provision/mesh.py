@@ -168,6 +168,81 @@ def create_preauth_key(user: str = DEFAULT_USER, *, reusable: bool = False,
     }
 
 
+def _approve_via_api(user: str, key: str) -> dict | None:
+    """Approve a pending interactive node registration (the /register/<key> flow) via the
+    Headscale HTTP API and assign it to `user`. Returns a result dict, or None if the API
+    isn't configured (caller falls back to the CLI)."""
+    api_url = (os.environ.get("HEADSCALE_API_URL", "") or "").strip().rstrip("/")
+    api_key = (os.environ.get("HEADSCALE_API_KEY", "") or "").strip()
+    if not (api_url and api_key):
+        return None
+    import urllib.request
+    import urllib.parse
+    _ensure_user_via_api(api_url, api_key, str(user))
+    uid = str(user)
+    if not uid.isdigit():
+        try:
+            ureq = urllib.request.Request(api_url + "/api/v1/user",
+                                          headers={"Authorization": "Bearer " + api_key})
+            with urllib.request.urlopen(ureq, timeout=15) as ur:
+                for u in (json.loads(ur.read().decode()).get("users") or []):
+                    if (u.get("name") or "") == user:
+                        uid = str(u.get("id")); break
+        except Exception:
+            pass
+    q = urllib.parse.urlencode({"user": uid, "key": key})
+    req = urllib.request.Request(api_url + "/api/v1/node/register?" + q, data=b"", method="POST",
+                                 headers={"Authorization": "Bearer " + api_key,
+                                          "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=25) as r:
+            data = json.loads(r.read().decode())
+    except Exception as e:
+        return {"ok": False, "reason": f"headscale API register failed: {str(e)[:200]}"}
+    node = data.get("node") or data.get("machine") or {}
+    name = node.get("givenName") or node.get("name") or "your device"
+    return {"ok": True, "node": name, "user": user}
+
+
+def approve_node(key: str, *, user: str = DEFAULT_USER, container: str = DEFAULT_CONTAINER) -> dict:
+    """Approve a pending interactive device registration and assign it to `user`. Accepts the
+    bare registration code OR the whole '.../register/<code>' URL. Tries the Headscale HTTP
+    API first (the hub), then the local Headscale CLI. Returns {ok, node} or {ok: False, reason}."""
+    key = (key or "").strip()
+    if "/register/" in key:
+        key = key.split("/register/", 1)[1]
+    key = key.strip().strip("/").split("?")[0].split("#")[0]
+    if not key:
+        return {"ok": False, "reason": "no registration code given"}
+    user = _hs_user(user)
+    via_api = _approve_via_api(user, key)
+    if via_api is not None:
+        return via_api
+    base = _headscale_cmd(container)
+    if not base:
+        return {"ok": False, "reason": "Headscale not reachable here",
+                "instructions": f"On the coordinator: headscale nodes register --user {user} --key {key}"}
+    uid = str(user)
+    if not uid.isdigit():
+        try:
+            ulist = subprocess.run(base + ["users", "list", "--output", "json"],
+                                   capture_output=True, text=True, timeout=15)
+            if ulist.returncode == 0:
+                for u in (json.loads(ulist.stdout or "[]") or []):
+                    if (u.get("name") or "") == user:
+                        uid = str(u.get("id")); break
+        except Exception:
+            pass
+    cmd = base + ["nodes", "register", "--user", uid, "--key", key, "--output", "json"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+    except Exception as e:
+        return {"ok": False, "reason": f"headscale register failed: {str(e)[:160]}"}
+    if out.returncode != 0:
+        return {"ok": False, "reason": (out.stderr or out.stdout).strip()[:220]}
+    return {"ok": True, "node": "your device", "user": user}
+
+
 def main():
     ap = argparse.ArgumentParser(description="Mint a Headscale pre-auth key for device onboarding (#134).")
     ap.add_argument("user", nargs="?", default=DEFAULT_USER)
