@@ -1165,8 +1165,14 @@ async function loadMachineProbe() {
         const d = await fetch('/api/system/machine-probe').then(r => r.json());
         const provs = (d.providers || []).filter(p => p.reachable && (p.models || []).length);
         const rec = d.recommendation || {};
+        // JF7 — surface actionable hints from providers the app detected but couldn't reach
+        // (common case: Ollama is running but bound to 127.0.0.1, so the container is
+        // refused). The backend computes the exact fix — show it, don't filter it away.
+        const hints = (d.providers || []).filter(p => p.hint).map(p => p.hint);
         if (!provs.length) {
-            out.innerHTML = `<div>${ESC(rec.reason || 'No local models found on this machine.')}</div>`;
+            let _msg = `<div>${ESC(rec.reason || 'No local models found on this machine.')}</div>`;
+            hints.forEach(h => { _msg += `<div style="color:var(--accent);font-size:0.7rem;margin-top:6px;line-height:1.45;">${ESC(h)}</div>`; });
+            out.innerHTML = _msg;
             return;
         }
         let html = '<div style="color:var(--text);margin-bottom:4px;">Found on this machine:</div>';
