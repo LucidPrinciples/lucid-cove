@@ -112,7 +112,7 @@ def _create_via_api(user: str, reusable: bool, expiry: str) -> dict | None:
     if not key:
         return {"ok": False, "reason": "headscale API returned no key"}
     return {"ok": True, "key": key, "login_server": LOGIN_SERVER,
-            "join_cmd": f"tailscale up --login-server {LOGIN_SERVER} --authkey {key}"}
+            "join_cmd": f"tailscale up --login-server {LOGIN_SERVER} --authkey {key} --accept-dns=true"}
 
 
 def create_preauth_key(user: str = DEFAULT_USER, *, reusable: bool = False,
@@ -164,7 +164,7 @@ def create_preauth_key(user: str = DEFAULT_USER, *, reusable: bool = False,
         "ok": True,
         "key": key,
         "login_server": LOGIN_SERVER,
-        "join_cmd": f"tailscale up --login-server {LOGIN_SERVER} --authkey {key}",
+        "join_cmd": f"tailscale up --login-server {LOGIN_SERVER} --authkey {key} --accept-dns=true",
     }
 
 
