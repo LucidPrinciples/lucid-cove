@@ -519,7 +519,41 @@ def apply_cove_model(provider: str, api_key: str = "", model: str = "") -> bool:
         os.environ[var] = api_key
     model_string = (model or "").strip() or BYOK_DEFAULT_MODEL[p]
     _cove_primary = (p, model_string)
+    # PERSIST so the brain survives restarts. It was in-memory ONLY (os.environ + this
+    # global) -> a fresh install worked right after onboarding, then reverted to local/none
+    # on the next restart/deploy/reboot. Store as a cove-level default that carries the
+    # credential, separate from any per-presence BYOK. (Chords 2026-07-17)
+    try:
+        from src.config import save_feature_overrides as _sfo
+        _sfo({"cove_brain": {"provider": p, "model": model_string, "key": (api_key or "").strip()}})
+    except Exception as _e:
+        print(f"[provider] Cove brain persist failed (in-memory only): {_e}")
     print(f"[provider] Cove brain set → {p} ({model_string})")
+    return True
+
+
+def _restore_cove_brain() -> bool:
+    """Reload the persisted cove brain (provider/model/key) from feature-overrides into the
+    live process (os.environ key + _cove_primary) so it survives container restarts. Called
+    lazily when _cove_primary is unset. Returns True if a brain was restored."""
+    global _cove_primary
+    if _cove_primary:
+        return True
+    try:
+        from src.config import _load_feature_overrides as _lfo
+        cb = (_lfo() or {}).get("cove_brain") or {}
+    except Exception:
+        cb = {}
+    prov = (cb.get("provider") or "").strip().lower()
+    model = (cb.get("model") or "").strip()
+    key = (cb.get("key") or "").strip()
+    if not prov or prov not in BYOK_DEFAULT_MODEL:
+        return False
+    var = _PROVIDER_ENV_VAR.get(prov)
+    if var and key and not (os.environ.get(var) or "").strip():
+        os.environ[var] = key
+    _cove_primary = (prov, model or BYOK_DEFAULT_MODEL[prov])
+    print(f"[provider] Cove brain restored from disk → {prov} ({_cove_primary[1]})")
     return True
 
 
@@ -530,6 +564,8 @@ def current_cove_brain() -> dict:
     actually falls to. Lets the Team-page model manager SHOW what '(Cove default)' means
     instead of a blank. Per-request BYOK overrides aren't reflected here — they're
     request-scoped, not the standing default."""
+    if not _cove_primary:
+        _restore_cove_brain()
     if _cove_primary:
         return {"provider": _cove_primary[0], "model": _cove_primary[1]}
     if (env("OPENROUTER_API_KEY") or "").strip():
@@ -668,6 +704,8 @@ def get_primary_model(temperature: float = 0.7) -> ChatOpenAI | ChatOllama:
             except Exception as _e:
                 print(f"[provider] BYOK primary failed ({_e}); falling back")
     # 2. The Cove's connected brain — the admin's Add-Intelligence choice (key is in env).
+    if not _cove_primary:
+        _restore_cove_brain()
     if _cove_primary:
         try:
             return _client_for(_cove_primary[0], _cove_primary[1], temperature)
