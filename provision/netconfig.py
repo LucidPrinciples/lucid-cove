@@ -489,11 +489,15 @@ services:
     restart: unless-stopped
     networks:
       - {SHARED_NET}
-    environment:
-      # #D35: the token that gates the bridge-facing admin proxy. Read from a .env
-      # beside this compose (LP_CADDY_ADMIN_TOKEN=...). Empty default = the gate is
-      # off (the #D32 bridge admin is used) so this is inert until the token is set.
-      - LP_CADDY_ADMIN_TOKEN=${{LP_CADDY_ADMIN_TOKEN:-}}
+    # #D35: load the box admin token straight into the container from the sibling
+    # .env (SAME pattern as the app service). Do NOT set it via `environment:`
+    # interpolation — `${{LP_CADDY_ADMIN_TOKEN:-}}` reads only the SHELL env, so a
+    # plain `docker compose up` in a fresh shell boots caddy TOKENLESS even when the
+    # .env beside this file has the token, and set-address 403s. env_file loads the
+    # file itself, deterministically. (environment: would OVERRIDE env_file, so it is
+    # intentionally gone — the sole var here was the token.)
+    env_file:
+      - .env
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./conf.d:/etc/caddy/conf.d:ro

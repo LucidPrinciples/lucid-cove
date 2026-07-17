@@ -781,12 +781,20 @@ async def send_message(request: Request):
             # CF-59 — bind the acting presence so the agent's Links-board tool writes
             # THIS operator's board (multi-Cove); unset → single-mode file fallback.
             _links_tok = None
+            _ql_tok = None
             try:
                 from src.dashboard.routes.presence import get_current_presence as _gcp
                 from src.tools.links_tools import set_request_links_presence
                 _lp = await _gcp(request)
                 if _lp and _lp.get("id"):
                     _links_tok = set_request_links_presence(str(_lp["id"]))
+                    # JF4 — quicklist tool shares the acting-presence scope so agent-
+                    # created lists land on THIS presence's Attention home, not NULL/global.
+                    try:
+                        from src.tools.quick_list_tools import set_request_quick_list_presence
+                        _ql_tok = set_request_quick_list_presence(str(_lp["id"]))
+                    except Exception:
+                        _ql_tok = None
             except Exception:
                 _links_tok = None
 
@@ -967,6 +975,12 @@ async def send_message(request: Request):
                     from src.tools.links_tools import clear_request_links_presence
                     if _links_tok is not None:
                         clear_request_links_presence(_links_tok)
+                except Exception:
+                    pass
+                try:
+                    from src.tools.quick_list_tools import clear_request_quick_list_presence
+                    if _ql_tok is not None:
+                        clear_request_quick_list_presence(_ql_tok)
                 except Exception:
                     pass
 
