@@ -23,8 +23,6 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 .flow-container { max-width: 640px; margin: 0 auto; padding: 24px; }
 
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.header .brand { display: flex; align-items: center; gap: 11px; }
-.header .brand svg { width: 30px; height: 26px; display: block; flex: none; }
 .header h1 { font-size: 18px; font-weight: 600; color: var(--daily-freq); }
 .header a { color: var(--daily-freq); text-decoration: none; font-size: 13px; }
 
@@ -358,15 +356,7 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 
 <div class="flow-container">
     <div class="header">
-        <div class="brand">
-            <svg viewBox="0 0 500 440" xmlns="http://www.w3.org/2000/svg" aria-label="Lucid Cove">
-                <path d="M 75,370 Q 75,120 250,45 Q 425,120 425,370" fill="none" stroke="#4682b4" stroke-width="14"/>
-                <path d="M 150,370 Q 150,190 250,120 Q 350,190 350,370" fill="none" stroke="#5ce1e6" stroke-width="26"/>
-                <line x1="69" y1="370" x2="431" y2="370" stroke="#4682b4" stroke-width="8"/>
-                <circle cx="250" cy="272" r="16" fill="#5ce1e6"/>
-            </svg>
-            <h1>New Agent Setup</h1>
-        </div>
+        <h1>New Agent Setup</h1>
         <a href="/" class="back-mc" target="_top">← Back to Mission Control</a>
     </div>
     <script>if (window.location.search.includes('embedded=1') || window.location.search.includes('firstrun=1') || window.location.search.includes('self=1')) document.querySelector('.back-mc')?.remove();</script>
@@ -673,6 +663,19 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 let currentStep = 1;
 const totalSteps = 5;
 let suggestedQualities = new Set();
+
+// jules 2026-07-17: guard against losing a half-finished setup. A family member hit
+// the browser Back button on the meet-your-agent step and everything they'd entered
+// (all in-page state) vanished. Warn before leaving once they've started, and release
+// the guard the moment provisioning succeeds (their Presence is saved server-side then).
+let _setupComplete = false;
+window.addEventListener('beforeunload', function (e) {
+    if (_setupComplete) return;
+    const started = currentStep > 1
+        || (document.getElementById('reflect-situation')?.value || '').trim()
+        || (document.getElementById('reflect-need')?.value || '').trim();
+    if (started) { e.preventDefault(); e.returnValue = ''; }
+});
 let selectedQualities = new Set();
 let nameStates = {};
 let selectedName = '';
@@ -1626,11 +1629,16 @@ async function loadTeamShowcase() {
             // Session IS used only on self-join to avoid listing yourself as already in.
             let _meHandle = '';
             let _meDisplay = '';
+            let _selfDisplayCased = '';
             try {
                 const me = await (await fetch('/api/presence/me')).json();
                 const mp = me && me.presence;
                 _meHandle = ((mp && mp.username) || '').replace(/^@/, '').toLowerCase();
                 _meDisplay = String((mp && (mp.display_name || mp.name)) || '').trim().toLowerCase();
+                // jules 2026-07-17: on a self-join invite the person IS the session, so
+                // keep their real (cased) name for the "joining now" card — otherwise it
+                // fell back to the cold "New member" (personParam is empty on self-join).
+                _selfDisplayCased = _titleCaseName(String((mp && (mp.display_name || mp.name)) || '').trim());
             } catch (e) { /* best-effort */ }
 
             // Person from step 1 (?person=), not the admin session.
@@ -1646,7 +1654,7 @@ async function loadTeamShowcase() {
                 // Whole box = the new Presence (person + agent). Agent is already
                 // named big in the Meet title — no "new presence" under agent alone.
                 html += _showcaseHead('joining now') + _showcaseCenter([
-                    _presencePairCard(_personName || 'New member', '', _agentName,
+                    _presencePairCard(_personName || (_selfJoin ? _selfDisplayCased : '') || 'You', '', _agentName,
                                       '', _newAvatar, 'new presence'),
                 ]);
             }
@@ -1980,6 +1988,7 @@ async function provisionAgent() {
             });
             const data = await res.json();
             if (!res.ok || data.error) throw new Error(data.detail || data.error || 'Setup failed');
+            _setupComplete = true;  // Presence saved server-side — Back is safe now (jules 2026-07-17)
             if (_firstrun) {
                 // The Cove + founding Presence are locked in. Before the MC, the agent
                 // wakes on the spark and meets the operator (cove-creation-language.md
