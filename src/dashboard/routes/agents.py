@@ -156,7 +156,7 @@ async def _presences_as_members() -> list:
         async with get_db() as conn:
             result = await conn.execute(
                 """SELECT id, username, display_name, agent_name, last_name, cove_role,
-                          agent_identity, active, last_access
+                          agent_identity, agent_config, active, last_access
                    FROM accounts ORDER BY created_at"""
             )
             rows = await result.fetchall()
@@ -206,12 +206,29 @@ async def _presences_as_members() -> list:
         _handle = (row["username"] or "").lstrip("@").lower()
         _prof = profile_map.get(_handle) or {}
         _mc_url = f"https://{_handle}.{_mc_domain}" if (_handle and _mc_domain) else ""
+        # #MESH1: presence MC subdomains are mesh-only. Surface whether this
+        # Presence has finished "Connect this computer" so the UI can gate
+        # Open MC away from a dead subdomain for not-yet-joined invitees.
+        _ac = row["agent_config"] or {}
+        if isinstance(_ac, str):
+            try:
+                import json as _json
+                _ac = _json.loads(_ac) or {}
+            except Exception:
+                _ac = {}
+        if not isinstance(_ac, dict):
+            _ac = {}
+        _mesh_ack = _ac.get("onboarding_mesh_ack")
+        # Explicit False only when the invitee card is still outstanding.
+        # Missing key → assume connected (founder/legacy host already on mesh).
+        _mesh_connected = True if _mesh_ack is None else bool(_mesh_ack)
         members.append({
             "id": str(row["id"]),
             "username": _handle,
             "name": row["display_name"],
             "display_name": row["display_name"],
             "mc_url": _mc_url,
+            "mesh_connected": _mesh_connected,
             # One avatar source for every surface (jules 1649).
             "avatar_url": _prof.get("avatar_url") or "",
             "role": role_label.get(row["cove_role"], "Presence"),
