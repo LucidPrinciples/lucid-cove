@@ -458,8 +458,21 @@
     }
 
     const { ClientEvent, RoomEvent } = window.mxcs;
-    client.on(ClientEvent.Sync, (state) => {
-      try { console.info('[connect] sync state', state, ((Date.now() - t0) / 1000).toFixed(1) + 's'); } catch (_) {}
+    client.on(ClientEvent.Sync, (state, prevState, data) => {
+      // Pull the REAL failure out of the sdk (2026-07-17: a transient on the mesh
+      // path to matrix.{cove} read as a Matrix outage because the underlying HTTP
+      // error was swallowed here — "warming up" was the only signal anyone saw).
+      let errDetail = '';
+      try {
+        const e = data && data.error;
+        if (e) {
+          errDetail = (e.httpStatus ? 'HTTP ' + e.httpStatus + ' ' : '')
+            + (e.errcode ? e.errcode + ' ' : '')
+            + (e.message || String(e));
+          console.error('[connect] sync error detail', e);
+        }
+      } catch (_) {}
+      try { console.info('[connect] sync state', state, ((Date.now() - t0) / 1000).toFixed(1) + 's', errDetail); } catch (_) {}
       if (state === 'PREPARED' && !started) {
         started = true;
         starting = false;
@@ -471,7 +484,9 @@
       } else if (!started && (state === 'ERROR' || state === 'STOPPED')) {
         // Surface + tear down + single retry. stopClient often emits STOPPED after
         // ERROR — failConnect is one-shot so that does not double the backoff.
-        failConnect('Chat sync hit ' + state);
+        // Carry the sdk's error into the user-visible retry message so the next
+        // "snail-pace Connect" is diagnosable from the screen, not just devtools.
+        failConnect('Chat sync hit ' + state + (errDetail ? ' — ' + errDetail.slice(0, 120) : ''));
       } else if (!started && state) {
         chatsProgress('Sync: ' + state, t0);
       }
@@ -484,7 +499,11 @@
 
     // Hard watchdog: never sit on Connecting… for 10–15 minutes with no signal.
     // If PREPARED never arrives, stop, show the stage we stalled on, and auto-retry.
-    const SYNC_TIMEOUT_MS = 45000;
+    // The FIRST attempt gets a longer leash: a cold mesh path (DERP relay before
+    // hole-punch) or a first-ever initial sync can legitimately run past 45s, and
+    // killing it only restarts the sync from zero (memory store — no resume).
+    // Retries keep the tighter timeout so a truly dead path still fails fast.
+    const SYNC_TIMEOUT_MS = connectAttempt === 0 ? 90000 : 45000;
     syncWatchdog = setTimeout(() => {
       syncWatchdog = null;
       if (started) return;
