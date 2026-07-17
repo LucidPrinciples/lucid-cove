@@ -1,0 +1,309 @@
+diff --git a/provision/mesh.py b/provision/mesh.py
+index ff60ff1..737a5a3 100644
+--- a/provision/mesh.py
++++ b/provision/mesh.py
+@@ -168,6 +168,81 @@ def create_preauth_key(user: str = DEFAULT_USER, *, reusable: bool = False,
+     }
+ 
+ 
++def _approve_via_api(user: str, key: str) -> dict | None:
++    """Approve a pending interactive node registration (the /register/<key> flow) via the
++    Headscale HTTP API and assign it to `user`. Returns a result dict, or None if the API
++    isn't configured (caller falls back to the CLI)."""
++    api_url = (os.environ.get("HEADSCALE_API_URL", "") or "").strip().rstrip("/")
++    api_key = (os.environ.get("HEADSCALE_API_KEY", "") or "").strip()
++    if not (api_url and api_key):
++        return None
++    import urllib.request
++    import urllib.parse
++    _ensure_user_via_api(api_url, api_key, str(user))
++    uid = str(user)
++    if not uid.isdigit():
++        try:
++            ureq = urllib.request.Request(api_url + "/api/v1/user",
++                                          headers={"Authorization": "Bearer " + api_key})
++            with urllib.request.urlopen(ureq, timeout=15) as ur:
++                for u in (json.loads(ur.read().decode()).get("users") or []):
++                    if (u.get("name") or "") == user:
++                        uid = str(u.get("id")); break
++        except Exception:
++            pass
++    q = urllib.parse.urlencode({"user": uid, "key": key})
++    req = urllib.request.Request(api_url + "/api/v1/node/register?" + q, data=b"", method="POST",
++                                 headers={"Authorization": "Bearer " + api_key,
++                                          "Content-Type": "application/json"})
++    try:
++        with urllib.request.urlopen(req, timeout=25) as r:
++            data = json.loads(r.read().decode())
++    except Exception as e:
++        return {"ok": False, "reason": f"headscale API register failed: {str(e)[:200]}"}
++    node = data.get("node") or data.get("machine") or {}
++    name = node.get("givenName") or node.get("name") or "your device"
++    return {"ok": True, "node": name, "user": user}
++
++
++def approve_node(key: str, *, user: str = DEFAULT_USER, container: str = DEFAULT_CONTAINER) -> dict:
++    """Approve a pending interactive device registration and assign it to `user`. Accepts the
++    bare registration code OR the whole '.../register/<code>' URL. Tries the Headscale HTTP
++    API first (the hub), then the local Headscale CLI. Returns {ok, node} or {ok: False, reason}."""
++    key = (key or "").strip()
++    if "/register/" in key:
++        key = key.split("/register/", 1)[1]
++    key = key.strip().strip("/").split("?")[0].split("#")[0]
++    if not key:
++        return {"ok": False, "reason": "no registration code given"}
++    user = _hs_user(user)
++    via_api = _approve_via_api(user, key)
++    if via_api is not None:
++        return via_api
++    base = _headscale_cmd(container)
++    if not base:
++        return {"ok": False, "reason": "Headscale not reachable here",
++                "instructions": f"On the coordinator: headscale nodes register --user {user} --key {key}"}
++    uid = str(user)
++    if not uid.isdigit():
++        try:
++            ulist = subprocess.run(base + ["users", "list", "--output", "json"],
++                                   capture_output=True, text=True, timeout=15)
++            if ulist.returncode == 0:
++                for u in (json.loads(ulist.stdout or "[]") or []):
++                    if (u.get("name") or "") == user:
++                        uid = str(u.get("id")); break
++        except Exception:
++            pass
++    cmd = base + ["nodes", "register", "--user", uid, "--key", key, "--output", "json"]
++    try:
++        out = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
++    except Exception as e:
++        return {"ok": False, "reason": f"headscale register failed: {str(e)[:160]}"}
++    if out.returncode != 0:
++        return {"ok": False, "reason": (out.stderr or out.stdout).strip()[:220]}
++    return {"ok": True, "node": "your device", "user": user}
++
++
+ def main():
+     ap = argparse.ArgumentParser(description="Mint a Headscale pre-auth key for device onboarding (#134).")
+     ap.add_argument("user", nargs="?", default=DEFAULT_USER)
+diff --git a/src/dashboard/routes/onboarding.py b/src/dashboard/routes/onboarding.py
+index 08abb4a..bafbdcc 100644
+--- a/src/dashboard/routes/onboarding.py
++++ b/src/dashboard/routes/onboarding.py
+@@ -413,6 +413,50 @@ async def onboarding_items(request: Request):
+             "total": len(steps), "complete": done_count >= len(steps)}
+ 
+ 
++@router.post("/api/onboarding/approve-device")
++async def approve_my_device(request: Request):
++    """Approve THIS presence's pending Tailscale device (the app's /register/<key> page) so it
++    joins the Cove mesh — no terminal, no SSH. Tries the local Headscale, else the hub (same
++    control-plane pattern as /api/onboarding/mesh-key). Body: {key}."""
++    from src.dashboard.routes.presence import get_current_presence
++    p = await get_current_presence(request)
++    if not p or not p.get("id"):
++        return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
++    body = await request.json()
++    key = (body.get("key") or "").strip()
++    if not key:
++        return {"ok": False, "reason": "Paste the code from the Tailscale page first."}
++    try:
++        from provision.mesh import approve_node
++        res = approve_node(key)
++        if res.get("ok"):
++            return res
++    except Exception:
++        pass
++    reg = (os.environ.get("LP_REGISTRY_URL", "") or "").strip().rstrip("/")
++    try:
++        from src.dashboard.routes.registry_client import _operator_token as _ot
++        op_tok = _ot()
++    except Exception:
++        op_tok = (os.environ.get("LP_OPERATOR_TOKEN", "") or "").strip()
++    if reg and op_tok:
++        try:
++            import urllib.request
++            _hdrs = {"Content-Type": "application/json", "X-Operator-Token": op_tok,
++                     "User-Agent": "LucidCove-Cove/1.0"}
++            _fleet = (os.environ.get("LP_REGISTRY_SECRET", "") or "").strip()
++            if _fleet:
++                _hdrs["X-Registry-Secret"] = _fleet
++            req = urllib.request.Request(
++                reg + "/api/registry/approve-device",
++                data=json.dumps({"key": key}).encode(), method="POST", headers=_hdrs)
++            with urllib.request.urlopen(req, timeout=30) as r:
++                return json.loads(r.read().decode())
++        except Exception as e:
++            return {"ok": False, "reason": f"hub approve failed: {str(e)[:180]}"}
++    return {"ok": False, "reason": "no local mesh + no hub token configured — ask your Cove host to approve this device."}
++
++
+ @router.post("/api/onboarding/ack")
+ async def onboarding_ack(request: Request):
+     """Mark a first-run card done (currently the jules intro; add_intelligence clears
+diff --git a/src/dashboard/routes/registry.py b/src/dashboard/routes/registry.py
+index 8717968..ba37b1d 100644
+--- a/src/dashboard/routes/registry.py
++++ b/src/dashboard/routes/registry.py
+@@ -523,6 +523,40 @@ async def mint_mesh_key(request: Request):
+     return res
+ 
+ 
++@router.post("/api/registry/approve-device")
++async def approve_device(request: Request):
++    """Approve a pending Tailscale device registration (the app's /register/<key> flow) for the
++    requesting Cove's OWN mesh user. Runs on the HUB (Headscale API access); same auth +
++    per-Cove namespace as /api/registry/mesh-key. Body: {key}. Returns {ok, node}."""
++    body = await request.json()
++    key = (body.get("key") or "").strip()
++    if not key:
++        raise HTTPException(400, "registration code required")
++    from src.memory.database import get_db
++    async with get_db() as conn:
++        auth = await _authorize_write(request, conn)
++        mesh_user = ""
++        if auth.get("mode") == "operator":
++            uname = (auth.get("account", {}).get("username") or "").lstrip("@").strip().lower()
++            if uname:
++                r = await conn.execute(
++                    "SELECT cove_id FROM registry_handles WHERE lower(handle) = %s", (uname,))
++                row = await r.fetchone()
++                cid = ((row or {}).get("cove_id") or "").strip() if row else ""
++                mesh_user = cid or uname
++        else:
++            mesh_user = (body.get("cove_id") or body.get("user") or "").strip()
++        mesh_user = mesh_user or "lucid"
++    try:
++        from provision.mesh import approve_node
++    except Exception as e:
++        raise HTTPException(501, f"mesh tooling unavailable: {e}")
++    res = approve_node(key, user=mesh_user)
++    if not res.get("ok"):
++        raise HTTPException(502, res.get("reason") or "could not approve the device")
++    return res
++
++
+ @router.post("/api/registry/verify-operator")
+ async def verify_operator(request: Request):
+     """Server-to-server: validate an operator's app-account token → their @handle.
+diff --git a/src/dashboard/static/js/home.js b/src/dashboard/static/js/home.js
+index 5ef9de8..eec5ce1 100644
+--- a/src/dashboard/static/js/home.js
++++ b/src/dashboard/static/js/home.js
+@@ -397,10 +397,23 @@ function _onboardingCardHtml(item) {
+         return `<div class="home-approval onboarding-card">
+             <div class="approval-tool">${title}</div>
+             <div class="approval-desc" style="line-height:1.55;">${body}</div>
+-            <div id="connect-cmd-out" style="display:none;margin-top:12px;font-size:0.74rem;"></div>
+-            <div class="approval-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;">
+-                <button class="btn-approve" onclick="getConnectCmd(this)">Get my connect command</button>
+-                <button class="btn-ghost" onclick="ackOnboarding('connect_computer')">I'm connected</button>
++            <div style="margin-top:12px;padding:10px 12px;background:var(--card,#111);border:1px solid var(--border);border-radius:8px;font-size:0.75rem;line-height:1.65;">
++                <div style="color:var(--text);font-weight:600;margin-bottom:6px;">On a computer</div>
++                <ol style="margin:0;padding-left:1.15rem;color:var(--dim);">
++                    <li>Install the <strong style="color:var(--text);">Tailscale</strong> app: <a href="https://tailscale.com/download" target="_blank" rel="noopener" style="color:var(--accent,#7c5cff);">tailscale.com/download</a></li>
++                    <li>Open it, choose <em>Add account</em>, tap the small arrow, pick <em>Add Account Using Alternate Server</em>, enter <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">headscale.lucidcove.org</code>, then <em>Add Account</em>.</li>
++                    <li>A page opens whose web address ends in <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">/register/CODE</code>. Copy that <strong style="color:var(--text);">CODE</strong> and paste it here:</li>
++                </ol>
++                <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
++                    <input id="approve-code-input" type="text" placeholder="paste the code from the page" style="flex:1;min-width:170px;font-size:0.78rem;padding:8px 10px;background:var(--bg-card,#0c0c12);color:var(--text);border:1px solid var(--border);border-radius:6px;">
++                    <button class="btn-approve" onclick="approveDevice(this)">Approve this device</button>
++                </div>
++                <div id="approve-out" style="display:none;margin-top:10px;font-size:0.78rem;line-height:1.5;"></div>
++            </div>
++            <div style="margin-top:12px;padding-top:8px;border-top:1px dashed var(--border);">
++                <button class="btn-ghost" style="font-size:0.7rem;" onclick="getConnectCmd(this)">On Linux, or prefer the terminal? Show the command</button>
++                <div id="connect-cmd-out" style="display:none;margin-top:10px;font-size:0.74rem;"></div>
++                <div style="margin-top:8px;"><button class="btn-ghost" style="font-size:0.68rem;" onclick="ackOnboarding('connect_computer')">I'm connected — dismiss</button></div>
+             </div>
+         </div>`;
+     }
+@@ -724,9 +737,40 @@ async function runBackupNow(btn) {
+     }
+ }
+ 
++async function approveDevice(btn) {
++    // Approve THIS presence's pending Tailscale device through the Cove (headscale API) — the
++    // no-terminal, no-SSH path. The person pastes the code from the app's /register page.
++    const inp = document.getElementById('approve-code-input');
++    const out = document.getElementById('approve-out');
++    const code = ((inp && inp.value) || '').trim();
++    if (!code) { if (out) { out.style.display = 'block'; out.style.color = 'var(--orange)'; out.textContent = 'Paste the code from the Tailscale page first.'; } return; }
++    const _label = btn ? btn.textContent : '';
++    if (btn) { btn.disabled = true; btn.textContent = 'Approving…'; }
++    try {
++        const r = await fetch('/api/onboarding/approve-device', {
++            method: 'POST', headers: { 'Content-Type': 'application/json' },
++            body: JSON.stringify({ key: code }) });
++        const d = await r.json();
++        if (out) {
++            out.style.display = 'block';
++            if (d.ok) {
++                out.style.color = 'var(--green)';
++                out.innerHTML = '✓ Approved. This device is joining your Cove now — it should connect within a few seconds. Then open your Cove and you are in.';
++            } else {
++                out.style.color = 'var(--orange)';
++                out.textContent = d.reason || 'Could not approve that device. Check the code and try again.';
++            }
++        }
++    } catch (e) {
++        if (out) { out.style.display = 'block'; out.style.color = 'var(--orange)'; out.textContent = 'Could not reach the approval service.'; }
++    } finally {
++        if (btn) { btn.disabled = false; btn.textContent = _label || 'Approve this device'; }
++    }
++}
++
+ async function getConnectCmd(btn) {
+-    // Invited-presence connect step: fetch a FRESH mesh join command each click
+-    // (/api/onboarding/mesh-key already carries --accept-dns=true), so it never expires.
++    // Terminal / Linux option: fetch a FRESH mesh join command (the auth key self-registers,
++    // no approval). /api/onboarding/mesh-key already carries --accept-dns=true.
+     const out = document.getElementById('connect-cmd-out');
+     const _label = btn ? btn.textContent : '';
+     if (btn) { btn.disabled = true; btn.textContent = '…'; }
+@@ -737,34 +781,30 @@ async function getConnectCmd(btn) {
+             out.style.display = 'block';
+             const cmd = d.join_cmd || '';
+             if (d.ok && cmd) {
+-                out.innerHTML = '<div style="color:var(--text);font-weight:600;margin-bottom:6px;">Connect this computer</div>'
+-                    + '<div style="color:var(--dim);margin-bottom:6px;line-height:1.6;">Open the <strong style="color:var(--text);">Terminal</strong> app on this computer, paste the line below, and press return:</div>'
+-                    + '<code id="connect-cmd-code" style="display:block;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.78rem;color:var(--text);">'
+-                    + ESC(cmd) + '</code>'
+-                    + '<button class="btn" style="margin-top:8px;" onclick="_copyConnectCmd(this)">Copy command</button>'
+-                    + '<div style="color:var(--dim);margin-top:8px;line-height:1.5;">A fresh command is generated every time you tap the button, so it never expires. On a phone, use the Tailscale app instead (ask your agent).</div>';
++                out.innerHTML = '<div style="color:var(--dim);line-height:1.6;margin-bottom:6px;">On <strong style="color:var(--text);">Linux</strong>, install then join:</div>'
++                    + '<code style="display:block;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;color:var(--text);">curl -fsSL https://tailscale.com/install.sh | sh</code>'
++                    + '<button class="btn" style="margin-top:4px;font-size:0.68rem;padding:3px 9px;" onclick="_copyPrev(this)">Copy</button>'
++                    + '<code style="display:block;margin-top:8px;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;color:var(--text);">sudo ' + ESC(cmd) + '</code>'
++                    + '<button class="btn" style="margin-top:4px;font-size:0.68rem;padding:3px 9px;" onclick="_copyPrev(this)">Copy</button>'
++                    + '<div style="color:var(--dim);margin-top:8px;font-size:0.68rem;line-height:1.5;">A fresh command each time, so it never expires. On Mac or Windows the app plus Approve above is simpler.</div>';
+             } else {
+-                out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not get a connect command here.') + '</div>'
+-                    + (d.instructions ? '<div style="color:var(--dim);margin-top:4px;">' + ESC(d.instructions) + '</div>' : '');
++                out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not get a command here.') + '</div>';
+             }
+         }
+     } catch (e) {
+         if (out) { out.style.display = 'block'; out.textContent = 'Could not reach the mesh service.'; }
+     } finally {
+-        if (btn) { btn.disabled = false; btn.textContent = _label || 'Get my connect command'; }
++        if (btn) { btn.disabled = false; btn.textContent = _label || 'Show the command'; }
+     }
+ }
+ 
+-function _copyConnectCmd(btn) {
+-    const el = document.getElementById('connect-cmd-code');
++function _copyPrev(btn) {
++    const el = btn && btn.previousElementSibling;
+     const text = el ? el.textContent : '';
+     if (!text) return;
+-    const done = () => { if (btn) { const t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = t; }, 1600); } };
+-    if (navigator.clipboard && navigator.clipboard.writeText) {
+-        navigator.clipboard.writeText(text).then(done).catch(() => {});
+-    } else {
+-        try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); } catch (e) {}
+-    }
++    const done = () => { const t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(() => { btn.textContent = t; }, 1500); };
++    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(done).catch(() => {}); }
++    else { try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); } catch (e) {} }
+ }
+ 
+ async function getMeshKey(btn) {

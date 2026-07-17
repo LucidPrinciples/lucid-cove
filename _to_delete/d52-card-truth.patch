@@ -1,0 +1,110 @@
+diff --git a/src/dashboard/static/js/home.js b/src/dashboard/static/js/home.js
+index d7e50d3..2eac5e5 100644
+--- a/src/dashboard/static/js/home.js
++++ b/src/dashboard/static/js/home.js
+@@ -1222,17 +1222,20 @@ async function respondApproval(requestId, approved, btnEl) {
+         const data = await res.json();
+         // The action really runs now — surface a failed execution instead of a false ✓.
+         const executed = data.executed !== false;
++        const resultText = (data.result || '').toString();
+ 
+         if (actionBtn) {
+             if (!approved) {
+                 actionBtn.textContent = 'Denied';
+             } else if (data.site_edit) {
+                 actionBtn.textContent = executed ? 'Deployed ✓' : 'Approved — merge failed';
+-                actionBtn.style.background = executed ? 'var(--accent)' : '';
++                actionBtn.style.background = executed ? 'var(--accent)' : 'var(--red)';
+             } else {
+                 actionBtn.textContent = executed ? 'Approved ✓' : 'Approved — action failed';
+-                actionBtn.style.background = executed ? 'var(--accent)' : '';
++                actionBtn.style.background = executed ? 'var(--accent)' : 'var(--red)';
+             }
++            // #D52: on real failure, surface the tool's actual result text on the card.
++            if (executed === false && resultText) actionBtn.title = resultText.slice(0, 300);
+         }
+ 
+         // Hold the confirmation briefly, then refresh the list.
+diff --git a/src/tools/approval.py b/src/tools/approval.py
+index eb26938..31f24b2 100644
+--- a/src/tools/approval.py
++++ b/src/tools/approval.py
+@@ -280,6 +280,21 @@ async def block_for_approval(tool_name: str, kwargs: dict, channel: str = "") ->
+ # Execute approved tool
+ # =============================================================================
+ 
++def _result_is_success(result_str: str) -> bool:
++    """#D52: a gated tool that RETURNS (no exception) can still have failed.
++    git_push returns 'FAILED: ... not found on origin', create_github_pr returns
++    'Error: ...', and both can return 'REFUSED: ...'. The old executor marked every
++    non-throwing call success=True, so the approval card rendered a green checkmark on
++    a failed push -- the exact false-success gap #D52 closes. Reuse the tested #D13
++    classifier (looks_like_error) so success reflects the real outcome."""
++    from src.utils.watcher import looks_like_error
++    if not result_str or not result_str.strip():
++        return True
++    if result_str.lstrip().upper().startswith("REFUSED"):
++        return False
++    return not looks_like_error(result_str)
++
++
+ async def execute_approved_tool(request_id: str) -> dict:
+     """Execute a tool that has been approved by the operator.
+ 
+@@ -336,8 +351,13 @@ async def execute_approved_tool(request_id: str) -> dict:
+                 (result_str[:10000], request_id),  # cap at 10k chars
+             )
+ 
+-        logger.info(f"Approved tool executed: {tool_name} -> {result_str[:200]}")
+-        return {"success": True, "result": result_str}
++        # #D52: map a FAILED/Error/REFUSED result (tool returned without throwing) to
++        # executed=False so the approval card can't show a green checkmark on a failed push.
++        real_success = _result_is_success(result_str)
++        logger.info(
++            f"Approved tool executed: {tool_name} -> success={real_success} :: {result_str[:200]}"
++        )
++        return {"success": real_success, "result": result_str}
+ 
+     except Exception as e:
+         error_msg = f"{type(e).__name__}: {e}"
+diff --git a/tests/test_approval_truth.py b/tests/test_approval_truth.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_approval_truth.py
+@@ -0,0 +1,36 @@
++from src.tools.approval import _result_is_success
++from src.utils.watcher import looks_like_error
++
++
++def test_failed_push_is_not_success():
++    s = ("FAILED: Push reported success but branch 'x' not found on origin.\n"
++         "Likely cause: no push credentials configured.")
++    assert looks_like_error(s) is True
++    assert _result_is_success(s) is False
++
++
++def test_pr_error_is_not_success():
++    s = "Error: no GitHub credentials found for this clone (remote URL, GH_TOKEN)."
++    assert _result_is_success(s) is False
++
++
++def test_refused_is_not_success():
++    assert _result_is_success("REFUSED: No unpushed commits. Stage and commit first.") is False
++
++
++def test_pr_created_json_is_success():
++    s = ('{"status": "created", "pr_number": 42, '
++         '"pr_url": "https://github.com/LucidPrinciples/lucid-cove/pull/42", '
++         '"additions": 10, "deletions": 2, '
++         '"message": "PR CREATED: #42 https://github.com/LucidPrinciples/lucid-cove/pull/42"}')
++    assert _result_is_success(s) is True
++
++
++def test_plain_push_output_is_success():
++    s = ("To github.com:LucidPrinciples/lucid-cove.git\n"
++         " * [new branch]  fix/x -> fix/x")
++    assert _result_is_success(s) is True
++
++
++def test_empty_result_is_success():
++    assert _result_is_success("") is True
