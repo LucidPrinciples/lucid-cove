@@ -329,6 +329,18 @@ async def publish_cove_to_registry(*, cove_name: str = "", space_id: str = "") -
                 name = (load_cove_config().get("name") or "").strip()
             except Exception:
                 name = ""
+        # Registry-name override (env). A Cove whose surname collides with a reserved brand
+        # word (the founder family surname is literally "Cove") can publish under a distinct
+        # GLOBAL registry name while agents keep the surname. Set LP_REGISTRY_COVE_NAME on
+        # the box (e.g. "Cove Cove"): registry shows "Cove Cove", agents stay "Atlas Cove".
+        # (Chords 2026-07-17)
+        try:
+            from src.env import env as _env
+            _reg_override = (_env("LP_REGISTRY_COVE_NAME", "") or "").strip()
+            if _reg_override:
+                name = _reg_override
+        except Exception:
+            pass
         if not name or name.lower() in ("new cove", "your cove"):
             return {"ok": False, "reason": "cove not named yet"}
         sid = (space_id or "").strip()
