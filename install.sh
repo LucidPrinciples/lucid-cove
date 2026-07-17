@@ -268,8 +268,10 @@ mkdir -p "$HOME/.lucidcove/tune-lock"
 BOOT="$CORE/out/_shared-caddy"
 if [ -d "$BOOT" ]; then
   mkdir -p "$SHARED_CADDY_DIR/conf.d"
-  # Compose file: only seed if missing (never clobber a live shared stack).
-  [ -f "$SHARED_CADDY_DIR/docker-compose.yml" ] || cp "$BOOT/docker-compose.yml" "$SHARED_CADDY_DIR/docker-compose.yml"
+  # Compose file: ALWAYS refresh (not seed-only). A generator fix like the #D35
+  # env_file loader must reach an existing box on re-install; same container_name +
+  # the force-recreate below make it safe, and conf.d routes are a separate mount.
+  cp "$BOOT/docker-compose.yml" "$SHARED_CADDY_DIR/docker-compose.yml"
   # #D35: always install the provisioned token-mode base Caddyfile + .env when the
   # bootstrap has them. conf.d/ is never wiped (per-Cove routes stay). Without the
   # matching token on lucidcove-caddy, set-address /load returns 403 and onboarding
@@ -277,22 +279,28 @@ if [ -d "$BOOT" ]; then
   if [ -f "$BOOT/Caddyfile" ]; then
     cp "$BOOT/Caddyfile" "$SHARED_CADDY_DIR/Caddyfile"
   fi
-  if [ -f "$BOOT/.env" ]; then
-    cp "$BOOT/.env" "$SHARED_CADDY_DIR/.env"
-    # Same token into the Cove stack .env so the app authenticates /load.
+  # #D35 box-token reconciliation. The shared Caddy is ONE per box and PERSISTENT,
+  # but each Cove provision mints its OWN token. Blindly copying every Cove's minted
+  # token onto the box would hand the running caddy a token a 2nd Cove's already-
+  # configured app doesn't share -> set-address 403. Rule: an EXISTING non-empty box
+  # token WINS (it is what the live caddy booted with); a box with no token yet adopts
+  # this Cove's minted one. Then force THIS Cove's stack .env to that one box token so
+  # app <-> caddy always agree.
+  _box_env="$SHARED_CADDY_DIR/.env"
+  _box_tok=""
+  [ -f "$_box_env" ] && _box_tok="$(grep -E '^LP_CADDY_ADMIN_TOKEN=' "$_box_env" | head -1 | cut -d= -f2-)"
+  _new_tok=""
+  [ -f "$BOOT/.env" ] && _new_tok="$(grep -E '^LP_CADDY_ADMIN_TOKEN=' "$BOOT/.env" | head -1 | cut -d= -f2-)"
+  if [ -n "$_box_tok" ]; then _tok="$_box_tok"; else _tok="$_new_tok"; fi
+  if [ -n "$_tok" ]; then
+    # Persist the reconciled token as the authoritative box .env.
+    printf '# install.sh - box-level #D35 Caddy admin token. Shared by every Cove on this box. Do not commit.\nLP_CADDY_ADMIN_TOKEN=%s\n' "$_tok" > "$_box_env"
+    # Force this Cove's stack .env to the box token.
     if [ -n "${DIR:-}" ] && [ -f "$DIR/.env" ]; then
-      _tok="$(grep -E '^LP_CADDY_ADMIN_TOKEN=' "$BOOT/.env" | head -1 | cut -d= -f2-)"
-      if [ -n "$_tok" ]; then
-        if grep -qE '^LP_CADDY_ADMIN_TOKEN=' "$DIR/.env"; then
-          # portable in-place replace (no GNU sed assumption)
-          _tmp="$DIR/.env.lp_caddy_tmp"
-          grep -vE '^LP_CADDY_ADMIN_TOKEN=' "$DIR/.env" > "$_tmp"
-          echo "LP_CADDY_ADMIN_TOKEN=$_tok" >> "$_tmp"
-          mv "$_tmp" "$DIR/.env"
-        else
-          echo "LP_CADDY_ADMIN_TOKEN=$_tok" >> "$DIR/.env"
-        fi
-      fi
+      _tmp="$DIR/.env.lp_caddy_tmp"
+      grep -vE '^LP_CADDY_ADMIN_TOKEN=' "$DIR/.env" > "$_tmp"
+      printf 'LP_CADDY_ADMIN_TOKEN=%s\n' "$_tok" >> "$_tmp"
+      mv "$_tmp" "$DIR/.env"
     fi
   fi
 fi
@@ -329,6 +337,24 @@ if [ -f "$SHARED_CADDY_DIR/docker-compose.yml" ]; then
     # (conf.d volume keeps per-Cove routes). Harmless when nothing changed.
     c_dim "  shared Caddy already running — reloading config (token + base Caddyfile)…"
     ( cd "$SHARED_CADDY_DIR" && COVE_CORE="$CORE" docker compose up -d --force-recreate --build )
+  fi
+  # #D35 verify: the RUNNING caddy must carry the box token or set-address 403s. A stale
+  # caddy (booted before the token landed, or reused across installs) is the #1 fresh-
+  # install onboarding failure. Check the live container; recreate once if it drifted;
+  # fail loud with the exact remedy if it still will not take.
+  if [ -n "${_tok:-}" ]; then
+    _live="$(docker exec lucidcove-caddy printenv LP_CADDY_ADMIN_TOKEN 2>/dev/null || true)"
+    if [ "$_live" != "$_tok" ]; then
+      c_dim "  shared Caddy token drifted — force-recreating to apply it…"
+      ( cd "$SHARED_CADDY_DIR" && COVE_CORE="$CORE" docker compose up -d --force-recreate )
+      _live="$(docker exec lucidcove-caddy printenv LP_CADDY_ADMIN_TOKEN 2>/dev/null || true)"
+    fi
+    if [ "$_live" != "$_tok" ]; then
+      c_red "⚠ lucidcove-caddy is NOT carrying the box admin token — set-address will 403."
+      echo "  Fix: cd $SHARED_CADDY_DIR && COVE_CORE=$CORE docker compose up -d --force-recreate"
+    else
+      c_dim "  shared Caddy admin token verified."
+    fi
   fi
 fi
 

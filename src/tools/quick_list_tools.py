@@ -12,9 +12,39 @@ Environment: runs inside the same container as the API. Calls DB directly
 to avoid HTTP overhead and Request-object dependency.
 """
 
+import contextvars as _ctxvars
+
 from langchain_core.tools import tool
 
 from src.tools.approval import auto, notify
+
+
+# JF4 — the ACTING PRESENCE for quick-list reads/writes, bound request-scoped in
+# chat.py at the same point as the Links-board tool. Unset (single mode / no presence)
+# -> NULL scope (legacy behavior). Without this, agent-created lists landed at
+# presence_id=NULL: invisible on the presence's Attention home AND leaking into
+# manager (NULL-scoped) views.
+_ql_presence_ctx = _ctxvars.ContextVar("ql_presence", default=None)
+
+
+def set_request_quick_list_presence(presence_id: str):
+    """Bind the acting presence for this request/task. Returns a reset token."""
+    return _ql_presence_ctx.set(str(presence_id) if presence_id else None)
+
+
+def clear_request_quick_list_presence(token) -> None:
+    try:
+        _ql_presence_ctx.reset(token)
+    except Exception:
+        pass
+
+
+def _ql_scope(col: str = "presence_id"):
+    """(sql_fragment, params) scoping quick lists to the acting presence (or NULL)."""
+    pid = _ql_presence_ctx.get()
+    if pid:
+        return f"{col} = %s", (pid,)
+    return f"{col} IS NULL", ()
 
 
 # =============================================================================
@@ -33,15 +63,17 @@ async def get_quick_lists() -> str:
 
     try:
         async with get_db() as conn:
+            _where, _params = _ql_scope("ql.presence_id")
             result = await conn.execute(
-                """SELECT ql.id, ql.name, ql.icon, ql.color, ql.pinned,
+                f"""SELECT ql.id, ql.name, ql.icon, ql.color, ql.pinned,
                           COUNT(qli.id) FILTER (WHERE qli.checked = FALSE) AS unchecked,
                           COUNT(qli.id) AS total
                    FROM quick_lists ql
                    LEFT JOIN quick_list_items qli ON qli.list_id = ql.id
-                   WHERE ql.presence_id IS NULL
+                   WHERE {_where}
                    GROUP BY ql.id
-                   ORDER BY ql.position, ql.created_at"""
+                   ORDER BY ql.position, ql.created_at""",
+                _params
             )
             rows = await result.fetchall()
 
@@ -124,18 +156,21 @@ async def create_quick_list(
 
     try:
         async with get_db() as conn:
-            # Get next position
+            # Get next position (scoped to the acting presence)
+            _where, _params = _ql_scope("presence_id")
             result = await conn.execute(
-                "SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM quick_lists WHERE presence_id IS NULL"
+                f"SELECT COALESCE(MAX(position), -1) + 1 AS next_pos FROM quick_lists WHERE {_where}",
+                _params
             )
             row = await result.fetchone()
             position = row["next_pos"]
 
+            _pid = _ql_presence_ctx.get()
             result = await conn.execute(
                 """INSERT INTO quick_lists (presence_id, name, icon, position, pinned)
-                   VALUES (NULL, %s, %s, %s, %s)
+                   VALUES (%s, %s, %s, %s, %s)
                    RETURNING id, name, icon""",
-                (name, icon, position, pinned)
+                (_pid, name, icon, position, pinned)
             )
             created = await result.fetchone()
 
@@ -309,23 +344,25 @@ async def _resolve_list(name_or_id: str) -> int | None:
     """Resolve a list name (case-insensitive) or numeric ID to a list ID."""
     from src.memory.database import get_db
 
-    # Try as numeric ID first
+    # Try as numeric ID first (scoped to the acting presence)
     try:
         list_id = int(name_or_id)
+        _where, _params = _ql_scope("presence_id")
         async with get_db() as conn:
             result = await conn.execute(
-                "SELECT id FROM quick_lists WHERE id = %s", (list_id,)
+                f"SELECT id FROM quick_lists WHERE id = %s AND {_where}", (list_id, *_params)
             )
             if await result.fetchone():
                 return list_id
     except (ValueError, TypeError):
         pass
 
-    # Search by name (case-insensitive)
+    # Search by name (case-insensitive), scoped to the acting presence
+    _where, _params = _ql_scope("presence_id")
     async with get_db() as conn:
         result = await conn.execute(
-            "SELECT id FROM quick_lists WHERE LOWER(name) = LOWER(%s) AND presence_id IS NULL",
-            (str(name_or_id),)
+            f"SELECT id FROM quick_lists WHERE LOWER(name) = LOWER(%s) AND {_where}",
+            (str(name_or_id), *_params)
         )
         row = await result.fetchone()
         if row:
