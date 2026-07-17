@@ -576,11 +576,16 @@ async function loadSettingsDevices() {
     const p = MC.presence;
     const hasAgent = !!(MC.config && MC.config.has_personal_agent)
         || !!(MC.tier && (MC.tier.has_agent || MC.tier.level >= 20));
+    // Mesh (Tailscale) is only a prerequisite on a LAN-only self-host — a phone can't
+    // reach the box without it. When the Cove has a PUBLIC address (Cloudflare tunnel),
+    // the sign-in link alone works, so hide the mesh detour entirely. (Chords 2026-07-17:
+    // the mesh "Step 1" was steering family toward Tailscale they don't need.)
+    const showMesh = hasAgent && !(MC.config && MC.config.domain);
 
     // ── B12: the two layers, up front. A phone needs BOTH, in order: the join code puts
     // the DEVICE on the mesh (network); the sign-in link signs the PERSON into the Cove
     // (identity). Only show the framing when this account actually has both controls. ──
-    const layersHtml = (p && hasAgent) ? `
+    const layersHtml = (p && showMesh) ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);font-size:0.7rem;color:var(--dim);line-height:1.55;">
             <strong style="color:var(--text);">Two layers, in order:</strong>
             a <strong style="color:var(--text);">join code</strong> puts a <em>device</em> on your Cove's private network (the mesh) so it can reach the box; a
@@ -590,7 +595,7 @@ async function loadSettingsDevices() {
     // ── Mesh join code FIRST — it's the prerequisite (a phone can't use a sign-in
     // link until it can reach the box). Chords, run-3 T5 note, 2026-07-04. Only
     // meaningful on a self-hosted Cove; hosted Operators don't run a box. ──
-    const meshHtml = hasAgent ? `
+    const meshHtml = showMesh ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
             <label class="settings-label">Step 1 — Connect a device to your private network (mesh)</label>
             <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">A <strong>join code</strong> puts a device (laptop, server, or phone) on your Cove's mesh so it can reach the box. This is the network layer — the phone then needs a sign-in link (below) to open as you.</div>
@@ -609,8 +614,8 @@ async function loadSettingsDevices() {
     // /p/ link — which just made people grab the wrong one). Chords. ──
     const signinHtml = p ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
-            <label class="settings-label">${hasAgent ? 'Step 2 — ' : ''}Sign-in link</label>
-            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Your personal link into the Cove. Open it on any device — a phone, a laptop, another browser — to sign in as you, or bookmark it as your own way back in. It's minted fresh each time so it's always current; your other signed-in devices stay signed in.${hasAgent ? ' (On a phone, put it on the mesh first, above.)' : ''}</div>
+            <label class="settings-label">${showMesh ? 'Step 2 — ' : ''}Sign-in link</label>
+            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Your personal link into the Cove. Open it on any device — a phone, a laptop, another browser — to sign in as you, or bookmark it as your own way back in. It's minted fresh each time so it's always current; your other signed-in devices stay signed in.${showMesh ? ' (On a phone, put it on the mesh first, above.)' : ''}</div>
             <button class="btn-sm" onclick="createSigninLink(this)">Get my sign-in link</button>
             <div id="signin-link-out" style="display:none;margin-top:8px;"></div>
         </div>` : '';
