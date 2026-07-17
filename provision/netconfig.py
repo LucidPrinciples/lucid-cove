@@ -255,6 +255,28 @@ def preflight_ports(ports: dict, target: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# #CX-LOG — Matrix vhost access logging (Connect diagnostics)
+# ---------------------------------------------------------------------------
+def _matrix_caddy_access_log_lines(indent: str = "    ") -> list:
+    """Caddy site-level access log lines for Matrix vhosts only.
+
+    #CX-LOG (Working/Specs/connect-diagnostics-2026-07-17.md): during the first
+    family onboarding, stuck Connects could not be diagnosed server-side because
+    the edge Caddy had no access lines for matrix.{domain}. JSON to stdout so
+    `docker logs <caddy> | grep _matrix` shows method/path/status/duration/remote.
+    Keep lean — only on Matrix site blocks, not every Cove vhost. No CORS here
+    (Dendrite owns CORS on /_matrix).
+    """
+    return [
+        f"{indent}# #CX-LOG — access log (JSON stdout) for Connect /_matrix diagnostics",
+        f"{indent}log {{",
+        f"{indent}    output stdout",
+        f"{indent}    format json",
+        f"{indent}}}",
+    ]
+
+
+# ---------------------------------------------------------------------------
 # #165 — Per-Cove Caddy snippet (full: matrix + cloud + wildcard + apex)
 # ---------------------------------------------------------------------------
 def build_cove_caddy_snippet(*, cove_id: str, domain: str, app_port: int,
@@ -289,6 +311,7 @@ def build_cove_caddy_snippet(*, cove_id: str, domain: str, app_port: int,
             f"# Caddy serves .well-known discovery; Dendrite serves /_matrix/* (it sets",
             f"# its own CORS on /_matrix, so do NOT add CORS at the site level there).",
             f"{matrix_server_name} {{",
+            *_matrix_caddy_access_log_lines(),
             f"    handle /.well-known/matrix/server {{",
             f"        header Content-Type application/json",
             f'        respond `{{"m.server": "{matrix_server_name}:443"}}` 200',
@@ -407,6 +430,7 @@ def build_selfhost_caddyfile(*, domain: str, app_port: int,
         lines += [
             "",
             f"{matrix_server_name} {{",
+            *_matrix_caddy_access_log_lines(),
             f"    handle /.well-known/matrix/server {{",
             f"        header Content-Type application/json",
             f'        respond `{{"m.server": "{matrix_server_name}:443"}}` 200',
@@ -583,6 +607,7 @@ def build_haven_cove_snippet(*, cove_id: str, domain: str, app_port: int,
             f"# Matrix homeserver ({matrix_server_name}) — Connect + federation.",
             f"{matrix_server_name} {{",
             *_tls_block(),
+            *_matrix_caddy_access_log_lines(),
             f"    handle /.well-known/matrix/server {{",
             f"        header Content-Type application/json",
             f'        respond `{{"m.server": "{matrix_server_name}:443"}}` 200',
