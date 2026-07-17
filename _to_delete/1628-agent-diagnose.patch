@@ -1,0 +1,179 @@
+diff --git a/src/dashboard/routes/domain.py b/src/dashboard/routes/domain.py
+index 4a0377c..8bcf008 100644
+--- a/src/dashboard/routes/domain.py
++++ b/src/dashboard/routes/domain.py
+@@ -568,6 +568,92 @@ async def _resolve_a(host: str, timeout: float = 3.0) -> str:
+         return ""
+ 
+ 
++def _diagnosis_task(raw_error: str, step_context: str) -> str:
++    """#1628 — the framed prompt handed to the agent to diagnose a set-address failure.
++    Pure + unit-testable (no I/O)."""
++    return (
++        "The operator just tried to set this Cove's address and it FAILED. The raw error is "
++        "below. Diagnose it for them in a few plain sentences: what most likely went wrong, "
++        "what you would check, and the exact next step (or precisely what to paste where). "
++        "Never leave them at a dead end -- if you cannot be certain, say what to check and "
++        "why. Be concise and warm; no preamble.\n\n"
++        f"STEP: {step_context}\nRAW ERROR:\n{raw_error}"
++    )
++
++
++def _clean_reply(text: str) -> str:
++    """Strip <think>...</think> scaffolding and trim. Pure + unit-testable."""
++    return re.sub(r"<think>.*?</think>", "", (text or ""), flags=re.DOTALL).strip()
++
++
++@router.post("/api/domain/diagnose-error")
++async def diagnose_domain_error(request: Request):
++    """#1628 — when set-address fails, the operator's agent diagnoses it automatically.
++
++    Standing product principle (2026-07-10): a connected intelligence steps in on errors
++    without being asked. EPHEMERAL, synchronous one-shot -- no chat thread, no tools, no
++    history -- so a retry loop never clutters the operator's chat. Returns the agent's
++    plain-language diagnosis as JSON for the failed-step card to render inline.
++    """
++    try:
++        body = await request.json()
++    except Exception:
++        body = {}
++    raw_error = (body.get("raw_error") or "").strip()[:2000]
++    step_context = (body.get("step_context") or "set the Cove address").strip()[:500]
++    if not raw_error:
++        return JSONResponse({"error": "no error text to diagnose"}, status_code=400)
++
++    presence_identity = None
++    agent_name = ""
++    try:
++        if env("COVE_MODE", "single") == "multi":
++            from src.dashboard.routes.presence import get_current_presence
++            _p = await get_current_presence(request)
++            if _p and _p.get("agent_identity"):
++                presence_identity = _p["agent_identity"]
++                agent_name = (presence_identity.get("name") or "").strip()
++    except Exception as e:
++        log.warning("diagnose-error: presence resolve failed (non-fatal): %s", e)
++
++    try:
++        from src.dashboard.routes.chat import _personal_agent_id
++        agent_id = await _personal_agent_id(request)
++    except Exception:
++        agent_id = "agent"
++
++    try:
++        from src.agents.identity import build_system_prompt
++        from src.models.provider import get_primary_model
++        from langchain_core.messages import SystemMessage, HumanMessage
++        sys_prompt = build_system_prompt(agent_id, agent_identity=presence_identity)
++        model = get_primary_model(temperature=0.3)
++    except Exception as e:
++        log.warning("diagnose-error: agent/model unavailable: %s", e)
++        return JSONResponse({"error": "agent unavailable"}, status_code=503)
++
++    try:
++        resp = await asyncio.wait_for(
++            model.ainvoke([
++                SystemMessage(content=sys_prompt),
++                HumanMessage(content=_diagnosis_task(raw_error, step_context)),
++            ]),
++            timeout=60,
++        )
++        reply = _clean_reply(getattr(resp, "content", "") or "")
++    except asyncio.TimeoutError:
++        return JSONResponse({"error": "diagnosis timed out"}, status_code=504)
++    except Exception as e:
++        log.warning("diagnose-error: inference failed: %s", e)
++        return JSONResponse({"error": "diagnosis failed"}, status_code=502)
++
++    if not reply:
++        reply = ("I could not read a clear cause from that error. Double-check the domain is "
++                 "spelled right and that its DNS points to this box, then try again -- and "
++                 "paste the full error to me in chat if it keeps happening.")
++    return {"agent_name": agent_name, "reply": reply}
++
++
+ @router.post("/api/domain/check-records")
+ async def check_records(request: Request):
+     """C1 (locked): guided-manual 'Check my records' — resolve the operator's own-domain A
+diff --git a/src/dashboard/static/js/settings-account.js b/src/dashboard/static/js/settings-account.js
+index 4453b3a..c7a9c15 100644
+--- a/src/dashboard/static/js/settings-account.js
++++ b/src/dashboard/static/js/settings-account.js
+@@ -216,7 +216,7 @@ async function saveSettingsAddress(confirmChange) {
+             }
+             return;
+         }
+-        if (!r.ok || d.error) { alert(d.error || 'Could not set the address.'); return; }
++        if (!r.ok || d.error) { _addrFailCard(d.error || 'Could not set the address.'); return; }
+         if (status) {
+             status.style.color = 'var(--green)';
+             if (d.records && d.records.length) {
+@@ -235,7 +235,45 @@ async function saveSettingsAddress(confirmChange) {
+         // No auto-reload: the records path stays put so the operator can copy them, and the
+         // address-change path now hands back the door above rather than reloading onto a login
+         // wall. The operator refreshes on their own click.
+-    } catch (e) { alert('Could not set: ' + e.message); }
++    } catch (e) { _addrFailCard('Could not set: ' + e.message); }
++}
++
++// #1628: on set-address failure, the operator's agent diagnoses it inline (decision 5,
++// 2026-07-10) -- automatic, no prompt. Ephemeral to this card; raw error is behind "details".
++function _addrFailCard(errText) {
++    const status = document.getElementById('addr-status');
++    if (!status) return;
++    const name = (window.MC && (MC.agentName || (MC.presence && MC.presence.agent_name))) || 'Your agent';
++    status.style.color = 'var(--dim)';
++    status.innerHTML = `
++        <div style="margin-top:8px;border:1px solid var(--red);border-radius:8px;padding:10px 12px;background:rgba(255,80,80,0.06);">
++            <div style="font-weight:600;color:var(--text);">That didn't go through</div>
++            <div id="addr-fail-line" style="font-size:0.8rem;color:var(--dim);margin-top:2px;">${ESC(name)} can see the error and is looking at it now…</div>
++            <div id="addr-fail-reply" style="font-size:0.82rem;color:var(--text);margin-top:8px;white-space:pre-wrap;"></div>
++            <pre id="addr-fail-raw" style="display:none;font-size:0.72rem;color:var(--dim);white-space:pre-wrap;margin-top:8px;">${ESC(errText || 'Could not set the address.')}</pre>
++            <div style="margin-top:10px;display:flex;gap:8px;">
++                <button class="btn-sm" onclick="saveSettingsAddress()">Try again</button>
++                <button class="btn-sm" style="background:transparent;border:1px solid var(--border,#2a2d3a);" onclick="var p=document.getElementById('addr-fail-raw');if(p)p.style.display=(p.style.display==='none'?'block':'none');">Show me the details</button>
++            </div>
++        </div>`;
++    fetch('/api/domain/diagnose-error', {
++        method: 'POST', headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ raw_error: errText || '', step_context: 'set the Cove address (Settings)' }),
++    }).then(r => r.json()).then(d => {
++        const line = document.getElementById('addr-fail-line');
++        const rep = document.getElementById('addr-fail-reply');
++        if (d && d.reply) {
++            if (line) line.textContent = (d.agent_name || name) + ' looked at it:';
++            if (rep) rep.textContent = d.reply;
++        } else {
++            if (line) line.textContent = name + " couldn't reach a diagnosis — open the details below.";
++            const p = document.getElementById('addr-fail-raw'); if (p) p.style.display = 'block';
++        }
++    }).catch(() => {
++        const line = document.getElementById('addr-fail-line');
++        if (line) line.textContent = name + " couldn't be reached — open the details below.";
++        const p = document.getElementById('addr-fail-raw'); if (p) p.style.display = 'block';
++    });
+ }
+ 
+ async function saveProfile() {
+diff --git a/tests/test_domain_diagnose.py b/tests/test_domain_diagnose.py
+new file mode 100644
+--- /dev/null
++++ b/tests/test_domain_diagnose.py
+@@ -0,0 +1,17 @@
++from src.dashboard.routes.domain import _diagnosis_task, _clean_reply
++
++
++def test_task_includes_error_and_step_and_guardrail():
++    t = _diagnosis_task("boom: DNS record not found", "set the Cove address")
++    assert "boom: DNS record not found" in t
++    assert "set the Cove address" in t
++    assert "dead end" in t.lower()
++
++
++def test_clean_reply_strips_think_block():
++    assert _clean_reply("<think>hmm let me see</think>Check your DNS A record.") == "Check your DNS A record."
++
++
++def test_clean_reply_empty_is_empty():
++    assert _clean_reply("   ") == ""
++    assert _clean_reply(None) == ""

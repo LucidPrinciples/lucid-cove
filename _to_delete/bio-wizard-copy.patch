@@ -1,0 +1,42 @@
+diff --git a/src/dashboard/static/action-board/new-cove-setup.html b/src/dashboard/static/action-board/new-cove-setup.html
+index 877a99a..ba419d5 100644
+--- a/src/dashboard/static/action-board/new-cove-setup.html
++++ b/src/dashboard/static/action-board/new-cove-setup.html
+@@ -138,12 +138,11 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
+   <!-- PANEL 3: introduce yourself (D1, batch-10 #6) — optional, before the agent wakes -->
+   <div class="panel" id="panel-bio">
+     <div class="section-label">You</div>
+-    <div class="section-title">Introduce yourself</div>
+-    <!-- PLACEHOLDER COPY — Chords to finalize the operator-facing wording (D1). -->
+-    <div class="section-desc">Optional. A line or two about who you are &mdash; your agent reads this as it wakes, so its very first words are genuinely about you. You can change it anytime in Settings.</div>
++    <div class="section-title">A little about you</div>
++    <div class="section-desc">Your agent starts from what you write here. Where you are in life, what you're building, what matters right now. A few honest sentences beat a r&eacute;sum&eacute;.</div>
+     <div class="field">
+-      <label>About you <span style="opacity:.55;font-weight:normal">(optional)</span></label>
+-      <textarea id="op-bio" rows="4" placeholder="e.g. I'm a teacher and a parent of two, setting this up for my family." style="width:100%;background:#1a1d27;border:1px solid #2a2d3a;border-radius:6px;padding:10px 12px;color:#e1e4ea;font-size:14px;box-sizing:border-box;font-family:inherit;"></textarea>
++      <label>About you</label>
++      <textarea id="op-bio" rows="4" placeholder="I'm … · I spend my days … · what I care about right now is …" style="width:100%;background:#1a1d27;border:1px solid #2a2d3a;border-radius:6px;padding:10px 12px;color:#e1e4ea;font-size:14px;box-sizing:border-box;font-family:inherit;"></textarea>
+     </div>
+     <div class="field">
+       <label>A photo <span style="opacity:.55;font-weight:normal">(optional)</span></label>
+@@ -153,7 +152,6 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
+     <div class="nav-row">
+       <button class="btn btn-ghost" onclick="show('panel-name')">&larr; Back</button>
+       <span style="display:flex;gap:8px;">
+-        <button class="btn btn-ghost" onclick="skipBio()">Skip</button>
+         <button class="btn" id="bio-continue" onclick="saveBioThenPresence()">Continue &rarr;</button>
+       </span>
+     </div>
+@@ -478,6 +476,12 @@ async function saveBioThenPresence() {
+   const status = document.getElementById('op-bio-status');
+   const bio = (document.getElementById('op-bio').value || '').trim();
+   const photo = document.getElementById('op-photo').files[0];
++  // Bio is required now (photo stays optional) — nudge instead of proceeding empty.
++  if (!bio) {
++    if (status) { status.style.color = '#ff8c00'; status.textContent = 'Add a line or two so your agent knows who it\'s for.'; }
++    const _b = document.getElementById('op-bio'); if (_b) _b.focus();
++    return;
++  }
+   if (btn) { btn.disabled = true; btn.textContent = '…'; }
+   try {
+     if (bio) {
