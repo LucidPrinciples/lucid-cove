@@ -136,10 +136,12 @@ async def probe_local_providers() -> list:
             # installed" per the docs. Name the actual fix, not just the error.
             if p["kind"] == "ollama" and ("refused" in msg.lower()
                                           or "all connection attempts failed" in msg.lower()):
-                entry["hint"] = ("Ollama may be listening on 127.0.0.1 only — the Cove "
-                                 "container can't reach that. Set OLLAMA_HOST=0.0.0.0 "
-                                 "(Linux: systemctl edit ollama → "
-                                 "Environment=\"OLLAMA_HOST=0.0.0.0\", then restart Ollama).")
+                entry["hint"] = ("Ollama is running but only listening on 127.0.0.1, so the "
+                                 "Cove container can't reach it. Set OLLAMA_HOST=0.0.0.0 and "
+                                 "restart Ollama. macOS: launchctl setenv OLLAMA_HOST 0.0.0.0, "
+                                 "then quit and reopen the Ollama app. Linux: systemctl edit "
+                                 "ollama -> Environment=\"OLLAMA_HOST=0.0.0.0\", then "
+                                 "systemctl restart ollama.")
         results.append(entry)
     return results
 
