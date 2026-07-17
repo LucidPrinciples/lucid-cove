@@ -561,10 +561,10 @@ function _onboardingCardHtml(item) {
     if (item.id === 'add_intelligence') {
         return `<div class="home-approval onboarding-card">
             <div class="approval-tool">${title}</div>
-            <div class="approval-desc" style="line-height:1.6;">Your Lucid Cove team runs on an AI model. The setup tour uses one from Lucid Cove. Connect your own to bring the team online. Your agents' memory and identity stay either way.</div>
+            <div class="approval-desc" style="line-height:1.6;">Your whole Cove team runs on one AI model &mdash; your <strong>primary</strong>. Connect a provider key (or a local model) and every agent uses it from the start, and it sticks across restarts. Your agents' memory and identity stay either way. You can set models per-agent and turn on automatic routing later.</div>
             <div id="ai-form" style="display:none;margin-top:8px;">
                 <div id="ai-local" style="margin-bottom:10px;font-size:0.78rem;color:var(--dim);">Checking this machine…</div>
-                <div style="font-size:0.7rem;color:var(--dim);margin-bottom:4px;">Or connect a provider key:</div>
+                <div style="font-size:0.7rem;color:var(--dim);margin-bottom:4px;">Or set your primary from a provider key:</div>
                 <select id="ai-provider" class="settings-input" style="max-width:200px;">
                     <option value="">Choose provider…</option>
                     <option value="openrouter">OpenRouter (recommended — covers Claude, GPT &amp; more)</option>
