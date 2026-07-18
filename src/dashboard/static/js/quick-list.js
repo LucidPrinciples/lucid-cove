@@ -3,10 +3,16 @@
 // =============================================================================
 // Loaded alongside home.js. Provides loadQuickLists() called on home tab load.
 // Lists show as compact cards. Click to open a modal with full item management.
+//
+// #QL-EDIT  — tap item text to rename in place
+// #QL-DRAG  — drag handle to reorder (position PATCH)
+// #QL-SPACER — human-added section divider (item_type=spacer)
 // =============================================================================
 
 let _qlLoaded = false;
 let _qlData = [];
+let _qlDragId = null;
+let _qlOpenListId = null;
 
 async function loadQuickLists() {
     const container = document.getElementById('ql-cards');
@@ -49,7 +55,6 @@ function _renderQLCards(container) {
         </div>`;
     });
 
-    // "+" card to create new list
     html += `<div class="ql-card ql-card-add" onclick="qlNewList()">
         <span class="ql-card-icon">+</span>
     </div>`;
@@ -64,6 +69,7 @@ function _renderQLCards(container) {
 async function qlOpen(listId) {
     const list = _qlData.find(l => l.id === listId);
     if (!list) return;
+    _qlOpenListId = listId;
 
     let modal = document.getElementById('ql-modal');
     if (!modal) {
@@ -89,7 +95,8 @@ async function qlOpen(listId) {
             <input type="text" id="ql-add-input" class="ql-add-input" placeholder="Add item..."
                    onkeydown="if(event.key==='Enter'){qlAddItem(${listId});}"
                    autofocus>
-            <button class="ql-add-btn" onclick="qlAddItem(${listId})">+</button>
+            <button class="ql-add-btn" onclick="qlAddItem(${listId})" title="Add item">+</button>
+            <button class="ql-spacer-btn" onclick="qlAddSpacer(${listId})" title="Add section spacer">§</button>
         </div>
         <div class="modal-body ql-items-body" id="ql-items-body">
             <div class="loading">Loading...</div>
@@ -98,11 +105,46 @@ async function qlOpen(listId) {
     </div>`;
     modal.style.display = 'flex';
 
-    // Focus the input
     setTimeout(() => document.getElementById('ql-add-input')?.focus(), 100);
-
-    // Load items
     await _qlLoadItems(listId);
+}
+
+function _qlRenderItemRow(item, listId) {
+    const isSpacer = (item.item_type || 'item') === 'spacer';
+    if (isSpacer) {
+        const label = item.text ? ESC(item.text) : '';
+        return `<div class="ql-item ql-item-spacer" data-item-id="${item.id}" data-type="spacer"
+                     draggable="true"
+                     ondragstart="_qlDragStart(event, ${item.id})"
+                     ondragover="_qlDragOver(event)"
+                     ondrop="_qlDrop(event, ${listId})"
+                     ondragend="_qlDragEnd(event)">
+            <span class="ql-drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
+            <div class="ql-spacer-line" onclick="qlStartEdit(${item.id}, ${listId})" title="Tap to label">
+                <span class="ql-spacer-label ${item.text ? '' : 'ql-spacer-empty'}">${label || 'section'}</span>
+            </div>
+            <button class="ql-item-delete" onclick="qlDeleteItem(${item.id}, ${listId})" title="Delete">✕</button>
+        </div>`;
+    }
+
+    const checked = !!item.checked;
+    return `<div class="ql-item${checked ? ' ql-item-checked' : ''}" data-item-id="${item.id}" data-type="item"
+                 draggable="true"
+                 ondragstart="_qlDragStart(event, ${item.id})"
+                 ondragover="_qlDragOver(event)"
+                 ondrop="_qlDrop(event, ${listId})"
+                 ondragend="_qlDragEnd(event)">
+        <span class="ql-drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
+        <label class="ql-check-label">
+            <input type="checkbox" class="ql-checkbox" ${checked ? 'checked' : ''}
+                   onchange="qlToggleItem(${item.id}, ${listId}, ${checked ? 'false' : 'true'})">
+            <span class="ql-item-text${checked ? ' ql-item-done' : ''}"
+                  data-role="text"
+                  onclick="event.preventDefault(); event.stopPropagation(); qlStartEdit(${item.id}, ${listId})"
+                  title="Tap to edit">${ESC(item.text)}</span>
+        </label>
+        <button class="ql-item-delete" onclick="qlDeleteItem(${item.id}, ${listId})" title="Delete">✕</button>
+    </div>`;
 }
 
 async function _qlLoadItems(listId) {
@@ -117,43 +159,27 @@ async function _qlLoadItems(listId) {
         const items = data.items || [];
 
         if (!items.length) {
-            body.innerHTML = '<div class="ql-empty-items">No items yet. Add something above.</div>';
+            body.innerHTML = '<div class="ql-empty-items">No items yet. Add something above — or tap § for a section spacer.</div>';
             if (footer) footer.innerHTML = '';
             return;
         }
 
-        const unchecked = items.filter(i => !i.checked);
-        const checked = items.filter(i => i.checked);
+        // Keep API order (spacers + unchecked first by position, then checked)
+        const open = items.filter(i => (i.item_type || 'item') === 'spacer' || !i.checked);
+        const checked = items.filter(i => (i.item_type || 'item') === 'item' && i.checked);
 
         let html = '';
-        unchecked.forEach(item => {
-            html += `<div class="ql-item" data-item-id="${item.id}">
-                <label class="ql-check-label">
-                    <input type="checkbox" class="ql-checkbox" onchange="qlToggleItem(${item.id}, ${listId}, true)">
-                    <span class="ql-item-text">${ESC(item.text)}</span>
-                </label>
-                <button class="ql-item-delete" onclick="qlDeleteItem(${item.id}, ${listId})" title="Delete">✕</button>
-            </div>`;
-        });
+        open.forEach(item => { html += _qlRenderItemRow(item, listId); });
 
         if (checked.length) {
             html += `<div class="ql-checked-divider">
                 <span>Checked (${checked.length})</span>
             </div>`;
-            checked.forEach(item => {
-                html += `<div class="ql-item ql-item-checked" data-item-id="${item.id}">
-                    <label class="ql-check-label">
-                        <input type="checkbox" class="ql-checkbox" checked onchange="qlToggleItem(${item.id}, ${listId}, false)">
-                        <span class="ql-item-text ql-item-done">${ESC(item.text)}</span>
-                    </label>
-                    <button class="ql-item-delete" onclick="qlDeleteItem(${item.id}, ${listId})" title="Delete">✕</button>
-                </div>`;
-            });
+            checked.forEach(item => { html += _qlRenderItemRow(item, listId); });
         }
 
         body.innerHTML = html;
 
-        // Footer with clear button
         if (footer) {
             if (checked.length) {
                 footer.innerHTML = `<button class="ql-clear-btn" onclick="qlClearChecked(${listId})">Clear ${checked.length} checked</button>`;
@@ -171,7 +197,6 @@ async function qlAddItem(listId) {
     const text = input?.value?.trim();
     if (!text) { input?.focus(); return; }
 
-    // Support comma-separated batch: "milk, eggs, bread"
     const texts = text.includes(',')
         ? text.split(',').map(t => t.trim()).filter(Boolean)
         : [text];
@@ -188,6 +213,24 @@ async function qlAddItem(listId) {
         _qlRefreshCards();
     } catch (e) {
         console.error('Failed to add item:', e);
+    }
+}
+
+async function qlAddSpacer(listId) {
+    // Optional: if the add input has text, use it as the section label
+    const input = document.getElementById('ql-add-input');
+    const label = input?.value?.trim() || '';
+    try {
+        await fetch(`/api/quick-lists/${listId}/items`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_type: 'spacer', text: label }),
+        });
+        if (input) input.value = '';
+        await _qlLoadItems(listId);
+        _qlRefreshCards();
+    } catch (e) {
+        console.error('Failed to add spacer:', e);
     }
 }
 
@@ -225,9 +268,140 @@ async function qlClearChecked(listId) {
     }
 }
 
+// =============================================================================
+// #QL-EDIT — inline rename
+// =============================================================================
+
+function qlStartEdit(itemId, listId) {
+    const row = document.querySelector(`.ql-item[data-item-id="${itemId}"]`);
+    if (!row || row.classList.contains('ql-editing')) return;
+
+    const isSpacer = row.dataset.type === 'spacer';
+    const textEl = isSpacer
+        ? row.querySelector('.ql-spacer-label')
+        : row.querySelector('.ql-item-text');
+    if (!textEl) return;
+
+    const current = isSpacer && textEl.classList.contains('ql-spacer-empty')
+        ? ''
+        : (textEl.textContent || '');
+
+    row.classList.add('ql-editing');
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'ql-inline-input';
+    input.value = current;
+    input.setAttribute('aria-label', isSpacer ? 'Section label' : 'Item text');
+    textEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let finished = false;
+    const finish = async (save) => {
+        if (finished) return;
+        finished = true;
+        const next = input.value.trim();
+        // Spacers may be blank; items need text (keep previous if emptied)
+        if (save) {
+            if (!isSpacer && !next) {
+                // revert — don't blank a real item
+                await _qlLoadItems(listId);
+                return;
+            }
+            if (next !== current) {
+                try {
+                    await fetch(`/api/quick-lists/items/${itemId}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: next }),
+                    });
+                } catch (e) {
+                    console.error('Failed to rename item:', e);
+                }
+            }
+        }
+        await _qlLoadItems(listId);
+        _qlRefreshCards();
+    };
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+}
+
+// =============================================================================
+// #QL-DRAG — reorder via position PATCH
+// =============================================================================
+
+function _qlDragStart(e, itemId) {
+    _qlDragId = itemId;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', String(itemId)); } catch (_) {}
+    const row = e.currentTarget;
+    if (row) row.classList.add('ql-dragging');
+}
+
+function _qlDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const row = e.currentTarget;
+    if (!row || !row.classList.contains('ql-item')) return;
+    document.querySelectorAll('.ql-item.ql-drag-over').forEach(el => {
+        if (el !== row) el.classList.remove('ql-drag-over');
+    });
+    row.classList.add('ql-drag-over');
+}
+
+async function _qlDrop(e, listId) {
+    e.preventDefault();
+    const target = e.currentTarget;
+    document.querySelectorAll('.ql-item.ql-drag-over').forEach(el => el.classList.remove('ql-drag-over'));
+    if (!target || _qlDragId == null) return;
+
+    const targetId = parseInt(target.getAttribute('data-item-id'), 10);
+    if (!targetId || targetId === _qlDragId) return;
+
+    const body = document.getElementById('ql-items-body');
+    if (!body) return;
+    // Only reorder within the open (non-checked) block — dragging into checked
+    // section is allowed; final order is whatever the DOM shows after move.
+    const rows = Array.from(body.querySelectorAll('.ql-item'));
+    const ids = rows.map(r => parseInt(r.getAttribute('data-item-id'), 10)).filter(Boolean);
+    const from = ids.indexOf(_qlDragId);
+    const to = ids.indexOf(targetId);
+    if (from < 0 || to < 0 || from === to) return;
+
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+
+    // Persist sequential positions
+    try {
+        await Promise.all(ids.map((id, idx) =>
+            fetch(`/api/quick-lists/items/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ position: idx }),
+            })
+        ));
+        await _qlLoadItems(listId);
+    } catch (err) {
+        console.error('Failed to reorder:', err);
+        await _qlLoadItems(listId);
+    }
+}
+
+function _qlDragEnd(e) {
+    _qlDragId = null;
+    document.querySelectorAll('.ql-item.ql-dragging, .ql-item.ql-drag-over').forEach(el => {
+        el.classList.remove('ql-dragging', 'ql-drag-over');
+    });
+}
+
 function qlCloseModal() {
     const modal = document.getElementById('ql-modal');
     if (modal) modal.style.display = 'none';
+    _qlOpenListId = null;
 }
 
 // =============================================================================
@@ -293,7 +467,6 @@ async function qlCreateList() {
         _qlData.push(created);
         qlCloseModal();
         _qlRefreshCards();
-        // Open the new list immediately
         setTimeout(() => qlOpen(created.id), 200);
     } catch (e) {
         console.error('Failed to create list:', e);
@@ -336,7 +509,6 @@ async function qlSaveList(listId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, icon }),
         });
-        // Update local data
         const list = _qlData.find(l => l.id === listId);
         if (list) { list.name = name; list.icon = icon; }
         qlOpen(listId);
@@ -357,10 +529,6 @@ async function qlDeleteList(listId) {
         console.error('Failed to delete list:', e);
     }
 }
-
-// =============================================================================
-// Refresh cards without full reload
-// =============================================================================
 
 async function _qlRefreshCards() {
     try {

@@ -1256,6 +1256,45 @@ select.settings-input { cursor: pointer; }
 .ql-item:hover .ql-item-delete { opacity: 1; }
 .ql-item-delete:hover { color: var(--red); background: rgba(255,0,0,0.1); }
 
+/* #QL-EDIT / #QL-DRAG / #QL-SPACER */
+.ql-drag-handle {
+  color: var(--dim); cursor: grab; font-size: 0.85rem; padding: 0 2px;
+  user-select: none; flex-shrink: 0; opacity: 0.45;
+}
+.ql-item:hover .ql-drag-handle { opacity: 0.9; }
+.ql-item.ql-dragging { opacity: 0.45; }
+.ql-item.ql-drag-over { border-top: 2px solid var(--accent); }
+.ql-item-text { cursor: text; border-radius: 3px; padding: 1px 2px; }
+.ql-item-text:hover { background: rgba(255,255,255,0.05); }
+.ql-inline-input {
+  flex: 1; min-width: 0; background: var(--card2); border: 1px solid var(--accent);
+  border-radius: 4px; color: var(--text); font-size: 0.82rem; font-family: inherit;
+  padding: 4px 6px; outline: none;
+}
+.ql-spacer-btn {
+  background: none; border: 1px solid var(--border); color: var(--dim);
+  border-radius: 6px; width: 32px; height: 32px; cursor: pointer;
+  font-family: inherit; font-size: 0.9rem; flex-shrink: 0;
+}
+.ql-spacer-btn:hover { border-color: var(--accent); color: var(--accent); }
+.ql-item-spacer {
+  padding: 6px 16px; background: transparent;
+}
+.ql-spacer-line {
+  flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0;
+  cursor: text; padding: 2px 0;
+}
+.ql-spacer-line::before, .ql-spacer-line::after {
+  content: ''; flex: 1; height: 1px; background: var(--border); opacity: 0.8;
+}
+.ql-spacer-label {
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--dim); white-space: nowrap;
+  max-width: 50%; overflow: hidden; text-overflow: ellipsis;
+}
+.ql-spacer-empty { font-weight: 500; font-style: italic; opacity: 0.7; text-transform: none; letter-spacing: 0; }
+
+
 /* Checked divider */
 .ql-checked-divider {
   padding: 6px 16px; font-size: 0.68rem; color: var(--dim);

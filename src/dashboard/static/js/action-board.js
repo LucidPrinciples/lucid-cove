@@ -1040,10 +1040,11 @@ function renderABLinks() {
                     // Link cards always open in a new tab — including Cove-relative ones
                     // (jules, /backlog): the board stays put, the tool opens beside it.
                     const tgt = c.url ? ' target="_blank" rel="noopener"' : '';
-                    body += '<a class="ablk-card"' + href + tgt + '>'
-                          + '<div class="ablk-card-t">' + (c.icon ? '<span class="ablk-card-i">' + _abEsc(c.icon) + '</span>' : '')
-                          + _abEsc(c.title || c.url) + '</div>'
-                          + (c.note ? '<div class="ablk-card-n">' + _abEsc(c.note) + '</div>' : '')
+                    const tip = _abEsc([c.title || c.url, c.note, c.url].filter(Boolean).join(' — '));
+                    body += '<a class="ablk-card"' + href + tgt + ' title="' + tip + '">'
+                          + '<span class="ablk-card-t">' + (c.icon ? '<span class="ablk-card-i">' + _abEsc(c.icon) + '</span>' : '')
+                          + _abEsc(c.title || c.url) + '</span>'
+                          + (c.note ? '<span class="ablk-card-n">' + _abEsc(c.note) + '</span>' : '')
                           + '</a>';
                 });
                 body += '</div>';
