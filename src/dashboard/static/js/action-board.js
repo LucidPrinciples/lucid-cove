@@ -1000,9 +1000,9 @@ function renderABLinks() {
     let body = '';
     if (_abLinksEditing && _abLinksRaw) {
         body = '<textarea id="ablk-raw" class="ablk-raw" spellcheck="false" '
-             + 'placeholder="One link per line:  Title | https://url | optional note | optional group">'
+             + 'placeholder="One link per line:  Title | https://url | optional linked text | optional group">'
              + _abEsc(_abLinksToRaw(_abLinks)) + '</textarea>'
-             + '<div class="ablk-hint">One per line — <b>Title | URL | note | group</b>. Note and group are optional.</div>';
+             + '<div class="ablk-hint">One per line — <b>Title | URL | linked text | group</b>. Linked text and group are optional.</div>';
     } else if (_abLinksEditing) {
         body = '<div class="ablk-grid ablk-edit">';
         _abLinks.forEach((c, i) => {
@@ -1013,7 +1013,7 @@ function renderABLinks() {
                   + '<button class="ablk-del" title="Delete" onclick="abLinksDelete(' + i + ')">✕</button>'
                   + '</div>'
                   + '<input class="ablk-in ablk-url" data-f="url" value="' + _abEsc(c.url) + '" placeholder="https://…  (or /path)">'
-                  + '<input class="ablk-in ablk-note" data-f="note" value="' + _abEsc(c.note) + '" placeholder="One-line note (optional)">'
+                  + '<input class="ablk-in ablk-note" data-f="note" value="' + _abEsc(c.note) + '" placeholder="Linked text (optional — e.g. dash.cloudflare.com)">'
                   + '<input class="ablk-in ablk-note" data-f="group" value="' + _abEsc(c.group || '') + '" placeholder="Group (optional — cards cluster under it)">'
                   + '</div>';
         });
@@ -1031,28 +1031,66 @@ function renderABLinks() {
                 if (!(g in groups)) { groups[g] = []; order.push(g); }
                 groups[g].push(c);
             });
-            body = '';
+            // Standard card grid: one section card per group (ungrouped = one card each).
+            // Inside: Cloudflare / links.html rows — dim label + accent linked text.
+            body = '<div class="ablk-grid">';
             order.forEach(g => {
-                if (g) body += '<div class="ablk-group-h">' + _abEsc(g) + '</div>';
-                body += '<div class="ablk-grid">';
-                groups[g].forEach(c => {
-                    const href = c.url ? ' href="' + _abEsc(c.url) + '"' : '';
-                    // Link cards always open in a new tab — including Cove-relative ones
-                    // (jules, /backlog): the board stays put, the tool opens beside it.
-                    const tgt = c.url ? ' target="_blank" rel="noopener"' : '';
-                    const tip = _abEsc([c.title || c.url, c.note, c.url].filter(Boolean).join(' — '));
-                    body += '<a class="ablk-card"' + href + tgt + ' title="' + tip + '">'
-                          + '<span class="ablk-card-t">' + (c.icon ? '<span class="ablk-card-i">' + _abEsc(c.icon) + '</span>' : '')
-                          + _abEsc(c.title || c.url) + '</span>'
-                          + (c.note ? '<span class="ablk-card-n">' + _abEsc(c.note) + '</span>' : '')
-                          + '</a>';
-                });
-                body += '</div>';
+                const cards = groups[g];
+                if (!g) {
+                    // Ungrouped: keep card sizing — one section card per link
+                    cards.forEach(c => {
+                        body += '<div class="ablk-section"><div class="ablk-links">'
+                              + _abLinksRenderRow(c)
+                              + '</div></div>';
+                    });
+                } else {
+                    body += '<div class="ablk-section">'
+                          + '<div class="ablk-section-h">' + _abEsc(g) + '</div>'
+                          + '<div class="ablk-links">';
+                    cards.forEach(c => { body += _abLinksRenderRow(c); });
+                    body += '</div></div>';
+                }
             });
+            body += '</div>';
         }
     }
 
     container.innerHTML = bar + body;
+}
+
+function _abLinksLinkText(c) {
+    // Cloudflare / links.html: label stays plain; linked text is the clickable phrase.
+    // Prefer note ("My Backlog Board", "dash.cloudflare.com"). Else show a short URL.
+    if (c.note && c.note.trim()) return c.note.trim();
+    const u = (c.url || '').trim();
+    if (!u) return c.title || 'Open';
+    if (u.startsWith('/')) return u; // Cove path
+    try {
+        const parsed = new URL(u, window.location.origin);
+        let s = parsed.host + (parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : '');
+        if (s.endsWith('/')) s = s.slice(0, -1);
+        return s || u;
+    } catch (_) {
+        return u;
+    }
+}
+
+function _abLinksRenderRow(c) {
+    const label = c.title || c.url || '';
+    const linkText = _abLinksLinkText(c);
+    const tip = _abEsc([c.title || c.url, c.note, c.url].filter(Boolean).join(' — '));
+    const icon = c.icon ? '<span class="ablk-card-i">' + _abEsc(c.icon) + '</span>' : '';
+    let row = '<div class="ablk-row">';
+    row += '<span class="ablk-label" title="' + tip + '">' + icon + _abEsc(label) + '</span>';
+    if (c.url) {
+        // Always new tab — including Cove-relative paths (board stays put).
+        row += '<a class="ablk-link" href="' + _abEsc(c.url) + '" target="_blank" rel="noopener" title="' + tip + '">'
+             + _abEsc(linkText) + '</a>';
+    } else {
+        row += '<span class="ablk-link-plain">' + _abEsc(linkText) + '</span>';
+    }
+    row += '</div>';
+    return row;
 }
 
 function _abLinksToRaw(cards) {

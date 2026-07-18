@@ -1,4 +1,4 @@
-"""#QL-EDIT / #QL-DRAG / #QL-SPACER + dense Action Links rows.
+"""#QL-EDIT / #QL-DRAG / #QL-SPACER + Action Links section-card rows.
 
 Contract tests — source + schema. No browser driver required.
 """
@@ -79,13 +79,19 @@ def test_ql_css_ux():
         assert needle in css, needle
 
 
-def test_links_dense_rows():
+def test_links_section_card_rows():
+    """View mode keeps system card grid; rows are label + linked text (links.html)."""
     css = AB_CSS.read_text()
-    assert "display: flex; align-items: baseline" in css or "align-items: baseline" in css
-    # no longer a 3-col card grid for view mode
-    assert "ablk-grid { display: flex; flex-direction: column" in css
+    assert "grid-template-columns: repeat(3, 1fr)" in css
+    assert "ablk-section" in css
+    assert "ablk-label" in css
+    assert "ablk-link" in css
+    assert "align-items: baseline" in css
     js = AB_JS.read_text()
-    # inline note as span (same line), target=_blank kept
+    assert "function _abLinksRenderRow" in js
+    assert "ablk-section" in js
+    assert "ablk-label" in js
+    assert 'class="ablk-link"' in js
     assert 'target="_blank"' in js
-    assert 'class="ablk-card-n"' in js
-    assert 'class="ablk-card-t"' in js
+    # note becomes the linked text when present
+    assert "c.note" in js and "linkText" in js
