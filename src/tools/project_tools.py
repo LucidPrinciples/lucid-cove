@@ -5,8 +5,20 @@ All read operations are AUTO tier. Task/project creation is NOTIFY.
 Task deletion is APPROVE.
 
 All data is stored in PostgreSQL (same DB the dashboard reads from).
+
+#PRJ1 — Presence isolation (JF4 recipe)
+--------------------------------------
+Two systems share the projects/tasks tables:
+  - Cove board: presence_id IS NULL (Stuart/Mercer + build team)
+  - Presence personal: presence_id = acting presence
+
+Dashboard routes already split on cookie presence. The agent tool must too,
+or presence-created rows land NULL (invisible on the presence Projects view
+and leak into the Cove board). Bound request-scoped in chat.py alongside
+links + quicklist.
 """
 
+import contextvars as _ctxvars
 import json
 import re
 from datetime import datetime, timezone
@@ -38,6 +50,74 @@ def _now() -> str:
 
 
 # =============================================================================
+# Presence scope
+# =============================================================================
+
+_prj_presence_ctx = _ctxvars.ContextVar("prj_presence", default=None)
+_prj_agent_ctx = _ctxvars.ContextVar("prj_agent", default=None)
+
+
+def set_request_project_presence(presence_id: str, agent_id: str = ""):
+    """Bind acting presence (+ optional personal agent id) for this request/task.
+
+    Returns a pair of reset tokens (presence_token, agent_token).
+    """
+    ptok = _prj_presence_ctx.set(str(presence_id) if presence_id else None)
+    atok = _prj_agent_ctx.set(str(agent_id) if agent_id else None)
+    return ptok, atok
+
+
+def clear_request_project_presence(tokens) -> None:
+    """Reset tokens from set_request_project_presence (pair or single)."""
+    if tokens is None:
+        return
+    try:
+        if isinstance(tokens, tuple):
+            ptok = tokens[0] if len(tokens) > 0 else None
+            atok = tokens[1] if len(tokens) > 1 else None
+            if ptok is not None:
+                try:
+                    _prj_presence_ctx.reset(ptok)
+                except Exception:
+                    pass
+            if atok is not None:
+                try:
+                    _prj_agent_ctx.reset(atok)
+                except Exception:
+                    pass
+        else:
+            try:
+                _prj_presence_ctx.reset(tokens)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _prj_scope(col: str = "presence_id"):
+    """(sql_fragment, params) scoping rows to the acting presence (or NULL = Cove)."""
+    pid = _prj_presence_ctx.get()
+    if pid:
+        return f"{col} = %s", (pid,)
+    return f"{col} IS NULL", ()
+
+
+def _acting_presence_id():
+    return _prj_presence_ctx.get()
+
+
+def _default_agent_name() -> str:
+    """Assignee/created_by default: presence personal agent when scoped, else stuart."""
+    aid = _prj_agent_ctx.get()
+    if aid:
+        return str(aid)
+    pid = _prj_presence_ctx.get()
+    if pid:
+        return str(pid)
+    return "stuart"
+
+
+# =============================================================================
 # Task Operations
 # =============================================================================
 
@@ -49,11 +129,12 @@ async def get_tasks(status: str = "", assignee: str = "", project: str = "") -> 
     Args:
         status: Filter by status: pending, in_progress, done, blocked (optional)
         assignee: Filter by assignee (optional)
-        project: Filter by project slug (optional)
+        project: Project slug to attach to (optional)
     """
     try:
-        conditions = ["1=1"]
-        params = []
+        scope_sql, scope_params = _prj_scope("t.presence_id")
+        conditions = [scope_sql]
+        params = list(scope_params)
 
         if status:
             conditions.append("t.status = %s")
@@ -111,7 +192,7 @@ async def get_tasks(status: str = "", assignee: str = "", project: str = "") -> 
 
 @notify
 @tool
-async def create_task(title: str, assignee: str = "stuart",
+async def create_task(title: str, assignee: str = "",
                       description: str = "", project: str = "",
                       priority: str = "normal",
                       source: str = "internal",
@@ -120,7 +201,7 @@ async def create_task(title: str, assignee: str = "stuart",
 
     Args:
         title: Task title (clear and specific)
-        assignee: Who does the work (default: stuart)
+        assignee: Who does the work (default: acting presence agent, or stuart on Cove board)
         description: What needs to be done
         project: Project slug to attach to (optional)
         priority: low, normal, high, urgent
@@ -128,12 +209,20 @@ async def create_task(title: str, assignee: str = "stuart",
         expected_by: When this should be done (ISO datetime string, e.g. '2026-05-11T17:00:00'). Empty = no deadline.
     """
     try:
+        if not assignee:
+            assignee = _default_agent_name()
+        created_by = _default_agent_name()
+        presence_id = _acting_presence_id()
+
         async with get_db() as conn:
-            # Look up project_id from slug if provided
+            # Look up project_id from slug if provided — scoped so a presence
+            # cannot attach tasks to another presence's (or the Cove) project.
             project_id = None
             if project:
+                p_scope, p_params = _prj_scope("presence_id")
                 result = await conn.execute(
-                    "SELECT id FROM projects WHERE slug = %s", (project,)
+                    f"SELECT id FROM projects WHERE slug = %s AND {p_scope}",
+                    (project, *p_params),
                 )
                 row = await result.fetchone()
                 if row:
@@ -145,21 +234,21 @@ async def create_task(title: str, assignee: str = "stuart",
             expected_by_val = None
             if expected_by:
                 try:
-                    from datetime import datetime, timezone
                     from dateutil.parser import parse as parse_dt
                     expected_by_val = parse_dt(expected_by)
                     if expected_by_val.tzinfo is None:
-                        # C2: config cascade, not the legacy-only env stamp.
                         from src.utils.time_utils import app_tz
                         expected_by_val = expected_by_val.replace(tzinfo=app_tz())
                 except Exception:
                     pass  # If parsing fails, skip the deadline
 
             result = await conn.execute(
-                """INSERT INTO tasks (project_id, title, description, priority, assignee, created_by, source, expected_by)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """INSERT INTO tasks (project_id, title, description, priority, assignee,
+                                      created_by, source, expected_by, presence_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (project_id, title, description, priority, assignee, "stuart", source, expected_by_val),
+                (project_id, title, description, priority, assignee,
+                 created_by, source, expected_by_val, presence_id),
             )
             row = await result.fetchone()
 
@@ -213,12 +302,14 @@ async def update_task(task_id: int, status: str = "", notes: str = "",
             return "No fields to update. Provide status, notes, priority, or assignee."
 
         set_parts.append("updated_at = NOW()")
+        scope_sql, scope_params = _prj_scope("presence_id")
         values.append(task_id)
 
         async with get_db() as conn:
             result = await conn.execute(
-                f"UPDATE tasks SET {', '.join(set_parts)} WHERE id = %s RETURNING id, title",
-                tuple(values),
+                f"UPDATE tasks SET {', '.join(set_parts)} "
+                f"WHERE id = %s AND {scope_sql} RETURNING id, title",
+                tuple(values) + tuple(scope_params),
             )
             row = await result.fetchone()
 
@@ -238,9 +329,11 @@ async def delete_task(task_id: int) -> str:
         task_id: Task ID to delete
     """
     try:
+        scope_sql, scope_params = _prj_scope("presence_id")
         async with get_db() as conn:
             result = await conn.execute(
-                "DELETE FROM tasks WHERE id = %s RETURNING id, title", (task_id,)
+                f"DELETE FROM tasks WHERE id = %s AND {scope_sql} RETURNING id, title",
+                (task_id, *scope_params),
             )
             row = await result.fetchone()
         if not row:
@@ -259,16 +352,19 @@ async def delete_task(task_id: int) -> str:
 async def get_projects() -> str:
     """List all projects with their task counts."""
     try:
+        scope_sql, scope_params = _prj_scope("p.presence_id")
         async with get_db() as conn:
             result = await conn.execute(
-                """SELECT p.*,
+                f"""SELECT p.*,
                           COUNT(t.id) FILTER (WHERE t.status NOT IN ('done', 'cancelled')) as open_tasks,
                           COUNT(t.id) as total_tasks
                    FROM projects p
                    LEFT JOIN tasks t ON t.project_id = p.id
                    WHERE p.status NOT IN ('archived', 'cancelled')
+                     AND {scope_sql}
                    GROUP BY p.id
-                   ORDER BY p.created_at"""
+                   ORDER BY p.created_at""",
+                scope_params,
             )
             projects = await result.fetchall()
 
@@ -300,19 +396,22 @@ async def create_project(name: str, description: str = "",
     """
     try:
         slug = _slugify(name)
+        presence_id = _acting_presence_id()
         async with get_db() as conn:
-            # Check for duplicate
+            # Duplicate check is scope-local (same slug OK across presence vs Cove)
+            scope_sql, scope_params = _prj_scope("presence_id")
             result = await conn.execute(
-                "SELECT id FROM projects WHERE slug = %s", (slug,)
+                f"SELECT id FROM projects WHERE slug = %s AND {scope_sql}",
+                (slug, *scope_params),
             )
             if await result.fetchone():
                 return f"Project '{slug}' already exists."
 
             result = await conn.execute(
-                """INSERT INTO projects (slug, name, description, owner, goals)
-                   VALUES (%s, %s, %s, %s, %s)
+                """INSERT INTO projects (presence_id, slug, name, description, owner, goals)
+                   VALUES (%s, %s, %s, %s, %s, %s)
                    RETURNING id, slug""",
-                (slug, name, description, _get_operator_id(), goals),
+                (presence_id, slug, name, description, _get_operator_id(), goals),
             )
             row = await result.fetchone()
         return f"Project created: {row['slug']} (ID: {row['id']}) — {name}"
@@ -328,7 +427,7 @@ async def create_project(name: str, description: str = "",
 @tool
 async def log_work(summary: str, project: str = "", task_id: int = 0,
                    details: str = "") -> str:
-    """Log a work entry. Builds a running history of what Stuart has done.
+    """Log a work entry. Builds a running history of what the acting agent has done.
 
     Args:
         summary: One-line summary of what was done
@@ -337,12 +436,15 @@ async def log_work(summary: str, project: str = "", task_id: int = 0,
         details: Longer description (optional)
     """
     try:
+        author = _default_agent_name()
         async with get_db() as conn:
-            # Find project_id from slug if provided
+            # Find project_id from slug if provided (scoped)
             project_id = None
             if project:
+                scope_sql, scope_params = _prj_scope("presence_id")
                 result = await conn.execute(
-                    "SELECT id FROM projects WHERE slug = %s", (project,)
+                    f"SELECT id FROM projects WHERE slug = %s AND {scope_sql}",
+                    (project, *scope_params),
                 )
                 row = await result.fetchone()
                 if row:
@@ -353,15 +455,16 @@ async def log_work(summary: str, project: str = "", task_id: int = 0,
                 await conn.execute(
                     """INSERT INTO project_comments (project_id, author, content)
                        VALUES (%s, %s, %s)""",
-                    (project_id, "stuart", f"[WORK LOG] {summary}" + (f"\n{details}" if details else "")),
+                    (project_id, author, f"[WORK LOG] {summary}" + (f"\n{details}" if details else "")),
                 )
 
-            # If task_id provided, update its notes
+            # If task_id provided, update its notes (scoped)
             if task_id:
+                scope_sql, scope_params = _prj_scope("presence_id")
                 await conn.execute(
-                    """UPDATE tasks SET notes = COALESCE(notes, '') || %s, updated_at = NOW()
-                       WHERE id = %s""",
-                    (f"\n[{_now()[:16]}] {summary}", task_id),
+                    f"""UPDATE tasks SET notes = COALESCE(notes, '') || %s, updated_at = NOW()
+                       WHERE id = %s AND {scope_sql}""",
+                    (f"\n[{_now()[:16]}] {summary}", task_id, *scope_params),
                 )
 
         return f"Logged: {summary}"
@@ -379,29 +482,33 @@ async def get_work_log(days: int = 7, project: str = "") -> str:
         project: Filter by project slug (optional)
     """
     try:
+        author = _default_agent_name()
+        scope_sql, scope_params = _prj_scope("p.presence_id")
         async with get_db() as conn:
             if project:
                 result = await conn.execute(
-                    """SELECT pc.*, p.slug as project_slug
+                    f"""SELECT pc.*, p.slug as project_slug
                        FROM project_comments pc
                        JOIN projects p ON pc.project_id = p.id
-                       WHERE pc.author = 'stuart'
+                       WHERE pc.author = %s
                          AND pc.content LIKE '[WORK LOG]%%'
                          AND p.slug = %s
-                         AND pc.created_at > NOW() - INTERVAL '%s days'
+                         AND {scope_sql}
+                         AND pc.created_at > NOW() - make_interval(days => %s)
                        ORDER BY pc.created_at DESC LIMIT 50""",
-                    (project, days),
+                    (author, project, *scope_params, days),
                 )
             else:
                 result = await conn.execute(
-                    """SELECT pc.*, p.slug as project_slug
+                    f"""SELECT pc.*, p.slug as project_slug
                        FROM project_comments pc
                        JOIN projects p ON pc.project_id = p.id
-                       WHERE pc.author = 'stuart'
+                       WHERE pc.author = %s
                          AND pc.content LIKE '[WORK LOG]%%'
-                         AND pc.created_at > NOW() - INTERVAL '%s days'
+                         AND {scope_sql}
+                         AND pc.created_at > NOW() - make_interval(days => %s)
                        ORDER BY pc.created_at DESC LIMIT 50""",
-                    (days,),
+                    (author, *scope_params, days),
                 )
             entries = await result.fetchall()
 
@@ -438,6 +545,12 @@ async def run_workflow(task_id: int, pattern: str = "") -> str:
                  Options: build, report, research, comms, knowledge, commerce
     """
     try:
+        # Presence agents do not drive Cove multi-agent workflows.
+        if _acting_presence_id():
+            return (
+                "run_workflow is a Cove-team tool (Stuart/build team). "
+                "Personal presence tasks stay on the presence Projects board."
+            )
         from src.graphs.task_graph import start_workflow
         result = await start_workflow(task_id, pattern=pattern if pattern else None)
         return result
