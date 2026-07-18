@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Connect this phone - Lucid Cove</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0b10; --card:#14141c; --text:#e8e8ef; --dim:#9a9ab0; --accent:#7c5cff; --border:#2a2a38; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); line-height:1.55; }
+  main { max-width:420px; margin:0 auto; padding:24px 18px 48px; }
+  h1 { font-size:1.25rem; margin:0 0 8px; font-weight:650; }
+  p { color:var(--dim); font-size:0.92rem; margin:0 0 14px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 14px 12px; margin:14px 0; }
+  ol { margin:0; padding-left:1.2rem; color:var(--dim); font-size:0.9rem; }
+  li { margin:8px 0; }
+  code { display:block; margin:8px 0; padding:10px; background:#0a0a10; border:1px solid var(--border); border-radius:8px; word-break:break-all; font-size:0.82rem; color:var(--text); }
+  .label { font-size:0.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); font-weight:600; }
+  .btn { display:inline-block; margin-top:10px; padding:10px 14px; background:var(--accent); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:0.9rem; border:0; }
+  .ghost { margin-top:8px; padding:8px 12px; background:transparent; color:var(--accent); border:1px solid var(--border); border-radius:8px; font-size:0.82rem; cursor:pointer; }
+  .warn { color:#e67e22; font-size:0.88rem; }
+  .foot { margin-top:18px; font-size:0.75rem; color:var(--dim); }
+  strong { color:var(--text); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Connect this phone</h1>
+  <p>Your Cove is private. This page puts the phone on the family mesh so Mission Control can open - nothing is exposed to the public internet.</p>
+  <div class="card">
+    <div class="label">Coordinator (custom server)</div>
+    <code id="login-server">__LOGIN__</code>
+    __KEY_BLOCK__
+    __OPEN_BTN__
+  </div>
+  <div class="card">
+    <div class="label">If the button does nothing (common)</div>
+    <ol>
+      <li>Install the <strong>Tailscale</strong> app (App Store / Play Store).</li>
+      <li>If you are already on another Tailscale network, log out of it first - this is a separate network.</li>
+      <li>Account menu -&gt; <em>Use custom coordination server</em> / <em>Use an alternate server</em>.</li>
+      <li>Enter the coordinator above, then sign in with the <strong>join code</strong>.</li>
+      <li>When the phone is connected, open your Cove in the browser and sign in as you. Leave MagicDNS / accept DNS on when asked.</li>
+    </ol>
+  </div>
+  <p class="foot">Join codes are single-use and expire in about an hour. Generate a new QR from your Cove if this one is stale. After join, give chat a minute if names are still catching up (relay before direct is normal).</p>
+</main>
+<script>
+function copyKey() {
+  var el = document.getElementById('join-key');
+  if (!el) return;
+  var t = el.textContent || '';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t).catch(function(){});
+  }
+}
+</script>
+</body>
+</html>

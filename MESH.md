@@ -46,18 +46,22 @@ join code**, good for ~1 hour).
 
 ### Phone (iPhone / Android)
 1. Install the **Tailscale** app (App Store / Play Store / F-Droid).
-2. Point it at the Lucid Cove coordinator:
+2. **QR (preferred, #MESH2):** in Mission Control open **Start Here → Connect on mobile** or
+   **Settings → Devices → Get join code**, then scan the QR with the phone camera. It opens a
+   short **Cove-hosted** `/mesh-join` page (on your Cove's tunnel address) that shows the
+   coordinator + join code. This is **not** Nextcloud's app-login QR and **not** a native
+   Tailscale deep link — we host the walkthrough so typing is optional.
+3. Or by hand: point Tailscale at the Lucid Cove coordinator
    `https://headscale.lucidcove.org`
    - **iPhone:** account menu → *Use custom coordination server*.
    - **Android:** account menu → *Use an alternate server*.
-3. Sign in with the join code from your Cove.
+   Then sign in with the join code from your Cove.
 4. Open `https://yourcove.lucidcove.org` in the browser and add **jules** to your Home Screen
-   for voice capture.
+   for voice capture. Leave MagicDNS / accept DNS on when asked.
 
-> The phone step #2 is the fiddliest part — the stock Tailscale apps tuck the custom-server
-> option into the account menu, and the wording shifts between versions. It's a one-time setup
-> per device. If you get stuck, the desktop steps above are the simplest way to confirm
-> everything else is working.
+> Custom-server setup is still the fiddliest part of the stock Tailscale apps (wording shifts
+> between versions). The QR path reduces typing; if a "open Tailscale" button on the join page
+> does nothing, use the on-page coordinator + code. Desktop steps above still confirm the rest.
 
 ---
 
