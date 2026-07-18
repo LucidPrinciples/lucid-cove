@@ -21,14 +21,34 @@ def test_help_js_has_toc_and_pages():
         "function helpShowPage",
         "function _helpHubHtml",
         "function _helpTogetherHtml",
+        "function _helpTogetherPresenceHtml",
+        "function _helpTogetherStewardHtml",
+        "function _helpIsStewardSurface",
         "function _helpDeeperHtml",
         "function _helpAgentName",
         "Me &",
         "what we can do together",
         "Details coming soon",
         "Go Deeper",
+        "family steward",
+        "Build team",
+        "Make a groceries list",
     ):
         assert name in CORE, name
+
+
+def test_help_agent_name_prefers_steward_on_admin_door():
+    """Presence agent_name must not win on steward/admin Help (Knight vs Stuart)."""
+    assert "_helpIsStewardSurface" in CORE
+    # Order: steward surface uses MC.agentName before MC.presence.agent_name
+    steward_fn = CORE.split("function _helpAgentName")[1].split("function _helpEsc")[0]
+    assert "_helpIsStewardSurface()" in steward_fn
+    assert "MC.agentName" in steward_fn
+    assert "MC.presence.agent_name" in steward_fn
+    # Steward branch appears before the bare presence fallback in source order
+    assert steward_fn.index("_helpIsStewardSurface()") < steward_fn.index(
+        "MC.presence && MC.presence.agent_name"
+    )
 
 
 def test_help_css_toc():
