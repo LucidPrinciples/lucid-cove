@@ -128,7 +128,8 @@ def _parse_backlog(text: str) -> dict:
 @router.get("/backlog-manifest.webmanifest")
 async def backlog_manifest():
     """Dedicated PWA manifest so Add to Home Screen names the icon 'Backlog'
-    (same pattern as jules apple-mobile-web-app-title + deck-manifest)."""
+    and uses the Backlog board mark — not the LC mark (same pattern as jules
+    → julian-icon.png). See Docs/tool-pwa-icons.md for the per-tool process."""
     return JSONResponse(
         {
             "name": "Backlog — Lucid Cove",
@@ -138,8 +139,18 @@ async def backlog_manifest():
             "background_color": "#0a0a0f",
             "theme_color": "#0a0a0f",
             "icons": [
-                {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
-                {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+                {
+                    "src": "/static/backlog-icon-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                    "purpose": "any",
+                },
+                {
+                    "src": "/static/backlog-icon-512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "any",
+                },
             ],
         },
         media_type="application/manifest+json",

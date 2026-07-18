@@ -81,10 +81,14 @@ def test_backlog_pwa_meta():
     assert "backlog-manifest.webmanifest" in html
     assert "apple-touch-icon" in html
     assert 'id="bl-close"' in html
+    # Dedicated board mark — not the LC icon-192 (jules uses julian-icon).
+    assert "backlog-icon.png" in html
+    assert 'href="/static/icon-192.png"' not in html
     py = BL_PY.read_text()
     assert "backlog-manifest.webmanifest" in py
     assert '"short_name": "Backlog"' in py
     assert '"start_url": "/backlog"' in py
+    assert "backlog-icon-192.png" in py and "backlog-icon-512.png" in py
 
 
 def test_jules_and_backlog_close_affordance():
