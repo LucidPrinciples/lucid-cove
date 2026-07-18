@@ -1137,9 +1137,26 @@ clearDraft();  // clear any stale draft on load
     return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
       || window.navigator.standalone===true;
   }
+  // Explicit return target beats history.back — Links opens tools in a new tab
+  // whose history is not the Links board.
+  function returnTarget(){
+    try{
+      var r=(new URLSearchParams(location.search).get('return')||'').trim();
+      if(!r) return '';
+      if(r==='links'||r==='ab-links') return '/?tab=ab-links';
+      if(r==='home'||r==='mc'||r==='attention') return '/';
+      if(r==='action'||r==='ab-actions') return '/?tab=ab-actions';
+      if(r==='tools'||r==='ab-tools') return '/?tab=ab-tools';
+      if(r==='flows'||r==='ab-flows') return '/?tab=ab-flows';
+      if(r.charAt(0)==='/'&&r.charAt(1)!=='/') return r;
+    }catch(e){}
+    return '';
+  }
+  var ret=returnTarget();
   var canBack=(window.history.length>1)||!!document.referrer;
-  if(canBack||isStandalone()){ document.body.classList.add('jl-show-close'); }
+  if(ret||canBack||isStandalone()){ document.body.classList.add('jl-show-close'); }
   btn.addEventListener('click', function(){
+    if(ret){ window.location.href=ret; return; }
     if(window.history.length>1){ window.history.back(); return; }
     window.location.href='/';
   });
