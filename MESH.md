@@ -158,3 +158,25 @@ Product path still mints short-lived **join codes** only; durability is about th
   in front of it) is blocking DNS, not your box. Your Cove's Caddy keeps retrying and picks
   up automatically once it clears. (Hub operators: allow TCP **and** UDP 53 to the acme-dns
   container — cloud-provider firewalls often block them by default.)
+
+
+## Host reachability (optional, MESH3 L2)
+
+Your Cove stays **private on the mesh** either way. When the *host machine* is easy
+for other devices to punch a direct path to, pages feel snappier; when it is not,
+traffic can still flow through Lucid Cove's own relay (MESH3 L1).
+
+Mission Control may show an Attention card **"Make this Cove easier to reach"** after
+basic setup — only if a check has never been run, or the last check said the host is
+hard to reach. It never opens the Cove to the public internet.
+
+On the Cove machine:
+
+```bash
+bash scripts/probe-host-reachability.sh --out /path/to/your-cove/config/host_reachability.json
+```
+
+(The card shows the exact path for your install.) If the report says hard to reach:
+enable UPnP/NAT-PMP on the router, **or** DHCP-reserve the box and forward **UDP 41641**
+to it, then re-run the probe. Skip the card anytime.
+

@@ -684,6 +684,46 @@ function _onboardingCardHtml(item) {
             <div style="font-size:0.7rem;color:var(--dim);margin-top:6px;">Not now? You can set this up anytime from Settings.</div>
         </div>`;
     }
+    if (item.id === 'host_reachability') {
+        // MESH3 L2 — host punchability. Host command + guide; self-clears on easy probe.
+        const guide = (item.guide || []).map((g, i) =>
+            `<div style="margin-top:3px;"><strong style="color:var(--text);">${i + 1}.</strong> ${ESC(g)}</div>`).join('');
+        const cmd = (item.host_command || '').trim();
+        const probe = item.probe || {};
+        const st = probe.status || {};
+        const reason = (st.reason || probe.available_reason || '').trim();
+        const badge = probe.hard_to_reach
+            ? '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--orange,#e67e22);border:1px solid var(--orange,#e67e22);border-radius:4px;padding:1px 5px;margin-left:6px;">hard to reach</span>'
+            : (probe.probed
+                ? '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--dim);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:6px;">re-check</span>'
+                : '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--dim);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:6px;">not checked</span>');
+        const meta = [
+            st.ts ? `Last check: ${ESC(st.ts)}` : '',
+            reason ? `Reason: ${ESC(reason)}` : '',
+            st.mesh_ip ? `Mesh IP: ${ESC(st.mesh_ip)}` : '',
+            st.port_mapping ? `Port mapping: ${ESC(st.port_mapping)}` : '',
+            st.nearest_derp ? `Nearest DERP: ${ESC(st.nearest_derp)}` : '',
+        ].filter(Boolean).map(l => `<div style="margin-top:2px;">${l}</div>`).join('');
+        const cmdBlock = cmd
+            ? `<div style="margin-top:10px;font-size:0.72rem;color:var(--dim);">On the Cove machine:</div>
+               <code id="host-reach-cmd" style="display:block;margin-top:4px;padding:8px;background:var(--card,#111);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;color:var(--text);">${ESC(cmd)}</code>
+               <div class="approval-actions" style="flex-wrap:wrap;gap:6px;margin-top:8px;">
+                 <button class="btn-ghost" type="button" onclick="navigator.clipboard.writeText(document.getElementById('host-reach-cmd').textContent)">Copy command</button>
+                 <button class="btn-approve" type="button" onclick="refreshHostReachability(this)">I ran it — refresh</button>
+                 <button class="btn-ghost" type="button" onclick="ackOnboarding('host_reachability')">Skip for now</button>
+               </div>`
+            : `<div class="approval-actions" style="margin-top:8px;">
+                 <button class="btn-ghost" type="button" onclick="ackOnboarding('host_reachability')">Skip for now</button>
+               </div>`;
+        return `<div class="home-approval onboarding-card">
+            <div class="approval-tool">${title}${badge}</div>
+            <div class="approval-desc">${body}</div>
+            <div style="font-size:0.72rem;color:var(--dim);margin-top:8px;line-height:1.6;">${guide}</div>
+            <div id="host-reach-meta" style="font-size:0.7rem;color:var(--dim);margin-top:8px;line-height:1.5;">${meta}</div>
+            ${cmdBlock}
+            <div style="font-size:0.68rem;color:var(--dim);margin-top:8px;line-height:1.5;">Private mesh only — this does not publish your Cove on the public internet. UDP 41641 / UPnP improves direct paths; our relay still covers the rest.</div>
+        </div>`;
+    }
     return `<div class="home-approval onboarding-card">
         <div class="approval-tool">${title}</div>
         <div class="approval-desc">${body}</div>
@@ -691,6 +731,26 @@ function _onboardingCardHtml(item) {
             <button class="btn-approve" onclick="ackOnboarding('${ESC(item.id)}')">Got it</button>
         </div>
     </div>`;
+}
+
+async function refreshHostReachability(btn) {
+    // MESH3 L2 — re-read probe file after operator ran host command.
+    if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    try {
+        const r = await fetch('/api/onboarding/host-reachability');
+        const d = await r.json().catch(() => ({}));
+        if (d && d.done && !d.hard_to_reach) {
+            // Easy path — soft-refresh clears the card.
+            loadHomeApprovals();
+            return;
+        }
+        // Still hard / never probed — refresh card content in place.
+        loadHomeApprovals();
+    } catch (e) {
+        loadHomeApprovals();
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'I ran it — refresh'; }
+    }
 }
 
 // ── CF-112 backup card actions ───────────────────────────────────────────────
