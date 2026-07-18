@@ -17,7 +17,7 @@ clear message rather than guessing whose board to write.
 
 Approval tiers:
   AUTO   — get_action_links (read)
-  NOTIFY — add_action_link (write)
+  NOTIFY — add_action_link, remove_action_link, update_action_link (write)
 """
 
 import contextvars as _ctxvars
@@ -185,9 +185,127 @@ async def add_action_link(title: str, url: str, note: str = "",
         return f"Error adding the link: {e}"
 
 
+
+
+@notify
+@tool
+async def remove_action_link(title_or_url: str) -> str:
+    """Remove a link card from the operator's Links board.
+
+    Args:
+        title_or_url: Card title (partial OK) or exact/partial URL to remove.
+    """
+    try:
+        cards, err = await _read_cards()
+        if err:
+            return err
+        if not cards:
+            return "The Links board is empty."
+
+        needle = (title_or_url or "").strip().lower()
+        if not needle:
+            return "Provide a title or URL to remove."
+
+        keep = []
+        removed = None
+        for c in cards:
+            title = (c.get("title") or "").lower()
+            url = (c.get("url") or "").lower()
+            if removed is None and (needle in title or needle in url or _norm_url(url) == _norm_url(needle)):
+                removed = c
+                continue
+            keep.append(c)
+
+        if removed is None:
+            return f"No link matching '{title_or_url}' found on the board."
+
+        err = await _write_cards(keep)
+        if err:
+            return err
+        return f"Removed '{removed.get('title') or removed.get('url')}' from the Links board."
+    except Exception as e:
+        logger.error("remove_action_link failed: %s", e)
+        return f"Error removing the link: {e}"
+
+
+@notify
+@tool
+async def update_action_link(
+    title_or_url: str,
+    title: str = "",
+    url: str = "",
+    note: str = "",
+    icon: str = "",
+    group: str = "",
+) -> str:
+    """Update an existing Links board card matched by title or URL.
+
+    Args:
+        title_or_url: Existing card title (partial OK) or URL to find.
+        title: New title (optional).
+        url: New URL (optional).
+        note: New note (optional).
+        icon: New emoji icon (optional).
+        group: New group heading (optional).
+    """
+    try:
+        cards, err = await _read_cards()
+        if err:
+            return err
+        if not cards:
+            return "The Links board is empty."
+
+        needle = (title_or_url or "").strip().lower()
+        if not needle:
+            return "Provide a title or URL to update."
+
+        target = None
+        for c in cards:
+            ctitle = (c.get("title") or "").lower()
+            curl = (c.get("url") or "").lower()
+            if needle in ctitle or needle in curl or _norm_url(curl) == _norm_url(needle):
+                target = c
+                break
+        if target is None:
+            return f"No link matching '{title_or_url}' found on the board."
+
+        changed = []
+        if title and title.strip():
+            target["title"] = title.strip()[:120]
+            changed.append("title")
+        if url and url.strip():
+            target["url"] = url.strip()
+            changed.append("url")
+        if note != "":
+            target["note"] = note.strip()[:200]
+            changed.append("note")
+        if icon != "":
+            target["icon"] = icon.strip()[:8]
+            changed.append("icon")
+        if group != "":
+            target["group"] = group.strip()[:60]
+            changed.append("group")
+
+        if not changed:
+            return "Nothing to update. Provide title, url, note, icon, and/or group."
+
+        err = await _write_cards(cards)
+        if err:
+            return err
+        return (
+            f"Updated link '{target.get('title') or target.get('url')}': "
+            + ", ".join(changed)
+        )
+    except Exception as e:
+        logger.error("update_action_link failed: %s", e)
+        return f"Error updating the link: {e}"
+
+
 ALL_LINKS_TOOLS = [
     get_action_links,
     add_action_link,
+    remove_action_link,
+    update_action_link,
 ]
 
 TOOLS = ALL_LINKS_TOOLS

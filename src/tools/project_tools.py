@@ -419,6 +419,144 @@ async def create_project(name: str, description: str = "",
         return f"Error creating project: {e}"
 
 
+
+@notify
+@tool
+async def update_project(
+    project: str,
+    name: str = "",
+    description: str = "",
+    status: str = "",
+    goals: str = "",
+) -> str:
+    """Update a project's name, description, status, or goals.
+
+    Args:
+        project: Project slug or numeric ID.
+        name: New display name (optional).
+        description: New description (optional).
+        status: New status — active, on_hold, archived, cancelled (optional).
+        goals: New goals text (optional).
+    """
+    try:
+        scope_sql, scope_params = _prj_scope("presence_id")
+        updates = []
+        values = []
+        changed = []
+
+        if name and name.strip():
+            updates.append("name = %s")
+            values.append(name.strip())
+            changed.append(f"name='{name.strip()}'")
+        if description != "":
+            updates.append("description = %s")
+            values.append(description)
+            changed.append("description updated")
+        if status and status.strip():
+            st = status.strip().lower()
+            allowed = {"active", "on_hold", "archived", "cancelled"}
+            if st not in allowed:
+                return f"Invalid status '{status}'. Use one of: {', '.join(sorted(allowed))}."
+            updates.append("status = %s")
+            values.append(st)
+            changed.append(f"status={st}")
+        if goals != "":
+            updates.append("goals = %s")
+            values.append(goals)
+            changed.append("goals updated")
+
+        if not updates:
+            return "Nothing to update. Provide name, description, status, and/or goals."
+
+        updates.append("updated_at = NOW()")
+
+        async with get_db() as conn:
+            # Resolve project by id or slug within scope
+            proj_row = None
+            try:
+                pid = int(project)
+                result = await conn.execute(
+                    f"SELECT id, slug, name FROM projects WHERE id = %s AND {scope_sql}",
+                    (pid, *scope_params),
+                )
+                proj_row = await result.fetchone()
+            except (TypeError, ValueError):
+                result = await conn.execute(
+                    f"SELECT id, slug, name FROM projects WHERE slug = %s AND {scope_sql}",
+                    (project, *scope_params),
+                )
+                proj_row = await result.fetchone()
+
+            if not proj_row:
+                return f"Project '{project}' not found."
+
+            values.append(proj_row["id"])
+            result = await conn.execute(
+                f"UPDATE projects SET {', '.join(updates)} "
+                f"WHERE id = %s AND {scope_sql} RETURNING id, slug, name, status",
+                tuple(values) + tuple(scope_params),
+            )
+            row = await result.fetchone()
+
+        if not row:
+            return f"Project '{project}' not found."
+        return (
+            f"Project {row['slug']} (ID {row['id']}) updated: "
+            + ", ".join(changed)
+        )
+    except Exception as e:
+        return f"Error updating project: {e}"
+
+
+@notify
+@tool
+async def archive_project(project: str) -> str:
+    """Archive a project so it leaves the active projects list.
+
+    Soft-archive via status='archived'. Tasks are left in place.
+
+    Args:
+        project: Project slug or numeric ID.
+    """
+    try:
+        scope_sql, scope_params = _prj_scope("presence_id")
+        async with get_db() as conn:
+            proj_row = None
+            try:
+                pid = int(project)
+                result = await conn.execute(
+                    f"SELECT id, slug, name, status FROM projects WHERE id = %s AND {scope_sql}",
+                    (pid, *scope_params),
+                )
+                proj_row = await result.fetchone()
+            except (TypeError, ValueError):
+                result = await conn.execute(
+                    f"SELECT id, slug, name, status FROM projects WHERE slug = %s AND {scope_sql}",
+                    (project, *scope_params),
+                )
+                proj_row = await result.fetchone()
+
+            if not proj_row:
+                return f"Project '{project}' not found."
+            if (proj_row.get("status") or "") == "archived":
+                return f"Project '{proj_row['slug']}' is already archived."
+
+            result = await conn.execute(
+                f"""UPDATE projects SET status = 'archived', updated_at = NOW()
+                   WHERE id = %s AND {scope_sql}
+                   RETURNING id, slug, name""",
+                (proj_row["id"], *scope_params),
+            )
+            row = await result.fetchone()
+
+        return (
+            f"Archived project: {row['name']} ({row['slug']}, ID {row['id']}). "
+            "It no longer appears in active projects."
+        )
+    except Exception as e:
+        return f"Error archiving project: {e}"
+
+
 # =============================================================================
 # Work Logging
 # =============================================================================
@@ -564,7 +702,7 @@ async def run_workflow(task_id: int, pattern: str = "") -> str:
 
 ALL_PROJECT_TOOLS = [
     get_tasks, create_task, update_task, delete_task,
-    get_projects, create_project,
+    get_projects, create_project, update_project, archive_project,
     log_work, get_work_log,
     run_workflow,
 ]

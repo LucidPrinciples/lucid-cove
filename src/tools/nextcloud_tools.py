@@ -833,17 +833,27 @@ async def calendar_list_events(calendar: str = "personal", days_ahead: int = 7) 
             ns = {"d": "DAV:", "c": "urn:ietf:params:xml:ns:caldav"}
             events = []
             for response in root.findall(".//d:response", ns):
+                href = response.findtext("d:href", default="", namespaces=ns) or ""
                 cal_data = response.findtext(".//c:calendar-data", namespaces=ns)
                 if cal_data:
                     event = _parse_vevent(cal_data)
                     if event:
+                        if href and not event.get("uid"):
+                            # fallback uid from filename .../UUID.ics
+                            tail = href.rstrip("/").split("/")[-1]
+                            if tail.endswith(".ics"):
+                                event["uid"] = tail[:-4]
+                        event["href"] = href
                         events.append(event)
             if not events:
                 return f"No events in the next {days_ahead} days."
             events.sort(key=lambda e: e.get("dtstart", ""))
             lines = [f"Upcoming events ({days_ahead} days):"]
             for e in events:
-                lines.append(f"  • {e.get('dtstart', '?')} — {e.get('summary', '(no title)')}")
+                uid = e.get("uid") or "?"
+                lines.append(
+                    f"  • {e.get('dtstart', '?')} — {e.get('summary', '(no title)')} [uid={uid}]"
+                )
                 if e.get("description"):
                     lines.append(f"    {e['description'][:80]}")
             return "\n".join(lines)
@@ -874,7 +884,9 @@ def _parse_vevent(ical_text: str) -> Optional[dict]:
                     for p in parts[1:]:
                         if p.startswith("TZID="):
                             tzid = p[5:]
-                if key == "SUMMARY":
+                if key == "UID":
+                    event["uid"] = val.strip()
+                elif key == "SUMMARY":
                     event["summary"] = val
                 elif key in ("DTSTART", "DTEND"):
                     try:
@@ -1047,6 +1059,258 @@ END:VCALENDAR"""
         return f"Error: {e}"
 
 
+
+async def _find_calendar_event(title_or_uid: str, calendar: str = "personal", days_ahead: int = 365):
+    """Return (event_dict_with_uid_href, error_str). Matches UID exact or title partial."""
+    from datetime import datetime, timezone, timedelta
+    import xml.etree.ElementTree as ET
+
+    needle = (title_or_uid or "").strip()
+    if not needle:
+        return None, "Provide an event title or uid."
+
+    now = datetime.now(timezone.utc) - timedelta(days=30)
+    end = datetime.now(timezone.utc) + timedelta(days=days_ahead)
+    time_range_start = now.strftime("%Y%m%dT%H%M%SZ")
+    time_range_end = end.strftime("%Y%m%dT%H%M%SZ")
+    url = f"{_caldav_base()}/{calendar}/"
+    report_body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+  <d:prop>
+    <d:getetag/>
+    <c:calendar-data/>
+  </d:prop>
+  <c:filter>
+    <c:comp-filter name="VCALENDAR">
+      <c:comp-filter name="VEVENT">
+        <c:time-range start="{time_range_start}" end="{time_range_end}"/>
+      </c:comp-filter>
+    </c:comp-filter>
+  </c:filter>
+</c:calendar-query>"""
+
+    async with httpx.AsyncClient(auth=_auth(), timeout=15) as client:
+        resp = await client.request(
+            "REPORT", url,
+            headers={"Depth": "1", "Content-Type": "application/xml"},
+            content=report_body,
+        )
+    if resp.status_code == 404:
+        return None, f"Calendar '{calendar}' not found."
+    if resp.status_code != 207:
+        return None, f"Error searching calendar: HTTP {resp.status_code}"
+
+    root = ET.fromstring(resp.text)
+    ns = {"d": "DAV:", "c": "urn:ietf:params:xml:ns:caldav"}
+    needle_l = needle.lower()
+    matches = []
+    for response in root.findall(".//d:response", ns):
+        href = response.findtext("d:href", default="", namespaces=ns) or ""
+        cal_data = response.findtext(".//c:calendar-data", namespaces=ns)
+        if not cal_data:
+            continue
+        event = _parse_vevent(cal_data)
+        if not event:
+            continue
+        if not event.get("uid"):
+            tail = href.rstrip("/").split("/")[-1]
+            if tail.endswith(".ics"):
+                event["uid"] = tail[:-4]
+        event["href"] = href
+        event["_raw"] = cal_data
+        uid = (event.get("uid") or "").strip()
+        summary = (event.get("summary") or "")
+        if uid == needle or uid.lower() == needle_l:
+            matches = [event]
+            break
+        if needle_l in summary.lower():
+            matches.append(event)
+
+    if not matches:
+        return None, f"No event matching '{title_or_uid}' found in '{calendar}'."
+    if len(matches) > 1:
+        lines = [f"Multiple events match '{title_or_uid}' — be more specific or use uid:"]
+        for e in matches[:8]:
+            lines.append(
+                f"  • {e.get('dtstart', '?')} — {e.get('summary', '(no title)')} [uid={e.get('uid','?')}]"
+            )
+        return None, "\n".join(lines)
+    return matches[0], ""
+
+
+@notify
+@tool
+async def calendar_update_event(
+    title_or_uid: str,
+    title: str = "",
+    date: str = "",
+    start_time: str = "",
+    duration_minutes: int = 0,
+    description: str = "",
+    calendar: str = "personal",
+) -> str:
+    """Update / reschedule an existing calendar event.
+
+    Match by exact uid (from calendar_list_events) or partial title.
+    Only provided fields change; omitted fields keep their current values when
+    recoverable, otherwise pass the fields you want set.
+
+    Args:
+        title_or_uid: Event uid or title to find.
+        title: New title (optional).
+        date: New date YYYY-MM-DD or relative (optional).
+        start_time: New start HH:MM (optional; use with date).
+        duration_minutes: New duration in minutes (optional; 0 = keep/default 60).
+        description: New description (optional; empty string leaves unchanged unless
+            you need to clear — pass a single space to clear).
+        calendar: Calendar name (default 'personal').
+    """
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+    import re
+
+    try:
+        from src.config import get_instance
+        tz_name = get_instance().get("timezone", "America/New_York")
+    except Exception:
+        tz_name = "America/New_York"
+
+    try:
+        event, err = await _find_calendar_event(title_or_uid, calendar=calendar)
+        if err:
+            return err
+
+        uid = event.get("uid")
+        if not uid:
+            return "Could not determine event uid."
+
+        new_title = title.strip() if title and title.strip() else (event.get("summary") or "Event")
+        # description: default keep; single space clears
+        if description == "":
+            new_desc = event.get("description") or ""
+        elif description.strip() == "":
+            new_desc = ""
+        else:
+            new_desc = description
+
+        # Timing: if date/time provided, rebuild; else try keep from raw ical
+        raw = event.get("_raw") or ""
+        dtstart_line = None
+        dtend_line = None
+        for line in raw.splitlines():
+            if line.startswith("DTSTART"):
+                dtstart_line = line
+            elif line.startswith("DTEND"):
+                dtend_line = line
+
+        if date or start_time or duration_minutes:
+            date_s = _resolve_relative_date(date, tz_name) if date else None
+            if not date_s:
+                # try parse from display dtstart like 'Sat Jul 18 09:00' — require date
+                return "Updating time requires a date (YYYY-MM-DD or relative)."
+            st = start_time.strip() if start_time and start_time.strip() else "09:00"
+            dur = duration_minutes if duration_minutes and duration_minutes > 0 else 60
+            start_dt = datetime.strptime(f"{date_s} {st}", "%Y-%m-%d %H:%M")
+            end_dt = start_dt + timedelta(minutes=dur)
+            dtstart = start_dt.strftime("%Y%m%dT%H%M%S")
+            dtend = end_dt.strftime("%Y%m%dT%H%M%S")
+            dtstart_ical = f"DTSTART;TZID={tz_name}:{dtstart}"
+            dtend_ical = f"DTEND;TZID={tz_name}:{dtend}"
+            when_note = f" on {date_s} at {st} ({dur}min)"
+        else:
+            # preserve original DTSTART/DTEND lines if present
+            if not dtstart_line or not dtend_line:
+                return (
+                    "Event found but has no usable start/end to preserve. "
+                    "Pass date and start_time to reschedule."
+                )
+            dtstart_ical = dtstart_line
+            dtend_ical = dtend_line
+            when_note = " (time unchanged)"
+
+        now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        # Escape basic ical specials in text fields
+        def _esc(s: str) -> str:
+            return (s or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+        ical = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//MC Dashboard//EN
+BEGIN:VEVENT
+UID:{uid}
+DTSTAMP:{now}
+{dtstart_ical}
+{dtend_ical}
+SUMMARY:{_esc(new_title)}
+DESCRIPTION:{_esc(new_desc)}
+END:VEVENT
+END:VCALENDAR"""
+
+        href = event.get("href") or ""
+        if href:
+            # href may be absolute path under /remote.php/dav/...
+            if href.startswith("http"):
+                put_url = href
+            else:
+                # join with nc base origin
+                base = _nc_url().rstrip("/")
+                put_url = base + href if href.startswith("/") else f"{_caldav_base()}/{calendar}/{uid}.ics"
+        else:
+            put_url = f"{_caldav_base()}/{calendar}/{uid}.ics"
+
+        async with httpx.AsyncClient(auth=_auth(), timeout=15) as client:
+            resp = await client.put(
+                put_url,
+                content=ical.encode("utf-8"),
+                headers={"Content-Type": "text/calendar; charset=utf-8"},
+            )
+        if resp.status_code in (200, 201, 204):
+            return f"Updated event: '{new_title}'{when_note} [uid={uid}]"
+        return f"Error updating event: HTTP {resp.status_code} — {resp.text[:200]}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@notify
+@tool
+async def calendar_delete_event(
+    title_or_uid: str,
+    calendar: str = "personal",
+) -> str:
+    """Cancel / delete a calendar event.
+
+    Args:
+        title_or_uid: Event uid (preferred) or title (partial match).
+        calendar: Calendar name (default 'personal').
+    """
+    try:
+        event, err = await _find_calendar_event(title_or_uid, calendar=calendar)
+        if err:
+            return err
+        uid = event.get("uid")
+        if not uid:
+            return "Could not determine event uid."
+
+        href = event.get("href") or ""
+        if href:
+            if href.startswith("http"):
+                del_url = href
+            else:
+                base = _nc_url().rstrip("/")
+                del_url = base + href if href.startswith("/") else f"{_caldav_base()}/{calendar}/{uid}.ics"
+        else:
+            del_url = f"{_caldav_base()}/{calendar}/{uid}.ics"
+
+        async with httpx.AsyncClient(auth=_auth(), timeout=15) as client:
+            resp = await client.delete(del_url)
+        if resp.status_code in (200, 204, 404):
+            title = event.get("summary") or uid
+            return f"Deleted event: '{title}' [uid={uid}]"
+        return f"Error deleting event: HTTP {resp.status_code} — {resp.text[:200]}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
 # =============================================================================
 # Tool Registry
 # =============================================================================
@@ -1060,5 +1324,7 @@ ALL_NEXTCLOUD_TOOLS = [
     nextcloud_download,
     calendar_list_events,
     calendar_create_event,
+    calendar_update_event,
+    calendar_delete_event,
 ]
 TOOLS = ALL_NEXTCLOUD_TOOLS  # alias for cove-core channels.py loader
