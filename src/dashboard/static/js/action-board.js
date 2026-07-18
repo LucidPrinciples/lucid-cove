@@ -1124,10 +1124,31 @@ function renderABLinks() {
     container.innerHTML = bar + body;
 }
 
+// Same-origin tool pages (Backlog, Jules) get ?return=links so their × lands
+// back on the Links board instead of history.back() → Attention.
+function _abLinksWithReturn(url) {
+    if (!url) return url;
+    try {
+        const u = new URL(String(url), window.location.origin);
+        if (u.origin !== window.location.origin) return url;
+        const path = u.pathname.replace(/\/+$/, '') || '/';
+        if (path !== '/backlog' && path !== '/jules') return url;
+        if (!u.searchParams.has('return')) u.searchParams.set('return', 'links');
+        // Keep relative form for in-Cove paths so host/presence doors stay correct.
+        if (String(url).startsWith('/') || !/^[a-z][a-z0-9+.-]*:/i.test(String(url))) {
+            return u.pathname + u.search + u.hash;
+        }
+        return u.toString();
+    } catch (_) {
+        return url;
+    }
+}
+
 function _abLinksRenderLeaf(c) {
-    const href = c.url ? ' href="' + _abEsc(c.url) + '"' : '';
+    const openUrl = c.url ? _abLinksWithReturn(c.url) : '';
+    const href = openUrl ? ' href="' + _abEsc(openUrl) + '"' : '';
     // Always new window/tab — board stays put (desktop + mobile browser).
-    const tgt = c.url ? ' target="_blank" rel="noopener"' : '';
+    const tgt = openUrl ? ' target="_blank" rel="noopener"' : '';
     return '<a class="ablk-card"' + href + tgt + '>'
          + '<div class="ablk-card-t">' + (c.icon ? '<span class="ablk-card-i">' + _abEsc(c.icon) + '</span>' : '')
          + _abEsc(c.title || c.url) + '</div>'
@@ -1159,7 +1180,8 @@ function _abLinksRenderBundle(c, idx) {
             html += '<div class="ablk-row">';
             if (label) html += '<span class="ablk-label">' + _abEsc(label) + '</span>';
             if (it.url) {
-                html += '<a class="ablk-link" href="' + _abEsc(it.url) + '" target="_blank" rel="noopener">'
+                const openUrl = _abLinksWithReturn(it.url);
+                html += '<a class="ablk-link" href="' + _abEsc(openUrl) + '" target="_blank" rel="noopener">'
                       + _abEsc(text) + '</a>';
             } else {
                 html += '<span class="ablk-link-plain">' + _abEsc(text) + '</span>';

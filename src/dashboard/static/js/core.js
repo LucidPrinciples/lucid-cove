@@ -500,8 +500,20 @@ async function boot() {
         // Manager/admin subdomain (stuart.{cove}) opens to the Team (Cove management) view.
         if (MC.adminView && MC.tabs.some(t => (t.id || t) === 'team')) firstTab = 'team';
         // jules 07-07: an explicit ?tab= (e.g. the "Open chat" door) wins — land where it points.
+        // Action Board tabs (ab-*) are virtual — not in MC.tabs — so accept them too.
+        // Used by Backlog/Jules × close with ?return=links → /?tab=ab-links.
         const _wantTab = new URLSearchParams(location.search).get('tab');
-        if (_wantTab && MC.tabs.some(t => (t.id || t) === _wantTab)) firstTab = _wantTab;
+        const _abTabIds = (_getActionTabs() || []).map(t => t.id);
+        if (_wantTab) {
+            if (MC.tabs.some(t => (t.id || t) === _wantTab)) {
+                firstTab = _wantTab;
+            } else if (_abTabIds.indexOf(_wantTab) !== -1) {
+                firstTab = _wantTab;
+            }
+        }
+        if (_abTabIds.indexOf(firstTab) !== -1 && typeof switchBoard === 'function') {
+            switchBoard('action');
+        }
         switchToTab(firstTab);
 
         // Auto-show onboarding for first-time Tuner users

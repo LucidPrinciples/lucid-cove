@@ -92,3 +92,12 @@ def test_jules_and_backlog_close_affordance():
     jl = JL_HTML.read_text()
     assert "bl-show-close" in bl and "history.back" in bl
     assert "jl-show-close" in jl and "history.back" in jl
+    # × must honor ?return=links → Action Links, not bare history.back
+    assert "returnTarget" in bl and "/?tab=ab-links" in bl
+    assert "returnTarget" in jl and "/?tab=ab-links" in jl
+    js = AB_JS.read_text()
+    assert "function _abLinksWithReturn" in js
+    assert "return', 'links'" in js or 'return", "links"' in js or "set('return', 'links')" in js
+    core = (ROOT / "src/dashboard/static/js/core.js").read_text()
+    assert "_abTabIds" in core
+    assert "switchBoard('action')" in core

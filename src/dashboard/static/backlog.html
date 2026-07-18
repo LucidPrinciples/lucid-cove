@@ -670,14 +670,32 @@ loadTeamQueue();
     return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
         || window.navigator.standalone === true;
   }
-  // Show close when we have history to leave (opened from Links) OR as a safety
-  // exit affordance in standalone if history exists. Always show when referrer
-  // is same-origin or history length > 1.
+  // Explicit return target beats history.back — new-tab opens from Links leave
+  // the opener on Links but give this tab a history stack that is NOT Links
+  // (often Attention), so bare back lands wrong.
+  function returnTarget() {
+    try {
+      const r = (new URLSearchParams(location.search).get('return') || '').trim();
+      if (!r) return '';
+      if (r === 'links' || r === 'ab-links') return '/?tab=ab-links';
+      if (r === 'home' || r === 'mc' || r === 'attention') return '/';
+      if (r === 'action' || r === 'ab-actions') return '/?tab=ab-actions';
+      if (r === 'tools' || r === 'ab-tools') return '/?tab=ab-tools';
+      if (r === 'flows' || r === 'ab-flows') return '/?tab=ab-flows';
+      if (r.charAt(0) === '/' && r.charAt(1) !== '/') return r;
+    } catch (e) {}
+    return '';
+  }
+  const ret = returnTarget();
   const canBack = (window.history.length > 1) || !!document.referrer;
-  if (canBack || isStandalone()) {
+  if (ret || canBack || isStandalone()) {
     document.body.classList.add('bl-show-close');
   }
   btn.addEventListener('click', function () {
+    if (ret) {
+      window.location.href = ret;
+      return;
+    }
     if (window.history.length > 1) {
       window.history.back();
       return;
