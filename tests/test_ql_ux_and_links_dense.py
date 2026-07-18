@@ -45,6 +45,24 @@ def test_ql_js_drag_reorder():
     assert "ql-drag-handle" in js
     assert "position" in js
     assert "draggable=\"true\"" in js
+    # Mobile: HTML5 DnD is desktop-only — touch path on the handle
+    assert "function _qlTouchStart" in js
+    assert "function _qlTouchMove" in js
+    assert "function _qlTouchEnd" in js
+    assert "function _qlBindDragHandles" in js
+    assert "function _qlReorderTo" in js
+    assert "touchstart" in js
+    assert "touchmove" in js
+    assert "passive: false" in js or "passive:false" in js
+    assert "elementFromPoint" in js
+
+
+def test_ql_css_touch_drag():
+    css = QL_CSS.read_text()
+    assert "touch-action: none" in css
+    # handle stays findable without hover on small screens
+    assert ".ql-drag-handle" in css
+    assert "min-width: 32px" in css or "min-height: 32px" in css
 
 
 def test_ql_js_spacer():

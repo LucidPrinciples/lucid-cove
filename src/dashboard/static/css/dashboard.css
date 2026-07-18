@@ -1258,12 +1258,20 @@ select.settings-input { cursor: pointer; }
 
 /* #QL-EDIT / #QL-DRAG / #QL-SPACER */
 .ql-drag-handle {
-  color: var(--dim); cursor: grab; font-size: 0.85rem; padding: 0 2px;
-  user-select: none; flex-shrink: 0; opacity: 0.45;
+  color: var(--dim); cursor: grab; font-size: 0.85rem; padding: 4px 8px;
+  user-select: none; -webkit-user-select: none; flex-shrink: 0; opacity: 0.45;
+  touch-action: none; /* own the gesture — no scroll/zoom while dragging */
+  -webkit-touch-callout: none;
 }
 .ql-item:hover .ql-drag-handle { opacity: 0.9; }
+/* Mobile has no hover — keep the handle visible enough to find */
+@media (max-width: 600px) {
+  .ql-drag-handle { opacity: 0.75; min-width: 32px; min-height: 32px;
+    display: inline-flex; align-items: center; justify-content: center; }
+}
 .ql-item.ql-dragging { opacity: 0.45; }
 .ql-item.ql-drag-over { border-top: 2px solid var(--accent); }
+.ql-item.ql-dragging, .ql-item.ql-dragging * { cursor: grabbing; }
 .ql-item-text { cursor: text; border-radius: 3px; padding: 1px 2px; }
 .ql-item-text:hover { background: rgba(255,255,255,0.05); }
 .ql-inline-input {
