@@ -34,17 +34,99 @@ def status_path() -> Path:
     return _config_dir() / STATUS_NAME
 
 
+def _mountinfo_host_paths() -> tuple[str, str]:
+    """Best-effort (host_config_dir, host_clone_dir) from /proc/self/mountinfo.
+
+    Stamped layouts bind-mount:
+      <clone>/out/<id>-cove/config → /app/config
+      <clone>                     → /cove-core  (optional, ro)
+    When COVE_HOST_DIR was never stamped (Clearfield founder path), env is empty
+    but mountinfo still has the real host paths — use them so Attention never
+    prints a relative command that only works if cwd happens to be right.
+    """
+    host_config = ""
+    host_clone = ""
+    try:
+        text = Path("/proc/self/mountinfo").read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return "", ""
+    for line in text.splitlines():
+        # mountinfo: ... <root> <mountpoint> ... - <fstype> <source> ...
+        # We care about the host path in the optional field after the separator
+        # when root is a real host dir (bind mounts show root as the host path).
+        try:
+            left, _right = line.split(" - ", 1)
+        except ValueError:
+            continue
+        parts = left.split()
+        if len(parts) < 5:
+            continue
+        root = parts[3]
+        mountpoint = parts[4]
+        if not root.startswith("/"):
+            continue
+        if mountpoint == "/app/config" and root != "/":
+            host_config = root.rstrip("/")
+        elif mountpoint == "/cove-core" and root != "/":
+            host_clone = root.rstrip("/")
+    return host_config, host_clone
+
+
+def _resolve_probe_paths() -> tuple[str, str]:
+    """Return (script_path_or_rel, out_path) for the host command.
+
+    Prefer stamped env / cove.yaml deploy paths (same as runbooks), then
+    mountinfo bind sources, then a relative dev fallback.
+    """
+    cove_dir = ""
+    clone_dir = ""
+    try:
+        from src.dashboard.routes.runbooks import _host_paths
+        cove_dir, clone_dir = _host_paths()
+    except Exception:
+        pass
+
+    host_instance = (os.environ.get("COVE_HOST_DIR") or "").strip()
+    if host_instance and not cove_dir:
+        cove_dir = host_instance.rstrip("/")
+    if host_instance and not clone_dir:
+        clone_dir = posixpath.dirname(posixpath.dirname(host_instance.rstrip("/")))
+
+    if not (cove_dir and clone_dir):
+        m_cfg, m_clone = _mountinfo_host_paths()
+        if m_cfg and not cove_dir:
+            # m_cfg is .../out/<id>-cove/config → instance dir is parent
+            if posixpath.basename(m_cfg) == "config":
+                cove_dir = posixpath.dirname(m_cfg)
+            else:
+                cove_dir = m_cfg
+        if m_clone and not clone_dir:
+            clone_dir = m_clone
+        # If we only got config mount: derive clone as parent of out/
+        if cove_dir and not clone_dir:
+            # <clone>/out/<id>-cove
+            parent = posixpath.dirname(cove_dir.rstrip("/"))
+            if posixpath.basename(parent) == "out":
+                clone_dir = posixpath.dirname(parent)
+
+    if clone_dir and cove_dir:
+        script = posixpath.join(clone_dir, "scripts", "probe-host-reachability.sh")
+        out = posixpath.join(cove_dir.rstrip("/"), "config", STATUS_NAME)
+        return script, out
+
+    return (
+        f"scripts/probe-host-reachability.sh",
+        f"./config/{STATUS_NAME}",
+    )
+
+
 def host_probe_command() -> str:
     """Exact command the founder runs on the box (same shape as set-address)."""
-    host_instance = (os.environ.get("COVE_HOST_DIR") or "").strip()
-    if host_instance:
-        # Stamped layout: <clone>/out/<id>-cove  → scripts live on <clone>
-        clone = posixpath.dirname(posixpath.dirname(host_instance.rstrip("/")))
-        out = posixpath.join(host_instance.rstrip("/"), "config", STATUS_NAME)
-        script = posixpath.join(clone, "scripts", "probe-host-reachability.sh")
+    script, out = _resolve_probe_paths()
+    # Absolute script → full bash path form; relative keeps prior dev UX.
+    if script.startswith("/") or script.startswith("~"):
         return f"bash {script} --out {out}"
-    # Dev / unknown layout — relative to a checkout the operator is already in.
-    return f"bash scripts/probe-host-reachability.sh --out ./config/{STATUS_NAME}"
+    return f"bash {script} --out {out}"
 
 
 def read_status() -> dict[str, Any] | None:

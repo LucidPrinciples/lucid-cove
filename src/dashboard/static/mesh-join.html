@@ -43,6 +43,16 @@
       <li>When the phone is connected, open your Cove in the browser and sign in as you. Leave MagicDNS / accept DNS on when asked.</li>
     </ol>
   </div>
+  <div class="card">
+    <div class="label">Name this device (#MESH-NAME)</div>
+    <p style="margin:0">Junk names like <strong>localhost-…</strong> or <strong>invalid-…</strong> make family device lists hard to read. Before or right after joining:</p>
+    <ol>
+      <li>Give the phone a clear name in system settings (e.g. <em>jade-iphone</em>) when the OS allows it — Tailscale often picks that up on join.</li>
+      <li>On a computer already on the mesh you can rename later:
+        <code>tailscale set --hostname your-device-name</code>
+      </li>
+    </ol>
+  </div>
   <p class="foot">Join codes are single-use and expire in about an hour. Generate a new QR from your Cove if this one is stale. After join, give chat a minute if names are still catching up (relay before direct is normal).</p>
 </main>
 <script>
