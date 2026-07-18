@@ -7,7 +7,8 @@ create lists, add items, check items off, and clear completed items.
 Approval tiers:
   AUTO   — get_quick_lists, get_list_items (reads)
   NOTIFY — create_quick_list, add_list_items, check_list_item, uncheck_list_item,
-            clear_checked_items, delete_quick_list (writes)
+            clear_checked_items, delete_quick_list, update_quick_list,
+            delete_list_item, restore_quick_list (writes)
 
 Environment: runs inside the same container as the API. Calls DB directly
 to avoid HTTP overhead and Request-object dependency.
@@ -118,6 +119,7 @@ async def get_list_items(list_name: str) -> str:
                 """SELECT id, text, checked, position
                    FROM quick_list_items
                    WHERE list_id = %s
+                     AND (archived IS NULL OR archived = FALSE)
                    ORDER BY checked ASC, position ASC, created_at ASC""",
                 (list_id,)
             )
@@ -382,6 +384,160 @@ async def delete_quick_list(list_name: str) -> str:
         return f"Error archiving list: {e}"
 
 
+
+@notify
+@tool
+async def update_quick_list(
+    list_name: str,
+    name: str = "",
+    icon: str = "",
+    pinned: str = "",
+) -> str:
+    """Update a quick list's name, icon, or pinned state.
+
+    Args:
+        list_name: Current list name (case-insensitive) or numeric ID.
+        name: New name (optional).
+        icon: New emoji icon (optional).
+        pinned: 'true'/'false' to pin or unpin on the home board (optional).
+    """
+    from src.memory.database import get_db
+
+    try:
+        list_id = await _resolve_list(list_name)
+        if list_id is None:
+            return (
+                f"List '{list_name}' not found. "
+                "Use get_quick_lists to see available lists."
+            )
+
+        updates = []
+        params = []
+        changed = []
+
+        if name and name.strip():
+            updates.append("name = %s")
+            params.append(name.strip())
+            changed.append(f"name='{name.strip()}'")
+        if icon and icon.strip():
+            updates.append("icon = %s")
+            params.append(icon.strip())
+            changed.append(f"icon={icon.strip()}")
+        if pinned != "":
+            pin_val = str(pinned).strip().lower() in ("1", "true", "yes", "on")
+            updates.append("pinned = %s")
+            params.append(pin_val)
+            changed.append(f"pinned={pin_val}")
+
+        if not updates:
+            return "Nothing to update. Provide name, icon, and/or pinned."
+
+        updates.append("updated_at = NOW()")
+        params.append(list_id)
+
+        _where, _params = _ql_scope("presence_id")
+        async with get_db() as conn:
+            result = await conn.execute(
+                f"UPDATE quick_lists SET {', '.join(updates)} "
+                f"WHERE id = %s AND archived = FALSE AND {_where} "
+                f"RETURNING id, name, icon, pinned",
+                tuple(params) + tuple(_params),
+            )
+            row = await result.fetchone()
+
+        if not row:
+            return f"List '{list_name}' not found or not writable in this scope."
+        return (
+            f"Updated list {row['icon']} {row['name']} [id={row['id']}]: "
+            + ", ".join(changed)
+        )
+    except Exception as e:
+        return f"Error updating list: {e}"
+
+
+@notify
+@tool
+async def delete_list_item(list_name: str, item_text: str) -> str:
+    """Remove (archive) a single item from a quick list.
+
+    Args:
+        list_name: The list name (case-insensitive) or numeric ID.
+        item_text: Item text to remove (partial match, case-insensitive).
+    """
+    from src.memory.database import get_db
+
+    try:
+        list_id = await _resolve_list(list_name)
+        if list_id is None:
+            return f"List '{list_name}' not found."
+
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT id, text FROM quick_list_items
+                   WHERE list_id = %s
+                     AND (archived IS NULL OR archived = FALSE)
+                     AND LOWER(text) LIKE %s
+                   ORDER BY position LIMIT 1""",
+                (list_id, f"%{item_text.lower()}%"),
+            )
+            row = await result.fetchone()
+            if not row:
+                return f"No item matching '{item_text}' found in that list."
+
+            await conn.execute(
+                """UPDATE quick_list_items
+                   SET archived = TRUE, archived_at = NOW()
+                   WHERE id = %s""",
+                (row["id"],),
+            )
+
+        return f"Removed item: {row['text']}"
+    except Exception as e:
+        return f"Error removing item: {e}"
+
+
+@notify
+@tool
+async def restore_quick_list(list_name: str) -> str:
+    """Restore an archived quick list (and its archived items) to the board.
+
+    Args:
+        list_name: Archived list name (case-insensitive) or numeric ID.
+    """
+    from src.memory.database import get_db
+
+    try:
+        list_id = await _resolve_archived_list(list_name)
+        if list_id is None:
+            return (
+                f"Archived list '{list_name}' not found. "
+                "Only previously deleted lists can be restored."
+            )
+
+        async with get_db() as conn:
+            result = await conn.execute(
+                """UPDATE quick_lists
+                   SET archived = FALSE, archived_at = NULL, updated_at = NOW()
+                   WHERE id = %s
+                   RETURNING id, name, icon""",
+                (list_id,),
+            )
+            row = await result.fetchone()
+            await conn.execute(
+                """UPDATE quick_list_items
+                   SET archived = FALSE, archived_at = NULL
+                   WHERE list_id = %s AND archived = TRUE""",
+                (list_id,),
+            )
+
+        return (
+            f"Restored list: {row['icon']} {row['name']} [id={row['id']}]. "
+            "It is back on the board."
+        )
+    except Exception as e:
+        return f"Error restoring list: {e}"
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -418,6 +574,35 @@ async def _resolve_list(name_or_id: str) -> int | None:
     return None
 
 
+async def _resolve_archived_list(name_or_id: str) -> int | None:
+    """Resolve an archived list name/id within the acting presence scope."""
+    from src.memory.database import get_db
+
+    try:
+        list_id = int(name_or_id)
+        _where, _params = _ql_scope("presence_id")
+        async with get_db() as conn:
+            result = await conn.execute(
+                f"SELECT id FROM quick_lists WHERE id = %s AND archived = TRUE AND {_where}",
+                (list_id, *_params),
+            )
+            if await result.fetchone():
+                return list_id
+    except (ValueError, TypeError):
+        pass
+
+    _where, _params = _ql_scope("presence_id")
+    async with get_db() as conn:
+        result = await conn.execute(
+            f"SELECT id FROM quick_lists WHERE LOWER(name) = LOWER(%s) AND archived = TRUE AND {_where}",
+            (str(name_or_id), *_params),
+        )
+        row = await result.fetchone()
+        if row:
+            return row["id"]
+    return None
+
+
 # =============================================================================
 # Tool Registry
 # =============================================================================
@@ -431,5 +616,8 @@ ALL_QUICK_LIST_TOOLS = [
     uncheck_list_item,
     clear_checked_items,
     delete_quick_list,
+    update_quick_list,
+    delete_list_item,
+    restore_quick_list,
 ]
 TOOLS = ALL_QUICK_LIST_TOOLS
