@@ -38,11 +38,13 @@ join code**, good for ~1 hour).
 
 ### Computer (Mac / Windows / Linux)
 1. Install Tailscale: https://tailscale.com/download
-2. Run:
+2. Run (add a clear `--hostname` so the mesh list stays readable — **#MESH-NAME**):
    ```bash
-   tailscale up --login-server https://headscale.lucidcove.org --authkey <JOIN-CODE> --accept-dns=true
+   tailscale up --login-server https://headscale.lucidcove.org --authkey <JOIN-CODE> --accept-dns=true --hostname my-laptop
    ```
+   Letters, numbers, hyphens only. Skip names like `localhost`, `invalid-…`, or random OS defaults.
 3. Open your Cove: `https://yourcove.lucidcove.org`
+4. Rename later if needed: `tailscale set --hostname my-laptop`
 
 ### Phone (iPhone / Android)
 1. Install the **Tailscale** app (App Store / Play Store / F-Droid).
@@ -58,6 +60,9 @@ join code**, good for ~1 hour).
    Then sign in with the join code from your Cove.
 4. Open `https://yourcove.lucidcove.org` in the browser and add **jules** to your Home Screen
    for voice capture. Leave MagicDNS / accept DNS on when asked.
+5. **Name the phone (#MESH-NAME).** Junk mesh names (`localhost-…`, `invalid-…`) are hard to
+   manage. Set a clear device name in phone settings before join when you can. On a computer
+   already on the mesh: `tailscale set --hostname jade-iphone`.
 
 > Custom-server setup is still the fiddliest part of the stock Tailscale apps (wording shifts
 > between versions). The QR path reduces typing; if a "open Tailscale" button on the join page
@@ -147,6 +152,27 @@ nodes:
 Product path still mints short-lived **join codes** only; durability is about the
 **registered node**, not the one-time key.
 
+## Device names on the mesh (#MESH-NAME)
+
+Headscale lists every joined node by hostname. Phones and fresh OS installs often land as
+`localhost-…` or `invalid-…`, which makes family device lists unusable.
+
+**At join (preferred)**
+- Desktop/server join command from Mission Control may include `--hostname <clean-name>` when
+  this machine already has a non-junk hostname; otherwise add one yourself.
+- Cove host helper: `bash connect-mesh.sh <join-key> [hostname]` (optional second arg; otherwise
+  uses `COVE_ID` from `.env` or a clean short hostname).
+- Phone QR `/mesh-join` page reminds you to set a clear system name and documents rename.
+
+**After join**
+```bash
+tailscale set --hostname your-device-name
+```
+
+Coordinator-side rename (operator on VPS, when a node already registered wrong) is still
+available via `headscale nodes rename` for your Headscale version — prefer client-side
+`tailscale set --hostname` when the device is online.
+
 ## Disconnect / troubleshoot
 - A join code is single-use and expires (~1 hour) — generate a new one anytime from your Cove.
 - Disconnect a device: `tailscale down` (computer) or toggle off in the app (phone).
@@ -173,10 +199,12 @@ hard to reach. It never opens the Cove to the public internet.
 On the Cove machine:
 
 ```bash
-bash scripts/probe-host-reachability.sh --out /path/to/your-cove/config/host_reachability.json
+# Attention prints the absolute paths for this install when it can resolve them, e.g.:
+bash /path/to/clone/scripts/probe-host-reachability.sh \
+  --out /path/to/out/your-cove/config/host_reachability.json
 ```
 
-(The card shows the exact path for your install.) If the report says hard to reach:
+(The card shows the exact host paths for your install — not a cwd-relative guess.) If the report says hard to reach:
 enable UPnP/NAT-PMP on the router, **or** DHCP-reserve the box and forward **UDP 41641**
 to it, then re-run the probe. Skip the card anytime.
 

@@ -1289,11 +1289,13 @@ def build_env(cove: dict, op: dict, providers: list, ltp: dict, mx: dict, deploy
 CONNECT_MESH_SH = r'''#!/usr/bin/env bash
 # Connect THIS box to your Lucid Cove mesh, then point your address at it.
 # Get your one-time join key in the Cove:  Start Here -> Connect -> Get join code.
-# Then run:   bash connect-mesh.sh <join-key>
+# Then run:   bash connect-mesh.sh <join-key> [hostname]
+# #MESH-NAME: optional second arg sets a stable mesh node name (avoids localhost-*/invalid-*).
 set -euo pipefail
 KEY="${1:-}"
+NAME_HINT="${2:-}"
 if [ -z "$KEY" ]; then
-  echo "Usage: bash connect-mesh.sh <join-key>"
+  echo "Usage: bash connect-mesh.sh <join-key> [hostname]"
   echo "Get the key in your Cove: Start Here -> Connect -> Get join code."
   exit 1
 fi
@@ -1303,11 +1305,31 @@ if ! command -v tailscale >/dev/null 2>&1; then
   echo "  Linux:       curl -fsSL https://tailscale.com/install.sh | sh"
   exit 1
 fi
-echo "Joining the mesh..."
+# Prefer explicit name, then COVE_ID from .env, then a non-junk short hostname.
+MESH_HOSTNAME="$NAME_HINT"
+if [ -z "$MESH_HOSTNAME" ] && [ -f .env ]; then
+  MESH_HOSTNAME="$(grep -m1 -E '^COVE_ID=' .env 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+fi
+if [ -z "$MESH_HOSTNAME" ]; then
+  MESH_HOSTNAME="$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)"
+fi
+MESH_HOSTNAME="$(printf '%s' "$MESH_HOSTNAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g; s/^-+//; s/-+$//; s/-{2,}/-/g' | cut -c1-63)"
+case "$MESH_HOSTNAME" in
+  ""|localhost|local|linux|ubuntu|debian|fedora|raspberrypi|ipad|iphone|android|unknown|none) MESH_HOSTNAME="" ;;
+  invalid-*|localhost-*|ip-*|dhcp-*) MESH_HOSTNAME="" ;;
+esac
+HN_FLAG=()
+if [ -n "$MESH_HOSTNAME" ]; then
+  HN_FLAG=(--hostname "$MESH_HOSTNAME")
+  echo "Joining the mesh as: $MESH_HOSTNAME"
+else
+  echo "Joining the mesh..."
+fi
 # --accept-dns=true: use mesh DNS when available so lucidcove.org mesh A records
 # are not dropped by local DNS-rebinding filters (install NXDOMAIN hard-stop).
-tailscale up --login-server https://headscale.lucidcove.org --authkey "$KEY" --accept-dns=true \
-  || sudo tailscale up --login-server https://headscale.lucidcove.org --authkey "$KEY" --accept-dns=true
+# --hostname: #MESH-NAME stable node name when we have a clean one.
+tailscale up --login-server https://headscale.lucidcove.org --authkey "$KEY" --accept-dns=true "${HN_FLAG[@]}" \
+  || sudo tailscale up --login-server https://headscale.lucidcove.org --authkey "$KEY" --accept-dns=true "${HN_FLAG[@]}"
 # Idempotent if already joined without accept-dns
 tailscale set --accept-dns=true 2>/dev/null || sudo tailscale set --accept-dns=true 2>/dev/null || true
 MESH_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"

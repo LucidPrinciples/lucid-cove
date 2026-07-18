@@ -28,6 +28,68 @@ DEFAULT_CONTAINER = "headscale"         # the Headscale container name on the VP
 LOGIN_SERVER = os.environ.get("HEADSCALE_LOGIN_SERVER", "https://headscale.lucidcove.org")
 
 
+def clean_hostname(raw: str | None) -> str:
+    """DNS-safe node label, or "" if empty/junk (#MESH-NAME)."""
+    import re
+    s = re.sub(r"[^a-z0-9-]+", "-", (raw or "").strip().lower()).strip("-")
+    s = re.sub(r"-{2,}", "-", s)[:63].strip("-")
+    if not s or s.isdigit():
+        return ""
+    junk_exact = {
+        "localhost", "local", "linux", "ubuntu", "debian", "fedora",
+        "raspberrypi", "ipad", "iphone", "android", "unknown", "none",
+    }
+    if s in junk_exact:
+        return ""
+    for prefix in ("invalid-", "localhost-", "ip-", "dhcp-", "desktop-", "laptop-"):
+        if s.startswith(prefix):
+            return ""
+    return s
+
+
+def _suggested_hostname(hint: str | None = None) -> str:
+    """Hostname for a *device* join_cmd.
+
+    Prefer an explicit hint (operator-chosen device label). Do **not** default to
+    COVE_ID — that would register every phone as the Cove name. Fall back to this
+    machine's hostname only when it is not junk (useful when minting on the box
+    for the box itself). Empty → omit --hostname.
+    """
+    import socket
+    c = clean_hostname(hint)
+    if c:
+        return c
+    try:
+        return clean_hostname(socket.gethostname() or "")
+    except Exception:
+        return ""
+
+
+def _join_cmd(login: str, key: str, hostname: str | None = None) -> str:
+    """Build the desktop/server join command with accept-dns + optional hostname.
+
+    hostname=None → suggest from cove id / clean machine name.
+    hostname=""   → omit --hostname (caller wants stock Tailscale naming).
+    hostname="x"  → clean and use x when valid.
+    """
+    parts = [
+        "tailscale", "up",
+        f"--login-server {login}",
+        f"--authkey {key}",
+        "--accept-dns=true",
+    ]
+    if hostname is None:
+        hn = _suggested_hostname()
+    elif hostname == "":
+        hn = ""
+    else:
+        hn = _suggested_hostname(hostname)
+    if hn:
+        parts.append(f"--hostname {hn}")
+    return " ".join(parts)
+
+
+
 def _hs_user(name: str) -> str:
     """Sanitize an arbitrary id (cove_id / handle) into a valid Headscale username —
     a lowercase DNS-ish label. Falls back to the default user if nothing survives."""
@@ -111,8 +173,21 @@ def _create_via_api(user: str, reusable: bool, expiry: str) -> dict | None:
     key = ((data.get("preAuthKey") or {}).get("key")) or data.get("key") or ""
     if not key:
         return {"ok": False, "reason": "headscale API returned no key"}
-    return {"ok": True, "key": key, "login_server": LOGIN_SERVER,
-            "join_cmd": f"tailscale up --login-server {LOGIN_SERVER} --authkey {key} --accept-dns=true"}
+    hn = _suggested_hostname()
+    cmd = _join_cmd(LOGIN_SERVER, key)
+    out = {
+        "ok": True,
+        "key": key,
+        "login_server": LOGIN_SERVER,
+        "join_cmd": cmd,
+        "suggested_hostname": hn,
+        # Tip for UIs: operator can append/override --hostname my-phone-name
+        "hostname_flag_help": (
+            "Add --hostname your-device-name to the join command (letters, numbers, hyphens) "
+            "so the mesh list stays readable. Avoid leaving phones as localhost-* / invalid-*."
+        ),
+    }
+    return out
 
 
 def create_preauth_key(user: str = DEFAULT_USER, *, reusable: bool = False,
@@ -160,11 +235,17 @@ def create_preauth_key(user: str = DEFAULT_USER, *, reusable: bool = False,
         key = json.loads(raw).get("key", raw)
     except Exception:
         key = raw  # some versions print the bare key
+    hn = _suggested_hostname()
     return {
         "ok": True,
         "key": key,
         "login_server": LOGIN_SERVER,
-        "join_cmd": f"tailscale up --login-server {LOGIN_SERVER} --authkey {key} --accept-dns=true",
+        "join_cmd": _join_cmd(LOGIN_SERVER, key),
+        "suggested_hostname": hn,
+        "hostname_flag_help": (
+            "Add --hostname your-device-name to the join command (letters, numbers, hyphens) "
+            "so the mesh list stays readable. Avoid leaving phones as localhost-* / invalid-*."
+        ),
     }
 
 

@@ -915,6 +915,17 @@ async function getMeshKey(btn) {
                     html += '<div style="color:var(--dim);font-size:0.7rem;margin-top:10px;margin-bottom:4px;">On a laptop or server instead, run this in a terminal:</div>'
                         + '<code style="display:block;padding:8px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.72rem;">'
                         + ESC(cmd) + '</code>';
+                    // #MESH-NAME — keep mesh device lists readable
+                    const hnHelp = d.hostname_flag_help || '';
+                    const hn = d.suggested_hostname || '';
+                    if (hnHelp || hn) {
+                        html += '<div style="color:var(--dim);font-size:0.68rem;margin-top:8px;line-height:1.45;">'
+                            + '<strong style="color:var(--text);">Name the device.</strong> '
+                            + ESC(hnHelp || 'Add --hostname your-device-name so the mesh list stays readable.')
+                            + (hn ? ' Example: add <code style="font-size:0.65rem;">--hostname ' + ESC(hn) + '</code> if that fits this machine.' : '')
+                            + ' Phones: set a clear name in system settings before join when you can; after join on a computer: <code style="font-size:0.65rem;">tailscale set --hostname your-device-name</code>.'
+                            + '</div>';
+                    }
                 }
                 out.innerHTML = html;
             } else {

@@ -111,3 +111,33 @@ def test_mesh_md_documents_l2():
     mesh = (ROOT / "MESH.md").read_text()
     assert "MESH3 L2" in mesh or "Host reachability" in mesh
     assert "41641" in mesh
+
+
+
+def test_host_command_from_mountinfo_when_env_empty(monkeypatch):
+    """Founder/stamped boxes without COVE_HOST_DIR still get absolute paths via mountinfo."""
+    from src.utils import host_reachability as hr
+    import src.dashboard.routes.runbooks as rb
+
+    monkeypatch.delenv("COVE_HOST_DIR", raising=False)
+    monkeypatch.delenv("COVE_COVE_DIR", raising=False)
+    monkeypatch.delenv("COVE_CLONE_DIR", raising=False)
+    monkeypatch.setattr(rb, "_host_paths", lambda: ("", ""))
+    monkeypatch.setattr(
+        hr,
+        "_mountinfo_host_paths",
+        lambda: (
+            "/home/op/ClearfieldCove/out/clearfield-cove/config",
+            "/home/op/ClearfieldCove/cove-core",
+        ),
+    )
+
+    cmd = hr.host_probe_command()
+    assert cmd.startswith(
+        "bash /home/op/ClearfieldCove/cove-core/scripts/probe-host-reachability.sh"
+    )
+    assert (
+        "--out /home/op/ClearfieldCove/out/clearfield-cove/config/host_reachability.json"
+        in cmd
+    )
+    assert "./config/" not in cmd
