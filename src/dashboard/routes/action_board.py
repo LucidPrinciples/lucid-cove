@@ -1069,8 +1069,50 @@ def _new_link_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
+def _safe_url(url: str) -> str:
+    """Allow http(s) and Cove-relative paths only; strip scriptable schemes."""
+    url = str(url or "").strip()[:1000]
+    low = url.lower()
+    if low.startswith("javascript:") or low.startswith("data:") or low.startswith("vbscript:"):
+        return ""
+    if low and not (low.startswith("http://") or low.startswith("https://") or low.startswith("/")):
+        return "https://" + url
+    return url
+
+
+def _sanitize_link_items(raw_items) -> list:
+    """Bundle body: rows (label+text+url), subheads, spacers."""
+    if not isinstance(raw_items, list):
+        return []
+    out = []
+    for it in raw_items[:100]:
+        if not isinstance(it, dict):
+            continue
+        kind = str(it.get("kind", "") or "row").strip().lower()
+        if kind == "spacer":
+            out.append({"kind": "spacer", "label": "", "text": "", "url": ""})
+            continue
+        if kind in ("subhead", "sub", "section"):
+            label = str(it.get("label", "") or it.get("text", "") or "").strip()[:120]
+            if label:
+                out.append({"kind": "subhead", "label": label, "text": "", "url": ""})
+            continue
+        label = str(it.get("label", "") or "").strip()[:120]
+        text = str(it.get("text", "") or it.get("note", "") or "").strip()[:200]
+        url = _safe_url(it.get("url", "") or "")
+        if not (label or text or url):
+            continue
+        out.append({"kind": "row", "label": label, "text": text, "url": url})
+    return out
+
+
 def _sanitize_links(payload) -> dict:
-    """Coerce arbitrary input into the safe {cards:[...]} shape (XSS-safe URLs)."""
+    """Coerce arbitrary input into the safe {cards:[...]} shape (XSS-safe URLs).
+
+    Card types:
+      - link (default): title/url/note/icon/group — original leaf tile
+      - bundle: title/icon + items[] of rows (label+linked text+url), subheads, spacers
+    """
     raw = payload.get("cards") if isinstance(payload, dict) else None
     if not isinstance(raw, list):
         raw = []
@@ -1079,19 +1121,42 @@ def _sanitize_links(payload) -> dict:
         if not isinstance(c, dict):
             continue
         title = str(c.get("title", "") or "").strip()[:120]
-        url = str(c.get("url", "") or "").strip()[:1000]
+        url = _safe_url(c.get("url", "") or "")
         note = str(c.get("note", "") or "").strip()[:200]
         icon = str(c.get("icon", "") or "").strip()[:8]
         group = str(c.get("group", "") or "").strip()[:60]
+        ctype = str(c.get("type", "") or "link").strip().lower()
+        if ctype == "bundle":
+            items = _sanitize_link_items(c.get("items"))
+            if not (title or items):
+                continue
+            cid = str(c.get("id", "") or "").strip()[:40] or _new_link_id()
+            cards.append({
+                "id": cid,
+                "type": "bundle",
+                "title": title or "Bundle",
+                "url": "",
+                "note": note,
+                "icon": icon,
+                "group": "",
+                "wide": bool(c.get("wide")),
+                "collapsed": bool(c.get("collapsed")),
+                "items": items,
+            })
+            continue
         if not (title or url):
             continue
-        low = url.lower()
-        if low.startswith("javascript:") or low.startswith("data:") or low.startswith("vbscript:"):
-            url = ""
-        elif low and not (low.startswith("http://") or low.startswith("https://") or low.startswith("/")):
-            url = "https://" + url
         cid = str(c.get("id", "") or "").strip()[:40] or _new_link_id()
-        cards.append({"id": cid, "title": title, "url": url, "note": note, "icon": icon, "group": group})
+        cards.append({
+            "id": cid,
+            "type": "link",
+            "title": title,
+            "url": url,
+            "note": note,
+            "icon": icon,
+            "group": group,
+            "items": [],
+        })
     return {"cards": cards}
 
 
@@ -1105,12 +1170,12 @@ def _default_links() -> list:
     except Exception:
         dom = ""
     return [
-        {"id": "backlog", "title": "Backlog", "url": "/backlog",
-         "note": "Everything to organize, by workflow", "icon": "🗂", "group": ""},
-        {"id": "jules", "title": "jules", "url": "/jules",
-         "note": "Capture by voice → your Inbox", "icon": "🎙", "group": ""},
-        {"id": "cloud", "title": "Cloud", "url": (f"https://cloud.{dom}" if dom else "/files"),
-         "note": "Your files", "icon": "☁", "group": ""},
+        {"id": "backlog", "type": "link", "title": "Backlog", "url": "/backlog",
+         "note": "Everything to organize, by workflow", "icon": "🗂", "group": "", "items": []},
+        {"id": "jules", "type": "link", "title": "jules", "url": "/jules",
+         "note": "Capture by voice → your Inbox", "icon": "🎙", "group": "", "items": []},
+        {"id": "cloud", "type": "link", "title": "Cloud", "url": (f"https://cloud.{dom}" if dom else "/files"),
+         "note": "Your files", "icon": "☁", "group": "", "items": []},
     ]
 
 

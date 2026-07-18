@@ -1,4 +1,4 @@
-"""#QL-EDIT / #QL-DRAG / #QL-SPACER + Action Links section-card rows.
+"""#QL-EDIT / #QL-DRAG / #QL-SPACER + Action Links leaf+bundle cards.
 
 Contract tests — source + schema. No browser driver required.
 """
@@ -79,19 +79,13 @@ def test_ql_css_ux():
         assert needle in css, needle
 
 
-def test_links_section_card_rows():
-    """View mode keeps system card grid; rows are label + linked text (links.html)."""
+def test_links_leaf_and_bundle_contract():
+    """Leaf tiles restored; bundles hold label+link rows (see test_links_bundles_and_backlog_pwa)."""
     css = AB_CSS.read_text()
-    assert "grid-template-columns: repeat(3, 1fr)" in css
-    assert "ablk-section" in css
-    assert "ablk-label" in css
-    assert "ablk-link" in css
-    assert "align-items: baseline" in css
     js = AB_JS.read_text()
-    assert "function _abLinksRenderRow" in js
-    assert "ablk-section" in js
-    assert "ablk-label" in js
-    assert 'class="ablk-link"' in js
+    assert "a.ablk-card" in css
+    assert "ablk-bundle" in css
+    assert "function _abLinksRenderLeaf" in js
+    assert "function _abLinksRenderBundle" in js
     assert 'target="_blank"' in js
-    # note becomes the linked text when present
-    assert "c.note" in js and "linkText" in js
+    assert "ablk-label" in js and 'class="ablk-link"' in js

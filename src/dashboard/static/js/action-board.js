@@ -948,9 +948,12 @@ let _abLinksEditing = false;  // in edit mode
 let _abLinksRaw = false;      // raw textarea mode
 
 const _AB_LINK_TEMPLATES = {
-    tool:      { title: '', url: '', note: '', icon: '🔧', group: 'Tools' },
-    dashboard: { title: '', url: '', note: '', icon: '📊', group: 'Dashboards' },
-    doc:       { title: '', url: '', note: '', icon: '📄', group: 'Docs' },
+    tool:      { type: 'link', title: '', url: '', note: '', icon: '🔧', group: 'Tools', items: [] },
+    dashboard: { type: 'link', title: '', url: '', note: '', icon: '📊', group: 'Dashboards', items: [] },
+    doc:       { type: 'link', title: '', url: '', note: '', icon: '📄', group: 'Docs', items: [] },
+    bundle:    { type: 'bundle', title: '', url: '', note: '', icon: '', group: '', wide: false, collapsed: false, items: [
+        { kind: 'row', label: '', text: '', url: '' },
+    ] },
 };
 
 function _abEsc(s) {
@@ -967,7 +970,7 @@ async function loadABLinks() {
     try {
         const res = await fetch('/api/action-board/links');
         const data = await res.json();
-        _abLinks = Array.isArray(data.cards) ? data.cards : [];
+        _abLinks = Array.isArray(data.cards) ? data.cards.map(_abNormalizeCard) : [];
         _abLinksEditable = !!data.editable;
         renderABLinks();
     } catch (e) {
@@ -976,16 +979,44 @@ async function loadABLinks() {
     _abLinksLoaded = true;
 }
 
+function _abNormalizeCard(c) {
+    const type = (c && c.type === 'bundle') ? 'bundle' : 'link';
+    const items = Array.isArray(c && c.items) ? c.items.map(it => {
+        if (!it || typeof it !== 'object') return null;
+        const kind = it.kind === 'spacer' ? 'spacer' : (it.kind === 'subhead' ? 'subhead' : 'row');
+        if (kind === 'spacer') return { kind: 'spacer', label: '', text: '', url: '' };
+        if (kind === 'subhead') return { kind: 'subhead', label: String(it.label || it.text || ''), text: '', url: '' };
+        return {
+            kind: 'row',
+            label: String(it.label || ''),
+            text: String(it.text || it.note || ''),
+            url: String(it.url || ''),
+        };
+    }).filter(Boolean) : [];
+    return {
+        id: (c && c.id) || '',
+        type,
+        title: (c && c.title) || '',
+        url: (c && c.url) || '',
+        note: (c && c.note) || '',
+        icon: (c && c.icon) || '',
+        group: (c && c.group) || '',
+        wide: !!(c && c.wide),
+        collapsed: !!(c && c.collapsed),
+        items,
+    };
+}
+
 function renderABLinks() {
     const container = document.getElementById('ab-links-grid');
     if (!container) return;
 
-    // Toolbar
     let bar = '<div class="ablk-bar">';
     if (!_abLinksEditing) {
         if (_abLinksEditable) bar += '<button class="ablk-btn" onclick="abLinksToggleEdit()">Edit</button>';
     } else {
-        bar += '<button class="ablk-btn" onclick="abLinksAdd()">+ Add</button>';
+        bar += '<button class="ablk-btn" onclick="abLinksAdd()">+ Link</button>';
+        bar += '<button class="ablk-btn" onclick="abLinksAddTemplate(\'bundle\')">+ Bundle</button>';
         bar += '<span class="ablk-tpl-lbl">Templates:</span>';
         bar += '<button class="ablk-btn ablk-tpl" onclick="abLinksAddTemplate(\'tool\')">🔧 Tool</button>';
         bar += '<button class="ablk-btn ablk-tpl" onclick="abLinksAddTemplate(\'dashboard\')">📊 Dashboard</button>';
@@ -1000,56 +1031,91 @@ function renderABLinks() {
     let body = '';
     if (_abLinksEditing && _abLinksRaw) {
         body = '<textarea id="ablk-raw" class="ablk-raw" spellcheck="false" '
-             + 'placeholder="One link per line:  Title | https://url | optional linked text | optional group">'
+             + 'placeholder="Leaf: Title | URL | note | group&#10;Bundle: BUNDLE | Title | icon | wide&#10;  row: label | linked text | url&#10;  sub: Section name&#10;  ---">'
              + _abEsc(_abLinksToRaw(_abLinks)) + '</textarea>'
-             + '<div class="ablk-hint">One per line — <b>Title | URL | linked text | group</b>. Linked text and group are optional.</div>';
+             + '<div class="ablk-hint">Leaf: <b>Title | URL | note | group</b>. Bundle: <b>BUNDLE | Title | icon | wide</b> then indented rows <b>label | text | url</b>, <b>sub: Name</b>, or <b>---</b>.</div>';
     } else if (_abLinksEditing) {
         body = '<div class="ablk-grid ablk-edit">';
         _abLinks.forEach((c, i) => {
-            body += '<div class="ablk-card ablk-card-edit" data-i="' + i + '">'
+            const isBundle = c.type === 'bundle';
+            body += '<div class="ablk-card-edit" data-i="' + i + '" data-type="' + (isBundle ? 'bundle' : 'link') + '">'
                   + '<div class="ablk-row1">'
+                  + '<select class="ablk-type" data-f="type" onchange="abLinksTypeChange(' + i + ', this.value)">'
+                  + '<option value="link"' + (!isBundle ? ' selected' : '') + '>Link</option>'
+                  + '<option value="bundle"' + (isBundle ? ' selected' : '') + '>Bundle</option>'
+                  + '</select>'
                   + '<input class="ablk-in ablk-icon" data-f="icon" maxlength="4" value="' + _abEsc(c.icon) + '" placeholder="🔗">'
-                  + '<input class="ablk-in ablk-title" data-f="title" value="' + _abEsc(c.title) + '" placeholder="Title">'
+                  + '<input class="ablk-in ablk-title" data-f="title" value="' + _abEsc(c.title) + '" placeholder="' + (isBundle ? 'Bundle title (e.g. Monthly Bills)' : 'Title') + '">'
                   + '<button class="ablk-del" title="Delete" onclick="abLinksDelete(' + i + ')">✕</button>'
-                  + '</div>'
-                  + '<input class="ablk-in ablk-url" data-f="url" value="' + _abEsc(c.url) + '" placeholder="https://…  (or /path)">'
-                  + '<input class="ablk-in ablk-note" data-f="note" value="' + _abEsc(c.note) + '" placeholder="Linked text (optional — e.g. dash.cloudflare.com)">'
-                  + '<input class="ablk-in ablk-note" data-f="group" value="' + _abEsc(c.group || '') + '" placeholder="Group (optional — cards cluster under it)">'
                   + '</div>';
+            if (!isBundle) {
+                body += '<input class="ablk-in ablk-url" data-f="url" value="' + _abEsc(c.url) + '" placeholder="https://…  (or /path)">'
+                      + '<input class="ablk-in ablk-note" data-f="note" value="' + _abEsc(c.note) + '" placeholder="One-line note (optional)">'
+                      + '<input class="ablk-in ablk-note" data-f="group" value="' + _abEsc(c.group || '') + '" placeholder="Group (optional — label above leaf cluster)">';
+            } else {
+                body += '<label class="ablk-chk"><input type="checkbox" data-f="wide"' + (c.wide ? ' checked' : '') + '> Wide (span 2 cols when space allows)</label>'
+                      + '<label class="ablk-chk"><input type="checkbox" data-f="collapsed"' + (c.collapsed ? ' checked' : '') + '> Start collapsed</label>'
+                      + '<div class="ablk-items-ed" data-items="' + i + '">';
+                (c.items || []).forEach((it, j) => {
+                    const kind = it.kind || 'row';
+                    if (kind === 'spacer') {
+                        body += '<div class="ablk-item-ed" data-j="' + j + '" data-kind="spacer">'
+                              + '<span class="ablk-label" style="grid-column:1/-2">— spacer —</span>'
+                              + '<button class="ablk-del" onclick="abLinksDeleteItem(' + i + ',' + j + ')">✕</button></div>';
+                    } else if (kind === 'subhead') {
+                        body += '<div class="ablk-item-ed" data-j="' + j + '" data-kind="subhead">'
+                              + '<input class="ablk-in" data-f="label" value="' + _abEsc(it.label || '') + '" placeholder="Subsection header" style="grid-column:1/-2">'
+                              + '<button class="ablk-del" onclick="abLinksDeleteItem(' + i + ',' + j + ')">✕</button></div>';
+                    } else {
+                        body += '<div class="ablk-item-ed" data-j="' + j + '" data-kind="row">'
+                              + '<input class="ablk-in" data-f="label" value="' + _abEsc(it.label || '') + '" placeholder="Label">'
+                              + '<input class="ablk-in" data-f="text" value="' + _abEsc(it.text || '') + '" placeholder="Linked text">'
+                              + '<input class="ablk-in ablk-in-url" data-f="url" value="' + _abEsc(it.url || '') + '" placeholder="https://… or /path">'
+                              + '<button class="ablk-del" onclick="abLinksDeleteItem(' + i + ',' + j + ')">✕</button></div>';
+                    }
+                });
+                body += '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+                      + '<button type="button" class="ablk-add-item" onclick="abLinksAddItem(' + i + ',\'row\')">+ Row</button>'
+                      + '<button type="button" class="ablk-add-item" onclick="abLinksAddItem(' + i + ',\'subhead\')">+ Subhead</button>'
+                      + '<button type="button" class="ablk-add-item" onclick="abLinksAddItem(' + i + ',\'spacer\')">+ Spacer</button>'
+                      + '</div></div>';
+            }
+            body += '</div>';
         });
         body += '</div>';
-        if (!_abLinks.length) body += '<div class="ab-empty">No links yet. Use <b>+ Add</b> or a template above.</div>';
+        if (!_abLinks.length) body += '<div class="ab-empty">No links yet. Use <b>+ Link</b> or <b>+ Bundle</b>.</div>';
     } else {
         if (!_abLinks.length) {
             body = '<div class="ab-empty">No links yet.' + (_abLinksEditable ? ' Hit <b>Edit</b> to add some.' : '') + '</div>';
         } else {
-            // Group cards; ungrouped first under no header
+            // Leaves may cluster under optional group headers; bundles are first-class tiles.
             const groups = {};
             const order = [];
-            _abLinks.forEach(c => {
+            _abLinks.forEach((c, idx) => {
+                if (c.type === 'bundle') {
+                    const key = '__bundle_' + idx;
+                    groups[key] = [{ card: c, idx, bundle: true }];
+                    order.push(key);
+                    return;
+                }
                 const g = c.group || '';
                 if (!(g in groups)) { groups[g] = []; order.push(g); }
-                groups[g].push(c);
+                groups[g].push({ card: c, idx, bundle: false });
             });
-            // Standard card grid: one section card per group (ungrouped = one card each).
-            // Inside: Cloudflare / links.html rows — dim label + accent linked text.
             body = '<div class="ablk-grid">';
             order.forEach(g => {
-                const cards = groups[g];
-                if (!g) {
-                    // Ungrouped: keep card sizing — one section card per link
-                    cards.forEach(c => {
-                        body += '<div class="ablk-section"><div class="ablk-links">'
-                              + _abLinksRenderRow(c)
-                              + '</div></div>';
-                    });
-                } else {
-                    body += '<div class="ablk-section">'
-                          + '<div class="ablk-section-h">' + _abEsc(g) + '</div>'
-                          + '<div class="ablk-links">';
-                    cards.forEach(c => { body += _abLinksRenderRow(c); });
-                    body += '</div></div>';
+                const entries = groups[g];
+                if (entries.length === 1 && entries[0].bundle) {
+                    body += _abLinksRenderBundle(entries[0].card, entries[0].idx);
+                    return;
                 }
+                if (g && !String(g).startsWith('__bundle_')) {
+                    body += '<div class="ablk-group-h">' + _abEsc(g) + '</div>';
+                }
+                entries.forEach(e => {
+                    if (e.bundle) body += _abLinksRenderBundle(e.card, e.idx);
+                    else body += _abLinksRenderLeaf(e.card);
+                });
             });
             body += '</div>';
         }
@@ -1058,13 +1124,60 @@ function renderABLinks() {
     container.innerHTML = bar + body;
 }
 
-function _abLinksLinkText(c) {
-    // Cloudflare / links.html: label stays plain; linked text is the clickable phrase.
-    // Prefer note ("My Backlog Board", "dash.cloudflare.com"). Else show a short URL.
-    if (c.note && c.note.trim()) return c.note.trim();
-    const u = (c.url || '').trim();
-    if (!u) return c.title || 'Open';
-    if (u.startsWith('/')) return u; // Cove path
+function _abLinksRenderLeaf(c) {
+    const href = c.url ? ' href="' + _abEsc(c.url) + '"' : '';
+    // Always new window/tab — board stays put (desktop + mobile browser).
+    const tgt = c.url ? ' target="_blank" rel="noopener"' : '';
+    return '<a class="ablk-card"' + href + tgt + '>'
+         + '<div class="ablk-card-t">' + (c.icon ? '<span class="ablk-card-i">' + _abEsc(c.icon) + '</span>' : '')
+         + _abEsc(c.title || c.url) + '</div>'
+         + (c.note ? '<div class="ablk-card-n">' + _abEsc(c.note) + '</div>' : '')
+         + '</a>';
+}
+
+function _abLinksRenderBundle(c, idx) {
+    const collapsed = !!c.collapsed;
+    const wide = c.wide ? ' ablk-wide' : '';
+    const chev = collapsed ? '▶' : '▼';
+    const items = Array.isArray(c.items) ? c.items : [];
+    const rowCount = items.filter(it => (it.kind || 'row') === 'row').length;
+    let html = '<div class="ablk-bundle' + wide + (collapsed ? ' ablk-collapsed' : '') + '" data-bundle-idx="' + idx + '">'
+             + '<div class="ablk-bundle-h" onclick="abLinksToggleBundle(' + idx + ')">'
+             + '<span class="ablk-bundle-toggle">' + chev + '</span>'
+             + '<span class="ablk-bundle-title">' + (c.icon ? _abEsc(c.icon) + ' ' : '') + _abEsc(c.title || 'Bundle') + '</span>'
+             + '<span class="ablk-bundle-meta">' + rowCount + '</span>'
+             + '</div><div class="ablk-bundle-body">';
+    items.forEach(it => {
+        const kind = it.kind || 'row';
+        if (kind === 'spacer') {
+            html += '<hr class="ablk-hr">';
+        } else if (kind === 'subhead') {
+            html += '<div class="ablk-subh">' + _abEsc(it.label || '') + '</div>';
+        } else {
+            const label = it.label || '';
+            const text = (it.text || '').trim() || _abLinksShortUrl(it.url) || label || 'Open';
+            html += '<div class="ablk-row">';
+            if (label) html += '<span class="ablk-label">' + _abEsc(label) + '</span>';
+            if (it.url) {
+                html += '<a class="ablk-link" href="' + _abEsc(it.url) + '" target="_blank" rel="noopener">'
+                      + _abEsc(text) + '</a>';
+            } else {
+                html += '<span class="ablk-link-plain">' + _abEsc(text) + '</span>';
+            }
+            html += '</div>';
+        }
+    });
+    if (!items.length) {
+        html += '<div class="ablk-link-plain">Empty bundle — Edit to add rows</div>';
+    }
+    html += '</div></div>';
+    return html;
+}
+
+function _abLinksShortUrl(u) {
+    u = (u || '').trim();
+    if (!u) return '';
+    if (u.startsWith('/')) return u;
     try {
         const parsed = new URL(u, window.location.origin);
         let s = parsed.host + (parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : '');
@@ -1075,52 +1188,79 @@ function _abLinksLinkText(c) {
     }
 }
 
-function _abLinksRenderRow(c) {
-    const label = c.title || c.url || '';
-    const linkText = _abLinksLinkText(c);
-    const tip = _abEsc([c.title || c.url, c.note, c.url].filter(Boolean).join(' — '));
-    const icon = c.icon ? '<span class="ablk-card-i">' + _abEsc(c.icon) + '</span>' : '';
-    let row = '<div class="ablk-row">';
-    row += '<span class="ablk-label" title="' + tip + '">' + icon + _abEsc(label) + '</span>';
-    if (c.url) {
-        // Always new tab — including Cove-relative paths (board stays put).
-        row += '<a class="ablk-link" href="' + _abEsc(c.url) + '" target="_blank" rel="noopener" title="' + tip + '">'
-             + _abEsc(linkText) + '</a>';
-    } else {
-        row += '<span class="ablk-link-plain">' + _abEsc(linkText) + '</span>';
-    }
-    row += '</div>';
-    return row;
+function abLinksToggleBundle(idx) {
+    const c = _abLinks[idx];
+    if (!c || c.type !== 'bundle') return;
+    c.collapsed = !c.collapsed;
+    // View-only toggle — do not persist until Save in edit mode.
+    renderABLinks();
 }
 
 function _abLinksToRaw(cards) {
-    return cards.map(c => {
-        const parts = [c.title || '', c.url || ''];
-        // 4-field form: Title | URL | note | group. Emit the note slot (even empty)
-        // whenever a group exists so the round-trip never drops groups.
-        if (c.note || c.group) parts.push(c.note || '');
-        if (c.group) parts.push(c.group);
-        return parts.join(' | ');
-    }).join('\n');
+    const lines = [];
+    cards.forEach(c => {
+        if (c.type === 'bundle') {
+            lines.push(['BUNDLE', c.title || '', c.icon || '', c.wide ? 'wide' : ''].join(' | '));
+            (c.items || []).forEach(it => {
+                const kind = it.kind || 'row';
+                if (kind === 'spacer') lines.push('  ---');
+                else if (kind === 'subhead') lines.push('  sub: ' + (it.label || ''));
+                else lines.push('  ' + [it.label || '', it.text || '', it.url || ''].join(' | '));
+            });
+        } else {
+            const parts = [c.title || '', c.url || ''];
+            if (c.note || c.group) parts.push(c.note || '');
+            if (c.group) parts.push(c.group);
+            lines.push(parts.join(' | '));
+        }
+    });
+    return lines.join('\n');
 }
 
 function _abLinksFromRaw(text) {
     const out = [];
+    let cur = null;
     (text || '').split('\n').forEach(line => {
-        const t = line.trim();
-        if (!t) return;
+        const raw = line.replace(/\s+$/, '');
+        if (!raw.trim()) return;
+        const indented = /^\s+/.test(line);
+        const t = raw.trim();
+        if (!indented && t.toUpperCase().startsWith('BUNDLE')) {
+            const p = t.split('|').map(s => s.trim());
+            // BUNDLE | Title | icon | wide
+            cur = _abNormalizeCard({
+                type: 'bundle',
+                title: p[1] || '',
+                icon: p[2] || '',
+                wide: String(p[3] || '').toLowerCase().includes('wide'),
+                items: [],
+            });
+            out.push(cur);
+            return;
+        }
+        if (indented && cur && cur.type === 'bundle') {
+            if (t === '---') {
+                cur.items.push({ kind: 'spacer', label: '', text: '', url: '' });
+            } else if (/^sub:\s*/i.test(t)) {
+                cur.items.push({ kind: 'subhead', label: t.replace(/^sub:\s*/i, ''), text: '', url: '' });
+            } else {
+                const p = t.split('|').map(s => s.trim());
+                cur.items.push({ kind: 'row', label: p[0] || '', text: p[1] || '', url: p[2] || '' });
+            }
+            return;
+        }
+        cur = null;
         const p = t.split('|').map(s => s.trim());
         const title = p[0] || '';
         const url = p[1] || '';
         const note = p[2] || '';
         const group = p[3] || '';
         if (!title && !url) return;
-        out.push({ id: '', title, url, note, icon: '', group });
+        out.push(_abNormalizeCard({ type: 'link', title, url, note, icon: '', group }));
     });
     return out;
 }
 
-// Read the edit-mode DOM (cards or raw) back into _abLinks
 function _abLinksCollect() {
     if (_abLinksRaw) {
         const ta = document.getElementById('ablk-raw');
@@ -1129,12 +1269,53 @@ function _abLinksCollect() {
     }
     const cards = [];
     document.querySelectorAll('#ab-links-grid .ablk-card-edit').forEach(el => {
-        const get = f => { const n = el.querySelector('[data-f="' + f + '"]'); return n ? n.value.trim() : ''; };
+        const get = f => {
+            const n = el.querySelector('[data-f="' + f + '"]');
+            if (!n) return '';
+            if (n.type === 'checkbox') return n.checked;
+            return n.value.trim();
+        };
         const i = parseInt(el.getAttribute('data-i'), 10);
         const prev = _abLinks[i] || {};
-        const title = get('title'), url = get('url');
-        if (!title && !url) return;
-        cards.push({ id: prev.id || '', title, url, note: get('note'), icon: get('icon'), group: get('group') });
+        const type = get('type') === 'bundle' ? 'bundle' : 'link';
+        if (type === 'bundle') {
+            const items = [];
+            el.querySelectorAll('.ablk-item-ed').forEach(row => {
+                const kind = row.getAttribute('data-kind') || 'row';
+                if (kind === 'spacer') {
+                    items.push({ kind: 'spacer', label: '', text: '', url: '' });
+                    return;
+                }
+                const g = f => { const n = row.querySelector('[data-f="' + f + '"]'); return n ? n.value.trim() : ''; };
+                if (kind === 'subhead') {
+                    items.push({ kind: 'subhead', label: g('label'), text: '', url: '' });
+                } else {
+                    items.push({ kind: 'row', label: g('label'), text: g('text'), url: g('url') });
+                }
+            });
+            const title = get('title');
+            if (!title && !items.length) return;
+            cards.push(_abNormalizeCard({
+                id: prev.id || '',
+                type: 'bundle',
+                title,
+                icon: get('icon'),
+                wide: !!get('wide'),
+                collapsed: !!get('collapsed'),
+                items,
+            }));
+        } else {
+            const title = get('title'), url = get('url');
+            if (!title && !url) return;
+            cards.push(_abNormalizeCard({
+                id: prev.id || '',
+                type: 'link',
+                title, url,
+                note: get('note'),
+                icon: get('icon'),
+                group: get('group'),
+            }));
+        }
     });
     _abLinks = cards;
 }
@@ -1148,18 +1329,18 @@ function abLinksCancel() {
     _abLinksEditing = false;
     _abLinksRaw = false;
     _abLinksLoaded = false;
-    loadABLinks(); // reload from server, discard unsaved edits
+    loadABLinks();
 }
 
 function abLinksToggleRaw() {
-    _abLinksCollect();      // capture current edits before switching view
+    _abLinksCollect();
     _abLinksRaw = !_abLinksRaw;
     renderABLinks();
 }
 
 function abLinksAdd() {
     _abLinksCollect();
-    _abLinks.push({ id: '', title: '', url: '', note: '', icon: '', group: '' });
+    _abLinks.push(_abNormalizeCard({ type: 'link', title: '', url: '', note: '', icon: '', group: '' }));
     _abLinksRaw = false;
     renderABLinks();
 }
@@ -1167,8 +1348,56 @@ function abLinksAdd() {
 function abLinksAddTemplate(kind) {
     _abLinksCollect();
     const t = _AB_LINK_TEMPLATES[kind] || _AB_LINK_TEMPLATES.tool;
-    _abLinks.push(Object.assign({ id: '' }, t));
+    _abLinks.push(_abNormalizeCard(Object.assign({ id: '' }, t)));
     _abLinksRaw = false;
+    renderABLinks();
+}
+
+function abLinksTypeChange(i, type) {
+    _abLinksCollect();
+    const prev = _abLinks[i] || _abNormalizeCard({});
+    if (type === 'bundle') {
+        _abLinks[i] = _abNormalizeCard({
+            id: prev.id,
+            type: 'bundle',
+            title: prev.title,
+            icon: prev.icon,
+            wide: false,
+            collapsed: false,
+            items: (prev.items && prev.items.length) ? prev.items : [
+                { kind: 'row', label: '', text: prev.note || '', url: prev.url || '' },
+            ],
+        });
+    } else {
+        const first = (prev.items || []).find(it => (it.kind || 'row') === 'row') || {};
+        _abLinks[i] = _abNormalizeCard({
+            id: prev.id,
+            type: 'link',
+            title: prev.title,
+            icon: prev.icon,
+            url: first.url || prev.url || '',
+            note: first.text || prev.note || '',
+            group: prev.group || '',
+        });
+    }
+    renderABLinks();
+}
+
+function abLinksAddItem(cardIdx, kind) {
+    _abLinksCollect();
+    const c = _abLinks[cardIdx];
+    if (!c || c.type !== 'bundle') return;
+    if (kind === 'spacer') c.items.push({ kind: 'spacer', label: '', text: '', url: '' });
+    else if (kind === 'subhead') c.items.push({ kind: 'subhead', label: '', text: '', url: '' });
+    else c.items.push({ kind: 'row', label: '', text: '', url: '' });
+    renderABLinks();
+}
+
+function abLinksDeleteItem(cardIdx, itemIdx) {
+    _abLinksCollect();
+    const c = _abLinks[cardIdx];
+    if (!c || c.type !== 'bundle') return;
+    c.items.splice(itemIdx, 1);
     renderABLinks();
 }
 
@@ -1192,12 +1421,13 @@ async function abLinksSave() {
         _abLinksEditing = false;
         _abLinksRaw = false;
         _abLinksLoaded = false;
-        await loadABLinks(); // re-fetch the sanitized server copy
+        await loadABLinks();
     } catch (e) {
         if (btn) { btn.textContent = 'Save'; btn.disabled = false; }
         alert('Could not save links: ' + e.message);
     }
 }
+
 
 // =============================================================================
 // Creation Flows tab — guided LP-stage journeys

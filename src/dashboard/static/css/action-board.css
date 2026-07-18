@@ -306,7 +306,7 @@
 
 #ab-links-grid .footer { grid-column: 1 / -1; text-align: center; color: var(--dim); font-size: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); opacity: 0.5; }
 
-/* ── Editable links board (cards + raw toggle) ───────────── */
+/* ── Editable links board (leaf cards + bundles) ─────────── */
 #ab-links-grid .ablk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
 #ab-links-grid .ablk-spacer { flex: 1; }
 #ab-links-grid .ablk-tpl-lbl { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-left: 4px; }
@@ -315,64 +315,148 @@
 #ab-links-grid .ablk-btn.ablk-save { background: var(--daily-freq, var(--accent)); color: #000; border-color: transparent; font-weight: 600; }
 #ab-links-grid .ablk-btn.ablk-tpl { color: var(--dim); }
 
-/* View mode: standard 3-col section cards (system-wide card size),
-   rows inside match links.html / Cloudflare prototype — label + linked text.
-   Colors stay on MC tokens. */
+/* Floating-width board: shared min card width, footprint follows content */
 #ab-links-grid .ablk-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  align-items: start;
 }
-@media (max-width: 1000px) { #ab-links-grid .ablk-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 640px)  { #ab-links-grid .ablk-grid { grid-template-columns: 1fr; } }
-
-/* Edit mode: stack of editor cards (not the 3-col view grid) */
 #ab-links-grid .ablk-grid.ablk-edit {
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 8px;
 }
 
-#ab-links-grid .ablk-section {
-  background: var(--card); border: 1px solid var(--border); border-radius: 6px;
-  padding: 8px 10px; overflow: hidden; min-width: 0;
+/* Leaf card — original system tile (whole card is the hit target) */
+#ab-links-grid a.ablk-card {
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.75rem; text-decoration: none; color: var(--text);
+  transition: all 0.15s; min-width: 0;
 }
-#ab-links-grid .ablk-section-h {
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
-  color: var(--daily-freq, var(--accent)); border-bottom: 1px solid var(--border);
-  padding-bottom: 4px; margin-bottom: 4px;
+#ab-links-grid a.ablk-card:hover {
+  border-color: var(--daily-freq, var(--accent)); background: var(--card2, var(--card));
+  transform: translateY(-1px); text-decoration: none;
 }
-#ab-links-grid .ablk-links { display: flex; flex-direction: column; gap: 0; }
+#ab-links-grid .ablk-card-t {
+  color: var(--text); font-size: 0.84rem; font-weight: 600;
+  display: flex; align-items: center; gap: 2px; min-width: 0;
+}
+#ab-links-grid .ablk-card-n {
+  color: var(--dim); font-size: 0.72rem; line-height: 1.35;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+#ab-links-grid .ablk-card-i { margin-right: 5px; flex-shrink: 0; }
+
+/* Optional group label above a cluster of leaves */
+#ab-links-grid .ablk-group-h {
+  grid-column: 1 / -1;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--daily-freq, var(--accent)); margin: 4px 0 0; padding: 0 2px;
+}
+
+/* Bundle card — same chrome, multi-line depth in-card */
+#ab-links-grid .ablk-bundle {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0; overflow: hidden; min-width: 0;
+}
+#ab-links-grid .ablk-bundle.ablk-wide { grid-column: span 2; }
+@media (max-width: 640px) {
+  #ab-links-grid .ablk-bundle.ablk-wide { grid-column: span 1; }
+}
+#ab-links-grid .ablk-bundle-h {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 10px; cursor: pointer; user-select: none;
+  border-bottom: 1px solid transparent;
+}
+#ab-links-grid .ablk-bundle:not(.ablk-collapsed) .ablk-bundle-h {
+  border-bottom-color: var(--border);
+}
+#ab-links-grid .ablk-bundle-h:hover { background: rgba(255,255,255,0.03); }
+#ab-links-grid .ablk-bundle-toggle {
+  color: var(--dim); font-size: 9px; width: 12px; flex-shrink: 0;
+}
+#ab-links-grid .ablk-bundle-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px;
+  color: var(--daily-freq, var(--accent)); flex: 1; min-width: 0;
+}
+#ab-links-grid .ablk-bundle-meta {
+  font-size: 11px; color: var(--dim); flex-shrink: 0;
+}
+#ab-links-grid .ablk-bundle-body {
+  padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 0;
+}
+#ab-links-grid .ablk-collapsed .ablk-bundle-body { display: none; }
+
+/* Bundle rows — label + linked text (Cloudflare / links.html pattern, MC tokens) */
 #ab-links-grid .ablk-row {
-  display: flex; align-items: baseline; gap: 6px; padding: 2px 0;
+  display: flex; align-items: baseline; gap: 8px; padding: 2px 0;
   border-bottom: 1px solid var(--bg); flex-wrap: wrap;
 }
 #ab-links-grid .ablk-row:last-child { border-bottom: none; }
 #ab-links-grid .ablk-label {
-  color: var(--dim); font-size: 13px; min-width: 88px; max-width: 46%;
+  color: var(--dim); font-size: 13px; min-width: 72px; max-width: 48%;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
 }
-#ab-links-grid .ablk-label .ablk-card-i { margin-right: 4px; }
 #ab-links-grid a.ablk-link {
   font-size: 13px; color: var(--daily-freq, var(--accent)); text-decoration: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1;
 }
 #ab-links-grid a.ablk-link:hover { color: var(--text); text-decoration: underline; }
-#ab-links-grid .ablk-link-plain {
-  font-size: 13px; color: var(--dim); font-style: italic;
+#ab-links-grid .ablk-link-plain { font-size: 13px; color: var(--dim); font-style: italic; }
+#ab-links-grid .ablk-subh {
+  font-size: 11px; color: var(--dim); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.5px; margin: 6px 0 2px;
+}
+#ab-links-grid .ablk-hr {
+  border: none; border-top: 1px solid var(--border); margin: 6px 0; opacity: 0.7;
 }
 
-/* Legacy class names kept only so edit-mode card chrome still resolves if referenced */
-#ab-links-grid .ablk-card-t { color: var(--text); font-size: 13px; font-weight: 600; }
-#ab-links-grid .ablk-card-n { color: var(--dim); font-size: 11px; }
-#ab-links-grid .ablk-card-i { margin-right: 5px; }
-
-#ab-links-grid .ablk-card-edit { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+/* Edit mode */
+#ab-links-grid .ablk-card-edit {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px; display: flex; flex-direction: column; gap: 4px;
+}
 #ab-links-grid .ablk-row1 { display: flex; align-items: center; gap: 4px; }
-#ab-links-grid .ablk-in { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; font-family: inherit; padding: 4px 6px; outline: none; width: 100%; }
+#ab-links-grid .ablk-in {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); font-size: 12px; font-family: inherit; padding: 4px 6px; outline: none; width: 100%;
+}
 #ab-links-grid .ablk-in:focus { border-color: var(--daily-freq, var(--accent)); }
 #ab-links-grid .ablk-icon { width: 38px; text-align: center; flex: none; }
 #ab-links-grid .ablk-title { flex: 1; font-weight: 600; }
+#ab-links-grid .ablk-type {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); font-size: 11px; font-family: inherit; padding: 4px 6px; flex: none;
+}
 #ab-links-grid .ablk-del { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 13px; padding: 2px 4px; flex: none; }
 #ab-links-grid .ablk-del:hover { color: var(--red, #e66); }
+#ab-links-grid .ablk-items-ed {
+  margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 4px;
+}
+#ab-links-grid .ablk-item-ed {
+  display: grid; grid-template-columns: 1fr 1fr 1.2fr auto; gap: 4px; align-items: center;
+}
+@media (max-width: 640px) {
+  #ab-links-grid .ablk-item-ed { grid-template-columns: 1fr 1fr auto; }
+  #ab-links-grid .ablk-item-ed .ablk-in-url { grid-column: 1 / -2; }
+}
+#ab-links-grid .ablk-add-item {
+  align-self: flex-start; margin-top: 2px;
+  background: none; border: 1px dashed var(--border); border-radius: 4px;
+  color: var(--dim); font-size: 11px; font-family: inherit; padding: 3px 8px; cursor: pointer;
+}
+#ab-links-grid .ablk-add-item:hover { color: var(--daily-freq, var(--accent)); border-color: var(--daily-freq, var(--accent)); }
+#ab-links-grid .ablk-chk {
+  display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); margin-top: 2px;
+}
+#ab-links-grid .ablk-chk input { accent-color: var(--daily-freq, var(--accent)); }
 
-#ab-links-grid .ablk-raw { width: 100%; min-height: 240px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.5; padding: 8px 10px; outline: none; resize: vertical; }
+#ab-links-grid .ablk-raw {
+  width: 100%; min-height: 240px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px; line-height: 1.5; padding: 8px 10px; outline: none; resize: vertical;
+}
 #ab-links-grid .ablk-raw:focus { border-color: var(--daily-freq, var(--accent)); }
 #ab-links-grid .ablk-hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
 

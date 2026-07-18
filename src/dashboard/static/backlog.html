@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Backlog Board</title>
-<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
-<link rel="manifest" href="/static/manifest.json">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Backlog</title>
+<link rel="icon" type="image/png" href="/static/icon-192.png">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="manifest" href="/backlog-manifest.webmanifest">
 <meta name="theme-color" content="#0a0a0f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Backlog">
 <style>
 :root {
   --bg: #0d1117;
@@ -344,9 +344,24 @@ h1 {
 .flow-btn { float:right; font-size:10px; background:none; border:1px solid #2ea04360;
   color:#3fb950; border-radius:5px; padding:1px 7px; cursor:pointer; }
 .flow-btn:disabled { opacity:.55; cursor:default; }
+
+/* Close / back — shown when opened from Links (new tab) or as a standalone PWA */
+.bl-close {
+  position: fixed; top: 10px; right: 12px; z-index: 50;
+  width: 36px; height: 36px; border-radius: 18px;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); font-size: 18px; line-height: 1;
+  display: none; align-items: center; justify-content: center;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+.bl-close:hover { border-color: var(--interactive); color: var(--interactive); }
+body.bl-show-close { padding-top: 48px; }
+body.bl-show-close .bl-close { display: flex; }
 </style>
 </head>
 <body>
+<button type="button" class="bl-close" id="bl-close" aria-label="Close" title="Close">×</button>
 
 <h1>Backlog Board</h1>
 <p class="subtitle">Everything that needs done — from jules-backlog.md</p>
@@ -645,6 +660,32 @@ document.getElementById("clear-btn").addEventListener("click", async function() 
 
 loadBacklog();
 loadTeamQueue();
+</script>
+
+<script>
+(function () {
+  const btn = document.getElementById('bl-close');
+  if (!btn) return;
+  function isStandalone() {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+        || window.navigator.standalone === true;
+  }
+  // Show close when we have history to leave (opened from Links) OR as a safety
+  // exit affordance in standalone if history exists. Always show when referrer
+  // is same-origin or history length > 1.
+  const canBack = (window.history.length > 1) || !!document.referrer;
+  if (canBack || isStandalone()) {
+    document.body.classList.add('bl-show-close');
+  }
+  btn.addEventListener('click', function () {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    // Standalone home-screen launch with no history — go to MC home
+    window.location.href = '/';
+  });
+})();
 </script>
 </body>
 </html>

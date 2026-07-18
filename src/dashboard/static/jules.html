@@ -74,9 +74,14 @@ header .status{font-size:0.7rem;color:#666}
 .queue-item .qi-actions button.del{color:#e74c3c;border-color:#e74c3c}
 .queue-item.processing{opacity:0.6}
 .queue-empty{padding:20px;text-align:center;color:#444;font-size:0.85rem;font-style:italic}
+
+.jl-close{position:fixed;top:10px;left:12px;z-index:50;width:36px;height:36px;border-radius:18px;border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:18px;line-height:1;display:none;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent;padding:0}
+.jl-close:hover{border-color:#7eb8da;color:#7eb8da}
+body.jl-show-close .jl-close{display:flex}
 </style>
 </head>
 <body>
+<button type="button" class="jl-close" id="jl-close" aria-label="Close" title="Close">×</button>
 
 <header>
   <div class="avatar" onclick="location.reload()" title="tap Julian to refresh">
@@ -1122,6 +1127,23 @@ function checkDraft() {
 connect();
 updateQueueBadge();
 clearDraft();  // clear any stale draft on load
+</script>
+
+<script>
+(function(){
+  var btn=document.getElementById('jl-close');
+  if(!btn) return;
+  function isStandalone(){
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+      || window.navigator.standalone===true;
+  }
+  var canBack=(window.history.length>1)||!!document.referrer;
+  if(canBack||isStandalone()){ document.body.classList.add('jl-show-close'); }
+  btn.addEventListener('click', function(){
+    if(window.history.length>1){ window.history.back(); return; }
+    window.location.href='/';
+  });
+})();
 </script>
 </body>
 </html>
