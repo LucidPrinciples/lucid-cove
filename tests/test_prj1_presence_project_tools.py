@@ -216,3 +216,53 @@ def test_get_tool_modules_appends_project_tools_on_upgrade(monkeypatch):
     )
     mods2 = cfg.get_tool_modules()
     assert mods2.count("tools.project_tools") == 1
+
+
+@pytest.mark.asyncio
+async def test_update_task_title_and_expected_by(monkeypatch):
+    """#ATLAS-GAP — rename + reschedule must work via update_task (create already can)."""
+    conn = _FakeConn()
+    _patch_db(monkeypatch, conn)
+    tok = pt.set_request_project_presence("pres-A", "atlas")
+    try:
+        fn = pt.update_task
+        coro = fn.coroutine if hasattr(fn, "coroutine") else fn
+        out = await coro(
+            task_id=3,
+            title="Book promo plan — organize outline",
+            expected_by="2026-07-19T19:00:00",
+        )
+        assert "title=" in out
+        assert "expected_by=" in out
+        upd = [c for c in conn.calls if c[0].lstrip().upper().startswith("UPDATE TASKS")]
+        assert upd, conn.calls
+        sql, params = upd[0]
+        assert "title = %s" in sql
+        assert "expected_by = %s" in sql
+        assert params[0] == "Book promo plan — organize outline"
+        # last bound value before scope is task_id
+        assert 3 in params
+        assert "pres-A" in params
+    finally:
+        pt.clear_request_project_presence(tok)
+
+
+@pytest.mark.asyncio
+async def test_update_task_clear_expected_by(monkeypatch):
+    conn = _FakeConn()
+    _patch_db(monkeypatch, conn)
+    fn = pt.update_task
+    coro = fn.coroutine if hasattr(fn, "coroutine") else fn
+    out = await coro(task_id=9, expected_by="clear")
+    assert "expected_by=cleared" in out
+    upd = [c for c in conn.calls if "UPDATE tasks" in c[0] or "UPDATE TASKS" in c[0].upper()]
+    sql, params = upd[0]
+    assert "expected_by = NULL" in sql
+
+
+def test_provision_and_upgrade_include_links_tools():
+    """#LNK2 — Action Board Links ride with presence defaults (Atlas gap)."""
+    text = Path("provision/centralized.py").read_text()
+    assert "tools.links_tools" in text
+    from src import config as cfg
+    assert "tools.links_tools" in cfg._PRESENCE_DEFAULT_MODULES

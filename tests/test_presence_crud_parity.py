@@ -66,3 +66,15 @@ def test_cal1_list_exposes_uid_and_parse_uid():
     parse_src = inspect.getsource(nc._parse_vevent)
     assert 'key == "UID"' in parse_src or "UID" in parse_src
     assert "calendar_delete_event" in _src(nc.calendar_delete_event) or "delete" in _src(nc.calendar_delete_event).lower()
+
+
+def test_lnk2_presence_default_modules_include_links():
+    from src import config as cfg
+    assert "tools.links_tools" in cfg._PRESENCE_DEFAULT_MODULES
+
+
+def test_lnk2_channels_universal_steward_includes_links():
+    from pathlib import Path
+    src = Path("src/graphs/channels.py").read_text()
+    # steward universal append list must mention links_tools
+    assert "tools.links_tools" in src

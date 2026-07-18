@@ -105,7 +105,7 @@ def get_stuart_tools() -> list:
 
 def get_mercer_tools() -> list:
     """Tools for Mercer: commerce ops — pricing research, marketplace comms,
-    finance, file access, and memory for past transactions."""
+    finance, file access, memory, and Action Board Links."""
     return (
         ALL_PROJECT_TOOLS
         + ALL_RESEARCH_TOOLS
@@ -114,6 +114,7 @@ def get_mercer_tools() -> list:
         + ALL_NEXTCLOUD_TOOLS
         + ALL_IMAGE_TOOLS
         + ALL_MEMORY_TOOLS
+        + ALL_LINKS_TOOLS
     )
 
 

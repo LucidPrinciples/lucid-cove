@@ -534,8 +534,9 @@ def _channel_tool_modules(channel: str):
                     # read it, pull tickets to the queue, update lines — and it
                     # lives across the NC user-scope boundary, so it must ship
                     # with the role, not with an instance's tool list.
+                    # links_tools (#LNK2): Action Board Links — same upgrade class.
                     for m in ("tools.steward_queue_tools", "tools.delegation_tools",
-                              "tools.backlog_tools"):
+                              "tools.backlog_tools", "tools.links_tools"):
                         if m not in mods:
                             mods.append(m)
                 # #D17: the merchant's release lane needs READ-ONLY repo access (the
@@ -548,6 +549,9 @@ def _channel_tool_modules(channel: str):
                 if mtype == 'merchant':
                     if "tools.dev_read_tools" not in mods:
                         mods.append("tools.dev_read_tools")
+                    # #LNK2 — Action Board Links for merchant bookmarks too
+                    if "tools.links_tools" not in mods:
+                        mods.append("tools.links_tools")
                 return mods
     except Exception:
         pass
