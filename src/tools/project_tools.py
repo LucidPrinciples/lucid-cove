@@ -262,8 +262,9 @@ async def create_task(title: str, assignee: str = "",
 @notify
 @tool
 async def update_task(task_id: int, status: str = "", notes: str = "",
-                      priority: str = "", assignee: str = "") -> str:
-    """Update a task's status, notes, priority, or assignee.
+                      priority: str = "", assignee: str = "",
+                      title: str = "", expected_by: str = "") -> str:
+    """Update a task's status, notes, priority, assignee, title, or due date.
 
     Args:
         task_id: Task ID to update
@@ -271,12 +272,22 @@ async def update_task(task_id: int, status: str = "", notes: str = "",
         notes: Progress notes
         priority: New priority
         assignee: Reassign to someone
+        title: New title (rename the task)
+        expected_by: New due datetime (ISO, e.g. '2026-07-19T19:00:00').
+                     Pass 'clear' to remove the deadline.
     """
     try:
         set_parts = []
         values = []
         updates = []
 
+        if title:
+            clean_title = title.strip()
+            if not clean_title:
+                return "Title cannot be empty."
+            set_parts.append("title = %s")
+            values.append(clean_title[:500])
+            updates.append(f"title={clean_title[:80]}")
         if status:
             set_parts.append("status = %s")
             values.append(status)
@@ -297,9 +308,33 @@ async def update_task(task_id: int, status: str = "", notes: str = "",
             set_parts.append("assignee = %s")
             values.append(assignee)
             updates.append(f"assignee={assignee}")
+        if expected_by:
+            # 'clear' / empty-after-strip removes the deadline; otherwise parse ISO/dateutil.
+            raw = expected_by.strip()
+            if raw.lower() in ("clear", "none", "null", "-"):
+                set_parts.append("expected_by = NULL")
+                updates.append("expected_by=cleared")
+            else:
+                try:
+                    from dateutil.parser import parse as parse_dt
+                    expected_by_val = parse_dt(raw)
+                    if expected_by_val.tzinfo is None:
+                        from src.utils.time_utils import app_tz
+                        expected_by_val = expected_by_val.replace(tzinfo=app_tz())
+                except Exception:
+                    return (
+                        f"Could not parse expected_by '{expected_by}'. "
+                        "Use ISO like '2026-07-19T19:00:00' or 'clear' to remove."
+                    )
+                set_parts.append("expected_by = %s")
+                values.append(expected_by_val)
+                updates.append(f"expected_by={raw}")
 
         if not set_parts:
-            return "No fields to update. Provide status, notes, priority, or assignee."
+            return (
+                "No fields to update. Provide title, status, notes, priority, "
+                "assignee, or expected_by."
+            )
 
         set_parts.append("updated_at = NOW()")
         scope_sql, scope_params = _prj_scope("presence_id")

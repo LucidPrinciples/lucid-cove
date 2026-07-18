@@ -147,6 +147,7 @@ def get_primary_agent_id() -> str:
 # same upgrade class as universal skill/image tools (no hand-edit of agent.yaml).
 _PRESENCE_DEFAULT_MODULES = (
     "tools.project_tools",  # #PRJ1 — personal projects/tasks for every presence
+    "tools.links_tools",    # #LNK2 — Action Board Links create/edit for every presence
 )
 
 
