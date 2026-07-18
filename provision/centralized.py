@@ -547,6 +547,7 @@ def build_agent_yaml(cove: dict, op: dict, team: bool) -> str:
             "modules": [
                 "tools.calendar_tools", "tools.nextcloud_tools", "tools.quick_list_tools",
                 "tools.memory_tools", "tools.research_tools",
+                "tools.project_tools",  # #PRJ1 — presence personal projects/tasks
             ],
             "approval_tiers": {
                 "auto": ["read_*", "search_*", "list_*", "get_*", "check_*", "monitor_*"],

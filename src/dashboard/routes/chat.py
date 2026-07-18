@@ -782,6 +782,7 @@ async def send_message(request: Request):
             # THIS operator's board (multi-Cove); unset → single-mode file fallback.
             _links_tok = None
             _ql_tok = None
+            _prj_tok = None
             try:
                 from src.dashboard.routes.presence import get_current_presence as _gcp
                 from src.tools.links_tools import set_request_links_presence
@@ -795,6 +796,20 @@ async def send_message(request: Request):
                         _ql_tok = set_request_quick_list_presence(str(_lp["id"]))
                     except Exception:
                         _ql_tok = None
+                    # #PRJ1 — project/task tools same class as JF4: scope to acting
+                    # presence so personal projects never land on the Cove board.
+                    try:
+                        from src.tools.project_tools import set_request_project_presence
+                        # Prefer the personal agent id already resolved for this turn
+                        # (agent_id is in scope from send_message); fall back to presence id.
+                        _prj_agent = ""
+                        try:
+                            _prj_agent = str(agent_id or "")
+                        except Exception:
+                            _prj_agent = ""
+                        _prj_tok = set_request_project_presence(str(_lp["id"]), _prj_agent)
+                    except Exception:
+                        _prj_tok = None
             except Exception:
                 _links_tok = None
 
@@ -981,6 +996,12 @@ async def send_message(request: Request):
                     from src.tools.quick_list_tools import clear_request_quick_list_presence
                     if _ql_tok is not None:
                         clear_request_quick_list_presence(_ql_tok)
+                except Exception:
+                    pass
+                try:
+                    from src.tools.project_tools import clear_request_project_presence
+                    if _prj_tok is not None:
+                        clear_request_project_presence(_prj_tok)
                 except Exception:
                     pass
 
