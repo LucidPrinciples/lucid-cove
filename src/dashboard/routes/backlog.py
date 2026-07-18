@@ -124,6 +124,28 @@ def _parse_backlog(text: str) -> dict:
     return lanes
 
 
+
+@router.get("/backlog-manifest.webmanifest")
+async def backlog_manifest():
+    """Dedicated PWA manifest so Add to Home Screen names the icon 'Backlog'
+    (same pattern as jules apple-mobile-web-app-title + deck-manifest)."""
+    return JSONResponse(
+        {
+            "name": "Backlog — Lucid Cove",
+            "short_name": "Backlog",
+            "start_url": "/backlog",
+            "display": "standalone",
+            "background_color": "#0a0a0f",
+            "theme_color": "#0a0a0f",
+            "icons": [
+                {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            ],
+        },
+        media_type="application/manifest+json",
+    )
+
+
 @router.get("/backlog")
 async def serve_backlog():
     """Serve the backlog board HTML page."""
