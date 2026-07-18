@@ -285,13 +285,29 @@ async def jules_transcribe_and_save(
 
 async def _save_to_nc(nc_url: str, nc_user: str, nc_pass: str,
                       filename: str, content: bytes, content_type: str) -> tuple:
-    """Save a file to NC via WebDAV. Returns (success: bool, error: str|None)."""
-    webdav_url = (
-        f"{nc_url}/remote.php/dav/files/{nc_user}"
-        f"/{JULES_NC_PATH}/{quote(filename, safe='')}"
-    )
+    """Save a file to NC via WebDAV. Returns (success: bool, error: str|None).
+
+    Ensures AgentSkills/Inbox exists (MKCOL) before PUT so a member whose NC
+    shape never finished still gets a working Jules save instead of a bare 404/409.
+    """
+    base = f"{nc_url}/remote.php/dav/files/{nc_user}"
+    webdav_url = f"{base}/{JULES_NC_PATH}/{quote(filename, safe='')}"
     try:
         async with httpx.AsyncClient(timeout=30) as client:
+            # Best-effort create parents: AgentSkills → Inbox. MKCOL is idempotent
+            # enough for our purposes (405/409 = already exists).
+            for rel in ("AgentSkills", JULES_NC_PATH):
+                try:
+                    mk = await client.request(
+                        "MKCOL",
+                        f"{base}/{rel}",
+                        auth=(nc_user, nc_pass),
+                    )
+                    if mk.status_code not in (201, 405, 409, 301, 200):
+                        log.debug("Jules MKCOL %s → %s", rel, mk.status_code)
+                except Exception as _mk_e:
+                    log.debug("Jules MKCOL %s skipped: %s", rel, _mk_e)
+
             resp = await client.put(
                 webdav_url,
                 auth=(nc_user, nc_pass),
@@ -301,7 +317,32 @@ async def _save_to_nc(nc_url: str, nc_user: str, nc_pass: str,
             if resp.status_code in (200, 201, 204):
                 log.info("Jules saved to NC: %s/%s", JULES_NC_PATH, filename)
                 return True, None
-            log.error("Jules NC save failed: HTTP %s — %s", resp.status_code, resp.text[:200])
+            # One retry after re-MKCOL if parent was still missing.
+            if resp.status_code in (404, 409):
+                for rel in ("AgentSkills", JULES_NC_PATH):
+                    try:
+                        await client.request(
+                            "MKCOL",
+                            f"{base}/{rel}",
+                            auth=(nc_user, nc_pass),
+                        )
+                    except Exception:
+                        pass
+                resp = await client.put(
+                    webdav_url,
+                    auth=(nc_user, nc_pass),
+                    content=content,
+                    headers={"Content-Type": content_type},
+                )
+                if resp.status_code in (200, 201, 204):
+                    log.info("Jules saved to NC after MKCOL retry: %s/%s", JULES_NC_PATH, filename)
+                    return True, None
+            body_snip = (resp.text or "")[:200]
+            log.error("Jules NC save failed: HTTP %s — %s", resp.status_code, body_snip)
+            if resp.status_code == 401:
+                return False, "Nextcloud auth failed for this Presence — reopen Jules from Mission Control"
+            if resp.status_code in (404, 409):
+                return False, f"Nextcloud folder missing ({JULES_NC_PATH}) — HTTP {resp.status_code}"
             return False, f"Nextcloud HTTP {resp.status_code}"
     except Exception as e:
         log.error("Jules NC save error: %s", e)
