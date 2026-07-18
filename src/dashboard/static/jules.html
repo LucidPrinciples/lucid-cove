@@ -393,7 +393,9 @@ function handleMessage(msg) {
   }
 }
 
-// ── Wake Lock (prevent screen dim during recording) ───────
+// ── Wake Lock (#JL-WAKE: screen stays lit through record AND save) ──
+// Releasing at stopRecording dropped the lock while re-transcribe/save still
+// ran — mobile lock-screen could kill the in-flight note. Hold until finish*.
 
 async function acquireWakeLock() {
   if (!("wakeLock" in navigator)) return;
@@ -407,8 +409,13 @@ function releaseWakeLock() {
   if (wakeLock) { wakeLock.release(); wakeLock = null; }
 }
 
+function wakeLockStillNeeded() {
+  // Any phase where losing the tab/screen can drop an unsaved Jules note.
+  return !!(recording || saving || pendingAutoSave || needsSave);
+}
+
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && recording && !wakeLock) {
+  if (document.visibilityState === "visible" && !wakeLock && wakeLockStillNeeded()) {
     acquireWakeLock();
   }
 });
@@ -527,7 +534,8 @@ function stopRecording() {
   micBtn.classList.add("processing");
   saveStatus.textContent = "Processing…";
   saveStatus.style.color = "#f39c12";
-  releaseWakeLock();
+  // #JL-WAKE: keep wake lock through save — released in finishOk/finishErr
+  // (or immediately below when there is nothing to save).
 
   // Stop chunk timer
   if (chunkTimer) { clearInterval(chunkTimer); chunkTimer = null; }
@@ -581,6 +589,11 @@ function stopRecording() {
     pendingAutoSave = false;
     if (segments.length > 0 || lastAudioBlob) {
       doSave();
+    } else {
+      // Nothing to persist — drop the lock acquired at record start.
+      releaseWakeLock();
+      micBtn.classList.remove("processing");
+      saveStatus.textContent = "";
     }
   }
 
@@ -871,11 +884,15 @@ async function doSave() {
     return;
   }
   if (saveCompleted && !getFullTranscript().trim()) {
+    // Stale trigger after a completed save — drop lock if nothing else needs it.
+    if (!recording && !pendingAutoSave) releaseWakeLock();
     return;
   }
   saving = true;
   const gen = ++saveGeneration;
   needsSave = false;
+  // Re-assert wake lock for the save phase (OS may have released it silently).
+  acquireWakeLock();
   saveStatus.textContent = "Saving...";
   saveStatus.style.color = "#f39c12";
 
@@ -904,6 +921,7 @@ async function doSave() {
     needsSave = false;
     pendingAutoSave = false;
     if (autoSaveTimeout) { clearTimeout(autoSaveTimeout); autoSaveTimeout = null; }
+    releaseWakeLock();  // #JL-WAKE — save finished successfully
     saveStatus.textContent = label || "saved";
     saveStatus.style.color = "#2ecc71";
     clearDraft();
@@ -918,6 +936,11 @@ async function doSave() {
     processing = false;
     micBtn.classList.remove("processing");
     removePending();
+    // Keep lock off after a terminal error so the phone can sleep; user can
+    // still Copy text from the on-screen transcript.
+    needsSave = false;
+    pendingAutoSave = false;
+    releaseWakeLock();  // #JL-WAKE — save path ended (error or empty)
     saveStatus.textContent = msg;
     saveStatus.style.color = color || "#e74c3c";
   }
