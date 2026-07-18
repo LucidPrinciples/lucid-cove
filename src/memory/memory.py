@@ -828,24 +828,22 @@ async def find_contradicting_memories(
     if not keywords:
         return []
 
-    # Search for memories containing multiple shared keywords
-    conditions = ["agent_id = %s", "is_active = TRUE"]
-    params: list = [agent_id]
-
-    # At least 2 keyword matches to be a potential contradiction
-    keyword_conditions = []
-    for kw in keywords:
-        keyword_conditions.append("content ILIKE %s")
-        params.append(f"%{kw}%")
-
-    if len(keyword_conditions) < 2:
+    # Search for memories containing multiple shared keywords.
+    # At least 2 keyword matches to be a potential contradiction.
+    # Use the first 3 keywords as SQL filters — params MUST match only
+    # the placeholders we actually append (bug: previously pushed every
+    # keyword into params while only binding [:3], which made psycopg
+    # raise "query has 5 placeholders but N parameters" and aborted the
+    # entire thread-rotation extraction with extraction_count=0).
+    if len(keywords) < 2:
         return []
 
-    # Require at least 2 keyword matches
-    # We can't do this cleanly in SQL with ILIKE, so fetch candidates and filter
-    # Use the first 3 keywords as mandatory for SQL filtering
-    for kw_cond in keyword_conditions[:3]:
-        conditions.append(kw_cond)
+    sql_keywords = keywords[:3]
+    conditions = ["agent_id = %s", "is_active = TRUE"]
+    params: list = [agent_id]
+    for kw in sql_keywords:
+        conditions.append("content ILIKE %s")
+        params.append(f"%{kw}%")
 
     where = " AND ".join(conditions)
 
