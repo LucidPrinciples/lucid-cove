@@ -73,15 +73,55 @@ def _probe_installed_sync() -> list:
     return [entry]
 
 
+def _registry_local_tags() -> set:
+    """Ollama model_strings listed in the models registry (config/models.yaml).
+
+    Empty set when the registry is missing or unreadable — callers treat that
+    as 'no filter', so a box without a registry still resolves a floor."""
+    try:
+        from src.config import load_models_registry
+        return {
+            (m.get("model_string") or "").strip()
+            for m in load_models_registry()
+            if m.get("provider") == "ollama" and (m.get("model_string") or "").strip()
+        }
+    except Exception:
+        return set()
+
+
+def _prefer_registry_models(providers: list) -> list:
+    """#MDL2: filter probed installed models to INSTALLED ∩ REGISTRY.
+
+    A model deliberately excluded from config/models.yaml (e.g. qwen3:32b,
+    22GB — removed for choking the GPU) must never be auto-picked as the
+    floor while registry-listed local models are installed. If NOTHING
+    installed is registry-listed (fresh box, custom pulls), return the raw
+    list unchanged so the floor still resolves. Only the floor path filters —
+    onboarding's recommend_local keeps seeing everything on the box."""
+    reg = _registry_local_tags()
+    if not reg:
+        return providers
+    filtered, any_match = [], False
+    for p in providers:
+        keep = [m for m in (p.get("models") or []) if (m.get("name") or "") in reg]
+        if keep:
+            any_match = True
+        q = dict(p)
+        q["models"] = keep
+        filtered.append(q)
+    return filtered if any_match else providers
+
+
 def resolve_local_fallback_model(force: bool = False) -> str:
     """Best INSTALLED local model name, or raise LocalModelUnavailable.
 
-    Never returns a hardcoded id. Caches the pick for _CACHE_TTL seconds.
+    Never returns a hardcoded id. Prefers registry-listed installed models
+    (#MDL2). Caches the pick for _CACHE_TTL seconds.
     """
     now = time.time()
     if not force and _CACHE["model"] and (now - _CACHE["ts"]) < _CACHE_TTL:
         return _CACHE["model"]
-    providers = _probe_installed_sync()
+    providers = _prefer_registry_models(_probe_installed_sync())
     rec = recommend_local(gpu_from_config(), providers)
     model = rec.get("model")
     if not model:

@@ -1009,3 +1009,32 @@ def get_model_override() -> str | None:
     except Exception:
         pass
     return None
+
+
+def get_model_override_fallback() -> str | None:
+    """Manual-mode fallback for the model override (#MDL1).
+
+    When the forced model fails (timeout, provider outage), the hop chain
+    goes HERE before the local floor. Without it an override outage fell
+    straight to the best-installed local model (grok-timeout incident,
+    2026-07-17). Same storage as model_override:
+    /app/data/feature-overrides.yaml, key model_override_fallback.
+    Meaningless without an active override — callers only consult it when
+    get_model_override() returns a model.
+    """
+    import yaml
+    from pathlib import Path
+
+    overrides_path = Path("/app/data/feature-overrides.yaml")
+    if not overrides_path.exists():
+        return None
+
+    try:
+        with open(overrides_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        fb = cfg.get("model_override_fallback")
+        if fb and isinstance(fb, str) and fb.strip():
+            return fb.strip()
+    except Exception:
+        pass
+    return None

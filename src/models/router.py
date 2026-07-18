@@ -266,17 +266,29 @@ def plan_hops(
     # a Grok override). Check it HERE, the shared entry point every path uses, so a set
     # override truly forces the model. Same shape as plan_for_agent's check.
     try:
-        from src.config import get_model_override, load_models_registry as _lmr
+        from src.config import (
+            get_model_override,
+            get_model_override_fallback,
+            load_models_registry as _lmr,
+        )
         _override = get_model_override()
         if _override:
             _valid_ids = {m.get("id") for m in _lmr() if m.get("id")}
             if _override in _valid_ids:
+                # #MDL1: Manual = forced primary + optional configured fallback.
+                # A single-hop chain meant an override outage fell straight to
+                # the local floor (grok-timeout incident 2026-07-17); with the
+                # fallback set the chain hops there first, floor stays last.
+                _chain = [_override]
+                _fb = get_model_override_fallback()
+                if _fb and _fb != _override and _fb in _valid_ids:
+                    _chain.append(_fb)
                 return HopPlan(
                     first_id=_override,
-                    chain=[_override],
+                    chain=_chain,
                     score=ScoreResult(score=0, reasons=["admin_override"], role="", bias=""),
                     mode="override",
-                    detail=f"admin_override:{_override}",
+                    detail="admin_override:" + "→".join(_chain),
                 )
             print(f"[router] WARNING: invalid model_override '{_override}' — ignoring")
     except Exception as _ovr_e:
@@ -446,20 +458,25 @@ def plan_for_agent(
 ) -> HopPlan:
     """Resolve assignment + plan hops for an agent (protocol and channel shared entry)."""
     
-    # === EMERGENCY OVERRIDE ===
-    # Admin can force all chat to a specific model via cove.yaml model_override
-    from src.config import get_model_override, load_models_registry
+    # === MANUAL MODE (admin override) ===
+    # Admin can force all chat to a specific model (model_override) with an
+    # optional manual fallback (#MDL1) — same chain shape as plan_hops' check.
+    from src.config import get_model_override, get_model_override_fallback, load_models_registry
     override = get_model_override()
     if override:
         # Validate the override is a real model
         valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
         if override in valid_ids:
+            chain = [override]
+            fb = get_model_override_fallback()
+            if fb and fb != override and fb in valid_ids:
+                chain.append(fb)
             return HopPlan(
                 first_id=override,
-                chain=[override],
+                chain=chain,
                 score=ScoreResult(score=0, reasons=["admin_override"], role="", bias=""),
                 mode="override",
-                detail=f"admin_override:{override}",
+                detail="admin_override:" + "→".join(chain),
             )
         # Invalid override logged but falls through to normal routing
         print(f"[router] WARNING: Invalid model_override '{override}' — ignoring")
