@@ -85,8 +85,8 @@ async def get_lists(request: Request):
         result = await conn.execute(
             f"""SELECT ql.id, ql.name, ql.icon, ql.color, ql.position, ql.pinned,
                        ql.created_at, ql.updated_at,
-                       COUNT(qli.id) FILTER (WHERE qli.checked = FALSE AND (qli.archived IS NULL OR qli.archived = FALSE)) AS unchecked,
-                       COUNT(qli.id) FILTER (WHERE qli.archived IS NULL OR qli.archived = FALSE) AS total
+                       COUNT(qli.id) FILTER (WHERE qli.checked = FALSE AND COALESCE(qli.item_type, 'item') = 'item' AND (qli.archived IS NULL OR qli.archived = FALSE)) AS unchecked,
+                       COUNT(qli.id) FILTER (WHERE COALESCE(qli.item_type, 'item') = 'item' AND (qli.archived IS NULL OR qli.archived = FALSE)) AS total
                 FROM quick_lists ql
                 LEFT JOIN quick_list_items qli ON qli.list_id = ql.id
                 WHERE {where} AND (ql.archived IS NULL OR ql.archived = FALSE)
@@ -311,10 +311,14 @@ async def get_items(list_id: int, request: Request):
             if not await owned.fetchone():
                 return JSONResponse({"error": "not found"}, status_code=404)
         result = await conn.execute(
-            """SELECT id, text, checked, position, created_at, checked_at
+            """SELECT id, text, checked, position, COALESCE(item_type, 'item') AS item_type,
+                      created_at, checked_at
                FROM quick_list_items
                WHERE list_id = %s AND (archived IS NULL OR archived = FALSE)
-               ORDER BY checked ASC, position ASC, created_at ASC""",
+               ORDER BY
+                 CASE WHEN COALESCE(item_type, 'item') = 'spacer' THEN 0
+                      WHEN checked THEN 1 ELSE 0 END,
+                 position ASC, created_at ASC""",
             (list_id,)
         )
         rows = await result.fetchall()
@@ -326,6 +330,7 @@ async def get_items(list_id: int, request: Request):
             "text": r["text"],
             "checked": r["checked"],
             "position": r["position"],
+            "item_type": r["item_type"] or "item",
         })
 
     return {"list_id": list_id, "items": items}
@@ -337,22 +342,31 @@ async def add_items(list_id: int, request: Request):
 
     Body: { "text": "Milk" }
     or:   { "items": ["Milk", "Eggs", "Bread"] }
+    or:   { "item_type": "spacer", "text": "Produce" }  # section divider (#QL-SPACER)
     """
     from src.memory.database import get_db
 
     body = await request.json()
+    item_type = (body.get("item_type") or "item").strip().lower()
+    if item_type not in ("item", "spacer"):
+        raise HTTPException(400, "item_type must be 'item' or 'spacer'")
 
-    # Support single or batch
+    # Support single or batch (batch is items only — spacers are single)
     texts = []
-    if "items" in body:
+    if item_type == "spacer":
+        # Empty label is allowed (pure divider line)
+        texts = [str(body.get("text") or "").strip()]
+    elif "items" in body:
         texts = [t.strip() for t in body["items"] if t.strip()]
     elif "text" in body:
         t = body["text"].strip()
         if t:
             texts = [t]
 
-    if not texts:
+    if item_type == "item" and not texts:
         raise HTTPException(400, "text or items required")
+    if item_type == "spacer" and not texts:
+        texts = [""]
 
     presence_id = await _get_presence_id(request)
 
@@ -375,10 +389,10 @@ async def add_items(list_id: int, request: Request):
         added = []
         for text in texts:
             result = await conn.execute(
-                """INSERT INTO quick_list_items (list_id, text, position)
-                   VALUES (%s, %s, %s)
-                   RETURNING id, text, checked, position""",
-                (list_id, text, pos)
+                """INSERT INTO quick_list_items (list_id, text, position, item_type)
+                   VALUES (%s, %s, %s, %s)
+                   RETURNING id, text, checked, position, item_type""",
+                (list_id, text, pos, item_type)
             )
             item = await result.fetchone()
             added.append({
@@ -386,8 +400,10 @@ async def add_items(list_id: int, request: Request):
                 "text": item["text"],
                 "checked": item["checked"],
                 "position": item["position"],
+                "item_type": item["item_type"] or "item",
             })
-            await _log_activity(conn, list_id, 'item_added', presence_id, item["id"], text)
+            act = 'spacer_added' if item_type == 'spacer' else 'item_added'
+            await _log_activity(conn, list_id, act, presence_id, item["id"], text or '(spacer)')
             pos += 1
 
     return {"items": added}
@@ -420,6 +436,12 @@ async def update_item(item_id: int, request: Request):
     if "position" in body:
         updates.append("position = %s")
         params.append(int(body["position"]))
+    if "item_type" in body:
+        it = str(body["item_type"]).strip().lower()
+        if it not in ("item", "spacer"):
+            raise HTTPException(400, "item_type must be 'item' or 'spacer'")
+        updates.append("item_type = %s")
+        params.append(it)
 
     if not updates:
         raise HTTPException(400, "Nothing to update")
