@@ -141,10 +141,27 @@ def get_primary_agent_id() -> str:
     return agents[0]["id"] if agents else "unknown"
 
 
+# Modules that every multi-presence Cove app default must expose to presences.
+# Provision writes these into NEW agent.yaml files; existing Coves keep their
+# pre-upgrade list on disk. Append here so a git pull + restart is enough —
+# same upgrade class as universal skill/image tools (no hand-edit of agent.yaml).
+_PRESENCE_DEFAULT_MODULES = (
+    "tools.project_tools",  # #PRJ1 — personal projects/tasks for every presence
+)
+
+
 def get_tool_modules() -> list[str]:
-    """Tool module paths to import (e.g., ['tools.calendar_tools'])."""
+    """Tool module paths to import (e.g., ['tools.calendar_tools']).
+
+    Starts from agent.yaml tools.modules, then ensures presence-default modules
+    that shipped after this Cove was provisioned are still bound on upgrade.
+    """
     tools_config = load_config().get("tools", {})
-    return tools_config.get("modules", [])
+    modules = list(tools_config.get("modules") or [])
+    for m in _PRESENCE_DEFAULT_MODULES:
+        if m not in modules:
+            modules.append(m)
+    return modules
 
 
 def get_approval_tiers() -> Optional[dict]:

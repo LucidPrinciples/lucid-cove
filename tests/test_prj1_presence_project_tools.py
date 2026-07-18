@@ -184,3 +184,35 @@ def test_chat_binds_and_clears_project_presence():
     text = Path("/app/data/projects/lucid-cove/src/dashboard/routes/chat.py").read_text()
     assert "set_request_project_presence" in text
     assert "clear_request_project_presence" in text
+
+
+def test_get_tool_modules_appends_project_tools_on_upgrade(monkeypatch):
+    """Existing agent.yaml without project_tools still binds it after upgrade."""
+    from src import config as cfg
+
+    cfg.load_config.cache_clear()
+    monkeypatch.setattr(
+        cfg,
+        "load_config",
+        lambda: {
+            "tools": {
+                "modules": [
+                    "tools.calendar_tools",
+                    "tools.nextcloud_tools",
+                    "tools.quick_list_tools",
+                    "tools.memory_tools",
+                    "tools.research_tools",
+                ]
+            }
+        },
+    )
+    mods = cfg.get_tool_modules()
+    assert "tools.project_tools" in mods
+    # idempotent — no duplicate if already listed
+    monkeypatch.setattr(
+        cfg,
+        "load_config",
+        lambda: {"tools": {"modules": ["tools.project_tools", "tools.calendar_tools"]}},
+    )
+    mods2 = cfg.get_tool_modules()
+    assert mods2.count("tools.project_tools") == 1
