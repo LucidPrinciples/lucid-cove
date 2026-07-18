@@ -617,9 +617,33 @@ function _buildActionBoardPanels() {
 // Attention; Go Deeper holds framework depth. Help links across without
 // swallowing either surface. Getting Started tour is left as-is (tuner-skewed).
 
+function _helpIsStewardSurface() {
+    // Steward/admin Help is the manager door (stuart.{cove}) or Cove-admin apex.
+    // Presence MC (handle door / personal agent) is never steward Help — even when
+    // the logged-in operator is also a cove admin (their presence agent is Knight, etc.).
+    try {
+        if (typeof MC === 'undefined') return false;
+        if (MC.adminView === true) return true;
+        if (MC.coveAdminView === true) return true;
+        const kind = (MC.hostContext && MC.hostContext.kind) || '';
+        if (kind === 'manager') return true;
+        const instType = (MC.instance && MC.instance.type) || '';
+        if ((instType === 'admin' || instType === 'manager') && !MC.presence) return true;
+    } catch (e) {}
+    return false;
+}
+
 function _helpAgentName() {
+    // Same rule as chat labels (messaging.js): presence.agent_name is ONLY for the
+    // personal-agent surface. On steward/admin doors, prefer the container steward
+    // (MC.agentName / agents[0]) so Help says "Me & Stuart", not the operator's
+    // personal agent (e.g. Knight) just because they are logged in.
     try {
         if (typeof MC !== 'undefined') {
+            if (_helpIsStewardSurface()) {
+                if (MC.agentName) return String(MC.agentName);
+                if (MC.agents && MC.agents[0] && MC.agents[0].name) return String(MC.agents[0].name);
+            }
             if (MC.presence && MC.presence.agent_name) return String(MC.presence.agent_name);
             if (MC.agentName) return String(MC.agentName);
         }
@@ -649,9 +673,16 @@ function _helpPageShell(title, inner) {
 
 function _helpHubHtml() {
     const agent = _helpEsc(_helpAgentName());
+    const steward = _helpIsStewardSurface();
+    const lead = steward
+        ? `How to run this Cove with <strong style="color:var(--text);">${agent}</strong> — family logistics, the build team, and the boards that keep the house moving. A door into the deeper practice stays open when you want it.`
+        : `How to use this Cove — with <strong style="color:var(--text);">${agent}</strong> day to day, and a door into the deeper practice when you want it.`;
+    const togetherSub = steward
+        ? `Your lane with ${agent} — coordination, team, boards, and house ops`
+        : `Lists, calendar, projects, files — things you can try in Chat`;
     return `
       <div class="help-section" style="margin-top:0;padding-top:0;border-top:none;">
-        <p class="help-page-lead">How to use this Cove — with <strong style="color:var(--text);">${agent}</strong> day to day, and a door into the deeper practice when you want it.</p>
+        <p class="help-page-lead">${lead}</p>
         <ul class="help-toc">
           <li>
             <button type="button" class="help-toc-btn" onclick="closeHelp(); if (typeof _startOnboarding==='function') _startOnboarding();">
@@ -662,7 +693,7 @@ function _helpHubHtml() {
           <li>
             <button type="button" class="help-toc-item" onclick="helpShowPage('together')">
               Me &amp; ${agent} — what we can do together
-              <span class="help-toc-sub">Lists, calendar, projects, files — things you can try in Chat</span>
+              <span class="help-toc-sub">${togetherSub}</span>
             </button>
           </li>
           <li>
@@ -717,8 +748,8 @@ function _helpHubHtml() {
       </div>`;
 }
 
-function _helpTogetherHtml() {
-    const agent = _helpEsc(_helpAgentName());
+function _helpTogetherPresenceHtml(agent) {
+    // Personal agent basics — Presence MC only. Keep this list short; deepen later.
     return _helpPageShell(
         `Me &amp; ${agent} — what we can do together`,
         `<p class="help-page-lead">You do not have to invent the product. Open <strong style="color:var(--text);">Chat</strong> (Day for quick things, Deep for longer work) and try any of these. ${agent} acts in <em>your</em> space — your lists, calendar, projects, and files.</p>
@@ -743,6 +774,40 @@ function _helpTogetherHtml() {
         <p class="help-muted" style="margin-top:12px;">Family-wide infrastructure, the build team, and Cove-level boards stay with the steward. If something needs the whole Cove, ask ${agent} to escalate — that is working as designed.</p>
         <p class="help-muted">Want the <em>why</em> behind the system? See <button type="button" class="help-linkish" onclick="helpShowPage('deeper')">Go Deeper &amp; the practice</button>.</p>`
     );
+}
+
+function _helpTogetherStewardHtml(agent) {
+    // Admin / steward door — lane is Cove ops + build team, not personal lists.
+    return _helpPageShell(
+        `Me &amp; ${agent} — what we can do together`,
+        `<p class="help-page-lead">${agent} is the family steward. Open <strong style="color:var(--text);">Chat</strong> (Day for quick ops, Deep when the work needs room) for Cove-level work — schedules, the board, the build team, and the infrastructure everything else rides on. Personal lists and calendars live with each Presence’s own agent.</p>
+        <ul class="help-cap-list">
+          <li><strong>Family coordination</strong> — logistics, schedules, and the operational details that need someone paying attention.
+            <span class="help-cap-try">“What’s on the calendar this week?” / “Park that and take this breakage first.”</span></li>
+          <li><strong>Board &amp; queue</strong> — pull tickets, move lanes, mark done only after merge and deploy, keep NOW honest.
+            <span class="help-cap-try">“What’s in NOW?” / “Pull #MESH3 and put it on the queue.”</span></li>
+          <li><strong>Build team</strong> — Archimedes, Arthur, Gabe, Ezra, Julian, Iris, Vera, Soren. Delegate a scoped brief; you still approve pushes and PRs.
+            <span class="help-cap-try">“Delegate CF-5 to Archimedes with a tight brief.”</span></li>
+          <li><strong>Approvals &amp; ship path</strong> — git, PRs, and gated actions show on Attention; nothing public goes out without your yes.
+            <span class="help-cap-try">“Open a PR for this branch.” / “Status of the last deploy?”</span></li>
+          <li><strong>Presences &amp; access</strong> — invites, sign-in links, mesh join guidance, who is already in the Cove.
+            <span class="help-cap-try">“Walk me through inviting someone and landing them in Chat.”</span></li>
+          <li><strong>House files &amp; specs</strong> — Inbox, Working, Specs, and Sources on the steward side of the vault.
+            <span class="help-cap-try">“What’s in Working/Specs?” / “Summarize the mesh-performance spec.”</span></li>
+          <li><strong>System health</strong> — services, endpoints, and “is the box okay?” checks when something feels off.
+            <span class="help-cap-try">“Is Mission Control healthy?” / “Any containers unhappy?”</span></li>
+          <li><strong>Peer lanes</strong> — Mercer owns commerce; your personal agent owns your private life. ${agent} coordinates the Cove and does not swallow either.
+            <span class="help-cap-try">“That’s Mercer’s domain — flag it for him.” / “Send that to my personal agent.”</span></li>
+        </ul>
+        <p class="help-muted" style="margin-top:12px;">Each family member’s Presence has its own agent and its own Help list (lists, calendar, personal projects). This page is the steward lane only.</p>
+        <p class="help-muted">Want the <em>why</em> behind the system? See <button type="button" class="help-linkish" onclick="helpShowPage('deeper')">Go Deeper &amp; the practice</button>.</p>`
+    );
+}
+
+function _helpTogetherHtml() {
+    const agent = _helpEsc(_helpAgentName());
+    if (_helpIsStewardSurface()) return _helpTogetherStewardHtml(agent);
+    return _helpTogetherPresenceHtml(agent);
 }
 
 function _helpSigninHtml() {
