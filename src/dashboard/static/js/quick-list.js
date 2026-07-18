@@ -5,7 +5,7 @@
 // Lists show as compact cards. Click to open a modal with full item management.
 //
 // #QL-EDIT  — tap item text to rename in place
-// #QL-DRAG  — drag handle to reorder (position PATCH)
+// #QL-DRAG  — drag handle to reorder (position PATCH; HTML5 DnD + touch)
 // #QL-SPACER — human-added section divider (item_type=spacer)
 // =============================================================================
 
@@ -13,6 +13,9 @@ let _qlLoaded = false;
 let _qlData = [];
 let _qlDragId = null;
 let _qlOpenListId = null;
+let _qlTouch = null; // { itemId, listId, overEl } — mobile touch-drag state
+let _qlTouchMoveFn = null;
+let _qlTouchEndFn = null;
 
 async function loadQuickLists() {
     const container = document.getElementById('ql-cards');
@@ -179,6 +182,7 @@ async function _qlLoadItems(listId) {
         }
 
         body.innerHTML = html;
+        _qlBindDragHandles(listId);
 
         if (footer) {
             if (checked.length) {
@@ -333,49 +337,58 @@ function qlStartEdit(itemId, listId) {
 
 // =============================================================================
 // #QL-DRAG — reorder via position PATCH
+// Desktop: HTML5 DnD on the row. Mobile: touch on the ⠿ handle only
+// (HTML5 drag-and-drop does not fire from touch on iOS/Android).
 // =============================================================================
+
+function _qlBindDragHandles(listId) {
+    const body = document.getElementById('ql-items-body');
+    if (!body) return;
+    body.querySelectorAll('.ql-item .ql-drag-handle').forEach((handle) => {
+        // passive:false so we can preventDefault and stop the page scrolling
+        handle.addEventListener('touchstart', (e) => _qlTouchStart(e, listId), { passive: false });
+    });
+}
+
+function _qlSetDragOver(row) {
+    document.querySelectorAll('.ql-item.ql-drag-over').forEach((el) => {
+        if (el !== row) el.classList.remove('ql-drag-over');
+    });
+    if (row && row.classList.contains('ql-item')) row.classList.add('ql-drag-over');
+}
 
 function _qlDragStart(e, itemId) {
     _qlDragId = itemId;
-    e.dataTransfer.effectAllowed = 'move';
-    try { e.dataTransfer.setData('text/plain', String(itemId)); } catch (_) {}
+    if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', String(itemId)); } catch (_) {}
+    }
     const row = e.currentTarget;
     if (row) row.classList.add('ql-dragging');
 }
 
 function _qlDragOver(e) {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
     const row = e.currentTarget;
     if (!row || !row.classList.contains('ql-item')) return;
-    document.querySelectorAll('.ql-item.ql-drag-over').forEach(el => {
-        if (el !== row) el.classList.remove('ql-drag-over');
-    });
-    row.classList.add('ql-drag-over');
+    _qlSetDragOver(row);
 }
 
-async function _qlDrop(e, listId) {
-    e.preventDefault();
-    const target = e.currentTarget;
-    document.querySelectorAll('.ql-item.ql-drag-over').forEach(el => el.classList.remove('ql-drag-over'));
-    if (!target || _qlDragId == null) return;
-
-    const targetId = parseInt(target.getAttribute('data-item-id'), 10);
-    if (!targetId || targetId === _qlDragId) return;
+async function _qlReorderTo(listId, fromId, toId) {
+    if (!fromId || !toId || fromId === toId) return false;
 
     const body = document.getElementById('ql-items-body');
-    if (!body) return;
-    // Only reorder within the open (non-checked) block — dragging into checked
-    // section is allowed; final order is whatever the DOM shows after move.
+    if (!body) return false;
+    // Final order is whatever the DOM shows after move (open + checked blocks).
     const rows = Array.from(body.querySelectorAll('.ql-item'));
     const ids = rows.map(r => parseInt(r.getAttribute('data-item-id'), 10)).filter(Boolean);
-    const from = ids.indexOf(_qlDragId);
-    const to = ids.indexOf(targetId);
-    if (from < 0 || to < 0 || from === to) return;
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from < 0 || to < 0 || from === to) return false;
 
     ids.splice(to, 0, ids.splice(from, 1)[0]);
 
-    // Persist sequential positions
     try {
         await Promise.all(ids.map((id, idx) =>
             fetch(`/api/quick-lists/items/${id}`, {
@@ -385,10 +398,22 @@ async function _qlDrop(e, listId) {
             })
         ));
         await _qlLoadItems(listId);
+        return true;
     } catch (err) {
         console.error('Failed to reorder:', err);
         await _qlLoadItems(listId);
+        return false;
     }
+}
+
+async function _qlDrop(e, listId) {
+    e.preventDefault();
+    const target = e.currentTarget;
+    document.querySelectorAll('.ql-item.ql-drag-over').forEach(el => el.classList.remove('ql-drag-over'));
+    if (!target || _qlDragId == null) return;
+
+    const targetId = parseInt(target.getAttribute('data-item-id'), 10);
+    await _qlReorderTo(listId, _qlDragId, targetId);
 }
 
 function _qlDragEnd(e) {
@@ -396,6 +421,84 @@ function _qlDragEnd(e) {
     document.querySelectorAll('.ql-item.ql-dragging, .ql-item.ql-drag-over').forEach(el => {
         el.classList.remove('ql-dragging', 'ql-drag-over');
     });
+}
+
+function _qlTouchStart(e, listId) {
+    if (!e.touches || e.touches.length !== 1) return;
+    // Ignore touch-drag while inline-editing
+    if (e.target && e.target.closest && e.target.closest('.ql-editing, .ql-inline-input')) return;
+
+    const handle = e.currentTarget;
+    const row = handle && handle.closest ? handle.closest('.ql-item') : null;
+    if (!row) return;
+
+    const itemId = parseInt(row.getAttribute('data-item-id'), 10);
+    if (!itemId) return;
+
+    // Stop scroll/zoom so the handle gesture owns the touch
+    e.preventDefault();
+    e.stopPropagation();
+
+    _qlClearTouchListeners();
+    _qlDragId = itemId;
+    row.classList.add('ql-dragging');
+    _qlTouch = { itemId, listId, overEl: null };
+
+    _qlTouchMoveFn = (ev) => _qlTouchMove(ev);
+    _qlTouchEndFn = (ev) => _qlTouchEnd(ev);
+    document.addEventListener('touchmove', _qlTouchMoveFn, { passive: false });
+    document.addEventListener('touchend', _qlTouchEndFn);
+    document.addEventListener('touchcancel', _qlTouchEndFn);
+}
+
+function _qlTouchMove(e) {
+    if (!_qlTouch) return;
+    if (!e.touches || !e.touches.length) return;
+    e.preventDefault();
+
+    const t = e.touches[0];
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const row = el && el.closest ? el.closest('#ql-items-body .ql-item') : null;
+    if (row) {
+        const overId = parseInt(row.getAttribute('data-item-id'), 10);
+        if (overId && overId !== _qlTouch.itemId) {
+            _qlSetDragOver(row);
+            _qlTouch.overEl = row;
+            return;
+        }
+    }
+    _qlSetDragOver(null);
+    _qlTouch.overEl = null;
+}
+
+async function _qlTouchEnd(e) {
+    const state = _qlTouch;
+    _qlClearTouchListeners();
+    _qlTouch = null;
+
+    try {
+        if (!state) return;
+        const target = state.overEl;
+        const targetId = target ? parseInt(target.getAttribute('data-item-id'), 10) : 0;
+        if (targetId) {
+            await _qlReorderTo(state.listId, state.itemId, targetId);
+        }
+    } finally {
+        // Always clear drag chrome / id — reload already drops classes when reorder runs
+        _qlDragEnd();
+    }
+}
+
+function _qlClearTouchListeners() {
+    if (_qlTouchMoveFn) {
+        document.removeEventListener('touchmove', _qlTouchMoveFn);
+        _qlTouchMoveFn = null;
+    }
+    if (_qlTouchEndFn) {
+        document.removeEventListener('touchend', _qlTouchEndFn);
+        document.removeEventListener('touchcancel', _qlTouchEndFn);
+        _qlTouchEndFn = null;
+    }
 }
 
 function qlCloseModal() {
