@@ -111,6 +111,7 @@ zstandard==0.25.0
 cryptography>=42.0
 pillow>=10.4.0
 pillow-heif>=0.18.0
+qrcode>=7.4
 # Dev dependencies (not needed in production)
 # iniconfig==2.3.0
 # pluggy==1.6.0

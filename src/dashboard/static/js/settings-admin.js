@@ -848,7 +848,9 @@ async function _loadTruthGateCard(catalog) {
 
 
 // =============================================================================
-// Emergency Model Override — Force all chat to a specific model (bypasses router)
+// Manual Model (override) — force all chat to a specific model, with an
+// optional manual fallback the chain hops to when the forced model fails
+// (#MDL1). Clearing returns the Cove to Auto (pressure routing / the grid).
 // =============================================================================
 
 async function loadSettingsModelOverride() {
@@ -860,21 +862,24 @@ async function loadSettingsModelOverride() {
             el.innerHTML = `<div class="error-msg">${ESC(data.error)}</div>`;
             return;
         }
-        
+
         const catalog = data.catalog || [];
         const current = data.override || '';
+        const currentFb = data.fallback || '';
         const active = data.active;
-        
+
         // Build dropdown options
         const opts = ['<option value="">— Router decides (default) —</option>']
-            .concat(catalog.map(m => 
+            .concat(catalog.map(m =>
                 `<option value="${ESC(m.id)}"${m.id === current ? ' selected' : ''}>${ESC(m.name)}${m.type ? ' · ' + ESC(m.type) : ''}</option>`
             )).join('');
-        
-        const statusClass = active ? 'active' : 'inactive';
-        const statusText = active ? `Active — locked to ${current}` : 'Inactive — router decides';
+        const fbOpts = ['<option value="">— None (local floor only) —</option>']
+            .concat(catalog.map(m =>
+                `<option value="${ESC(m.id)}"${m.id === currentFb ? ' selected' : ''}>${ESC(m.name)}${m.type ? ' · ' + ESC(m.type) : ''}</option>`
+            )).join('');
+
         const statusColor = active ? 'var(--red, #f44336)' : 'var(--dim)';
-        
+
         el.innerHTML = `
             <div style="margin-bottom:8px;">
                 <div class="settings-row" style="flex-wrap:wrap;gap:8px;align-items:center;">
@@ -883,11 +888,17 @@ async function loadSettingsModelOverride() {
                     <button class="btn-sm" onclick="saveModelOverride()">${active ? 'Update' : 'Lock'}</button>
                     ${active ? `<button class="btn-sm" style="background:var(--red-bg, #5c3a3a);color:var(--red, #f44336);" onclick="clearModelOverride()">Clear</button>` : ''}
                 </div>
+                <div class="settings-row" style="flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;">
+                    <span class="settings-label">Fallback</span>
+                    <select id="model-override-fallback-select" class="settings-input" style="max-width:280px;">${fbOpts}</select>
+                </div>
                 <div style="font-size:0.62rem;color:${statusColor};margin-top:4px;">
-                    ${active ? '⚠ Override active — all chat uses this model, bypassing pressure routing' : 'Router selects local/API based on turn pressure'}
+                    ${active
+                        ? ('⚠ Manual active — all chat uses Force Model' + (currentFb ? `, hopping to ${ESC(currentFb)} if it fails` : ', local floor only if it fails') + '; pressure routing bypassed')
+                        : 'Auto — router selects local/API based on turn pressure'}
                 </div>
                 <div style="font-size:0.58rem;color:var(--dim);margin-top:2px;">
-                    Use for family events or debugging. Saves instantly to cove.yaml.
+                    Use for family events, debugging, or pinning a preferred provider. Saves instantly, no restart.
                 </div>
             </div>
             <div id="model-override-status" style="font-size:0.65rem;"></div>
@@ -901,23 +912,25 @@ async function saveModelOverride() {
     const sel = document.getElementById('model-override-select');
     if (!sel) return;
     const override = sel.value;
+    const fbSel = document.getElementById('model-override-fallback-select');
+    const fallback = fbSel ? fbSel.value : null;
     const status = document.getElementById('model-override-status');
-    
+
     if (!override) {
         if (status) { status.textContent = 'Select a model or Clear to disable'; status.style.color = 'var(--dim)'; }
         return;
     }
-    
+
     try {
         const r = await fetch('/api/settings/model-override', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ override }),
+            body: JSON.stringify({ override, fallback }),
         });
         const d = await r.json();
         if (status) {
             if (d.ok) {
-                status.textContent = 'Saved — override active';
+                status.textContent = 'Saved — Manual active';
                 status.style.color = 'var(--green, #4caf50)';
                 setTimeout(() => loadSettingsModelOverride(), 500);
             } else {
@@ -936,12 +949,12 @@ async function clearModelOverride() {
         const r = await fetch('/api/settings/model-override', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ override: '' }),
+            body: JSON.stringify({ override: '', fallback: '' }),
         });
         const d = await r.json();
         if (status) {
             if (d.ok) {
-                status.textContent = 'Cleared — router active';
+                status.textContent = 'Cleared — Auto routing active';
                 status.style.color = 'var(--green)';
                 setTimeout(() => loadSettingsModelOverride(), 500);
             } else {

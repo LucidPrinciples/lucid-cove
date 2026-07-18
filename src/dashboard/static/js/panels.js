@@ -398,7 +398,7 @@ function _defaultPanelHTML(tabId) {
                     <div id="settings-model" class="settings-row-list"></div>
                 </div>
                 <div class="settings-group">
-                    <div class="settings-group-title">Emergency Override</div>
+                    <div class="settings-group-title">Manual Model</div>
                     <div id="settings-model-override" class="settings-row-list"></div>
                 </div>
                 <div class="settings-group">

@@ -566,18 +566,21 @@ async def patch_features(request: Request):
         )
 
 
-# ── Emergency Model Override ────────────────────────────────────────────────
+# ── Manual Model (admin override) ───────────────────────────────────────────
 # Admin can force all chat to a specific model, bypassing the D55 router.
+# #MDL1: plus an optional manual fallback the chain hops to when the forced
+# model fails, before the local floor.
 
 @router.get("/api/settings/model-override")
 async def get_model_override_setting(request: Request):
-    """Get current model override (admin only) + catalog of available models."""
+    """Get current model override + fallback (admin only) + catalog of available models."""
     gate = await _admin_gate(request)
     if gate:
         return gate
     try:
-        from src.config import get_model_override, load_models_registry
+        from src.config import get_model_override, get_model_override_fallback, load_models_registry
         override = get_model_override()
+        fallback = get_model_override_fallback()
         catalog = [
             {
                 "id": m.get("id"),
@@ -589,6 +592,7 @@ async def get_model_override_setting(request: Request):
         ]
         return {
             "override": override or "",
+            "fallback": fallback or "",
             "catalog": catalog,
             "active": bool(override),
         }
@@ -598,45 +602,70 @@ async def get_model_override_setting(request: Request):
 
 class ModelOverrideUpdate(BaseModel):
     override: Optional[str] = None  # empty string = clear
+    fallback: Optional[str] = None  # empty string = clear; None = leave as-is
 
 
 @router.put("/api/settings/model-override")
 async def set_model_override(request: Request, body: ModelOverrideUpdate):
-    """Set or clear the emergency model override (admin only).
-    
-    Empty string clears the override. Any valid model ID forces all chat to that model.
+    """Set or clear the manual model override + fallback (admin only).
+
+    override: empty string clears Manual entirely (fallback goes with it).
+    fallback (#MDL1): empty string clears it; omitted/None leaves it as-is
+    (so an older client that only sends override can't silently wipe it).
+    Both are validated against the registry at save time — a bad id must be
+    impossible to store.
     """
     gate = await _admin_gate(request)
     if gate:
         return gate
     try:
         from src.config import load_models_registry, save_cove_config, load_cove_config
-        
+
         # Validate if setting
+        valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
         override = (body.override or "").strip()
         if override:
-            valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
             if override not in valid_ids:
                 return JSONResponse(
                     status_code=400,
                     content={"error": f"Unknown model '{override}' — not in registry"}
                 )
-        
+        fallback = None if body.fallback is None else (body.fallback or "").strip()
+        if fallback:
+            if fallback not in valid_ids:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Unknown fallback model '{fallback}' — not in registry"}
+                )
+            if fallback == override:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Fallback must be a different model than Force Model"}
+                )
+
         # Update feature-overrides.yaml (runtime settings storage)
         import yaml
         from pathlib import Path
-        
+
         overrides_path = Path("/app/data/feature-overrides.yaml")
         current_overrides = {}
         if overrides_path.exists():
             with open(overrides_path) as f:
                 current_overrides = yaml.safe_load(f) or {}
-        
+
         if override:
             current_overrides["model_override"] = override
+            if fallback is not None:
+                if fallback:
+                    current_overrides["model_override_fallback"] = fallback
+                else:
+                    current_overrides.pop("model_override_fallback", None)
         else:
+            # Clearing Manual clears both — a fallback without a forced
+            # primary is meaningless and would confuse the next enable.
             current_overrides.pop("model_override", None)
-        
+            current_overrides.pop("model_override_fallback", None)
+
         try:
             with open(overrides_path, "w") as f:
                 yaml.dump(current_overrides, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -651,6 +680,7 @@ async def set_model_override(request: Request, body: ModelOverrideUpdate):
         return {
             "ok": True,
             "override": override or "",
+            "fallback": (current_overrides.get("model_override_fallback") or "") if override else "",
             "active": bool(override),
         }
     except Exception as e:
