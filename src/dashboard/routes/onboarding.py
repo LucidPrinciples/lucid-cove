@@ -402,6 +402,27 @@ async def onboarding_items(request: Request):
                      "live address and sign in as you. After that, add jules to your home "
                      "screen and capture by voice anywhere — it lands in your Inbox."),
         },
+        {
+            # MESH3 L2 — host punchability. ONLY when the Cove host looks hard to
+            # reach (or never probed). Self-clears when probe reports easy path.
+            # Orthogonal to Cloudflare public-tunnel reachability.py.
+            "id": "host_reachability",
+            "title": "Make this Cove easier to reach",
+            "unlocks": "Steadier mesh paths for every family device (optional router help)",
+            "done": False,       # filled below from probe + skip flag
+            "available": False,  # filled below — after foundation, admin only
+            "admin_only": True,
+            "body": ("Your Cove works without this — L1 relay keeps you online. When this "
+                     "box is easy for the mesh to punch to, every phone and laptop gets "
+                     "faster direct paths. We only show this when a check says the host is "
+                     "hard to reach (or has never been checked)."),
+            "guide": [
+                "On the Cove machine, run the check command below (needs Tailscale on the host).",
+                "If it says hard to reach: on your router, enable UPnP/NAT-PMP if you trust it, OR set a DHCP reservation for this box and forward UDP 41641 to it.",
+                "Re-run the check. When it reports OK, this card clears itself.",
+                "Skip anytime — family can still use the private mesh via our relay.",
+            ],
+        },
     ]
     # CF-78 close for existing Coves (C6): a Cove that SHARES its GPU must enforce the
     # token gate. Fresh installs stamp PIPECAT_INTERNAL_SECRET + GPU_GRANT_VERIFY_URL;
@@ -473,6 +494,36 @@ async def onboarding_items(request: Request):
             _s["enabled"] = _team_tune_enabled
             _s["skipped"] = _team_tune_skipped
             _s["estimate"] = _team_tune_est
+            break
+
+    # MESH3 L2 — host reachability (Attention only when needed).
+    _hr_skip = bool(ac.get("onboarding_host_reachability_skip"))
+    _hr = {
+        "probed": False, "hard_to_reach": None, "done": False,
+        "available_reason": "never_probed", "host_command": "", "status": None,
+    }
+    try:
+        from src.utils.host_reachability import classify, read_status
+        _hr = classify(read_status())
+    except Exception as _e:
+        print(f"[onboarding] host_reachability classify failed: {_e}")
+    for _s in steps:
+        if _s.get("id") == "host_reachability":
+            _s["done"] = bool(_hr_skip or _hr.get("done"))
+            # After foundation so we don't fight address/intel; admin/founder only.
+            _s["available"] = bool(_foundation and is_admin and not _s["done"])
+            _s["host_command"] = _hr.get("host_command") or ""
+            _s["probe"] = _hr
+            _s["skipped"] = _hr_skip
+            if _hr.get("hard_to_reach"):
+                _s["title"] = "Your Cove host is hard to reach"
+                _hint = ((_hr.get("status") or {}).get("hint") or "").strip()
+                if _hint:
+                    _s["body"] = _hint
+            elif _hr.get("available_reason") == "stale_ok_recheck":
+                _s["title"] = "Re-check host reachability"
+                _s["body"] = ("Last check looked fine but is over a week old. Re-run the "
+                              "host command when you can — or skip.")
             break
 
     done_count = sum(1 for s in steps if s["done"])
@@ -552,6 +603,9 @@ async def onboarding_ack(request: Request):
         # Skip only — enable goes through /api/onboarding/team-tuning/enable so we
         # can write cove.yaml consent + optionally kick the first sweep.
         ac["onboarding_team_tuning_skip"] = True
+    elif item == "host_reachability":
+        # Skip — card also self-clears when probe reports hard_to_reach=false.
+        ac["onboarding_host_reachability_skip"] = True
     else:
         return JSONResponse(status_code=400, content={"ok": False, "error": "unknown item"})
     from src.memory.database import get_db
@@ -919,7 +973,26 @@ async def connect_operator(request: Request):
     return {"ok": True, "handle": handle, "connected": True}
 
 
+@router.get("/api/onboarding/host-reachability")
+async def host_reachability_status(request: Request):
+    """MESH3 L2 — latest host punchability probe (admin). Read-only."""
+    from src.dashboard.routes.presence import get_current_presence
+    p = await get_current_presence(request)
+    if not p or not p.get("id"):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
+    if (p.get("cove_role") or "") != "admin":
+        return JSONResponse(status_code=403, content={"ok": False, "error": "Admin only"})
+    try:
+        from src.utils.host_reachability import classify, host_probe_command, read_status
+        status = read_status()
+        summary = classify(status)
+        return {"ok": True, **summary, "host_command": host_probe_command()}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
+
+
 @router.get("/api/onboarding/mesh-key")
+
 async def mesh_join_key(request: Request):
     """#134 — mint a one-time mesh (Headscale) pre-auth key + join command for the
     operator's device. Degrades gracefully when Headscale isn't reachable from here
