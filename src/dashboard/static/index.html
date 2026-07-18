@@ -49,70 +49,7 @@
         <button class="help-close" onclick="closeHelp()">&times;</button>
       </div>
       <div class="help-modal-body" id="help-modal-body">
-        <div class="help-section">
-          <div class="help-section-title">Tour</div>
-          <p style="font-size:0.82rem;color:var(--dim);margin-bottom:8px;">New here? Walk through the basics.</p>
-          <button onclick="closeHelp(); _startOnboarding();" style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:6px;cursor:pointer;font-family:inherit;font-size:0.82rem;">Getting Started</button>
-        </div>
-        <div class="help-section">
-          <div class="help-section-title">Glossary</div>
-          <dl class="help-glossary">
-            <dt>Operator</dt>
-            <dd>You. The person running this Cove. Every action, tuning, and decision flows through the Operator.</dd>
-            <dt>Agent</dt>
-            <dd>A specialized intelligence on your team. Each agent has a role, tools, and a daily tuning. Stuart is the steward agent that coordinates your Cove.</dd>
-            <dt>Presence</dt>
-            <dd>A personal intelligence. One agent, personal tools, portable between Coves. Your own Presence is your individual interface to the system.</dd>
-            <dt>Cove</dt>
-            <dd>Your full team and infrastructure. A steward agent plus up to 9 specialists, shared tools, and up to 8 Presences. This is your operational unit.</dd>
-            <dt>Haven</dt>
-            <dd>A collective of Coves. Families, partners, or collaborators who choose to share a network.</dd>
-            <dt>Creation Flow</dt>
-            <dd>A guided workflow for building something specific. New agent setup, new Cove provisioning, product creation. Flows walk you through it step by step.</dd>
-            <dt>Action Board</dt>
-            <dd>Your operational dashboard. Pending tasks, scheduled actions, and quick access to everything that needs your attention.</dd>
-            <dt>Tuning</dt>
-            <dd>Daily alignment practice. Each agent receives a tuning frequency (one of 22 Lucid Principles) with a coaching prompt and practice. The Operator gets one too.</dd>
-            <dt>Content Mirror</dt>
-            <dd>A curated mapping from your daily tuning frequency to passages in another tradition. Scripture, philosophy, poetry. Complements the framework through your own lens.</dd>
-          </dl>
-        </div>
-        <div class="help-section">
-          <div class="help-section-title">Signing in &amp; your devices</div>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">Your <strong style="color:var(--text);">sign-in link</strong> is how you get into the Cove on any device. Find it in <strong style="color:var(--text);">Settings &rarr; Devices &amp; Access &rarr; Sign-in link</strong>. Open it on a phone, laptop, or another browser and it signs that device in as you &mdash; it stays signed in for about 90 days, so bookmark it.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">The plain Cove address (or an &ldquo;Open MC&rdquo; button) only works on a device that is <em>already</em> signed in. To add a <strong style="color:var(--text);">new</strong> device, open a sign-in link on it first &mdash; that is the step that logs you in.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;">Each person has their own sign-in link. When your Cove has a public address you do <strong style="color:var(--text);">not</strong> need Tailscale or the mesh for this &mdash; just open the link.</p>
-        </div>
-        <div class="help-section">
-          <div class="help-section-title">Adding someone to your Cove</div>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">As an admin, go to <strong style="color:var(--text);">Settings &rarr; Admin</strong> and use <strong style="color:var(--text);">Invite by link</strong>. Send them the invite.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">They open it on the device they will use, name their agent and set up their Presence, and land in chat. The invite is one-time &mdash; it is used up once they finish, so it is normal that reopening the same invite later says it cannot be opened.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;">To get them onto another device later, they open <strong style="color:var(--text);">Settings &rarr; Devices &amp; Access &rarr; Sign-in link</strong> on a device they are already in, then open that link on the new one.</p>
-        </div>
-        <div class="help-section">
-          <div class="help-section-title">Everyday use</div>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">Chat</strong> with your agent in the <strong style="color:var(--text);">Day</strong> channel for quick, everyday things, or the <strong style="color:var(--text);">Deep</strong> channel for focused work.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">The <strong style="color:var(--text);">Action Board</strong> holds your Flows (guided workflows), Actions (things to approve or do), and Tools. Use the board toggle to switch between what needs your <em>attention</em> and your <em>actions</em>.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">Quick lists</strong> &mdash; ask your agent to start a list (groceries, ideas, errands) or add one yourself; they show on your home board.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;"><strong style="color:var(--text);">Tuning</strong> &mdash; each day you and your agent get a tuning: a frequency from the Lucid Principles and a short practice that keeps everyone aligned.</p>
-        </div>
-        <div class="help-section">
-          <div class="help-section-title">If something will not load</div>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">A page will not open, or you are asked to sign in:</strong> open your sign-in link again (Settings &rarr; Devices &amp; Access), or ask your admin for a fresh one. The plain address needs an active sign-in.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">Nothing loads at all:</strong> the Cove may be briefly offline &mdash; usually a home-internet blip. It comes back on its own within a minute or two, so wait a moment and try again.</p>
-          <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;">Still stuck? Send a message below and we will help.</p>
-        </div>
-        <div class="help-section">
-          <div class="help-section-title">Send a Message</div>
-          <p class="help-contact-desc">Questions, feedback, or ideas? Send a message directly to the team.</p>
-          <form class="help-contact-form" onsubmit="submitContactForm(event)">
-            <textarea class="help-contact-input" id="help-contact-message" placeholder="What's on your mind?" rows="3" maxlength="5000"></textarea>
-            <div class="help-contact-actions">
-              <button type="submit" class="help-contact-btn" id="help-contact-btn">Send</button>
-              <span class="help-contact-status" id="help-contact-status"></span>
-            </div>
-          </form>
-        </div>
+        <!-- Filled by openHelp() / helpShowPage() in core.js (#HELP1) -->
       </div>
     </div>
   </div>
