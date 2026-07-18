@@ -1473,3 +1473,116 @@ select.settings-input { cursor: pointer; }
 }
 .op-deeper-link:hover { opacity: 0.75; }
 
+/* #HELP1 — multi-page help */
+.help-back {
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0 0 10px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.help-back:hover { color: var(--text); }
+.help-toc {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.help-toc-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--card2, rgba(255,255,255,0.03));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.help-toc-item:hover {
+  border-color: var(--dim);
+  background: rgba(255,255,255,0.05);
+}
+.help-toc-item .help-toc-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--dim);
+  line-height: 1.4;
+}
+.help-toc-btn {
+  /* Getting Started as toc-styled action */
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.help-toc-btn:hover { border-color: var(--dim); }
+.help-cap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.help-cap-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.help-cap-list li:last-child { border-bottom: none; }
+.help-cap-list strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.help-cap-try {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.74rem;
+  color: var(--accent, #5ce1e6);
+  font-style: italic;
+}
+.help-page-lead {
+  font-size: 0.82rem;
+  color: var(--dim);
+  line-height: 1.55;
+  margin: 0 0 12px 0;
+}
+.help-linkish {
+  background: none;
+  border: none;
+  color: var(--accent, #5ce1e6);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.help-muted {
+  font-size: 0.78rem;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.help-modal { max-width: 520px; }
+

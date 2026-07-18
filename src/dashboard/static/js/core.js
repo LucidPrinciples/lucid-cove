@@ -611,13 +611,276 @@ function _buildActionBoardPanels() {
 }
 
 // =============================================================================
-// Help modal
+// Help modal (#HELP1 — TOC + pages, agent-aware capability guide)
 // =============================================================================
-function openHelp() {
-    document.getElementById('help-overlay').classList.add('open');
+// Help is the "how to use this system" doorway. Daily tuning + mirrors stay on
+// Attention; Go Deeper holds framework depth. Help links across without
+// swallowing either surface. Getting Started tour is left as-is (tuner-skewed).
+
+function _helpAgentName() {
+    try {
+        if (typeof MC !== 'undefined') {
+            if (MC.presence && MC.presence.agent_name) return String(MC.presence.agent_name);
+            if (MC.agentName) return String(MC.agentName);
+        }
+    } catch (e) {}
+    return 'your agent';
+}
+
+function _helpEsc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function _helpBackRow() {
+    return `<button type="button" class="help-back" onclick="helpShowPage('hub')">&larr; All topics</button>`;
+}
+
+function _helpPageShell(title, inner) {
+    return `${_helpBackRow()}
+      <div class="help-section" style="margin-top:0;padding-top:0;border-top:none;">
+        <div class="help-section-title">${title}</div>
+        ${inner}
+      </div>`;
+}
+
+function _helpHubHtml() {
+    const agent = _helpEsc(_helpAgentName());
+    return `
+      <div class="help-section" style="margin-top:0;padding-top:0;border-top:none;">
+        <p class="help-page-lead">How to use this Cove — with <strong style="color:var(--text);">${agent}</strong> day to day, and a door into the deeper practice when you want it.</p>
+        <ul class="help-toc">
+          <li>
+            <button type="button" class="help-toc-btn" onclick="closeHelp(); if (typeof _startOnboarding==='function') _startOnboarding();">
+              Getting Started
+              <span class="help-toc-sub">Short tour of the basics</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('together')">
+              Me &amp; ${agent} — what we can do together
+              <span class="help-toc-sub">Lists, calendar, projects, files — things you can try in Chat</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('signin')">
+              Signing in &amp; your devices
+              <span class="help-toc-sub">Sign-in links, new devices, staying signed in</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('invite')">
+              Adding someone to your Cove
+              <span class="help-toc-sub">Invites and first landing</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('everyday')">
+              Everyday use
+              <span class="help-toc-sub">Chat, Attention, tuning on the home board</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('deeper')">
+              Go Deeper &amp; the practice
+              <span class="help-toc-sub">Where Help meets Tuning, mirrors, and the framework</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('trouble')">
+              If something will not load
+              <span class="help-toc-sub">Sign-in loops and brief outages</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('glossary')">
+              Glossary
+              <span class="help-toc-sub">Operator, Presence, Cove, Haven, Tuning…</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('marketplace')">
+              Marketplace
+              <span class="help-toc-sub">Details coming soon</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="help-toc-item" onclick="helpShowPage('contact')">
+              Send a message
+              <span class="help-toc-sub">Questions, feedback, ideas</span>
+            </button>
+          </li>
+        </ul>
+      </div>`;
+}
+
+function _helpTogetherHtml() {
+    const agent = _helpEsc(_helpAgentName());
+    return _helpPageShell(
+        `Me &amp; ${agent} — what we can do together`,
+        `<p class="help-page-lead">You do not have to invent the product. Open <strong style="color:var(--text);">Chat</strong> (Day for quick things, Deep for longer work) and try any of these. ${agent} acts in <em>your</em> space — your lists, calendar, projects, and files.</p>
+        <ul class="help-cap-list">
+          <li><strong>Quick lists</strong> — groceries, errands, ideas. Create a list, add lines, check them off, rename, pin, or archive the list when you are done.
+            <span class="help-cap-try">“Make a groceries list and add milk and eggs.”</span></li>
+          <li><strong>Projects &amp; tasks</strong> — name a plan, add tasks, set priority or due dates, update status, archive the project when it is finished.
+            <span class="help-cap-try">“Start a project called Book Promotion and add a task to outline the launch plan.”</span></li>
+          <li><strong>Calendar</strong> — schedule, reschedule, or cancel events on your calendar.
+            <span class="help-cap-try">“Schedule dentist Thursday at 2pm for an hour.”</span></li>
+          <li><strong>Links board</strong> — pin a useful URL, update the card, or remove it.
+            <span class="help-cap-try">“Pin https://example.com on my Links board as Launch notes.”</span></li>
+          <li><strong>Files</strong> — drop material in Inbox; ask ${agent} to read, organize, or draft from what is there.
+            <span class="help-cap-try">“What’s in my Inbox?” / “Read that spec and summarize it.”</span></li>
+          <li><strong>Memory</strong> — remember preferences and decisions across sessions.
+            <span class="help-cap-try">“Remember I prefer morning meetings.”</span></li>
+          <li><strong>Research</strong> — look things up and turn sources into a short brief when you need a decision.
+            <span class="help-cap-try">“Compare these two options and give me a bottom line.”</span></li>
+          <li><strong>Sites</strong> — if your presence works on websites, ${agent} can help with working files under Sites (deploy and public publish still follow your Cove’s approval rules).
+            <span class="help-cap-try">“Show me the files for my site.”</span></li>
+        </ul>
+        <p class="help-muted" style="margin-top:12px;">Family-wide infrastructure, the build team, and Cove-level boards stay with the steward. If something needs the whole Cove, ask ${agent} to escalate — that is working as designed.</p>
+        <p class="help-muted">Want the <em>why</em> behind the system? See <button type="button" class="help-linkish" onclick="helpShowPage('deeper')">Go Deeper &amp; the practice</button>.</p>`
+    );
+}
+
+function _helpSigninHtml() {
+    return _helpPageShell(
+        'Signing in &amp; your devices',
+        `<p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">Your <strong style="color:var(--text);">sign-in link</strong> is how you get into the Cove on any device. Find it in <strong style="color:var(--text);">Settings &rarr; Devices &amp; Access &rarr; Sign-in link</strong>. Open it on a phone, laptop, or another browser and it signs that device in as you &mdash; it stays signed in for about 90 days, so bookmark it.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">The plain Cove address (or an &ldquo;Open MC&rdquo; button) only works on a device that is <em>already</em> signed in. To add a <strong style="color:var(--text);">new</strong> device, open a sign-in link on it first &mdash; that is the step that logs you in.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;">Each person has their own sign-in link. When your Cove has a public address you do <strong style="color:var(--text);">not</strong> need Tailscale or the mesh for this &mdash; just open the link.</p>`
+    );
+}
+
+function _helpInviteHtml() {
+    return _helpPageShell(
+        'Adding someone to your Cove',
+        `<p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">As an admin, go to <strong style="color:var(--text);">Settings &rarr; Admin</strong> and use <strong style="color:var(--text);">Invite by link</strong>. Send them the invite.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">They open it on the device they will use, name their agent and set up their Presence, and land in chat. The invite is one-time &mdash; it is used up once they finish, so it is normal that reopening the same invite later says it cannot be opened.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;">To get them onto another device later, they open <strong style="color:var(--text);">Settings &rarr; Devices &amp; Access &rarr; Sign-in link</strong> on a device they are already in, then open that link on the new one.</p>`
+    );
+}
+
+function _helpEverydayHtml() {
+    const agent = _helpEsc(_helpAgentName());
+    return _helpPageShell(
+        'Everyday use',
+        `<p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">Chat</strong> with ${agent} in the <strong style="color:var(--text);">Day</strong> channel for quick, everyday things, or the <strong style="color:var(--text);">Deep</strong> channel for focused work.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">Attention</strong> (home) keeps what matters in front of you: quick lists, latest tuning, projects, and tasks. Approvals show here when something needs a yes from you.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;">The <strong style="color:var(--text);">Action Board</strong> holds guided workflows, things to approve, and tools. Use the board toggle when you need that surface.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;">For a full menu of what you can ask ${agent} to do, open <button type="button" class="help-linkish" onclick="helpShowPage('together')">Me &amp; ${agent}</button>.</p>`
+    );
+}
+
+function _helpDeeperHtml() {
+    const agent = _helpEsc(_helpAgentName());
+    // Operator+ hides the go-deeper tab; Latest Tuning on Attention is the daily door.
+    const tierLevel = (typeof MC !== 'undefined' && MC.tier && typeof MC.tier.level === 'number') ? MC.tier.level : 99;
+    const hasGoDeeperTab = tierLevel < 10;
+    const deeperCta = hasGoDeeperTab
+        ? `<button type="button" class="help-toc-btn" onclick="closeHelp(); if (typeof switchToTab==='function') switchToTab('go-deeper');">Open Go Deeper</button>`
+        : `<button type="button" class="help-toc-btn" onclick="closeHelp(); if (typeof openOperatorTuning==='function') openOperatorTuning();">Open today’s tuning</button>`;
+    return _helpPageShell(
+        'Go Deeper &amp; the practice',
+        `<p class="help-page-lead">This system’s foundation is the practice — not only the tools. Help shows you how to operate with ${agent}. The framework is where you learn why the day is shaped the way it is.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">On Attention</strong> — Latest Tuning and your mirrors stay front and center so the day’s frequency is never buried. That is enough to keep the practice visible.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">Go Deeper</strong> — the doorway into the Lucid Principles, the Canon, the music, and how Lucid Cove sits on that foundation. Use it when you want the fuller picture; come back to Help when you want “how do I do X with ${agent}?”</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:12px;">They stay intertwined on purpose: operate here, understand there, tune every day on the home board.</p>
+        ${deeperCta}
+        <p class="help-muted" style="margin-top:12px;">Outside links: <a href="https://lucidprinciples.com/canon" target="_blank" rel="noopener" style="color:var(--accent,#5ce1e6);">The Canon</a> · <a href="https://lucidprinciples.com" target="_blank" rel="noopener" style="color:var(--accent,#5ce1e6);">Lucid Principles</a> · <a href="https://lucidcove.org" target="_blank" rel="noopener" style="color:var(--accent,#5ce1e6);">About Lucid Cove</a></p>`
+    );
+}
+
+function _helpTroubleHtml() {
+    return _helpPageShell(
+        'If something will not load',
+        `<p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">A page will not open, or you are asked to sign in:</strong> open your sign-in link again (Settings &rarr; Devices &amp; Access), or ask your admin for a fresh one. The plain address needs an active sign-in.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;margin-bottom:8px;"><strong style="color:var(--text);">Nothing loads at all:</strong> the Cove may be briefly offline &mdash; usually a home-internet blip. It comes back on its own within a minute or two, so wait a moment and try again.</p>
+        <p style="font-size:0.82rem;color:var(--dim);line-height:1.6;">Still stuck? <button type="button" class="help-linkish" onclick="helpShowPage('contact')">Send a message</button>.</p>`
+    );
+}
+
+function _helpGlossaryHtml() {
+    return _helpPageShell(
+        'Glossary',
+        `<dl class="help-glossary">
+          <dt>Operator</dt>
+          <dd>You. The person running this Cove. Every action, tuning, and decision flows through the Operator.</dd>
+          <dt>Agent</dt>
+          <dd>A specialized intelligence on your team. Each agent has a role, tools, and a daily tuning. Stuart is the steward agent that coordinates your Cove.</dd>
+          <dt>Presence</dt>
+          <dd>A personal intelligence. One agent, personal tools, portable between Coves. Your own Presence is your individual interface to the system.</dd>
+          <dt>Cove</dt>
+          <dd>Your full team and infrastructure. A steward agent plus up to 9 specialists, shared tools, and up to 8 Presences. This is your operational unit.</dd>
+          <dt>Haven</dt>
+          <dd>A collective of Coves. Families, partners, or collaborators who choose to share a network.</dd>
+          <dt>Creation Flow</dt>
+          <dd>A guided workflow for building something specific. New agent setup, new Cove provisioning, product creation. Flows walk you through it step by step.</dd>
+          <dt>Action Board</dt>
+          <dd>Your operational dashboard. Pending tasks, scheduled actions, and quick access to everything that needs your attention.</dd>
+          <dt>Tuning</dt>
+          <dd>Daily alignment practice. Each agent receives a tuning frequency (one of 22 Lucid Principles) with a coaching prompt and practice. The Operator gets one too.</dd>
+          <dt>Content Mirror</dt>
+          <dd>A curated mapping from your daily tuning frequency to passages in another tradition. Scripture, philosophy, poetry. Complements the framework through your own lens.</dd>
+          <dt>Go Deeper</dt>
+          <dd>The in-app doorway into the Lucid Principles framework and philosophy. Complements Help (how to operate) and Attention (today’s tuning).</dd>
+        </dl>`
+    );
+}
+
+function _helpMarketplaceHtml() {
+    return _helpPageShell(
+        'Marketplace',
+        `<p class="help-page-lead">Details coming soon.</p>
+        <p class="help-muted">Skills, extensions, and shared capabilities will land here. For now, focus on Chat with your agent and the topics under Help — that is the short-term path.</p>`
+    );
+}
+
+function _helpContactHtml() {
+    return _helpPageShell(
+        'Send a Message',
+        `<p class="help-contact-desc">Questions, feedback, or ideas? Send a message directly to the team.</p>
+        <form class="help-contact-form" onsubmit="submitContactForm(event)">
+          <textarea class="help-contact-input" id="help-contact-message" placeholder="What's on your mind?" rows="3" maxlength="5000"></textarea>
+          <div class="help-contact-actions">
+            <button type="submit" class="help-contact-btn" id="help-contact-btn">Send</button>
+            <span class="help-contact-status" id="help-contact-status"></span>
+          </div>
+        </form>`
+    );
+}
+
+function helpShowPage(page) {
+    const body = document.getElementById('help-modal-body');
+    const titleEl = document.querySelector('.help-modal-title');
+    if (!body) return;
+    const pages = {
+        hub: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpHubHtml(); },
+        together: () => { if (titleEl) titleEl.textContent = 'Me & ' + _helpAgentName(); return _helpTogetherHtml(); },
+        signin: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpSigninHtml(); },
+        invite: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpInviteHtml(); },
+        everyday: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpEverydayHtml(); },
+        deeper: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpDeeperHtml(); },
+        trouble: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpTroubleHtml(); },
+        glossary: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpGlossaryHtml(); },
+        marketplace: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpMarketplaceHtml(); },
+        contact: () => { if (titleEl) titleEl.textContent = 'Help'; return _helpContactHtml(); },
+    };
+    const render = pages[page] || pages.hub;
+    body.innerHTML = render();
+    try { body.scrollTop = 0; } catch (e) {}
+}
+
+function openHelp(page) {
+    helpShowPage(page || 'hub');
+    const overlay = document.getElementById('help-overlay');
+    if (overlay) overlay.classList.add('open');
 }
 function closeHelp() {
-    document.getElementById('help-overlay').classList.remove('open');
+    const overlay = document.getElementById('help-overlay');
+    if (overlay) overlay.classList.remove('open');
 }
 
 async function submitContactForm(e) {
@@ -625,13 +888,14 @@ async function submitContactForm(e) {
     const btn = document.getElementById('help-contact-btn');
     const status = document.getElementById('help-contact-status');
     const textarea = document.getElementById('help-contact-message');
+    if (!btn || !textarea) return;
     const message = textarea.value.trim();
 
     if (!message) return;
 
     btn.disabled = true;
     btn.textContent = 'Sending...';
-    status.textContent = '';
+    if (status) status.textContent = '';
 
     try {
         const res = await fetch('/api/contact', {
@@ -642,16 +906,20 @@ async function submitContactForm(e) {
         const data = await res.json();
 
         if (res.ok && data.ok) {
-            status.textContent = 'Sent!';
-            status.style.color = 'var(--daily-freq, #5ce1e6)';
+            if (status) {
+                status.textContent = 'Sent!';
+                status.style.color = 'var(--daily-freq, #5ce1e6)';
+            }
             textarea.value = '';
-        } else {
+        } else if (status) {
             status.textContent = data.detail || data.error || 'Failed to send.';
             status.style.color = '#e74c3c';
         }
-    } catch(err) {
-        status.textContent = 'Connection error. Try again.';
-        status.style.color = '#e74c3c';
+    } catch (err) {
+        if (status) {
+            status.textContent = 'Connection error. Try again.';
+            status.style.color = '#e74c3c';
+        }
     }
 
     btn.disabled = false;

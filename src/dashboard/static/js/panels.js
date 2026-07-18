@@ -191,6 +191,13 @@ function _defaultPanelHTML(tabId) {
                             <a href="https://lucidcove.org" target="_blank" class="op-deeper-link">About Lucid Cove &rarr;</a>
                         </div>
                     </div>
+                    <div class="op-deeper-section">
+                        <h3 class="op-deeper-heading">How to use this system</h3>
+                        <p class="op-deeper-text">Help is the practical doorway — what you and your agent can do day to day. Latest Tuning on Attention keeps the practice front and center. Go Deeper is the framework behind both.</p>
+                        <div class="op-deeper-links">
+                            <a href="#" class="op-deeper-link" onclick="if(typeof openHelp==='function')openHelp('together'); return false;">Open Help &rarr;</a>
+                        </div>
+                    </div>
                 </div>
             </div>`;
 
