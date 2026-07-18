@@ -6,7 +6,8 @@ create lists, add items, check items off, and clear completed items.
 
 Approval tiers:
   AUTO   — get_quick_lists, get_list_items (reads)
-  NOTIFY — create_quick_list, add_list_items, check_list_item, uncheck_list_item, clear_checked_items (writes)
+  NOTIFY — create_quick_list, add_list_items, check_list_item, uncheck_list_item,
+            clear_checked_items, delete_quick_list (writes)
 
 Environment: runs inside the same container as the API. Calls DB directly
 to avoid HTTP overhead and Request-object dependency.
@@ -66,11 +67,11 @@ async def get_quick_lists() -> str:
             _where, _params = _ql_scope("ql.presence_id")
             result = await conn.execute(
                 f"""SELECT ql.id, ql.name, ql.icon, ql.color, ql.pinned,
-                          COUNT(qli.id) FILTER (WHERE qli.checked = FALSE) AS unchecked,
-                          COUNT(qli.id) AS total
+                          COUNT(qli.id) FILTER (WHERE qli.checked = FALSE AND qli.archived = FALSE) AS unchecked,
+                          COUNT(qli.id) FILTER (WHERE qli.archived = FALSE) AS total
                    FROM quick_lists ql
                    LEFT JOIN quick_list_items qli ON qli.list_id = ql.id
-                   WHERE {_where}
+                   WHERE {_where} AND ql.archived = FALSE
                    GROUP BY ql.id
                    ORDER BY ql.position, ql.created_at""",
                 _params
@@ -336,6 +337,51 @@ async def clear_checked_items(list_name: str) -> str:
         return f"Error: {e}"
 
 
+@notify
+@tool
+async def delete_quick_list(list_name: str) -> str:
+    """Archive (soft-delete) a quick list so it leaves the board and list views.
+
+    Use when a list is empty or fully migrated elsewhere (e.g. to a project).
+    Items are preserved on the archived list. Does not hard-delete.
+
+    Args:
+        list_name: The name of the list (case-insensitive) or its numeric ID.
+    """
+    from src.memory.database import get_db
+
+    try:
+        list_id = await _resolve_list(list_name)
+        if list_id is None:
+            return (
+                f"List '{list_name}' not found. "
+                "Use get_quick_lists to see available lists."
+            )
+
+        async with get_db() as conn:
+            lr = await conn.execute(
+                "SELECT id, name, icon FROM quick_lists "
+                "WHERE id = %s AND archived = FALSE",
+                (list_id,),
+            )
+            list_row = await lr.fetchone()
+            if not list_row:
+                return f"List '{list_name}' not found or already archived."
+
+            await conn.execute(
+                "UPDATE quick_lists SET archived = TRUE, archived_at = NOW() "
+                "WHERE id = %s",
+                (list_id,),
+            )
+
+        return (
+            f"Archived list: {list_row['icon']} {list_row['name']} "
+            f"[id={list_row['id']}]. It no longer appears on the board."
+        )
+    except Exception as e:
+        return f"Error archiving list: {e}"
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -350,7 +396,8 @@ async def _resolve_list(name_or_id: str) -> int | None:
         _where, _params = _ql_scope("presence_id")
         async with get_db() as conn:
             result = await conn.execute(
-                f"SELECT id FROM quick_lists WHERE id = %s AND {_where}", (list_id, *_params)
+                f"SELECT id FROM quick_lists WHERE id = %s AND archived = FALSE AND {_where}",
+                (list_id, *_params),
             )
             if await result.fetchone():
                 return list_id
@@ -361,8 +408,8 @@ async def _resolve_list(name_or_id: str) -> int | None:
     _where, _params = _ql_scope("presence_id")
     async with get_db() as conn:
         result = await conn.execute(
-            f"SELECT id FROM quick_lists WHERE LOWER(name) = LOWER(%s) AND {_where}",
-            (str(name_or_id), *_params)
+            f"SELECT id FROM quick_lists WHERE LOWER(name) = LOWER(%s) AND archived = FALSE AND {_where}",
+            (str(name_or_id), *_params),
         )
         row = await result.fetchone()
         if row:
@@ -383,5 +430,6 @@ ALL_QUICK_LIST_TOOLS = [
     check_list_item,
     uncheck_list_item,
     clear_checked_items,
+    delete_quick_list,
 ]
 TOOLS = ALL_QUICK_LIST_TOOLS
