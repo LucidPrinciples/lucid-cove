@@ -70,3 +70,20 @@ def test_race_guard_skips_second_save():
     assert should_start_save(saving=True, save_completed=False, has_text=True) is False
     assert should_start_save(saving=False, save_completed=True, has_text=False) is False
     assert should_start_save(saving=False, save_completed=False, has_text=True) is True
+
+
+def choose_after_network_throw(*, has_live: bool) -> str:
+    """Outer catch in doSave: network/WebView throw mid re-transcribe.
+
+    Safari often surfaces TypeError/Load failed. If live text is on screen,
+    save it; only then fall back to "use Copy text".
+    """
+    return "live" if has_live else "error_copy"
+
+
+def test_network_load_failed_with_live_text_saves_live():
+    assert choose_after_network_throw(has_live=True) == "live"
+
+
+def test_network_load_failed_without_live_shows_error():
+    assert choose_after_network_throw(has_live=False) == "error_copy"

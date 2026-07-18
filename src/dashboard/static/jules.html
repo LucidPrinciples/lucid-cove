@@ -1005,7 +1005,27 @@ async function doSave() {
       finishErr("Didn't catch any speech — tap the mic and try again.", "#f39c12");
     }
   } catch (e) {
+    // Network / WebView throws (Safari often: "Load failed") land here, including
+    // mid re-transcribe. If the live transcript is already on screen, save THAT
+    // instead of stranding the user on "use Copy text".
     console.error("doSave error:", e);
+    if (hasLiveText) {
+      try {
+        if (stillCurrent()) {
+          saveStatus.textContent = "Network hitch — saving live transcript…";
+          saveStatus.style.color = "#f39c12";
+        }
+        const ok = await saveLiveTranscript("saved (live after network error)");
+        if (ok) return;
+      } catch (e2) {
+        console.error("live fallback after network error also failed:", e2);
+        finishErr(
+          "Save error: " + ((e2 && e2.message) || (e && e.message) || "network") + " — use Copy text",
+          "#e74c3c"
+        );
+        return;
+      }
+    }
     finishErr(
       "Save error: " + (e.message || "network") + (hasLiveText ? " — use Copy text" : ""),
       "#e74c3c"
