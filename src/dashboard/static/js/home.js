@@ -629,9 +629,9 @@ function _onboardingCardHtml(item) {
                 <div style="color:var(--text);font-weight:600;margin-bottom:6px;">On your phone</div>
                 <ol style="margin:0;padding-left:1.15rem;">
                     <li>Install the <strong style="color:var(--text);">Tailscale</strong> app.</li>
-                    <li>⋯ menu (top right) → <em>Use a custom coordination server</em> → enter
-                        <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code></li>
-                    <li>Sign in with the <strong style="color:var(--text);">join code from the button below</strong> and approve the device (mesh).</li>
+                    <li><strong style="color:var(--text);">Fast path:</strong> tap <b>Get a join code</b> below and scan the QR with the phone camera — it opens a short page with the coordinator + code (not the Nextcloud login QR).</li>
+                    <li>Or by hand: ⋯ menu (top right) → <em>Use a custom coordination server</em> → enter
+                        <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code>, then sign in with the join code.</li>
                     <li>Open your Cove at your live address and sign in as you (identity).</li>
                     <li>Add <strong style="color:var(--text);">jules</strong> to your home screen.</li>
                 </ol>
@@ -832,7 +832,20 @@ async function getMeshKey(btn) {
             if (d.ok && (d.key || d.join_cmd)) {
                 const code = d.key || '';
                 const cmd = d.join_cmd || '';
+                const joinUrl = d.join_url || '';
                 let html = '<div style="color:var(--text);font-weight:600;margin-bottom:6px;">Your join code (from this button — valid ~1h)</div>';
+                // #MESH2: QR encodes Cove-hosted /mesh-join helper (not a native Tailscale scheme).
+                if (d.qr_svg) {
+                    html += '<div style="margin:10px 0 8px;text-align:center;">'
+                        + '<div style="color:var(--dim);font-size:0.7rem;margin-bottom:6px;line-height:1.45;">Scan with your phone camera — opens a short join page with the coordinator + code</div>'
+                        + '<div style="display:inline-block;padding:10px;background:#fff;border-radius:10px;line-height:0;max-width:220px;">'
+                        + d.qr_svg
+                        + '</div></div>';
+                }
+                if (joinUrl) {
+                    html += '<div style="color:var(--dim);font-size:0.68rem;margin-bottom:6px;line-height:1.45;">Or open this on the phone: '
+                        + '<a href="' + ESC(joinUrl) + '" target="_blank" rel="noopener" style="color:var(--accent);word-break:break-all;">' + ESC(joinUrl) + '</a></div>';
+                }
                 if (code) {
                     html += '<div style="color:var(--dim);font-size:0.7rem;margin-bottom:4px;">Paste this into the Tailscale app on your phone when it asks to sign in / use an auth key:</div>'
                         + '<code style="display:block;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.85rem;color:var(--text);">'

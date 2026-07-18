@@ -602,10 +602,10 @@ async function loadSettingsDevices() {
             <button class="btn-sm" onclick="getDevicesMeshKey(this)">Get join code</button>
             <div id="devices-mesh-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>
             <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">
-                <strong>On a phone?</strong> Install the Tailscale app, tap the <strong>⋯ menu (top right)</strong> and choose
-                <em>“Use a custom coordination server”</em> and enter
+                <strong>On a phone?</strong> Tap <strong>Get join code</strong> and scan the QR with the phone camera (opens a short join page — not Nextcloud's login QR).
+                Or by hand: install Tailscale, <strong>⋯ menu → “Use a custom coordination server”</strong>, enter
                 <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code>,
-                sign in, and approve the device. If Tailscale is already signed in to another network, log out first (this is a separate tailnet).
+                then sign in with the join code. If Tailscale is already signed in to another network, log out first (this is a separate tailnet).
             </div>
         </div>` : '';
 
@@ -826,10 +826,29 @@ async function getDevicesMeshKey(btn) {
         const d = await r.json();
         if (out) {
             out.style.display = 'block';
-            if (d.ok && d.join_cmd) {
-                out.innerHTML = '<div style="color:var(--dim);margin-bottom:4px;">Run this on the device (valid ~1h):</div>'
-                    + '<code style="display:block;padding:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">'
-                    + ESC(d.join_cmd) + '</code>';
+            if (d.ok && (d.join_cmd || d.key || d.join_url)) {
+                let html = '';
+                if (d.qr_svg) {
+                    html += '<div style="margin:6px 0 10px;text-align:center;">'
+                        + '<div style="color:var(--dim);font-size:0.68rem;margin-bottom:6px;line-height:1.45;">Phone: scan with the camera (opens join page with coordinator + code)</div>'
+                        + '<div style="display:inline-block;padding:8px;background:#fff;border-radius:10px;line-height:0;max-width:200px;">'
+                        + d.qr_svg + '</div></div>';
+                }
+                if (d.join_url) {
+                    html += '<div style="color:var(--dim);font-size:0.68rem;margin-bottom:6px;line-height:1.45;">Phone link: '
+                        + '<a href="' + ESC(d.join_url) + '" target="_blank" rel="noopener" style="color:var(--accent);word-break:break-all;">' + ESC(d.join_url) + '</a></div>';
+                }
+                if (d.key) {
+                    html += '<div style="color:var(--dim);margin-bottom:4px;">Join code (valid ~1h):</div>'
+                        + '<code style="display:block;padding:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">'
+                        + ESC(d.key) + '</code>';
+                }
+                if (d.join_cmd) {
+                    html += '<div style="color:var(--dim);margin:8px 0 4px;">Laptop/server command:</div>'
+                        + '<code style="display:block;padding:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">'
+                        + ESC(d.join_cmd) + '</code>';
+                }
+                out.innerHTML = html;
             } else {
                 out.innerHTML = '<div style="color:var(--orange);">' + ESC(d.reason || 'Could not mint a join code here.') + '</div>'
                     + (d.instructions ? '<div style="color:var(--dim);margin-top:4px;">' + ESC(d.instructions) + '</div>' : '');

@@ -18,9 +18,78 @@ import os
 from src.env import env_bool
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from urllib.parse import quote, urlencode
 
 router = APIRouter()
+
+
+def _mesh_login_server(res: dict | None = None) -> str:
+    """Coordinator URL for person-facing join instructions."""
+    s = ""
+    if isinstance(res, dict):
+        s = (res.get("login_server") or "").strip()
+    if not s:
+        s = (os.environ.get("HEADSCALE_LOGIN_SERVER", "") or "").strip()
+    if not s:
+        try:
+            from provision.mesh import LOGIN_SERVER as _ls
+            s = (_ls or "").strip()
+        except Exception:
+            s = ""
+    return s or "https://headscale.lucidcove.org"
+
+
+def _cove_public_origin(request: Request) -> str:
+    """HTTPS apex origin for deep links (tunnel / claimed domain), else request base."""
+    try:
+        from src.config import load_cove_config
+        dom = (load_cove_config().get("domain") or "").strip().lstrip("*").lstrip(".").lower()
+    except Exception:
+        dom = ""
+    if dom:
+        return "https://" + dom.split("/")[0]
+    return str(request.base_url).rstrip("/")
+
+
+def _enrich_mesh_key_payload(res: dict, request: Request) -> dict:
+    """Add phone deep-link fields + optional QR SVG to a successful mesh-key dict.
+
+    #MESH2: QR encodes a Cove-hosted /mesh-join helper URL (NOT a native Tailscale
+    scheme). That page walks the phone through custom coordinator + auth key and
+    can attempt known deep-link schemes as a best-effort shortcut.
+    """
+    if not isinstance(res, dict) or not res.get("ok"):
+        return res
+    key = (res.get("key") or "").strip()
+    if not key and res.get("join_cmd"):
+        import re as _re
+        m = _re.search(r"--authkey\s+(\S+)", res.get("join_cmd") or "")
+        if m:
+            key = m.group(1)
+            res.setdefault("key", key)
+    login = _mesh_login_server(res)
+    res["login_server"] = login
+    if not key:
+        return res
+    origin = _cove_public_origin(request)
+    q = urlencode({"s": login, "k": key})
+    join_url = f"{origin}/mesh-join?{q}"
+    res["join_url"] = join_url
+    res["deep_links"] = {
+        "tailscale_authkey": (
+            f"tailscale://authkey?key={quote(key, safe='')}&loginServer={quote(login, safe='')}"
+        ),
+        "headscale_style": f"{login.rstrip('/')}/a/{quote(key, safe='')}",
+    }
+    try:
+        from src.dashboard.qr_svg import qr_svg
+        res["qr_svg"] = qr_svg(join_url, box_size=6, border=2)
+    except Exception as e:
+        res["qr_error"] = f"qr unavailable: {str(e)[:120]}"
+    return res
+
+
 
 
 def _is_public_app() -> bool:
@@ -869,7 +938,7 @@ async def mesh_join_key(request: Request):
         res = create_preauth_key(expiry="1h")
         if res.get("ok"):
             res.setdefault("cove_dir", _cove_dir)
-            return res
+            return _enrich_mesh_key_payload(res, request)
     except Exception:
         pass
     # 2) Fall back to the HUB mesh-key endpoint — the control plane mints it via the
@@ -901,6 +970,7 @@ async def mesh_join_key(request: Request):
                 _hub_res = json.loads(r.read().decode())
                 if isinstance(_hub_res, dict):
                     _hub_res.setdefault("cove_dir", _cove_dir)
+                    return _enrich_mesh_key_payload(_hub_res, request)
                 return _hub_res
         except Exception as e:
             return {"ok": False, "reason": f"hub mesh-key failed: {str(e)[:160]}",
@@ -909,3 +979,51 @@ async def mesh_join_key(request: Request):
             "reason": "no local mesh + no hub token configured",
             "instructions": "Set LP_REGISTRY_URL + LP_OPERATOR_TOKEN, or run on your mesh "
                             "coordinator: headscale preauthkeys create --user lucid --expiration 1h"}
+
+
+@router.get("/mesh-join", response_class=HTMLResponse)
+async def mesh_join_page(request: Request):
+    """#MESH2 - phone-facing helper for Tailscale + custom Headscale coordinator.
+
+    Reachable on the Cove apex (tunnel) so a QR scanned off-mesh still opens.
+    Query: s=login_server, k=preauth_key. Does not mint keys; only displays what
+    the QR already carried. Not a native Tailscale deep link - we host the walkthrough.
+    """
+    from html import escape as _esc
+    from pathlib import Path as _Path
+    qp = request.query_params
+    login = (qp.get("s") or qp.get("server") or "").strip() or _mesh_login_server()
+    key = (qp.get("k") or qp.get("key") or "").strip()
+    login_d = _esc(login)
+    key_d = _esc(key) if key else ""
+    deep = ""
+    if key:
+        deep = f"tailscale://authkey?key={quote(key, safe='')}&loginServer={quote(login, safe='')}"
+    deep_attr = _esc(deep) if deep else ""
+    open_btn = (
+        f'<a class="btn" href="{deep_attr}">Try opening Tailscale with this key</a>'
+        if deep else ""
+    )
+    if key:
+        key_block = (
+            '<div class="label">Join code</div>'
+            f'<code id="join-key">{key_d}</code>'
+            '<button class="ghost" type="button" onclick="copyKey()">Copy join code</button>'
+        )
+    else:
+        key_block = (
+            '<div class="warn">This link is missing a join code. Open Connect on a signed-in '
+            'Cove device and scan a fresh QR (codes last about an hour).</div>'
+        )
+    tpl_path = _Path(__file__).resolve().parents[1] / "static" / "mesh-join.html"
+    try:
+        body = tpl_path.read_text(encoding="utf-8")
+    except Exception:
+        body = "<html><body><h1>mesh-join template missing</h1></body></html>"
+    body = (
+        body.replace("__LOGIN__", login_d)
+            .replace("__KEY_BLOCK__", key_block)
+            .replace("__OPEN_BTN__", open_btn)
+    )
+    return HTMLResponse(content=body)
+
