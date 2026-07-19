@@ -143,7 +143,7 @@ async function loadHomeApprovals() {
     try {
         // First-run onboarding cards live here too — they sit until done, the same
         // way agent-activity approvals do.
-        // #D18: Also fetch recent approvals to show PR review cards for create_github_pr results
+        // #D18/#SHIP1: recent approvals → PR cards for create_github_pr and ship_branch
         const [obData, data, watchData, recentData] = await Promise.all([
             fetch('/api/onboarding/items').then(r => r.json()).catch(() => ({ items: [] })),
             fetch('/api/bridge/approvals').then(r => r.json()).catch(() => ({ approvals: [] })),
@@ -209,9 +209,11 @@ async function loadHomeApprovals() {
                 </div>`;
             }
 
-            return `<div class="home-approval">
-                <div class="approval-tool">${ESC(a.tool_name)}</div>
-                <div class="approval-desc">${ESC(a.description || '').substring(0, 120)}</div>
+            const isShip = a.tool_name === 'ship_branch';
+            const shipTitle = (a.args && a.args.title) ? a.args.title : '';
+            return `<div class="home-approval${isShip ? ' ship-approval' : ''}">
+                <div class="approval-tool">${isShip ? 'Ship — push & open PR' : ESC(a.tool_name)}</div>
+                <div class="approval-desc">${ESC(isShip && shipTitle ? shipTitle : (a.description || '')).substring(0, 160)}</div>
                 <div class="approval-actions">
                     <button class="btn-approve" onclick="respondApproval('${ESC(a.request_id)}', true, this)">Approve</button>
                     <button class="btn-deny" onclick="respondApproval('${ESC(a.request_id)}', false, this)">Deny</button>
@@ -1750,10 +1752,10 @@ async function loadSiteDiff(repo, branch, containerId) {
 
 // #D18: PR Review Card helpers
 function _buildPRCards(recentApprovals) {
-    // Build PR review cards from recent create_github_pr approvals.
+    // Build PR review cards from recent create_github_pr / ship_branch approvals.
     const cards = [];
     for (const a of recentApprovals) {
-        if (a.tool_name !== 'create_github_pr' || a.status !== 'approved') continue;
+        if ((a.tool_name !== 'create_github_pr' && a.tool_name !== 'ship_branch') || a.status !== 'approved') continue;
         if (!a.result) continue;
         
         // Try to parse the JSON result

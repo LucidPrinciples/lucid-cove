@@ -6,7 +6,7 @@ Tier assignments:
             check_syntax, db_query
   NOTIFY  — git_add, git_commit, git_create_branch, git_revert_file
   APPROVE — git_push, git_force_push, git_delete_branch, db_execute,
-            create_github_pr
+            create_github_pr, ship_branch
 """
 
 import asyncio
@@ -327,7 +327,8 @@ async def git_revert_file(project: str, path: str, to_branch: str = "main") -> s
 async def git_push(project: str, branch: str = "") -> str:
     """Push branch to remote. Requires approval.
 
-    Git workflow order: git_add → git_commit → git_push → create_github_pr
+    Git workflow order: git_add → git_commit → ship_branch (preferred)
+    or git_push → create_github_pr for edge cases.
 
     Args:
         project: Project name or path
@@ -455,7 +456,8 @@ async def create_github_pr(project: str, title: str, body: str = "",
     execution for days (unescaped title/body shell-split; and gh isn't in the
     container image) while the approval card showed green — the LOOP-1 ghost.
 
-    Git workflow order: git_add → git_commit → git_push → create_github_pr
+    Git workflow order: prefer ship_branch (push+PR, one approval).
+    Use this alone only when the branch is already on origin.
 
     Args:
         project: Project name or path
@@ -560,6 +562,117 @@ async def create_github_pr(project: str, title: str, body: str = "",
         return f"Error: PR request failed to send: {e}"
 
 
+@approve
+@tool
+async def ship_branch(project: str, title: str, body: str = "",
+                      base: str = "main", branch: str = "") -> str:
+    """Push the feature branch and open a GitHub PR in one approval.
+
+    #SHIP1 preferred ship path: one operator Approve → branch on origin + PR
+    review card (structured JSON with pr_url). Does not merge or deploy —
+    operator merges on GitHub, then deploys founders/Clearfield as usual.
+
+    Prefer this over separate git_push + create_github_pr during active builds
+    so the operator is not the message bus between two gates.
+
+    Args:
+        project: Project name or path
+        title: PR title
+        body: PR description/body
+        base: Base branch (default: main)
+        branch: Branch to ship (default: current checked-out branch)
+    """
+    import json
+
+    repo = _resolve_repo(project)
+    current = (await _run_git("branch --show-current", repo)).strip()
+    if not current or current.startswith("Error"):
+        return f"Error: could not determine current branch in {repo}: {current}"
+    if branch and branch.strip() and branch.strip() != current:
+        return (
+            f"REFUSED: ship_branch runs on the checked-out branch ({current}). "
+            f"Checkout {branch.strip()} first, or omit branch."
+        )
+    if current in ("main", "master"):
+        return "REFUSED: you are on main — ship from your feature branch."
+
+    push_result = await git_push.coroutine(project, "")
+    push_ok_already = isinstance(push_result, str) and "No unpushed commits" in push_result
+    push_failed = (
+        isinstance(push_result, str)
+        and not push_ok_already
+        and (
+            push_result.startswith("REFUSED:")
+            or push_result.startswith("FAILED:")
+            or push_result.startswith("Error")
+            or push_result.startswith("Error:")
+        )
+    )
+    if push_failed:
+        return push_result
+
+    pr_result = await create_github_pr.coroutine(project, title, body, base)
+
+    # Enrich successful JSON for the #D18 card + operator clarity
+    if isinstance(pr_result, str) and pr_result.lstrip().startswith("{"):
+        try:
+            data = json.loads(pr_result)
+            if data.get("status") == "created":
+                data["pushed"] = not push_ok_already
+                data["already_on_origin"] = bool(push_ok_already)
+                data["message"] = (
+                    f"SHIPPED: PR #{data.get('pr_number')} {data.get('pr_url')}\n"
+                    f"'{data.get('title')}' ({data.get('branch')} -> {data.get('base')}). "
+                    f"One approval — merge on GitHub, then deploy."
+                )
+                return json.dumps(data, indent=2)
+        except json.JSONDecodeError:
+            pass
+
+    # Already-open PR: resolve URL so the card still gets a link (no hunt)
+    if isinstance(pr_result, str) and "already exists" in pr_result.lower():
+        rt = _github_repo_and_token(repo)
+        if rt:
+            slug, token = rt
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=30) as client:
+                    resp = await client.get(
+                        f"https://api.github.com/repos/{slug}/pulls",
+                        headers={
+                            "Authorization": f"Bearer {token}",
+                            "Accept": "application/vnd.github+json",
+                        },
+                        params={"state": "open", "head": f"{slug.split('/')[0]}:{current}", "base": base},
+                    )
+                    if resp.status_code == 200:
+                        prs = resp.json() or []
+                        if prs:
+                            pr = prs[0]
+                            return json.dumps({
+                                "status": "created",
+                                "pr_number": pr.get("number"),
+                                "pr_url": pr.get("html_url"),
+                                "title": pr.get("title") or title,
+                                "branch": current,
+                                "base": base,
+                                "repo": slug,
+                                "additions": 0,
+                                "deletions": 0,
+                                "already_existed": True,
+                                "pushed": not push_ok_already,
+                                "message": (
+                                    f"SHIPPED: existing PR #{pr.get('number')} {pr.get('html_url')}\n"
+                                    f"(branch already had an open PR; push step ok)."
+                                ),
+                            }, indent=2)
+            except Exception:
+                pass
+        return pr_result
+
+    return pr_result
+
+
 # =============================================================================
 # Testing
 # =============================================================================
@@ -657,7 +770,7 @@ ALL_DEV_TOOLS = [
     # Git write
     git_create_branch, git_add, git_commit, git_revert_file,
     # Git dangerous
-    git_push, git_delete_branch, create_github_pr,
+    git_push, git_delete_branch, create_github_pr, ship_branch,
     # Testing
     run_tests, check_syntax,
     # Database
