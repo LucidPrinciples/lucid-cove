@@ -630,10 +630,11 @@ function _onboardingCardHtml(item) {
             <div style="margin-top:12px;padding:10px 12px;background:var(--card,#111);border:1px solid var(--border);border-radius:8px;font-size:0.74rem;line-height:1.65;color:var(--dim);">
                 <div style="color:var(--text);font-weight:600;margin-bottom:6px;">On your phone</div>
                 <ol style="margin:0;padding-left:1.15rem;">
-                    <li>Install the <strong style="color:var(--text);">Tailscale</strong> app.</li>
-                    <li><strong style="color:var(--text);">Fast path:</strong> tap <b>Get a join code</b> below and scan the QR with the phone camera — it opens a short page with the coordinator + code (not the Nextcloud login QR).</li>
-                    <li>Or by hand: ⋯ menu (top right) → <em>Use a custom coordination server</em> → enter
-                        <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code>, then sign in with the join code.</li>
+                    <li><strong style="color:var(--text);">Install Tailscale on the phone first</strong> (App Store / Play Store). Log out of any other Tailscale network — this is a separate one. Scanning a QR does <em>not</em> install the app.</li>
+                    <li>On this computer, tap <b>Get a join code</b> below.</li>
+                    <li>With Tailscale installed, scan the QR (opens a short join page with coordinator + code — not the Nextcloud login QR), or open the join link on the phone.</li>
+                    <li>In Tailscale: ⋯ → <em>Use a custom coordination server</em> →
+                        <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code>, then sign in with the join code (or follow the steps on the join page).</li>
                     <li>Open your Cove at your live address and sign in as you (identity).</li>
                     <li>Add <strong style="color:var(--text);">jules</strong> to your home screen.</li>
                 </ol>
@@ -899,7 +900,7 @@ async function getMeshKey(btn) {
                 // #MESH2: QR encodes Cove-hosted /mesh-join helper (not a native Tailscale scheme).
                 if (d.qr_svg) {
                     html += '<div style="margin:10px 0 8px;text-align:center;">'
-                        + '<div style="color:var(--dim);font-size:0.7rem;margin-bottom:6px;line-height:1.45;">Scan with your phone camera — opens a short join page with the coordinator + code</div>'
+                        + '<div style="color:var(--dim);font-size:0.7rem;margin-bottom:6px;line-height:1.45;"><strong>Install Tailscale on the phone first</strong>, then scan — opens the join page (coordinator + code). Scan alone does not install the app.</div>'
                         + '<div style="display:inline-block;padding:10px;background:#fff;border-radius:10px;line-height:0;max-width:220px;">'
                         + d.qr_svg
                         + '</div></div>';

@@ -601,7 +601,10 @@ async function loadSettingsDevices() {
             <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Put a new phone or computer on the mesh so it can open your personal space (<code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">{handle}.…</code> is mesh-only even when the Cove has a public address).</div>
 
             <div style="font-size:0.72rem;font-weight:600;color:var(--text);margin:8px 0 4px;">Phone — QR / join code</div>
-            <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.45;">Tap <strong>Get join code</strong> and scan the QR with the phone camera (opens a short join page — not Nextcloud's login QR). Or install Tailscale, <strong>⋯ → “Use a custom coordination server”</strong>, enter <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code>, then sign in with the code.</div>
+            <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.45;"><strong>1.</strong> On the phone, install the free <strong>Tailscale</strong> app (App Store / Play Store). Log out of any other Tailscale network first — this is a separate one.<br>
+            <strong>2.</strong> On this computer, tap <strong>Get join code</strong> below.<br>
+            <strong>3.</strong> With Tailscale already installed, scan the QR (opens a short join page — not Nextcloud's login QR) <em>or</em> open the join link on the phone.<br>
+            <strong>4.</strong> In Tailscale: <strong>⋯ → “Use a custom coordination server”</strong> → <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code> → sign in with the join code. Scanning alone does not install the app.</div>
             <button class="btn-sm" onclick="getDevicesMeshKey(this)">Get join code</button>
             <div id="devices-mesh-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>
 
@@ -819,7 +822,7 @@ async function getDevicesMeshKey(btn) {
                 let html = '';
                 if (d.qr_svg) {
                     html += '<div style="margin:6px 0 10px;text-align:center;">'
-                        + '<div style="color:var(--dim);font-size:0.68rem;margin-bottom:6px;line-height:1.45;">Phone: scan with the camera (opens join page with coordinator + code)</div>'
+                        + '<div style="color:var(--dim);font-size:0.68rem;margin-bottom:6px;line-height:1.45;"><strong>Install Tailscale on the phone first</strong>, then scan — opens the join page (coordinator + code). Scan alone does not install the app.</div>'
                         + '<div style="display:inline-block;padding:8px;background:#fff;border-radius:10px;line-height:0;max-width:200px;">'
                         + d.qr_svg + '</div></div>';
                 }

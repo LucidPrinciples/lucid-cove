@@ -1073,8 +1073,11 @@ async def mesh_join_page(request: Request):
     if key:
         deep = f"tailscale://authkey?key={quote(key, safe='')}&loginServer={quote(login, safe='')}"
     deep_attr = _esc(deep) if deep else ""
+    # Deep link is best-effort only — iOS often ignores custom loginServer.
+    # Primary path is install → custom coordinator → paste join code (mesh-join.html).
     open_btn = (
-        f'<a class="btn" href="{deep_attr}">Try opening Tailscale with this key</a>'
+        f'<p class="foot" style="margin:12px 0 4px;">Optional shortcut (often does nothing on iPhone — use steps 1–3 above if so):</p>'
+        f'<a class="ghost" href="{deep_attr}" style="display:inline-block;text-decoration:none;">Try opening Tailscale with this key</a>'
         if deep else ""
     )
     if key:

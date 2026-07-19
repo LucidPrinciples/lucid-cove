@@ -66,3 +66,7 @@ async def test_mesh_join_page_renders_key():
     assert "tskey-auth-abc" in body
     assert "headscale.lucidcove.org" in body
     assert "Connect this phone" in body
+    # Install-first UX (#MESH4 follow-up): scan alone must not be the lead path
+    assert "Install Tailscale first" in body
+    assert "App Store" in body or "apps.apple.com" in body
+    assert "does not install the app" in body
