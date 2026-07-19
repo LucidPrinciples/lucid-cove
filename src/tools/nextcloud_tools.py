@@ -805,13 +805,13 @@ async def nextcloud_move(src: str, dest: str, overwrite: bool = False) -> str:
         return denied_dest
     await _ensure_own_team_workspace(dest)
 
-    src_url = _webdav_url(src)
-    dest_url = _webdav_url(dest)
     # Destination header must be an absolute URI for WebDAV MOVE
-    headers = {
-        "Destination": dest_url,
-        "Overwrite": "T" if overwrite else "F",
-    }
+    def _move_headers(dest_path: str) -> dict:
+        return {
+            "Destination": _webdav_url(dest_path),
+            "Overwrite": "T" if overwrite else "F",
+        }
+
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
             # Ensure parent of dest exists when moving into a subfolder
@@ -825,14 +825,38 @@ async def nextcloud_move(src: str, dest: str, overwrite: bool = False) -> str:
                     # Parent may already exist as a non-collection; still try MOVE
                     pass
 
-            resp = await client.request("MOVE", src_url, headers=headers)
+            src_used = src
+            dest_used = dest
+            resp = await client.request(
+                "MOVE", _webdav_url(src_used), headers=_move_headers(dest_used)
+            )
+            # macOS screenshot names embed U+202F (narrow no-break space) before
+            # AM/PM. Models retype a normal space → 404. Same sibling resolver
+            # read/download already use — apply on MOVE so archive works for all agents.
+            if resp.status_code == 404:
+                alt_src = await _find_sibling_by_ws(src_used)
+                if alt_src:
+                    src_used = alt_src
+                    # Keep dest basename aligned when the only mismatch is ws
+                    sp = (src or "").rstrip("/")
+                    s_parent, _, s_base = sp.rpartition("/")
+                    dp = (dest or "").rstrip("/")
+                    d_parent, _, d_base = dp.rpartition("/")
+                    real_base = alt_src.rstrip("/").rsplit("/", 1)[-1]
+                    if d_base and _norm_ws(d_base) == _norm_ws(s_base):
+                        dest_used = f"{d_parent}/{real_base}" if d_parent else real_base
+                    resp = await client.request(
+                        "MOVE",
+                        _webdav_url(src_used),
+                        headers=_move_headers(dest_used),
+                    )
             if resp.status_code == 412 and not overwrite:
                 return (
-                    f"Destination already exists: {dest}. "
+                    f"Destination already exists: {dest_used}. "
                     "Pass overwrite=True to replace, or choose a new name."
                 )
             if resp.status_code in (201, 204):
-                return f"Moved: {src} → {dest}"
+                return f"Moved: {src_used} → {dest_used}"
             if resp.status_code == 404:
                 return f"Source not found: {src}"
             return (
@@ -857,12 +881,18 @@ async def nextcloud_delete(path: str) -> str:
     denied = check_nc_path_access(path, write=True)
     if denied:
         return denied
-    url = _webdav_url(path)
     try:
         async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
-            resp = await client.delete(url)
+            path_used = path
+            resp = await client.delete(_webdav_url(path_used))
+            # Same macOS U+202F screenshot-name miss as read/move
+            if resp.status_code == 404:
+                alt = await _find_sibling_by_ws(path_used)
+                if alt:
+                    path_used = alt
+                    resp = await client.delete(_webdav_url(path_used))
         if resp.status_code in (200, 204):
-            return f"Deleted: {path}"
+            return f"Deleted: {path_used}"
         if resp.status_code == 404:
             return f"Not found: {path}"
         return (
