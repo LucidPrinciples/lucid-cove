@@ -3,50 +3,65 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Connect this phone - Lucid Cove</title>
+<title>Connect this device - Lucid Cove</title>
 <style>
-  :root { color-scheme: dark; --bg:#0b0b10; --card:#14141c; --text:#e8e8ef; --dim:#9a9ab0; --accent:#7c5cff; --border:#2a2a38; }
+  :root { color-scheme: dark; --bg:#0b0b10; --card:#14141c; --text:#e8e8ef; --dim:#9a9ab0; --accent:#7c5cff; --border:#2a2a38; --warn:#e67e22; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); line-height:1.55; }
-  main { max-width:420px; margin:0 auto; padding:24px 18px 48px; }
+  main { max-width:440px; margin:0 auto; padding:24px 18px 48px; }
   h1 { font-size:1.25rem; margin:0 0 8px; font-weight:650; }
   p { color:var(--dim); font-size:0.92rem; margin:0 0 14px; }
   .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 14px 12px; margin:14px 0; }
   ol { margin:0; padding-left:1.2rem; color:var(--dim); font-size:0.9rem; }
   li { margin:8px 0; }
-  code { display:block; margin:8px 0; padding:10px; background:#0a0a10; border:1px solid var(--border); border-radius:8px; word-break:break-all; font-size:0.82rem; color:var(--text); }
+  code { display:inline; padding:2px 6px; background:#0a0a10; border:1px solid var(--border); border-radius:6px; word-break:break-all; font-size:0.82rem; color:var(--text); }
+  code.block { display:block; margin:8px 0; padding:10px; }
   .label { font-size:0.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); font-weight:600; }
-  .btn { display:inline-block; margin-top:10px; padding:10px 14px; background:var(--accent); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:0.9rem; border:0; }
+  .btn { display:inline-block; margin-top:10px; padding:10px 14px; background:var(--accent); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:0.9rem; border:0; cursor:pointer; }
   .store { display:inline-block; margin:6px 8px 6px 0; padding:10px 14px; background:var(--accent); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:0.88rem; }
   .ghost { margin-top:8px; padding:8px 12px; background:transparent; color:var(--accent); border:1px solid var(--border); border-radius:8px; font-size:0.82rem; cursor:pointer; }
-  .warn { color:#e67e22; font-size:0.88rem; }
+  .warn { color:var(--warn); font-size:0.88rem; }
+  .callout { border-left:3px solid var(--warn); padding:8px 10px; margin:10px 0; background:#1a1408; border-radius:0 8px 8px 0; color:var(--dim); font-size:0.86rem; }
   .foot { margin-top:18px; font-size:0.75rem; color:var(--dim); }
   strong { color:var(--text); }
 </style>
 </head>
 <body>
 <main>
-  <h1>Connect this phone</h1>
-  <p><strong>Install Tailscale first</strong>, then use the coordinator and join code below. Scanning the QR only opens this helper page — it does not install the app or join the mesh by itself.</p>
+  <h1>Connect this device</h1>
+  <p>This page only holds your <strong>coordinator</strong> and <strong>join code</strong>. It does not install Tailscale or finish mesh join by itself. Do the steps in order.</p>
 
   <div class="card">
-    <div class="label">Step 1 — Install Tailscale</div>
-    <p style="margin:8px 0 10px;">You need the free Tailscale app. This is a separate private network for your Cove (not “log into Lucid Cove” in the browser alone).</p>
-    <a class="store" href="https://apps.apple.com/app/tailscale/id1470499037" target="_blank" rel="noopener">App Store (iPhone)</a>
+    <div class="label">Before you start</div>
+    <ol>
+      <li>On a device <strong>already signed into your Cove</strong> (not this new phone/Mac), open Settings → Devices and tap <strong>Get join code</strong> (or open this page from that QR). You need that signed-in session to mint the code.</li>
+      <li>Keep this page (or the join code) handy on the <em>new</em> device after install.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <div class="label">Step 1 — Install Tailscale on <em>this</em> device</div>
+    <p style="margin:8px 0 10px;">Free Tailscale app. This is a separate private network for your Cove — not “log into Lucid Cove” in the browser alone, and <strong>not</strong> your Apple / Google / Microsoft account as the mesh login.</p>
+    <a class="store" href="https://apps.apple.com/app/tailscale/id1470499037" target="_blank" rel="noopener">App Store (iPhone / iPad)</a>
     <a class="store" href="https://play.google.com/store/apps/details?id=com.tailscale.ipn" target="_blank" rel="noopener">Play Store (Android)</a>
-    <p class="foot" style="margin:10px 0 0;">Already on another Tailscale network? Log out of that one first — this is a separate network.</p>
+    <a class="store" href="https://tailscale.com/download/mac" target="_blank" rel="noopener">Mac download</a>
+    <p class="foot" style="margin:10px 0 0;">Already on another Tailscale network? <strong>Log out</strong> of that one first — Cove uses a separate network.</p>
   </div>
 
   <div class="card">
-    <div class="label">Step 2 — Point Tailscale at your Cove coordinator</div>
-    <p style="margin:8px 0 6px;">In the Tailscale app: account / ⋯ menu → <em>Use a custom coordination server</em> (wording varies: <em>Use an alternate server</em>). Enter exactly:</p>
-    <code id="login-server">__LOGIN__</code>
+    <div class="label">Step 2 — Alternate / custom server <em>before</em> any login</div>
+    <p style="margin:8px 0 8px;">If you tap plain <strong>Log in</strong> first, Tailscale opens the default public network (Apple ID, Google, Microsoft, “IPN Extension”, etc.). <strong>Your Mac or iCloud password will not work</strong> for the Cove mesh. Stop and set the server first.</p>
+    <div class="callout"><strong>Do not</strong> sign in with Apple, Google, Microsoft, or your computer password. Those are for Tailscale’s public product. Cove uses the coordinator below plus a one-time join code.</div>
+    <p style="margin:8px 0 6px;"><strong>iPhone / iPad:</strong> Open Tailscale → account / ⋯ menu → <em>Use a custom coordination server</em> or <em>Use an alternate server</em> → paste:</p>
+    <code class="block" id="login-server">__LOGIN__</code>
+    <p style="margin:8px 0 6px;"><strong>Mac:</strong> Open Tailscale → menu bar icon → plain <em>Log in…</em> is wrong if it jumps straight to Apple/Google. Prefer: <strong>Add account</strong> → small <strong>▾ / arrow</strong> next to the button → <em>Add Account Using Alternate Server</em> (wording varies) → enter the same coordinator (with or without <code>https://</code> as the field allows) → continue. Only after the alternate server is set should a sign-in / auth-key step appear.</p>
+    <p style="margin:8px 0 0;"><strong>Android:</strong> Same idea — custom / alternate coordination server before default log in.</p>
   </div>
 
   <div class="card">
-    <div class="label">Step 3 — Sign in with this join code</div>
+    <div class="label">Step 3 — Sign in with this join code only</div>
     __KEY_BLOCK__
-    <p style="margin:10px 0 0;">Paste or type the join code when Tailscale asks you to sign in / use an auth key. Leave MagicDNS / accept DNS on when asked.</p>
+    <p style="margin:10px 0 0;">When Tailscale asks you to authenticate, use this <strong>join code</strong> (auth key) — paste it where it asks for a key / code. Leave MagicDNS / accept DNS on when asked. If you only see Apple/Google and no way to enter a key, go back to Step 2: the alternate server was not set.</p>
     __OPEN_BTN__
   </div>
 
@@ -55,8 +70,8 @@
     __COVE_BLOCK__
     <ol>
       <li>Tailscale must show <strong>Connected</strong> first — the Cove address is private mesh-only.</li>
-      <li>Then open the Cove (button above when present, or the sign-in link from Settings → Devices).</li>
-      <li>Sign in as you. Your personal Mission Control needs the mesh.</li>
+      <li>Then open the Cove (button above when present, or the sign-in link from Settings → Devices on a device that is already in).</li>
+      <li>Sign in as you. Your personal Mission Control needs the mesh even when the public Cove door does not.</li>
     </ol>
   </div>
 
@@ -75,13 +90,13 @@
     <div class="label">Name this device (#MESH-NAME)</div>
     <p style="margin:0">Junk names like <strong>localhost-…</strong> or <strong>invalid-…</strong> make family device lists hard to read. Before or right after joining:</p>
     <ol>
-      <li>Give the phone a clear name in system settings (e.g. <em>jade-iphone</em>) when the OS allows it — Tailscale often picks that up on join.</li>
+      <li>Give the device a clear name in system settings (e.g. <em>jade-iphone</em> or <em>beatrice-imac</em>) when the OS allows it — Tailscale often picks that up on join.</li>
       <li>On a computer already on the mesh you can rename later:
-        <code>tailscale set --hostname your-device-name</code>
+        <code class="block">tailscale set --hostname your-device-name</code>
       </li>
     </ol>
   </div>
-  <p class="foot">Join codes are single-use and expire in about an hour. Generate a new QR from your Cove if this one is stale. After join, give chat a minute if names are still catching up (relay before direct is normal).</p>
+  <p class="foot">Join codes are single-use and expire in about an hour. Generate a new QR from a signed-in Cove session if this one is stale. After join, give chat a minute if names are still catching up (relay before direct is normal).</p>
 </main>
 <script>
 function copyKey() {

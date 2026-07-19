@@ -95,11 +95,13 @@ async def test_mesh_join_page_renders_key():
     assert resp.status_code == 200
     assert "tskey-auth-abc" in body
     assert "headscale.lucidcove.org" in body
-    assert "Connect this phone" in body
+    assert "Connect this device" in body or "Connect this phone" in body
     # Install-first UX (#MESH4 follow-up): scan alone must not be the lead path
-    assert "Install Tailscale first" in body
+    assert "Install Tailscale" in body
     assert "App Store" in body or "apps.apple.com" in body
-    assert "does not install the app" in body
+    assert "does not install" in body
+    assert "Alternate" in body or "alternate" in body
+    assert "Apple" in body
     # #MESH5: post-join Cove open only after Connected
     assert "ridgedale.lucidcove.org" in body
     assert "Open your Cove" in body
