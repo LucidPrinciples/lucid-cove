@@ -1075,8 +1075,9 @@ async def agent_node(state: ChannelState) -> dict:
         input_mode_note = (
             "\n\n## Input Mode: Voice\n"
             "The operator is using voice-to-voice mode. They are speaking and hearing your response read aloud. "
-            "Keep responses concise and conversational — short sentences, natural phrasing. "
-            "Avoid lists, code blocks, and formatting that doesn't translate to speech.\n"
+            "Keep responses concise and conversational — prefer 2–5 short sentences, natural phrasing. "
+            "Avoid lists, code blocks, markdown, and formatting that doesn't translate to speech. "
+            "If something needs detail, give the spoken summary and say the full text is on screen.\n"
         )
     elif input_mode == "dictate":
         input_mode_note = (

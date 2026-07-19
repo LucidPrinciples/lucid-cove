@@ -114,27 +114,64 @@ function ttsStopPlayback() {
 }
 
 // ── Chunked TTS — split into sentences, pipeline fetch + playback ────────────
-// Sentences are sent to /api/tts in parallel. Audio buffers play sequentially
-// so the user hears sentence 1 while sentences 2-N are still synthesizing.
+// Prefetch is BOUNDED (not all-at-once). Full-parallel fetch stampeded single-
+// threaded Piper and dropped middle sentences (timeout → null → skip). Lookahead
+// of 1 keeps sentence N+1 synthesizing while N plays without thrashing the host.
 // Each chunk has a hard timeout — a hung voice host must never pin the chat UI
 // on Stop / "speaking" (parents + mesh path). Fail open: keep the text reply.
 
 const TTS_CHUNK_TIMEOUT_MS = 15000;   // hard cap per sentence fetch
 const TTS_PLAY_TIMEOUT_MS = 60000;    // safety cap for a single buffer's playback
+const TTS_PREFETCH = 1;               // synthesize this many sentences ahead of play
+const TTS_MAX_CHARS = 900;            // hard cap spoken text (rest stays on screen)
+const TTS_MAX_SENTENCES = 8;          // don't queue endless TTS for long replies
 
-let ttsQueue = [];       // array of Promises that resolve to AudioBuffer
+let ttsQueue = [];       // array of Promises that resolve to AudioBuffer (sparse)
 let ttsPlaying = false;  // true while audio chain is playing
 let ttsCancelled = false;
 let ttsAbort = null;     // AbortController — cancels pending TTS fetches on stop
 let ttsLastError = '';   // last fail reason for UI ('timeout' | 'unreachable' | 'empty' | '')
 
+/** Strip markdown / chat chrome so Piper doesn't read asterisks and list markers. */
+function prepareSpeakText(text) {
+    if (!text) return '';
+    let t = String(text);
+    // Fenced code → short spoken stub (don't dump source)
+    t = t.replace(/```[\s\S]*?```/g, ' Code block. ');
+    t = t.replace(/`([^`]+)`/g, '$1');
+    // Links: keep label
+    t = t.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    // Headings / bold / italic markers
+    t = t.replace(/^#{1,6}\s+/gm, '');
+    t = t.replace(/(\*\*|__)(.*?)\1/g, '$2');
+    t = t.replace(/(\*|_)(.*?)\1/g, '$2');
+    // List bullets
+    t = t.replace(/^\s*[-*+]\s+/gm, '');
+    t = t.replace(/^\s*\d+\.\s+/gm, '');
+    // Collapse whitespace
+    t = t.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+    t = t.replace(/[ \t]{2,}/g, ' ').trim();
+    if (t.length > TTS_MAX_CHARS) {
+        // Cut on a sentence boundary when we can
+        let cut = t.slice(0, TTS_MAX_CHARS);
+        const m = cut.match(/^[\s\S]*[.!?](?=\s|$)/);
+        if (m && m[0].length > 40) cut = m[0];
+        t = cut.trim();
+    }
+    return t;
+}
+
 function splitSentences(text) {
-    // Split on sentence-ending punctuation followed by space or end
-    // Keep short fragments together (under 20 chars) with the previous sentence
-    const raw = text.match(/[^.!?\n]+[.!?\n]+[\s]?|[^.!?\n]+$/g) || [text];
+    // Split on sentence-ending punctuation or paragraph breaks.
+    // Keep short fragments together (under 20 chars) with the previous sentence.
+    // Also merge when a chunk would leave a tiny orphan after abbreviations is hard;
+    // we only coalesce very short tails.
+    const cleaned = prepareSpeakText(text);
+    if (!cleaned) return [];
+    const raw = cleaned.match(/[^.!?\n]+[.!?]+[\s]*|[^.!?\n]+(?:\n+|$)/g) || [cleaned];
     const merged = [];
     for (const chunk of raw) {
-        const trimmed = chunk.trim();
+        const trimmed = chunk.replace(/\s+/g, ' ').trim();
         if (!trimmed) continue;
         if (merged.length > 0 && trimmed.length < 20) {
             merged[merged.length - 1] += ' ' + trimmed;
@@ -142,7 +179,11 @@ function splitSentences(text) {
             merged.push(trimmed);
         }
     }
-    return merged.length > 0 ? merged : [text];
+    if (merged.length === 0) return cleaned ? [cleaned] : [];
+    if (merged.length > TTS_MAX_SENTENCES) {
+        return merged.slice(0, TTS_MAX_SENTENCES);
+    }
+    return merged;
 }
 
 function fetchTTSChunk(text) {
@@ -198,7 +239,8 @@ function fetchTTSChunk(text) {
         }
         const arrayBuffer = await res.arrayBuffer();
         const ctx = ensureTTSAudioCtx();
-        return await ctx.decodeAudioData(arrayBuffer);
+        // slice(): some browsers detach the buffer during decode under load
+        return await ctx.decodeAudioData(arrayBuffer.slice(0));
     }
 
     // Try proxy first; on network/5xx fall through to direct voice host once.
@@ -245,16 +287,36 @@ function playTTS(text) {
 
         const sentences = splitSentences(text);
         let playedAny = false;
+        let skippedMiddle = 0;
 
-        // Fire ALL TTS requests immediately (parallel fetch, each with its own timeout)
-        ttsQueue = sentences.map(s => fetchTTSChunk(s));
+        // Bounded pipeline: start only the first chunk + TTS_PREFETCH ahead.
+        // Kick further chunks as play advances so Piper is never stampeded.
+        ttsQueue = new Array(sentences.length);
+        function ensureFetch(idx) {
+            if (idx < 0 || idx >= sentences.length) return;
+            if (ttsCancelled) return;
+            if (!ttsQueue[idx]) {
+                ttsQueue[idx] = fetchTTSChunk(sentences[idx]);
+            }
+        }
+        for (let j = 0; j <= TTS_PREFETCH && j < sentences.length; j++) {
+            ensureFetch(j);
+        }
 
         // Play sequentially as each resolves in order
-        for (let i = 0; i < ttsQueue.length; i++) {
+        for (let i = 0; i < sentences.length; i++) {
             if (ttsCancelled) break;
 
+            // Prefetch upcoming sentence(s) while this one is awaited/played
+            ensureFetch(i);
+            ensureFetch(i + 1);
+            for (let k = 2; k <= TTS_PREFETCH + 1; k++) ensureFetch(i + k);
+
             const audioBuffer = await ttsQueue[i];
-            if (!audioBuffer || ttsCancelled) continue;
+            if (!audioBuffer || ttsCancelled) {
+                if (!audioBuffer && !ttsCancelled) skippedMiddle += 1;
+                continue;
+            }
 
             playedAny = true;
             // Play this chunk; hard-cap playback so a stuck AudioContext can't pin UI
@@ -289,14 +351,19 @@ function playTTS(text) {
         // Capture before stop — ttsStopPlayback sets ttsCancelled and resolves waiters.
         ttsStopPlayback();
 
-        // Fail open: text already on screen. One quiet system line if nothing played.
-        if (!playedAny && !wasCancelled && err && typeof addSystemMessage === 'function') {
-            if (err === 'timeout') {
-                addSystemMessage('Voice timed out — reply is on screen.');
-            } else if (err === 'unreachable') {
-                addSystemMessage('Voice unavailable — reply is on screen.');
-            } else {
-                addSystemMessage('Could not speak that reply — text is on screen.');
+        // Fail open: text already on screen. One quiet system line if nothing played
+        // or if middle chunks dropped (partial speak is still useful — note once).
+        if (!wasCancelled && typeof addSystemMessage === 'function') {
+            if (!playedAny && err) {
+                if (err === 'timeout') {
+                    addSystemMessage('Voice timed out — reply is on screen.');
+                } else if (err === 'unreachable') {
+                    addSystemMessage('Voice unavailable — reply is on screen.');
+                } else {
+                    addSystemMessage('Could not speak that reply — text is on screen.');
+                }
+            } else if (playedAny && skippedMiddle > 0) {
+                addSystemMessage('Some of that reply could not be spoken — full text is on screen.');
             }
         }
         resolve();
