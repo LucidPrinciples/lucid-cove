@@ -69,16 +69,42 @@ def _ticket_pattern(ticket: str) -> re.Pattern:
 
 
 def find_ticket(text: str, ticket: str):
-    """Return (line_index, lane_header or None) for the first item line
-    mentioning the ticket, or (None, None)."""
-    pat = _ticket_pattern(ticket)
+    """Return (line_index, lane_header or None) for the ticket's item line.
+
+    Prefers the line whose *title* owns that id (bold ``**#ID`` / leading id in
+    the checklist lead-in). Annotation tails like ``· bundled with #QL-DRAG`` on
+    another ticket's row must not steal the match — that desync left #QL-DRAG
+    stuck in Soon while backlog_update reported COMPLETED (2026-07-19 hygiene).
+    Falls back to first whole-token mention so older bare lines still resolve.
+    """
+    bare = ticket.strip().lstrip("#").strip()
+    if not bare:
+        return None, None
+    esc = re.escape(bare)
+    # Title-primary: id inside the first bold span, or right after the checkbox.
+    title_pat = re.compile(
+        rf"(?:\*\*#?{esc}\b|^\- \[[ xX]\]\s+#?{esc}\b)",
+        re.IGNORECASE,
+    )
+    any_pat = _ticket_pattern(ticket)
     lane = None
+    fallback = None
+    fallback_lane = None
     for i, line in enumerate(text.split("\n")):
         s = line.strip()
         if s.startswith("## "):
             lane = s[3:].strip()
-        if s.startswith("- ") and pat.search(line):
+            continue
+        if not s.startswith("- "):
+            continue
+        # Ignore annotation segment after ' · ' so cross-refs in notes don't win.
+        title_region = s.split(" · ", 1)[0]
+        if title_pat.search(title_region):
             return i, lane
+        if fallback is None and any_pat.search(line):
+            fallback, fallback_lane = i, lane
+    if fallback is not None:
+        return fallback, fallback_lane
     return None, None
 
 
