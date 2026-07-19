@@ -358,6 +358,69 @@ async def test_mkdir_tool_returns_denial(_stub_channel_roles):
     assert "Access denied" in result
 
 
+@pytest.mark.asyncio
+async def test_move_tool_returns_denial_on_src(_stub_channel_roles):
+    """Vera cannot MOVE out of Reports (read-only / out of rw)."""
+    _act("vera-day")
+    fn = nc.nextcloud_move
+    payload = {
+        "src": "AgentSkills/Reports/x.md",
+        "dest": "AgentSkills/Team/vera/x.md",
+    }
+    if hasattr(fn, "ainvoke"):
+        result = await fn.ainvoke(payload)
+    else:
+        result = await fn.coroutine(**payload)
+    assert "Access denied" in result
+
+
+@pytest.mark.asyncio
+async def test_move_tool_returns_denial_on_dest(_stub_channel_roles):
+    """Builder cannot MOVE into another agent's Team folder."""
+    _act("archimedes-day")
+    fn = nc.nextcloud_move
+    payload = {
+        "src": "AgentSkills/Team/archimedes/x.md",
+        "dest": "AgentSkills/Team/vera/x.md",
+    }
+    if hasattr(fn, "ainvoke"):
+        result = await fn.ainvoke(payload)
+    else:
+        result = await fn.coroutine(**payload)
+    assert "Access denied" in result
+
+
+@pytest.mark.asyncio
+async def test_delete_tool_returns_denial(_stub_channel_roles):
+    _act("soren-day")
+    fn = nc.nextcloud_delete
+    if hasattr(fn, "ainvoke"):
+        result = await fn.ainvoke({"path": "AgentSkills/Shared/x.md"})
+    else:
+        result = await fn.coroutine("AgentSkills/Shared/x.md")
+    assert "Access denied" in result
+
+
+def test_move_and_delete_registered_and_tiered():
+    """Registry + approval tiers: move is NOTIFY, delete is APPROVE."""
+    from src.tools.approval import Tier
+
+    assert nc.nextcloud_move in nc.ALL_NEXTCLOUD_TOOLS
+    assert nc.nextcloud_delete in nc.ALL_NEXTCLOUD_TOOLS
+    # Decorators set _approval_tier on the underlying function; StructuredTool
+    # keeps it on .coroutine or on the tool object depending on langchain version.
+    move_fn = getattr(nc.nextcloud_move, "coroutine", None) or nc.nextcloud_move
+    del_fn = getattr(nc.nextcloud_delete, "coroutine", None) or nc.nextcloud_delete
+    move_tier = getattr(move_fn, "_approval_tier", None) or getattr(
+        nc.nextcloud_move, "_approval_tier", None
+    )
+    del_tier = getattr(del_fn, "_approval_tier", None) or getattr(
+        nc.nextcloud_delete, "_approval_tier", None
+    )
+    assert move_tier == Tier.NOTIFY
+    assert del_tier == Tier.APPROVE
+
+
 # ── Chokepoint wiring present in source ─────────────────────────────────────
 
 

@@ -326,6 +326,61 @@ async def verify_download(args: dict, result: str) -> tuple[bool, str]:
     return (False, f"File NOT found at {local_path}")
 
 
+@register_verifier("nextcloud_move")
+async def verify_move(args: dict, result: str) -> tuple[bool, str]:
+    """Verify dest exists and src is gone after a claimed MOVE."""
+    src = args.get("src", "") or ""
+    dest = args.get("dest", "") or ""
+    if not dest:
+        return (False, "No dest in tool args")
+
+    low = (result or "").lower()
+    if "moved:" not in low:
+        return (True, "Tool reported failure — no verification needed")
+
+    try:
+        async with httpx.AsyncClient(auth=_nc_auth(), timeout=10) as client:
+            dest_resp = await client.request("HEAD", _nc_webdav_url(dest))
+            if dest_resp.status_code != 200:
+                return (
+                    False,
+                    f"Dest NOT found at {dest} — HEAD returned {dest_resp.status_code}",
+                )
+            if src:
+                src_resp = await client.request("HEAD", _nc_webdav_url(src))
+                if src_resp.status_code == 200:
+                    return (False, f"Source still present at {src} after move")
+                if src_resp.status_code not in (404, 409, 410):
+                    # Some servers 404 cleanly; treat other codes as soft OK if dest ok
+                    pass
+        return (True, f"Verified: moved to {dest}")
+    except Exception as e:
+        return (False, f"Verification check failed: {e}")
+
+
+@register_verifier("nextcloud_delete")
+async def verify_delete(args: dict, result: str) -> tuple[bool, str]:
+    """Verify path is gone after a claimed DELETE."""
+    path = args.get("path", "") or ""
+    if not path:
+        return (False, "No path in tool args")
+
+    low = (result or "").lower()
+    if "deleted:" not in low:
+        return (True, "Tool reported failure — no verification needed")
+
+    try:
+        async with httpx.AsyncClient(auth=_nc_auth(), timeout=10) as client:
+            resp = await client.request("HEAD", _nc_webdav_url(path))
+        if resp.status_code in (404, 410):
+            return (True, f"Verified: {path} is gone")
+        if resp.status_code == 200:
+            return (False, f"Path STILL exists at {path} after delete")
+        return (False, f"Unexpected HEAD {resp.status_code} for {path}")
+    except Exception as e:
+        return (False, f"Verification check failed: {e}")
+
+
 # =============================================================================
 # Verifiers — Memory Operations
 # =============================================================================
