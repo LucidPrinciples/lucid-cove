@@ -530,6 +530,7 @@ async function sendMessage() {
     updateTypingStatus(`${_getActiveAIName()} is thinking...`);
     scrollToBottom();
 
+    let finalData = null;  // outside try so post-send TTS can read it after Stop clears
     try {
         const res = await fetch('/api/chat/send', {
             method: 'POST',
@@ -552,7 +553,6 @@ async function sendMessage() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let finalData = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -604,16 +604,6 @@ async function sendMessage() {
                 addMessage('assistant', `Error: ${finalData.error}`, new Date());
             } else {
                 addMessage('assistant', finalData.response || '(no response)', new Date(), finalData.model || '', finalData.thinking || null);
-                // Voice mode: speak response, then auto-resume listening
-                // chatMode, voiceActive, updateMicState, playTTS, micStartContinuous defined in voice.js
-                if (chatMode === 'voice' && voiceActive && finalData.response) {
-                    updateMicState('speaking');
-                    await playTTS(finalData.response);
-                    if (voiceActive) {
-                        micStartContinuous();
-                        updateMicState('listening');
-                    }
-                }
             }
         }
 
@@ -624,8 +614,35 @@ async function sendMessage() {
         addMessage('assistant', `Connection error: ${e.message}`, new Date());
     }
 
+    // Release the chat Stop control as soon as generation ends — before TTS.
+    // Speaking is a mic-state concern; holding Stop through playTTS is what made
+    // a hung voice host look like the whole reply was stuck.
     sending = false;
     stopBtn.style.display = 'none';
+    stopBtn.disabled = false;
+    stopBtn.classList.remove('btn-busy');
+    stopBtn.title = '';
+
+    // Voice mode: speak after Stop is cleared, then auto-resume listening.
+    // playTTS hard-times out per chunk and fail-opens (text stays on screen).
+    if (finalData && !finalData.cancelled && !finalData.error
+        && chatMode === 'voice' && voiceActive && finalData.response) {
+        const micBtnSpeak = (typeof getMicBtn === 'function') ? getMicBtn() : document.getElementById('chat-mic');
+        if (micBtnSpeak) micBtnSpeak.style.display = '';
+        if (typeof updateMicState === 'function') updateMicState('speaking');
+        try {
+            if (typeof playTTS === 'function') await playTTS(finalData.response);
+        } catch (ttsErr) {
+            console.warn('[voice] playTTS failed open:', ttsErr);
+        }
+        if (voiceActive) {
+            if (typeof micStartContinuous === 'function') micStartContinuous();
+            if (typeof updateMicState === 'function') updateMicState('listening');
+        } else if (typeof updateMicState === 'function') {
+            updateMicState('idle');
+        }
+    }
+
     // Restore input area based on mode
     if (chatMode === 'type') {
         sendBtn.style.display = '';

@@ -116,11 +116,17 @@ function ttsStopPlayback() {
 // ── Chunked TTS — split into sentences, pipeline fetch + playback ────────────
 // Sentences are sent to /api/tts in parallel. Audio buffers play sequentially
 // so the user hears sentence 1 while sentences 2-N are still synthesizing.
+// Each chunk has a hard timeout — a hung voice host must never pin the chat UI
+// on Stop / "speaking" (parents + mesh path). Fail open: keep the text reply.
+
+const TTS_CHUNK_TIMEOUT_MS = 15000;   // hard cap per sentence fetch
+const TTS_PLAY_TIMEOUT_MS = 60000;    // safety cap for a single buffer's playback
 
 let ttsQueue = [];       // array of Promises that resolve to AudioBuffer
 let ttsPlaying = false;  // true while audio chain is playing
 let ttsCancelled = false;
 let ttsAbort = null;     // AbortController — cancels pending TTS fetches on stop
+let ttsLastError = '';   // last fail reason for UI ('timeout' | 'unreachable' | 'empty' | '')
 
 function splitSentences(text) {
     // Split on sentence-ending punctuation followed by space or end
@@ -140,9 +146,13 @@ function splitSentences(text) {
 }
 
 function fetchTTSChunk(text) {
-    const voiceBase = MC.voiceUrl('http');
-    if (!voiceBase) return Promise.resolve(null);  // voice disabled (compute.voice off/unresolved)
-    const ttsUrl = `${voiceBase}/api/tts`;
+    // Prefer same-origin proxy so speak works whenever the Cove page loads —
+    // browser never has to reach voice.{domain} on its own (mesh/laptop hang).
+    // Fall back to direct voice URL only if the proxy path is somehow missing.
+    const directBase = (typeof MC !== 'undefined' && MC.voiceUrl) ? MC.voiceUrl('http') : '';
+    const ttsUrls = ['/api/voice/tts'];
+    if (directBase) ttsUrls.push(`${directBase.replace(/\/+$/, '')}/api/tts`);
+
     // Use active chat agent (Stuart/Mercer tab) not hostname, so TTS voice matches who's talking
     const rawAgentName = (typeof activeAgent !== 'undefined' && activeAgent?.id) || location.hostname.split('.')[0] || '';
     // Normalize: strip -cove/_cove suffixes for consistent key lookup
@@ -154,35 +164,89 @@ function fetchTTSChunk(text) {
         || MC.features?.[`voice_${rawAgentName}`]
         || '';
 
-    const signal = ttsAbort ? ttsAbort.signal : undefined;
-    return fetch(ttsUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text, agent: agentName, voice: voiceOverride }),
-        signal,
-    }).then(async (res) => {
-        if (!res.ok) return null;
+    const body = JSON.stringify({ text: text, agent: agentName, voice: voiceOverride });
+
+    // Per-chunk controller so a timeout aborts this fetch without killing siblings.
+    // Also aborts if the conversation-level ttsAbort fires (user stop / mode switch).
+    const chunkAbort = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+        timedOut = true;
+        try { chunkAbort.abort(); } catch (e) {}
+    }, TTS_CHUNK_TIMEOUT_MS);
+
+    const onParentAbort = () => {
+        try { chunkAbort.abort(); } catch (e) {}
+    };
+    if (ttsAbort) {
+        if (ttsAbort.signal.aborted) onParentAbort();
+        else ttsAbort.signal.addEventListener('abort', onParentAbort, { once: true });
+    }
+
+    async function tryUrl(url) {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+            signal: chunkAbort.signal,
+            credentials: 'same-origin',
+        });
+        if (!res.ok) {
+            const err = new Error(`TTS HTTP ${res.status}`);
+            err.status = res.status;
+            throw err;
+        }
         const arrayBuffer = await res.arrayBuffer();
         const ctx = ensureTTSAudioCtx();
         return await ctx.decodeAudioData(arrayBuffer);
-    }).catch(() => null);
+    }
+
+    // Try proxy first; on network/5xx fall through to direct voice host once.
+    return (async () => {
+        let lastErr = null;
+        for (let i = 0; i < ttsUrls.length; i++) {
+            if (chunkAbort.signal.aborted) break;
+            try {
+                return await tryUrl(ttsUrls[i]);
+            } catch (err) {
+                lastErr = err;
+                // Don't fall through after user cancel / our timeout
+                if (timedOut || (err && err.name === 'AbortError')) throw err;
+                // 4xx from proxy (bad text etc.) won't help on direct either
+                if (err && err.status && err.status >= 400 && err.status < 500) throw err;
+                // else try next URL
+            }
+        }
+        throw lastErr || new Error('TTS failed');
+    })().catch((err) => {
+        if (timedOut) ttsLastError = 'timeout';
+        else if (err && err.name === 'AbortError') { /* user cancel — leave quiet */ }
+        else ttsLastError = ttsLastError || 'unreachable';
+        return null;
+    }).finally(() => {
+        clearTimeout(timer);
+        if (ttsAbort) ttsAbort.signal.removeEventListener('abort', onParentAbort);
+    });
 }
 
 function playTTS(text) {
     return new Promise(async (resolve) => {
+        // Only auto-speak in Voice conversation mode. Dictate / Type leave text on screen.
         if (!text || chatMode !== 'voice') { resolve(); return; }
 
         ttsResolve = resolve;
         ttsCancelled = false;
         ttsPlaying = true;
+        ttsLastError = '';
         ttsAbort = new AbortController();
 
         const voiceBtn = document.getElementById('mode-voice');
         if (voiceBtn) voiceBtn.classList.add('playing');
 
         const sentences = splitSentences(text);
+        let playedAny = false;
 
-        // Fire ALL TTS requests immediately (parallel fetch)
+        // Fire ALL TTS requests immediately (parallel fetch, each with its own timeout)
         ttsQueue = sentences.map(s => fetchTTSChunk(s));
 
         // Play sequentially as each resolves in order
@@ -192,20 +256,50 @@ function playTTS(text) {
             const audioBuffer = await ttsQueue[i];
             if (!audioBuffer || ttsCancelled) continue;
 
-            // Play this chunk and wait for it to finish
+            playedAny = true;
+            // Play this chunk; hard-cap playback so a stuck AudioContext can't pin UI
             await new Promise((chunkDone) => {
-                const ctx = ensureTTSAudioCtx();
-                ttsSource = ctx.createBufferSource();
-                ttsSource.buffer = audioBuffer;
-                ttsSource.connect(ctx.destination);
-                ttsSource.onended = () => { ttsSource = null; chunkDone(); };
-                ttsSource.start(0);
+                let finished = false;
+                const done = () => {
+                    if (finished) return;
+                    finished = true;
+                    clearTimeout(playTimer);
+                    ttsSource = null;
+                    chunkDone();
+                };
+                const playTimer = setTimeout(done, TTS_PLAY_TIMEOUT_MS);
+                try {
+                    const ctx = ensureTTSAudioCtx();
+                    ttsSource = ctx.createBufferSource();
+                    ttsSource.buffer = audioBuffer;
+                    ttsSource.connect(ctx.destination);
+                    ttsSource.onended = done;
+                    ttsSource.start(0);
+                } catch (e) {
+                    ttsLastError = ttsLastError || 'empty';
+                    done();
+                }
             });
         }
 
         ttsQueue = [];
         ttsPlaying = false;
+        const err = ttsLastError;
+        const wasCancelled = ttsCancelled;
+        // Capture before stop — ttsStopPlayback sets ttsCancelled and resolves waiters.
         ttsStopPlayback();
+
+        // Fail open: text already on screen. One quiet system line if nothing played.
+        if (!playedAny && !wasCancelled && err && typeof addSystemMessage === 'function') {
+            if (err === 'timeout') {
+                addSystemMessage('Voice timed out — reply is on screen.');
+            } else if (err === 'unreachable') {
+                addSystemMessage('Voice unavailable — reply is on screen.');
+            } else {
+                addSystemMessage('Could not speak that reply — text is on screen.');
+            }
+        }
+        resolve();
     });
 }
 
@@ -258,25 +352,36 @@ function updateMicState(state) {
     if (!btn || !label) return;
 
     btn.classList.remove('recording', 'processing', 'speaking');
+    // title tracks state so a long label still has a short hover/accessibility cue
     switch (state) {
         case 'idle':
             label.textContent = 'Tap to Talk';
+            btn.title = 'Tap to talk';
             break;
         case 'listening':
             btn.classList.add('recording');
             label.textContent = "Listening... (say 'Over')";
+            btn.title = 'Listening — say Over to send, or tap to end';
             break;
         case 'transcribing':
             btn.classList.add('processing');
             label.textContent = 'Transcribing...';
+            btn.title = 'Transcribing';
             break;
         case 'thinking':
             btn.classList.add('processing');
             label.textContent = _getActiveAIName() + ' thinking...';
+            btn.title = 'Thinking';
             break;
         case 'speaking':
             btn.classList.add('speaking');
             label.textContent = _getActiveAIName() + ' speaking...';
+            btn.title = 'Speaking — tap to stop';
+            break;
+        case 'unavailable':
+            btn.classList.add('processing');
+            label.textContent = 'Voice unavailable';
+            btn.title = 'Voice unavailable';
             break;
     }
 }
