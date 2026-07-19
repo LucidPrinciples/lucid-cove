@@ -48,8 +48,8 @@ let activeBoard = 'attention';  // 'attention' or 'action'
 const BOARD_CONFIG = {
     attention: {
         // Priority tabs for bottom nav (first N shown, rest in More).
-        // Chat first, then Attention (home), then the rest. Team etc. in More.
-        priority: ['chat', 'home', 'projects', 'calendar'],
+        // Match top bar: Attention (home) far left, then Chat, then the rest.
+        priority: ['home', 'chat', 'projects', 'calendar'],
         switchTo: 'action',
         switchIcon: '⚡',
         switchLabel: 'Action',
@@ -1167,11 +1167,11 @@ function _buildBottomNav() {
             // Operator: 4 bottom tabs + More (Affiliates, Settings)
             priority = ['home', 'projects', 'calendar', 'reports', 'affiliates', 'settings'];
         } else if (tierLevel < 30) {
-            // Presence: Chat | Attention | Projects | Calendar
-            priority = ['chat', 'home', 'projects', 'calendar'];
+            // Presence: Attention | Chat | Projects | Calendar (match top bar)
+            priority = ['home', 'chat', 'projects', 'calendar'];
         } else {
-            // Cove+: Chat | Attention | Projects | Calendar
-            priority = boardConfig.priority || ['chat', 'home', 'projects', 'calendar'];
+            // Cove+: Attention | Chat | Projects | Calendar (match top bar)
+            priority = boardConfig.priority || ['home', 'chat', 'projects', 'calendar'];
         }
     }
 
