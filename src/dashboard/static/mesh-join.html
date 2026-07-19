@@ -17,6 +17,7 @@
   code { display:block; margin:8px 0; padding:10px; background:#0a0a10; border:1px solid var(--border); border-radius:8px; word-break:break-all; font-size:0.82rem; color:var(--text); }
   .label { font-size:0.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); font-weight:600; }
   .btn { display:inline-block; margin-top:10px; padding:10px 14px; background:var(--accent); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:0.9rem; border:0; }
+  .store { display:inline-block; margin:6px 8px 6px 0; padding:10px 14px; background:var(--accent); color:#fff; border-radius:8px; text-decoration:none; font-weight:600; font-size:0.88rem; }
   .ghost { margin-top:8px; padding:8px 12px; background:transparent; color:var(--accent); border:1px solid var(--border); border-radius:8px; font-size:0.82rem; cursor:pointer; }
   .warn { color:#e67e22; font-size:0.88rem; }
   .foot { margin-top:18px; font-size:0.75rem; color:var(--dim); }
@@ -26,23 +27,38 @@
 <body>
 <main>
   <h1>Connect this phone</h1>
-  <p>Your Cove is private. This page puts the phone on the family mesh so Mission Control can open - nothing is exposed to the public internet.</p>
+  <p><strong>Install Tailscale first</strong>, then use the coordinator and join code below. Scanning the QR only opens this helper page — it does not install the app or join the mesh by itself.</p>
+
   <div class="card">
-    <div class="label">Coordinator (custom server)</div>
+    <div class="label">Step 1 — Install Tailscale</div>
+    <p style="margin:8px 0 10px;">You need the free Tailscale app. This is a separate private network for your Cove (not “log into Lucid Cove” in the browser alone).</p>
+    <a class="store" href="https://apps.apple.com/app/tailscale/id1470499037" target="_blank" rel="noopener">App Store (iPhone)</a>
+    <a class="store" href="https://play.google.com/store/apps/details?id=com.tailscale.ipn" target="_blank" rel="noopener">Play Store (Android)</a>
+    <p class="foot" style="margin:10px 0 0;">Already on another Tailscale network? Log out of that one first — this is a separate network.</p>
+  </div>
+
+  <div class="card">
+    <div class="label">Step 2 — Point Tailscale at your Cove coordinator</div>
+    <p style="margin:8px 0 6px;">In the Tailscale app: account / ⋯ menu → <em>Use a custom coordination server</em> (wording varies: <em>Use an alternate server</em>). Enter exactly:</p>
     <code id="login-server">__LOGIN__</code>
+  </div>
+
+  <div class="card">
+    <div class="label">Step 3 — Sign in with this join code</div>
     __KEY_BLOCK__
+    <p style="margin:10px 0 0;">Paste or type the join code when Tailscale asks you to sign in / use an auth key. Leave MagicDNS / accept DNS on when asked.</p>
     __OPEN_BTN__
   </div>
+
   <div class="card">
-    <div class="label">If the button does nothing (common)</div>
+    <div class="label">Step 4 — Open your Cove as you</div>
     <ol>
-      <li>Install the <strong>Tailscale</strong> app (App Store / Play Store).</li>
-      <li>If you are already on another Tailscale network, log out of it first - this is a separate network.</li>
-      <li>Account menu -&gt; <em>Use custom coordination server</em> / <em>Use an alternate server</em>.</li>
-      <li>Enter the coordinator above, then sign in with the <strong>join code</strong>.</li>
-      <li>When the phone is connected, open your Cove in the browser and sign in as you. Leave MagicDNS / accept DNS on when asked.</li>
+      <li>Wait until Tailscale shows <strong>Connected</strong>.</li>
+      <li>Open your Cove in the browser (sign-in link from Settings → Devices, or the address you already use).</li>
+      <li>Sign in as you. Your personal Mission Control needs the mesh even when the public Cove door does not.</li>
     </ol>
   </div>
+
   <div class="card">
     <div class="label">Name this device (#MESH-NAME)</div>
     <p style="margin:0">Junk names like <strong>localhost-…</strong> or <strong>invalid-…</strong> make family device lists hard to read. Before or right after joining:</p>
