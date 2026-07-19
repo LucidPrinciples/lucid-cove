@@ -11,12 +11,18 @@ import json
 import logging
 import io
 import os
+import threading
 import wave
 import numpy as np
 from typing import Optional, Tuple, Dict
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Piper/onnx runtime is not safe under concurrent synthesize from one process.
+# Chat TTS used to fire every sentence in parallel; middle chunks timed out and
+# the browser skipped them. Serialize synthesis process-wide (still fast on CPU).
+_PIPER_SYNTH_LOCK = threading.Lock()
 
 # Voice directory inside container (mounted from host on a GPU/founder box)
 VOICES_DIR = Path("/voices/piper")
@@ -180,33 +186,29 @@ class PiperTTSTransport:
                 return None
             
             logger.debug(f"Synthesizing: '{text[:50]}...'")
-            
-            # Synthesize via piper's chunk-based API
-            import io, struct, wave
-            raw_chunks = []
-            for chunk in self.model.synthesize(text):
-                raw_chunks.append(chunk.audio_int16_bytes)
-            
-            raw_audio = b''.join(raw_chunks)
-            
-            if not raw_audio:
-                logger.warning("No audio generated")
-                return None
-            
-            if return_wav:
-                # Wrap raw PCM in WAV container
-                wav_io = io.BytesIO()
-                with wave.open(wav_io, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(self.sample_rate)
-                    wf.writeframes(raw_audio)
-                return wav_io.getvalue()
-            
-            if False:
-                # Wrap in WAV container (skipped)
-                return self._pcm_to_wav(raw_audio)
-            else:
+
+            with _PIPER_SYNTH_LOCK:
+                # Synthesize via piper's chunk-based API
+                raw_chunks = []
+                for chunk in self.model.synthesize(text):
+                    raw_chunks.append(chunk.audio_int16_bytes)
+
+                raw_audio = b''.join(raw_chunks)
+
+                if not raw_audio:
+                    logger.warning("No audio generated")
+                    return None
+
+                if return_wav:
+                    # Wrap raw PCM in WAV container
+                    wav_io = io.BytesIO()
+                    with wave.open(wav_io, 'wb') as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)
+                        wf.setframerate(self.sample_rate)
+                        wf.writeframes(raw_audio)
+                    return wav_io.getvalue()
+
                 return raw_audio
                 
         except Exception as e:
