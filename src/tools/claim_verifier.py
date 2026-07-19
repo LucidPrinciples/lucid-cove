@@ -162,7 +162,14 @@ async def verify_claims(
             })
             continue
 
+        # #SHIP1: ship_branch is push+PR in one tool — satisfies both claim types.
+        alt = {"git_push": "ship_branch", "create_github_pr": "ship_branch"}.get(tool_name)
         calls = await _recent_tool_calls(agent_id, tool_name)
+        matched_name = tool_name
+        if not calls and alt:
+            calls = await _recent_tool_calls(agent_id, alt)
+            if calls:
+                matched_name = alt
         if calls:
             # Found matching tool calls — verify they succeeded
             success_calls = [c for c in calls if c.get("success")]
@@ -170,21 +177,27 @@ async def verify_claims(
                 results.append({
                     **claim,
                     "verified": True,
-                    "detail": f"Found {len(success_calls)} successful {tool_name} call(s) in last 30 min.",
+                    "detail": (
+                        f"Found {len(success_calls)} successful {matched_name} call(s) "
+                        f"in last 30 min."
+                    ),
                     "tool_calls": calls[:3],
                 })
             else:
                 results.append({
                     **claim,
                     "verified": False,
-                    "detail": f"Found {len(calls)} {tool_name} call(s) but none succeeded.",
+                    "detail": f"Found {len(calls)} {matched_name} call(s) but none succeeded.",
                     "tool_calls": calls[:3],
                 })
         else:
+            hint = f" (or {alt})" if alt else ""
             results.append({
                 **claim,
                 "verified": False,
-                "detail": f"No {tool_name} tool calls found in last 30 min for {agent_id}.",
+                "detail": (
+                    f"No {tool_name}{hint} tool calls found in last 30 min for {agent_id}."
+                ),
                 "tool_calls": [],
             })
 

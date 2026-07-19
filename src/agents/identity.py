@@ -348,11 +348,14 @@ def _dev_workflow_block(agent: dict) -> str:
         )
     lines.append(
         f"The Cove repos available: {_repo_list} (at /app/data/projects/). "
-        "The flow, always: work on a branch -> `git_push` (this reaches the operator as an "
-        "approval with the diff) -> open a PR with `create_github_pr` -> the operator reviews "
-        "and merges. A pushed branch is NOT done until the PR is merged. `main` is "
+        "The flow, always: work on a branch -> `ship_branch` (ONE approval: pushes the "
+        "branch and opens the GitHub PR; operator gets the PR card with Open on GitHub) -> "
+        "the operator reviews and merges -> operator deploys. Prefer `ship_branch` over "
+        "separate `git_push` + `create_github_pr` so the operator is not stuck between two "
+        "gates. A pushed branch is NOT done until the PR is merged. `main` is "
         "branch-protected and you push with a non-admin token, so nothing lands without the "
-        "operator's merge. Use the `git_*` / `create_github_pr` tools — never raw shell for git."
+        "operator's merge. Use the `git_*` / `ship_branch` / `create_github_pr` tools — never "
+        "raw shell for git."
     )
     lines.append(
         "\n**Before you start a ticket — ground, don't guess.** Check what already exists "
