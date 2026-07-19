@@ -7,16 +7,22 @@ let _voicesCache = null;
 
 async function _fetchAvailableVoices() {
     if (_voicesCache) return _voicesCache;
-    try {
-        const voiceBase = MC.voiceUrl('http');
-        if (!voiceBase) { _voicesCache = []; return _voicesCache; }
-        const res = await fetch(`${voiceBase}/api/tts/voices`);
-        const data = await res.json();
-        _voicesCache = data;
-    } catch (e) {
-        console.warn('[settings] Failed to fetch voices:', e.message);
-        _voicesCache = { available_files: [], config: {} };
+    // Same-origin proxy first (works whenever the Cove page loads); direct voice host fallback.
+    const urls = ['/api/voice/tts/voices'];
+    const voiceBase = (typeof MC !== 'undefined' && MC.voiceUrl) ? MC.voiceUrl('http') : '';
+    if (voiceBase) urls.push(`${voiceBase.replace(/\/+$/, '')}/api/tts/voices`);
+    for (const url of urls) {
+        try {
+            const res = await fetch(url, { credentials: 'same-origin' });
+            if (!res.ok) continue;
+            const data = await res.json();
+            _voicesCache = data;
+            return _voicesCache;
+        } catch (e) {
+            console.warn('[settings] voices fetch failed for', url, e.message);
+        }
     }
+    _voicesCache = { available_files: [], config: {} };
     return _voicesCache;
 }
 
@@ -165,9 +171,10 @@ let _testAudioSource = null;
 async function _testVoice(agentId) {
     const sel = document.getElementById(`voice-select-${agentId}`);
     const voiceName = sel?.value || '';
-    const voiceBase = MC.voiceUrl('http');
-    if (!voiceBase) { console.warn('[settings] no voice backend configured'); return; }
-    const ttsUrl = `${voiceBase}/api/tts`;
+    // Prefer same-origin proxy so Settings test works on mesh/laptop without voice.{domain}.
+    const voiceBase = (typeof MC !== 'undefined' && MC.voiceUrl) ? MC.voiceUrl('http') : '';
+    const ttsUrls = ['/api/voice/tts'];
+    if (voiceBase) ttsUrls.push(`${voiceBase.replace(/\/+$/, '')}/api/tts`);
     const testPhrase = 'Hello, this is what I sound like. How does this feel to you?';
 
     // Find and update the button
@@ -175,12 +182,25 @@ async function _testVoice(agentId) {
     if (btn) { btn.textContent = '...'; btn.disabled = true; }
 
     try {
-        const res = await fetch(ttsUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: testPhrase, agent: agentId, voice: voiceName }),
-        });
-        if (!res.ok) throw new Error('TTS request failed');
+        let res = null;
+        let lastErr = null;
+        for (const ttsUrl of ttsUrls) {
+            try {
+                res = await fetch(ttsUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ text: testPhrase, agent: agentId, voice: voiceName }),
+                });
+                if (res.ok) break;
+                lastErr = new Error('TTS request failed');
+                res = null;
+            } catch (e) {
+                lastErr = e;
+                res = null;
+            }
+        }
+        if (!res || !res.ok) throw lastErr || new Error('TTS request failed');
 
         const arrayBuffer = await res.arrayBuffer();
         if (!_testAudioCtx) _testAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
