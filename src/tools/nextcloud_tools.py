@@ -7,8 +7,8 @@ Contacts uses CardDAV (Nextcloud Contacts app).
 
 Approval tiers:
   AUTO   — list, read, search (non-destructive reads)
-  NOTIFY — upload, mkdir, create event (writes, logged to MC)
-  APPROVE — delete, overwrite existing files
+  NOTIFY — upload, mkdir, move/rename, create event (writes, logged to MC)
+  APPROVE — delete (destructive; operator sign-off)
 
 Environment variables required (in docker/.env):
   NEXTCLOUD_URL      — e.g. http://nextcloud-app (internal docker network)
@@ -26,7 +26,7 @@ from urllib.parse import quote, unquote
 import httpx
 from langchain_core.tools import tool
 
-from src.tools.approval import auto, notify
+from src.tools.approval import auto, notify, approve
 
 # #SEC4 M2 — downloads land only under the agent data dir. Model-controlled
 # local_path used to open() anywhere the process can write.
@@ -783,6 +783,95 @@ async def nextcloud_download(path: str, local_path: str) -> str:
         return f"Error: {e}"
 
 
+@notify
+@tool
+async def nextcloud_move(src: str, dest: str, overwrite: bool = False) -> str:
+    """Move or rename a file/folder in Nextcloud (WebDAV MOVE).
+
+    Use for archive flows (e.g. Inbox → Inbox/Archive) and renames. Works for
+    any file type including binary (webm, png, heic) — unlike nextcloud_upload
+    which is text-only. Both paths must be in-scope for the acting role.
+
+    Args:
+        src: Source path (e.g. 'AgentSkills/Inbox/jules-1234.md')
+        dest: Destination path (e.g. 'AgentSkills/Inbox/Archive/jules-1234.md')
+        overwrite: If True, replace an existing dest (default False)
+    """
+    denied_src = check_nc_path_access(src, write=True)
+    if denied_src:
+        return denied_src
+    denied_dest = check_nc_path_access(dest, write=True)
+    if denied_dest:
+        return denied_dest
+    await _ensure_own_team_workspace(dest)
+
+    src_url = _webdav_url(src)
+    dest_url = _webdav_url(dest)
+    # Destination header must be an absolute URI for WebDAV MOVE
+    headers = {
+        "Destination": dest_url,
+        "Overwrite": "T" if overwrite else "F",
+    }
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
+            # Ensure parent of dest exists when moving into a subfolder
+            dest_norm = _norm_nc_path(dest)
+            parent = dest_norm.rsplit("/", 1)[0] if "/" in dest_norm else ""
+            if parent:
+                parent_url = _webdav_url(parent)
+                mk = await client.request("MKCOL", parent_url)
+                # 201 created, 405 exists, 301/302 redirect — all fine to continue
+                if mk.status_code not in (201, 405, 200, 301, 302):
+                    # Parent may already exist as a non-collection; still try MOVE
+                    pass
+
+            resp = await client.request("MOVE", src_url, headers=headers)
+            if resp.status_code == 412 and not overwrite:
+                return (
+                    f"Destination already exists: {dest}. "
+                    "Pass overwrite=True to replace, or choose a new name."
+                )
+            if resp.status_code in (201, 204):
+                return f"Moved: {src} → {dest}"
+            if resp.status_code == 404:
+                return f"Source not found: {src}"
+            return (
+                f"Move failed: HTTP {resp.status_code} — "
+                f"{(resp.text or '')[:200]}"
+            )
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@approve
+@tool
+async def nextcloud_delete(path: str) -> str:
+    """Delete a file or folder in Nextcloud (WebDAV DELETE). Requires approval.
+
+    Prefer nextcloud_move into an Archive/ folder when the goal is intake
+    cleanup — delete is for true removal only.
+
+    Args:
+        path: Path to delete (e.g. 'AgentSkills/Inbox/Archive/old-note.md')
+    """
+    denied = check_nc_path_access(path, write=True)
+    if denied:
+        return denied
+    url = _webdav_url(path)
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=30) as client:
+            resp = await client.delete(url)
+        if resp.status_code in (200, 204):
+            return f"Deleted: {path}"
+        if resp.status_code == 404:
+            return f"Not found: {path}"
+        return (
+            f"Delete failed for {path}: HTTP {resp.status_code} — "
+            f"{(resp.text or '')[:200]}"
+        )
+    except Exception as e:
+        return f"Error: {e}"
+
 
 # =============================================================================
 # Calendar Tools — CalDAV
@@ -1322,6 +1411,8 @@ ALL_NEXTCLOUD_TOOLS = [
     nextcloud_upload,
     nextcloud_mkdir,
     nextcloud_download,
+    nextcloud_move,
+    nextcloud_delete,
     calendar_list_events,
     calendar_create_event,
     calendar_update_event,
