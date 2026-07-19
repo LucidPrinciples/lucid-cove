@@ -812,6 +812,26 @@ async def send_message(request: Request):
                         _prj_tok = None
             except Exception:
                 _links_tok = None
+            # #ISO1 — memory tools must use this turn's agent_id, not primary/steward.
+            # Managers already share steward memory by design (graph path); bind the
+            # same agent_id the graph uses so tool save_memory doesn't cross pools.
+            _mem_tok = None
+            try:
+                from src.tools.memory_tools import set_request_memory_agent
+                _mem_agent = ""
+                try:
+                    from src.graphs.channels import _is_manager_channel, _get_manager_config
+                    if _is_manager_channel(ch):
+                        _mgr_cfg, _ = _get_manager_config(ch)
+                        _mem_agent = str((_mgr_cfg or {}).get("agent_id") or agent_id or "")
+                    else:
+                        _mem_agent = str(agent_id or "")
+                except Exception:
+                    _mem_agent = str(agent_id or "") if agent_id else ""
+                if _mem_agent:
+                    _mem_tok = set_request_memory_agent(_mem_agent)
+            except Exception:
+                _mem_tok = None
 
             try:
                 if rotation_info:
@@ -1004,9 +1024,14 @@ async def send_message(request: Request):
                         clear_request_project_presence(_prj_tok)
                 except Exception:
                     pass
+                try:
+                    from src.tools.memory_tools import clear_request_memory_agent
+                    if _mem_tok is not None:
+                        clear_request_memory_agent(_mem_tok)
+                except Exception:
+                    pass
 
-        return StreamingResponse(
-            _event_stream(),
+        return StreamingResponse(            _event_stream(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

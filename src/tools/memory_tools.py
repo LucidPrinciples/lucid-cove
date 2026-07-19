@@ -22,6 +22,8 @@ CRITICAL BEHAVIOR — Correction Detection:
   This keeps memory accurate without manual dashboard editing.
 """
 
+import contextvars as _ctxvars
+
 from langchain_core.tools import tool
 
 from src.tools.approval import auto, notify
@@ -35,6 +37,30 @@ from src.memory.memory import (
     correct_memory as correct_memory_service,
     VALID_CATEGORIES,
 )
+
+# #ISO1 — Memory rows are keyed by agent_id. Graph turns already scope via
+# memory_agent_id; the *tool* path used to omit agent_id and fall through to
+# get_primary_agent_id() (steward on Clearfield) so a presence agent save_memory
+# landed in Stuart's pool. Bind the acting agent for the request (chat.py),
+# same class as JF4 / #PRJ1 presence ContextVars.
+_mem_agent_ctx: _ctxvars.ContextVar = _ctxvars.ContextVar("mem_agent", default=None)
+
+
+def set_request_memory_agent(agent_id: str | None):
+    """Bind acting agent_id for memory tool R/W this turn. Returns reset token."""
+    return _mem_agent_ctx.set(str(agent_id) if agent_id else None)
+
+
+def clear_request_memory_agent(token) -> None:
+    try:
+        _mem_agent_ctx.reset(token)
+    except Exception:
+        pass
+
+
+def _acting_memory_agent() -> str | None:
+    """Agent id for tool calls; None → store_memory's primary fallback (single-agent)."""
+    return _mem_agent_ctx.get()
 
 
 # =============================================================================
@@ -70,6 +96,7 @@ async def save_memory(
         category=category,
         importance=importance,
         tags=tag_list,
+        agent_id=_acting_memory_agent(),
     )
 
     return (
@@ -110,6 +137,7 @@ async def recall_memory(
         tags=tag_list,
         min_importance=min_importance,
         limit=limit,
+        agent_id=_acting_memory_agent(),
     )
 
     if not memories:
@@ -150,6 +178,7 @@ async def search_memory(query: str, category: str = "", limit: int = 10) -> str:
         query=query,
         category=category or None,
         limit=limit,
+        agent_id=_acting_memory_agent(),
     )
 
     if not memories:
@@ -199,6 +228,7 @@ async def update_existing_memory(
         category=category or None,
         importance=importance if importance >= 0 else None,
         tags=tag_list,
+        agent_id=_acting_memory_agent(),
     )
 
     if not result:
@@ -245,6 +275,7 @@ async def correct_memory_tool(
         memory_id=memory_id,
         new_content=corrected_content,
         reason=reason,
+        agent_id=_acting_memory_agent(),
     )
 
     if not result:
@@ -323,6 +354,7 @@ async def recall_recent(
         until=until,
         category=category or None,
         limit=limit,
+        agent_id=_acting_memory_agent(),
     )
 
     if not memories:
@@ -372,6 +404,7 @@ async def memory_search(
         query=query,
         source=source,
         limit=max(1, min(int(limit or 8), 20)),
+        agent_id=_acting_memory_agent(),
     )
     if not results:
         return (
@@ -429,7 +462,7 @@ async def memory_get(ref: str) -> str:
             mid = int(raw.split(":", 1)[1])
         except ValueError:
             return f"Invalid memory ref: {ref}"
-        mem = await get_memory_service(mid)
+        mem = await get_memory_service(mid, agent_id=_acting_memory_agent())
         if not mem:
             return f"Memory #{mid} not found."
         tags = mem.get("tags") or []
