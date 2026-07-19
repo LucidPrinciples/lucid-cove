@@ -574,58 +574,47 @@ async function loadSettingsDevices() {
     if (!el) return;
 
     const p = MC.presence;
-    const hasAgent = !!(MC.config && MC.config.has_personal_agent)
-        || !!(MC.tier && (MC.tier.has_agent || MC.tier.level >= 20));
-    // Mesh (Tailscale) is only a prerequisite on a LAN-only self-host — a phone can't
-    // reach the box without it. When the Cove has a PUBLIC address (Cloudflare tunnel),
-    // the sign-in link alone works, so hide the mesh detour entirely. (Chords 2026-07-17:
-    // the mesh "Step 1" was steering family toward Tailscale they don't need.)
-    const showMesh = hasAgent && !(MC.config && MC.config.domain);
+    const hasDomain = !!(MC.config && MC.config.domain);
+    // 2026-07-17: on a PUBLIC-domain Cove the root sign-in link works without Tailscale,
+    // so we must not force mesh as "the only way into the Cove." #MESH4 (2026-07-19): a
+    // Presence's {handle}.{cove} MC is still mesh-only even with a domain, so the phone QR
+    // / join-code path must remain reachable in Settings on founder + Clearfield — not only
+    // on LAN-only installs. Any Presence account gets the mesh-connect block (QR + Approve).
+    const showMeshJoin = !!p;
 
-    // ── B12: the two layers, up front. A phone needs BOTH, in order: the join code puts
-    // the DEVICE on the mesh (network); the sign-in link signs the PERSON into the Cove
-    // (identity). Only show the framing when this account actually has both controls. ──
-    const layersHtml = (p && showMesh) ? `
+    // ── B12: the two layers, up front. A phone needs BOTH for its personal space:
+    // join code = device on mesh; sign-in link = person into the Cove. ──
+    const layersHtml = showMeshJoin ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);font-size:0.7rem;color:var(--dim);line-height:1.55;">
             <strong style="color:var(--text);">Two layers, in order:</strong>
-            a <strong style="color:var(--text);">join code</strong> puts a <em>device</em> on your Cove's private network (the mesh) so it can reach the box; a
-            <strong style="color:var(--text);">sign-in link</strong> signs a <em>person</em> into the Cove (their identity, files, agent). A phone needs both — network first, then identity.
+            a <strong style="color:var(--text);">join code</strong> (or Approve) puts a <em>device</em> on your Cove's private network (the mesh) so it can reach your personal space; a
+            <strong style="color:var(--text);">sign-in link</strong> signs a <em>person</em> into the Cove (their identity, files, agent). A phone needs both — network first, then identity.${hasDomain ? ' The public Cove door can open without the mesh; your personal Mission Control still needs it.' : ''}
         </div>` : '';
 
-    // ── Mesh join code FIRST — it's the prerequisite (a phone can't use a sign-in
-    // link until it can reach the box). Chords, run-3 T5 note, 2026-07-04. Only
-    // meaningful on a self-hosted Cove; hosted Operators don't run a box. ──
-    const meshHtml = showMesh ? `
-        <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
-            <label class="settings-label">Step 1 — Connect a device to your private network (mesh)</label>
-            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">A <strong>join code</strong> puts a device (laptop, server, or phone) on your Cove's mesh so it can reach the box. This is the network layer — the phone then needs a sign-in link (below) to open as you.</div>
-            <button class="btn-sm" onclick="getDevicesMeshKey(this)">Get join code</button>
-            <div id="devices-mesh-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>
-            <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">
-                <strong>On a phone?</strong> Tap <strong>Get join code</strong> and scan the QR with the phone camera (opens a short join page — not Nextcloud's login QR).
-                Or by hand: install Tailscale, <strong>⋯ menu → “Use a custom coordination server”</strong>, enter
-                <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code>,
-                then sign in with the join code. If Tailscale is already signed in to another network, log out first (this is a separate tailnet).
-            </div>
-        </div>` : '';
-
-    // ── Connect a device to the mesh — ALWAYS available. A Presence's {handle}.{cove}
-    // MC is mesh-only even when the Cove has a public domain, so this must NOT be hidden
-    // on domained Coves the way the old join-code "Step 1" (showMesh) is. The proven
-    // no-terminal path, mirroring the Attention "Connect this computer" card: install the
-    // Tailscale app, point it at the coordinator, sign in, paste the /register CODE, Approve.
-    // (Chords 2026-07-17 — "connect functionality permanently in Settings near the sign-in link.") ──
-    const approveHtml = p ? `
+    // ── Mesh connect — ALWAYS for Presence (including domained Coves). #MESH2 QR lives
+    // here so founder/Clearfield can scan; #MESH4 un-gates it from the old !domain check.
+    // Paths: (A) phone QR / join code, (B) paste Tailscale /register CODE + Approve,
+    // (C) terminal one-liner. Approve-flow unchanged. ──
+    const meshHtml = showMeshJoin ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
             <label class="settings-label">Connect a device to your private network (mesh)</label>
-            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Put a new phone or computer on your Cove's private network so it can open your space. Install the <strong>Tailscale</strong> app, point it at <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code> — on a phone, that's the <strong>⋯ menu → “Use a custom coordination server.”</strong> Sign in, and a page opens whose address ends in <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">/register/CODE</code>. Paste that CODE here:</div>
+            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Put a new phone or computer on the mesh so it can open your personal space (<code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">{handle}.…</code> is mesh-only even when the Cove has a public address).</div>
+
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text);margin:8px 0 4px;">Phone — QR / join code</div>
+            <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.45;">Tap <strong>Get join code</strong> and scan the QR with the phone camera (opens a short join page — not Nextcloud's login QR). Or install Tailscale, <strong>⋯ → “Use a custom coordination server”</strong>, enter <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code>, then sign in with the code.</div>
+            <button class="btn-sm" onclick="getDevicesMeshKey(this)">Get join code</button>
+            <div id="devices-mesh-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>
+
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text);margin:14px 0 4px;">Or approve from a Tailscale sign-in page</div>
+            <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.45;">Install Tailscale, point it at <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code>, sign in, and a page opens whose address ends in <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">/register/CODE</code>. Paste that CODE here:</div>
             <div style="display:flex;gap:6px;align-items:center;">
                 <input type="text" id="settings-approve-input" placeholder="paste the code from the Tailscale page" autocapitalize="off" autocorrect="off" spellcheck="false" style="flex:1;min-width:0;font-size:0.72rem;padding:5px 7px;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:5px;">
                 <button class="btn-sm" style="white-space:nowrap;" onclick="approveDeviceSettings(this)">Approve this device</button>
             </div>
             <div id="settings-approve-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
-            <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">On <strong>Linux</strong>, or if you'd rather use a one-time join code instead, <a href="#" onclick="getSettingsConnectCmd(this);return false;" style="color:var(--accent);">show the terminal command</a>.</div>
+            <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">On <strong>Linux</strong>, or if you'd rather use a one-time terminal command, <a href="#" onclick="getSettingsConnectCmd(this);return false;" style="color:var(--accent);">show the terminal command</a>.</div>
             <div id="settings-connect-cmd-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
+            <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">If Tailscale is already signed in to another network, log out first (this is a separate tailnet).</div>
         </div>` : '';
 
     // ── Sign-in link — the ONE way in on any device. Consolidated 2026-07-17 (was two
@@ -633,8 +622,8 @@ async function loadSettingsDevices() {
     // /p/ link — which just made people grab the wrong one). Chords. ──
     const signinHtml = p ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);">
-            <label class="settings-label">${showMesh ? 'Step 2 — ' : ''}Sign-in link</label>
-            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Your personal link into the Cove. Open it on any device — a phone, a laptop, another browser — to sign in as you, or bookmark it as your own way back in. It's minted fresh each time so it's always current; your other signed-in devices stay signed in.${showMesh ? ' (On a phone, put it on the mesh first, above.)' : ''}</div>
+            <label class="settings-label">Sign-in link</label>
+            <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Your personal link into the Cove. Open it on any device — a phone, a laptop, another browser — to sign in as you, or bookmark it as your own way back in. It's minted fresh each time so it's always current; your other signed-in devices stay signed in.${showMeshJoin ? ' For your personal Mission Control on a phone, put the phone on the mesh first (above), then open this link.' : ''}</div>
             <button class="btn-sm" onclick="createSigninLink(this)">Get my sign-in link</button>
             <div id="signin-link-out" style="display:none;margin-top:8px;"></div>
         </div>` : '';
@@ -649,8 +638,8 @@ async function loadSettingsDevices() {
             <div id="devices-sessions" style="margin-top:6px;font-size:0.72rem;color:var(--dim);">Loading…</div>
         </div>` : '';
 
-    if (!signinHtml && !sessionsHtml && !meshHtml && !approveHtml) { el.innerHTML = `<div style="font-size:0.7rem;color:var(--dim);">No device options for this account.</div>`; return; }
-    el.innerHTML = layersHtml + meshHtml + approveHtml + signinHtml + sessionsHtml;
+    if (!signinHtml && !sessionsHtml && !meshHtml) { el.innerHTML = `<div style="font-size:0.7rem;color:var(--dim);">No device options for this account.</div>`; return; }
+    el.innerHTML = layersHtml + meshHtml + signinHtml + sessionsHtml;
     if (sessionsHtml) loadDeviceSessions();
 }
 
