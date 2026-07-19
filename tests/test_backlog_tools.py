@@ -87,6 +87,30 @@ def test_clear_completed_no_lane():
     assert "No Completed lane" in msg and "#X" in text
 
 
+
+def test_find_ticket_prefers_title_over_annotation_crossref():
+    """Annotation '· with #QL-DRAG' on #QL-EDIT must not capture #QL-DRAG."""
+    board = """## Soon
+- [ ] **#QL-EDIT inline edit** — foo · Bundled with #QL-DRAG #QL-SPACER.
+- [ ] **#QL-DRAG drag reorder** — bar.
+- [ ] **#QL-SPACER spacers** — baz.
+## Completed
+"""
+    idx, lane = bt.find_ticket(board, "#QL-DRAG")
+    assert lane == "Soon"
+    assert "**#QL-DRAG" in board.split("\n")[idx]
+    idx_e, _ = bt.find_ticket(board, "#QL-EDIT")
+    assert "**#QL-EDIT" in board.split("\n")[idx_e]
+    assert idx != idx_e
+    text2, msg = bt.move_ticket_lane(board, "#QL-DRAG", "completed")
+    assert "Moved #QL-DRAG" in msg
+    idx3, lane3 = bt.find_ticket(text2, "#QL-DRAG")
+    assert lane3 and lane3.lower().startswith("completed")
+    # EDIT still in Soon
+    _, lane_e = bt.find_ticket(text2, "#QL-EDIT")
+    assert lane_e == "Soon"
+
+
 def test_ticket_title():
     t = bt.ticket_title(BOARD, "#D52")
     assert t.startswith("#D52 Effect-verification") and len(t) <= 70

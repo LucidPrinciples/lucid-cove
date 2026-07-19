@@ -326,6 +326,24 @@ async def verify_download(args: dict, result: str) -> tuple[bool, str]:
     return (False, f"File NOT found at {local_path}")
 
 
+async def _nc_head_exists(client: httpx.AsyncClient, path: str) -> tuple[bool, str]:
+    """HEAD path; on 404 try macOS U+202F sibling name (same as nextcloud tools)."""
+    resp = await client.request("HEAD", _nc_webdav_url(path))
+    if resp.status_code == 200:
+        return True, path
+    if resp.status_code == 404:
+        try:
+            from src.tools.nextcloud_tools import _find_sibling_by_ws
+            alt = await _find_sibling_by_ws(path)
+            if alt:
+                resp2 = await client.request("HEAD", _nc_webdav_url(alt))
+                if resp2.status_code == 200:
+                    return True, alt
+        except Exception:
+            pass
+    return False, path
+
+
 @register_verifier("nextcloud_move")
 async def verify_move(args: dict, result: str) -> tuple[bool, str]:
     """Verify dest exists and src is gone after a claimed MOVE."""
@@ -338,22 +356,39 @@ async def verify_move(args: dict, result: str) -> tuple[bool, str]:
     if "moved:" not in low:
         return (True, "Tool reported failure — no verification needed")
 
+    # Prefer paths reported in "Moved: src → dest" (real U+202F names after resolve)
+    reported_dest = dest
+    reported_src = src
+    if "→" in (result or "") or "->" in (result or ""):
+        try:
+            tail = (result or "").split("Moved:", 1)[1].strip()
+            if "→" in tail:
+                a, b = tail.split("→", 1)
+            else:
+                a, b = tail.split("->", 1)
+            reported_src = a.strip() or src
+            reported_dest = b.strip() or dest
+        except Exception:
+            pass
+
     try:
         async with httpx.AsyncClient(auth=_nc_auth(), timeout=10) as client:
-            dest_resp = await client.request("HEAD", _nc_webdav_url(dest))
-            if dest_resp.status_code != 200:
+            ok, resolved_dest = await _nc_head_exists(client, reported_dest)
+            if not ok and reported_dest != dest:
+                ok, resolved_dest = await _nc_head_exists(client, dest)
+            if not ok:
                 return (
                     False,
-                    f"Dest NOT found at {dest} — HEAD returned {dest_resp.status_code}",
+                    f"Dest NOT found at {dest} — HEAD returned 404",
                 )
-            if src:
-                src_resp = await client.request("HEAD", _nc_webdav_url(src))
-                if src_resp.status_code == 200:
-                    return (False, f"Source still present at {src} after move")
-                if src_resp.status_code not in (404, 409, 410):
-                    # Some servers 404 cleanly; treat other codes as soft OK if dest ok
-                    pass
-        return (True, f"Verified: moved to {dest}")
+            check_src = reported_src or src
+            if check_src:
+                src_still, _ = await _nc_head_exists(client, check_src)
+                if src_still:
+                    # Typed plain-space src may 404 while real name moved — only
+                    # fail if the path we believe was the source still HEADs.
+                    return (False, f"Source still present at {check_src} after move")
+        return (True, f"Verified: moved to {resolved_dest}")
     except Exception as e:
         return (False, f"Verification check failed: {e}")
 
@@ -369,14 +404,21 @@ async def verify_delete(args: dict, result: str) -> tuple[bool, str]:
     if "deleted:" not in low:
         return (True, "Tool reported failure — no verification needed")
 
+    reported = path
+    if "Deleted:" in (result or ""):
+        try:
+            reported = (result or "").split("Deleted:", 1)[1].strip() or path
+        except Exception:
+            pass
+
     try:
         async with httpx.AsyncClient(auth=_nc_auth(), timeout=10) as client:
-            resp = await client.request("HEAD", _nc_webdav_url(path))
-        if resp.status_code in (404, 410):
+            still, resolved = await _nc_head_exists(client, reported)
+            if not still and reported != path:
+                still, resolved = await _nc_head_exists(client, path)
+        if not still:
             return (True, f"Verified: {path} is gone")
-        if resp.status_code == 200:
-            return (False, f"Path STILL exists at {path} after delete")
-        return (False, f"Unexpected HEAD {resp.status_code} for {path}")
+        return (False, f"Path STILL exists at {resolved} after delete")
     except Exception as e:
         return (False, f"Verification check failed: {e}")
 
