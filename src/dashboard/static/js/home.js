@@ -635,7 +635,8 @@ function _onboardingCardHtml(item) {
                     <li>With Tailscale installed, scan the QR (opens a short join page with coordinator + code — not the Nextcloud login QR), or open the join link on the phone.</li>
                     <li>In Tailscale: ⋯ → <em>Use a custom coordination server</em> →
                         <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code>, then sign in with the join code (or follow the steps on the join page).</li>
-                    <li>Open your Cove at your live address and sign in as you (identity).</li>
+                    <li>Wait until Tailscale shows <strong style="color:var(--text);">Connected</strong>, then open your Cove at your live address and sign in as you (identity).</li>
+                    <li><strong style="color:var(--text);">iPhone:</strong> in Tailscale turn on <strong style="color:var(--text);">VPN On Demand</strong> so iOS keeps the mesh up in the background. If Mission Control suddenly will not load, open Tailscale first — an offline phone looks like every Cove is down.</li>
                     <li>Add <strong style="color:var(--text);">jules</strong> to your home screen.</li>
                 </ol>
                 <div style="margin-top:8px;font-size:0.68rem;">Already on another Tailscale network? Log out of that one first — this is a separate tailnet.</div>
@@ -913,6 +914,7 @@ async function getMeshKey(btn) {
                     html += '<div style="color:var(--dim);font-size:0.7rem;margin-bottom:4px;">Paste this into the Tailscale app on your phone when it asks to sign in / use an auth key:</div>'
                         + '<code style="display:block;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:6px;word-break:break-all;font-size:0.85rem;color:var(--text);">'
                         + ESC(code) + '</code>';
+                    html += '<div style="color:var(--dim);font-size:0.68rem;margin-top:8px;line-height:1.45;">After Connected: <strong style="color:var(--text);">iPhone → enable VPN On Demand</strong> in Tailscale so the mesh stays up in the background. If MC will not load later, open Tailscale first.</div>';
                 }
                 if (cmd) {
                     html += '<div style="color:var(--dim);font-size:0.7rem;margin-top:10px;margin-bottom:4px;">On a laptop or server instead, run this in a terminal:</div>'
