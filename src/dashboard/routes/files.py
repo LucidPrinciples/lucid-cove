@@ -259,7 +259,16 @@ def Path_name_only(name: str) -> str:
 
 @router.delete("/api/files/delete")
 async def delete_file(request: Request, path: str):
-    """Delete a file or folder from Nextcloud WebDAV."""
+    """Retire a file or folder into AgentSkills/To-Delete (never hard-delete).
+
+    Operator policy 2026-07-20: product deletes MOVE into a holding area so the
+    operator can offload to external backup or empty when notified of size.
+    WebDAV MOVE keeps one object; if MOVE fails we fall back to WebDAV DELETE
+    (Nextcloud trashbin) — never a silent permanent wipe.
+    """
+    import time
+    from urllib.parse import quote
+
     clean_path, path_err = _clean_webdav_path(path)
     if path_err is not None:
         return {"success": False, "error": path_err}
@@ -271,10 +280,51 @@ async def delete_file(request: Request, path: str):
     if error:
         return {"success": False, "error": error}
 
-    url = f"{webdav_base}/{clean_path}"
+    # Don't re-retire something already in To-Delete — then trash is OK.
+    already = clean_path == "AgentSkills/To-Delete" or clean_path.startswith(
+        "AgentSkills/To-Delete/"
+    )
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    base_name = clean_path.rstrip("/").split("/")[-1] or "item"
+    dest_rel = f"AgentSkills/To-Delete/{stamp}__{base_name}"
+
+    src_url = f"{webdav_base}/{quote(clean_path, safe='/')}"
+    dest_url = f"{webdav_base}/{quote(dest_rel, safe='/')}"
+    parent_url = f"{webdav_base}/{quote('AgentSkills/To-Delete', safe='/')}"
+
     try:
-        async with httpx.AsyncClient(auth=auth, timeout=30) as client:
-            response = await client.delete(url)
-            return {"success": response.status_code in (200, 204, 207)}
+        async with httpx.AsyncClient(auth=auth, timeout=60) as client:
+            if already:
+                response = await client.delete(src_url)
+                return {
+                    "success": response.status_code in (200, 204, 207, 404),
+                    "method": "nc_trash",
+                    "dest": "",
+                }
+            # ensure To-Delete exists
+            await client.request("MKCOL", parent_url)
+            resp = await client.request(
+                "MOVE",
+                src_url,
+                headers={"Destination": dest_url, "Overwrite": "T"},
+            )
+            if resp.status_code in (200, 201, 204):
+                return {
+                    "success": True,
+                    "retired": True,
+                    "method": "move",
+                    "dest": dest_rel,
+                }
+            # Fallback: WebDAV DELETE → NC trashbin
+            response = await client.delete(src_url)
+            ok = response.status_code in (200, 204, 207, 404)
+            return {
+                "success": ok,
+                "retired": ok,
+                "method": "nc_trash" if ok else "failed",
+                "dest": "",
+                "error": None if ok else f"MOVE {resp.status_code}, DELETE {response.status_code}",
+            }
     except Exception as e:
         return {"success": False, "error": str(e)}
+

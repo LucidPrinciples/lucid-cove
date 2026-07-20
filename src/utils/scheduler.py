@@ -999,6 +999,77 @@ class AgentScheduler:
                 asyncio.ensure_future(coro_func(*args))
         return wrapper
 
+
+    async def _check_to_delete_size(self):
+        """Notify when AgentSkills/To-Delete or video/to-delete exceeds threshold.
+
+        Operator policy 2026-07-20: we MOVE retired content instead of deleting.
+        When the holding area grows past TO_DELETE_NOTIFY_BYTES (default 5 GiB),
+        raise a normal Attention/notify so the operator can offload or empty.
+        """
+        try:
+            threshold = int(env("TO_DELETE_NOTIFY_BYTES", str(5 * 1024 ** 3)))
+        except ValueError:
+            threshold = 5 * 1024 ** 3
+        total = 0
+        # Local video mount to-delete
+        try:
+            from pathlib import Path as _P
+            import importlib.util
+            mod_path = _P(__file__).resolve().parents[2] / "voice" / "src" / "video_lifecycle.py"
+            if mod_path.is_file():
+                spec = importlib.util.spec_from_file_location("_vlife_td", mod_path)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                total += int(mod.to_delete_total_bytes() or 0)
+        except Exception as e:
+            print(f"{ts_log()} [scheduler] to-delete video size check skipped: {e}")
+        # NC AgentSkills/To-Delete via WebDAV PROPFIND depth infinity is heavy —
+        # use a shallow listing + getcontentlength when creds exist.
+        try:
+            nc_url = env("NEXTCLOUD_URL")
+            user = env("NEXTCLOUD_ADMIN_USER") or env("NC_ADMIN_USER")
+            password = env("NEXTCLOUD_ADMIN_PASSWORD") or env("NC_ADMIN_PASSWORD")
+            if nc_url and user and password:
+                import httpx
+                from xml.etree import ElementTree as ET
+                url = f"{nc_url.rstrip('/')}/remote.php/dav/files/{user}/AgentSkills/To-Delete"
+                headers = {"Depth": "1", "Content-Type": "application/xml"}
+                body = (
+                    '<?xml version="1.0"?>'
+                    '<d:propfind xmlns:d="DAV:">'
+                    '<d:prop><d:getcontentlength/></d:prop></d:propfind>'
+                )
+                async with httpx.AsyncClient(timeout=30) as client:
+                    r = await client.request(
+                        "PROPFIND", url, content=body, headers=headers,
+                        auth=(user, password),
+                    )
+                if r.status_code in (207, 200):
+                    root = ET.fromstring(r.text)
+                    ns = {"d": "DAV:"}
+                    for el in root.findall(".//d:getcontentlength", ns):
+                        if el.text and el.text.isdigit():
+                            total += int(el.text)
+        except Exception as e:
+            print(f"{ts_log()} [scheduler] to-delete NC size check skipped: {e}")
+
+        if total < threshold:
+            return
+        gb = total / (1024 ** 3)
+        thr_gb = threshold / (1024 ** 3)
+        msg = (
+            f"To-Delete holding area is {gb:.1f} GiB (threshold {thr_gb:.1f} GiB). "
+            f"Offload AgentSkills/To-Delete and Content/video/to-delete to external "
+            f"backup, then empty — product never hard-deletes user content."
+        )
+        print(f"{ts_log()} [scheduler] {msg}")
+        try:
+            from src.tools.comms_tools import notify_operator
+            await notify_operator(msg, urgency="normal")
+        except Exception as e:
+            print(f"{ts_log()} [scheduler] to-delete notify failed: {e}")
+
     def setup_schedule(self):
         """Configure the base schedule. ALL agents get these jobs.
 
@@ -1147,6 +1218,13 @@ class AgentScheduler:
         schedule.every(30).minutes.do(
             self._schedule_async(self._process_jules_inbox)
         )
+
+        # To-Delete size notify — daily; no-op under threshold
+        schedule.every().day.at("11:00", tz).do(
+            self._schedule_async(self._check_to_delete_size)
+        )
+
+
 
         yt_configured = bool(env("YOUTUBE_CLIENT_ID"))
         print(f"[scheduler] {self._agent_id} base schedule:")
