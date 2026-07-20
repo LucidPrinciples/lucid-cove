@@ -147,6 +147,8 @@ async def process_moments(request: Request):
             # on the acting presence's board (NULL in single mode: unchanged).
             from src.dashboard.routes.action_board import _acting_presence_id
             _cf1_pid = await _acting_presence_id(request)
+            from src.dashboard.routes.video_meta import resolve_video_meta
+            _vm = await resolve_video_meta(owner_id=owner_id, request=request)
 
             async with get_db() as conn:
                 # Index processed clips by (moment_id, clip_type, format).
@@ -206,6 +208,9 @@ async def process_moments(request: Request):
                                 clip_type=clip.get("clip_type", "thought"),
                                 duration_seconds=clip.get("duration_seconds", 0),
                                 transcript_text=clip_text,
+                                video_meta=_vm,
+                                request=request,
+                                owner_id=owner_id,
                             )
                         except Exception as me:
                             logger.warning(f"Metadata gen failed for {platform}: {me}")
@@ -385,6 +390,8 @@ async def caption_full_video(request: Request):
                             clip_type="full",
                             duration_seconds=result.get("duration_seconds", 0),
                             transcript_text=description or title,
+                            request=request,
+                            owner_id=owner_id,
                         )
                     except Exception as xe:
                         logger.warning(f"X full metadata gen failed: {xe}")
@@ -475,27 +482,13 @@ async def _generate_video_metadata(stem: str, request=None) -> dict:
     try:
         from src.models.provider import get_model_client, _resolve_model_string
         from langchain_core.messages import SystemMessage, HumanMessage
+        from src.dashboard.routes.video_meta import (
+            build_full_video_system_prompt,
+            resolve_video_meta,
+        )
 
-        system_prompt = """You are a YouTube content strategist for a creator who builds AI systems for families and teaches a personal development framework called the Lucid Principles.
-
-Generate metadata for a full-length YouTube video based on its transcript. The title should be compelling and searchable. The description should summarize the content, include key topics, and be optimized for YouTube search. Tags should cover the main topics.
-
-Hard rules:
-- Write finished, postable copy only. NEVER use placeholder text of any kind (no "[relevant links here]", no "[...]", no TODO notes).
-- Separate every paragraph with a blank line (\\n\\n in the JSON string).
-- No em dashes. Use periods or commas instead.
-- Provide 8 to 12 tags. Each tag is 1 to 3 words, no tag longer than 25 characters, and the whole tag set stays under 400 characters total.
-- The only link allowed is https://lucidprinciples.com/vision. End the description with this exact final line: "The framework, the music, and the systems behind it: https://lucidprinciples.com/vision". Do not invent other links.
-
-Return ONLY valid JSON:
-{
-  "title": "Compelling YouTube title (50-70 chars ideal, max 100)",
-  "description": "YouTube description (2-3 paragraphs, ~150-300 words, blank line between paragraphs). First line is the hook. Include timestamps if obvious sections exist. Final line exactly: The framework, the music, and the systems behind it: https://lucidprinciples.com/vision",
-  "hashtags": "#hashtag1 #hashtag2 #hashtag3 (3-5 relevant hashtags)",
-  "tags": ["tag1", "tag2", "tag3", "..."]
-}
-
-Keep the voice authentic, not clickbait, not generic. This creator talks about building AI locally, family technology, consciousness, and practical systems."""
+        _meta = await resolve_video_meta(request=request)
+        system_prompt = build_full_video_system_prompt(_meta)
 
         for model_name in ["gemini-flash", "kimi-k2.5"]:
             try:
