@@ -481,6 +481,14 @@
         tokenBackoff = 2000;
         clearConnectTimers();
         if (mode === 'chats') renderChats();
+        // First paint may race the background Space ensure (token returns before
+        // steward invites land). Catch up any same-Cove invites that already arrived.
+        try { autoJoinOwnServerInvites(); } catch (_) {}
+      } else if (started && mode === 'chats' && (state === 'SYNCING' || state === 'PREPARED' || state === 'CATCHUP')) {
+        // Later sync rounds bring rooms created after first PREPARED — re-paint so
+        // "No conversations yet" does not stick after Cove Space/Family invites land.
+        try { autoJoinOwnServerInvites(); } catch (_) {}
+        renderTree();
       } else if (!started && (state === 'ERROR' || state === 'STOPPED')) {
         // Surface + tear down + single retry. stopClient often emits STOPPED after
         // ERROR — failConnect is one-shot so that does not double the backoff.
@@ -496,6 +504,27 @@
       if (room && room.roomId === activeRoomId) renderTimeline();
       renderTree();
     });
+    // Membership flips (invite → join, or a brand-new invite room) often have no
+    // timeline event yet — Timeline alone never re-renders. Room.myMembership is
+    // the signal for late steward invites after set-domain / first Connect.
+    if (RoomEvent.MyMembership) {
+      client.on(RoomEvent.MyMembership, (room, membership) => {
+        if (!started || mode !== 'chats') return;
+        try {
+          if (membership === 'invite' && room) {
+            const inviter = inviteSender(room);
+            if (isOwnServerInvite(inviter, client.getUserId())) {
+              acceptInvite(room.roomId, inviter);
+              return;
+            }
+          }
+        } catch (_) {}
+        renderTree();
+        if (room && room.roomId === activeRoomId) {
+          try { openRoom(room.roomId); } catch (_) {}
+        }
+      });
+    }
 
     // Hard watchdog: never sit on Connecting… for 10–15 minutes with no signal.
     // If PREPARED never arrives, stop, show the stage we stalled on, and auto-retry.
@@ -1563,9 +1592,30 @@
     return client.getRooms().filter(r => r && r.getMyMembership && r.getMyMembership() === 'invite');
   }
 
+  // Same-Cove steward Space/Family invites auto-join without Accept. Called from
+  // openRoom AND from live sync/membership handlers so invites that land after the
+  // first empty paint still join without the operator hunting a row.
+  const _autoJoinInFlight = Object.create(null);
+  function autoJoinOwnServerInvites() {
+    if (!client || !started) return;
+    const me = client.getUserId && client.getUserId();
+    pendingInviteRooms().forEach(room => {
+      if (!room || !room.roomId || _autoJoinInFlight[room.roomId]) return;
+      const inviter = inviteSender(room);
+      if (!isOwnServerInvite(inviter, me)) return;
+      _autoJoinInFlight[room.roomId] = true;
+      Promise.resolve(acceptInvite(room.roomId, inviter)).finally(() => {
+        delete _autoJoinInFlight[room.roomId];
+      });
+    });
+  }
+
   function renderTree() {
     const box = document.getElementById('cx-tree');
     if (!box || !client) return;
+    // Opportunistic: if steward invites are already in the store, join them even
+    // when the operator never opened a row (empty list after first Connect).
+    try { autoJoinOwnServerInvites(); } catch (_) {}
     const groups = buildTree();
     const pending = pendingInviteRooms();
     // Invite-only Spaces often have no children yet and are skipped by buildTree —
@@ -1577,7 +1627,17 @@
       groups.unshift({ label: 'Invites', rooms: missingInvites });
     }
     if (!groups.length && !pending.length) {
-      box.innerHTML = '<div class="connect-empty">No conversations yet.<br>Use + Add to invite someone.</div>';
+      // Same pattern as Devices & Access mesh steps: show guidance while the
+      // foundation is still forming; this block is replaced the moment rooms land
+      // (live sync / membership re-render). Not a permanent dead end.
+      box.innerHTML = '<div class="connect-empty" id="cx-empty-waiting">'
+        + '<div style="font-weight:600;margin-bottom:6px;">Setting up your Cove chats…</div>'
+        + '<div style="opacity:.85;font-size:0.85rem;line-height:1.45;max-width:22rem;margin:0 auto;">'
+        + 'Your Cove Space and Family room land here automatically after Connect signs in. '
+        + 'This usually takes a few seconds on a fresh install. Stay on this tab — when they arrive, this note goes away and the chats appear.'
+        + '</div>'
+        + '<div style="opacity:.6;font-size:0.78rem;margin-top:12px;line-height:1.4;">Still empty after half a minute? Leave Connect and open it again once, or use <b>+ Add</b> for a direct chat.</div>'
+        + '</div>';
       return;
     }
     let banner = '';
