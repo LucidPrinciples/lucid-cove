@@ -61,11 +61,23 @@ class VoicePipeline:
         logger.info("Initializing voice pipeline...")
         
         try:
+            import os
+
             from src.transports.whisper_stt import WhisperSTTTransport
             from src.transports.ollama_llm import OllamaLLMTransport
             from src.transports.piper_tts import PiperTTSTransport
-            
-            self.stt = WhisperSTTTransport()
+
+            # WHISPER_DEVICE=cpu|cuda|auto — default auto. Batch video ASR (Qwen)
+            # needs the 3090 free; set cpu on video-heavy hosts so live STT does
+            # not pin large-v3-turbo on CUDA at boot (~10–13 GiB).
+            whisper_device = (os.environ.get("WHISPER_DEVICE") or "auto").strip().lower()
+            if whisper_device not in ("auto", "cpu", "cuda"):
+                logger.warning(
+                    "WHISPER_DEVICE=%r invalid; using auto", whisper_device
+                )
+                whisper_device = "auto"
+            logger.info("Whisper device preference: %s", whisper_device)
+            self.stt = WhisperSTTTransport(device=whisper_device)
             stt_ok = self.stt.initialize()
             
             self.llm = OllamaLLMTransport()
