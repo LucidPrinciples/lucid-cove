@@ -40,24 +40,69 @@ def _mesh_login_server(res: dict | None = None) -> str:
     return s or "https://headscale.lucidcove.org"
 
 
-def _cove_public_origin(request: Request) -> str:
-    """HTTPS apex origin for deep links (tunnel / claimed domain), else request base."""
+def _cove_apex_origin() -> str:
+    """Claimed Cove apex (mesh-only after claim). Empty when no address yet."""
     try:
         from src.config import load_cove_config
         dom = (load_cove_config().get("domain") or "").strip().lstrip("*").lstrip(".").lower()
     except Exception:
         dom = ""
-    if dom:
-        return "https://" + dom.split("/")[0]
-    return str(request.base_url).rstrip("/")
+    if not dom:
+        return ""
+    return "https://" + dom.split("/")[0]
+
+
+def _https_origin(raw: str) -> str:
+    """Normalize an https base URL to scheme://host (no path). Empty if not https."""
+    raw = (raw or "").strip()
+    if not raw.startswith("https://"):
+        return ""
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(raw)
+        if p.scheme == "https" and p.netloc:
+            return f"https://{p.netloc}"
+    except Exception:
+        pass
+    return ""
+
+
+def _public_mesh_join_origin(request: Request) -> str:
+    """Origin for phone QR /mesh-join — must load BEFORE the phone is on the mesh.
+
+    #MESH5: A self-host Cove apex is mesh-only by design. Encoding that apex in the QR
+    is a chicken-and-egg (scan off-mesh → page never loads). Prefer the public hub
+    (same codebase serves /mesh-join there). Hub process uses its own public host.
+    Air-gapped last resort: request base (localhost mint on the box).
+    """
+    hub_default = "https://app.lucidcove.org"
+    # Explicit public base wins (deploy override).
+    for key in ("LP_PUBLIC_BASE", "LP_REGISTRY_URL"):
+        o = _https_origin(os.environ.get(key, "") or "")
+        if o:
+            return o
+    # This process is the hub — prefer the request's public https host.
+    try:
+        if env_bool("LP_REGISTRY_MASTER"):
+            base = _https_origin(str(request.base_url).rstrip("/"))
+            return base or hub_default
+    except Exception:
+        pass
+    # Self-host stranger path: walkthrough lives on the public hub; Cove apex is query `c=`.
+    return hub_default
+
+
+def _cove_public_origin(request: Request) -> str:
+    """Back-compat name used by tests — phone join origin (#MESH5 = public hub)."""
+    return _public_mesh_join_origin(request)
 
 
 def _enrich_mesh_key_payload(res: dict, request: Request) -> dict:
     """Add phone deep-link fields + optional QR SVG to a successful mesh-key dict.
 
-    #MESH2: QR encodes a Cove-hosted /mesh-join helper URL (NOT a native Tailscale
-    scheme). That page walks the phone through custom coordinator + auth key and
-    can attempt known deep-link schemes as a best-effort shortcut.
+    #MESH2 + #MESH5: QR encodes a PUBLIC /mesh-join helper URL (hub), NOT the mesh-only
+    Cove apex. That page walks the phone through custom coordinator + auth key.
+    Query carries s=login_server, k=preauth_key, and c=cove_apex for post-join open.
     """
     if not isinstance(res, dict) or not res.get("ok"):
         return res
@@ -72,10 +117,16 @@ def _enrich_mesh_key_payload(res: dict, request: Request) -> dict:
     res["login_server"] = login
     if not key:
         return res
-    origin = _cove_public_origin(request)
-    q = urlencode({"s": login, "k": key})
+    origin = _public_mesh_join_origin(request)
+    apex = _cove_apex_origin()
+    q_dict = {"s": login, "k": key}
+    if apex:
+        q_dict["c"] = apex
+    q = urlencode(q_dict)
     join_url = f"{origin}/mesh-join?{q}"
     res["join_url"] = join_url
+    if apex:
+        res["cove_apex"] = apex
     res["deep_links"] = {
         "tailscale_authkey": (
             f"tailscale://authkey?key={quote(key, safe='')}&loginServer={quote(login, safe='')}"
@@ -1056,19 +1107,27 @@ async def mesh_join_key(request: Request):
 
 @router.get("/mesh-join", response_class=HTMLResponse)
 async def mesh_join_page(request: Request):
-    """#MESH2 - phone-facing helper for Tailscale + custom Headscale coordinator.
+    """#MESH2 + #MESH5 — phone-facing helper for Tailscale + custom Headscale coordinator.
 
-    Reachable on the Cove apex (tunnel) so a QR scanned off-mesh still opens.
-    Query: s=login_server, k=preauth_key. Does not mint keys; only displays what
-    the QR already carried. Not a native Tailscale deep link - we host the walkthrough.
+    Served on the PUBLIC hub (app.lucidcove.org) so a QR scanned off-mesh still opens.
+    Query: s=login_server, k=preauth_key, c=cove_apex (optional, open after Connected).
+    Does not mint keys; only displays what the QR already carried.
     """
     from html import escape as _esc
     from pathlib import Path as _Path
     qp = request.query_params
     login = (qp.get("s") or qp.get("server") or "").strip() or _mesh_login_server()
     key = (qp.get("k") or qp.get("key") or "").strip()
+    cove = (qp.get("c") or qp.get("cove") or "").strip()
+    # Only allow https Cove apex links in the open step (no javascript: etc.).
+    if cove and not cove.startswith("https://"):
+        if "://" not in cove and "." in cove:
+            cove = "https://" + cove.lstrip("/")
+        else:
+            cove = ""
     login_d = _esc(login)
     key_d = _esc(key) if key else ""
+    cove_d = _esc(cove) if cove else ""
     deep = ""
     if key:
         deep = f"tailscale://authkey?key={quote(key, safe='')}&loginServer={quote(login, safe='')}"
@@ -1091,6 +1150,20 @@ async def mesh_join_page(request: Request):
             '<div class="warn">This link is missing a join code. Open Connect on a signed-in '
             'Cove device and scan a fresh QR (codes last about an hour).</div>'
         )
+    if cove_d:
+        cove_block = (
+            f'<p style="margin:8px 0 6px;">Only after Tailscale shows <strong>Connected</strong> — '
+            f'not before:</p>'
+            f'<a class="btn" href="{cove_d}" rel="noopener">Open your Cove</a>'
+            f'<p class="foot" style="margin:10px 0 0;">If this does nothing, wait until Connected, '
+            f'then try again. The Cove address only works on the private mesh.</p>'
+        )
+    else:
+        cove_block = (
+            '<p style="margin:8px 0 0;">Wait until Tailscale shows <strong>Connected</strong>, then open '
+            'your Cove from the sign-in link (Settings → Devices) or the address your host shared. '
+            'Do not open the Cove URL before Connected.</p>'
+        )
     tpl_path = _Path(__file__).resolve().parents[1] / "static" / "mesh-join.html"
     try:
         body = tpl_path.read_text(encoding="utf-8")
@@ -1100,6 +1173,7 @@ async def mesh_join_page(request: Request):
         body.replace("__LOGIN__", login_d)
             .replace("__KEY_BLOCK__", key_block)
             .replace("__OPEN_BTN__", open_btn)
+            .replace("__COVE_BLOCK__", cove_block)
     )
     return HTMLResponse(content=body)
 

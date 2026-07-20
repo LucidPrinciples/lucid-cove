@@ -61,18 +61,25 @@ def _load_acmedns():
 
 
 def _detect_host_ip(deploy: dict) -> str:
-    """Where the Cove's DNS records should point. MESH-FIRST (CF-90): explicit
-    host_ip/mesh_ip wins; else the box's own mesh IP (reachable by the family's
-    devices from anywhere, behind any NAT); else the public IP ONLY when this box
-    actually owns it (bound to a local interface — the rented-VPS case). A home box
-    behind NAT gets '' — writing the ROUTER's public IP creates records nothing can
-    reach (every subdomain times out; found on the 2026-06-30 iMac stranger install)."""
+    """Where the Cove's DNS records should point. MESH-FIRST (CF-90 + #MESH5).
+
+    When deploy carries an explicit mesh_ip/host_ip (connect-mesh / claim body),
+    that wins — callers pass the fresh tailscale IP on purpose. Otherwise prefer
+    LIVE mesh detect over a stale stamp: a second Cove on the same host must not
+    inherit another install's COVE_MESH_IP. Then public IP ONLY when this box
+    actually owns it (rented-VPS). Home/NAT with no mesh → '' (refuse bad DNS).
+    """
     ip = (deploy.get("host_ip") or deploy.get("mesh_ip") or "").strip()
     if ip:
         return ip
     mesh = _detect_mesh_ip()
     if mesh:
         return mesh
+    # Env stamp only when live detect is unavailable (app container without
+    # host tailscale) — still better than writing the router's public IP.
+    env_mesh = (os.getenv("COVE_MESH_IP", "") or "").strip()
+    if env_mesh:
+        return env_mesh
     try:
         import urllib.request
         pub = urllib.request.urlopen("https://api.ipify.org", timeout=8).read().decode().strip()
@@ -1349,14 +1356,18 @@ echo "Restarting your Cove so it uses the mesh address..."
 docker compose up -d
 # Self-heal DNS at the fresh mesh IP: if an address was already claimed before the
 # box joined the mesh, re-point its A records here (no-op when no address is set).
+# #MESH5: pass MESH_IP explicitly so a stale COVE_MESH_IP inside the container
+# (or a leftover A record from another Cove on this host) cannot win.
 APP_PORT="$(grep -m1 -E '^[[:space:]]+PORT:' docker-compose.yml | grep -oE '[0-9]+' | head -1 || true)"
 APP_PORT="${APP_PORT:-8200}"
-echo "Reconciling your address at the new mesh IP..."
+echo "Reconciling your address at the new mesh IP ($MESH_IP)..."
 for i in $(seq 1 12); do
   sleep 5
-  RES="$(curl -s -m 10 -X POST "http://127.0.0.1:${APP_PORT}/api/domain/reconcile-dns" 2>/dev/null || true)"
+  RES="$(curl -s -m 10 -X POST "http://127.0.0.1:${APP_PORT}/api/domain/reconcile-dns" \
+    -H 'Content-Type: application/json' \
+    -d "{\"ip\":\"$MESH_IP\"}" 2>/dev/null || true)"
   if [ -n "$RES" ]; then
-    echo "$RES" | grep -q '"ok"[: ]*true' && { echo "Address now points at the mesh."; break; }
+    echo "$RES" | grep -q '"ok"[: ]*true' && { echo "Address now points at the mesh ($MESH_IP)."; break; }
     echo "$RES" | grep -q 'no address set' && { echo "No address claimed yet — claim it in the Cove next."; break; }
     [ "$i" = "12" ] && echo "Could not reconcile automatically — open the Cove and re-run Set Address."
   fi
