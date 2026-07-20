@@ -425,8 +425,15 @@ def nc_data_video_path(nc_user: str, sub: str, filename: str) -> str:
     """Absolute path on a mounted NC data volume for one video object."""
     if not NC_HTML_ROOT or not nc_user:
         return ""
+    # Strip slashes so a leading "/" on nc_user cannot reset os.path.join,
+    # and we never emit .../datajason/... from a missing separator.
+    user = str(nc_user).strip().strip("/")
+    sub_clean = str(sub or "").strip().strip("/")
+    name = os.path.basename(str(filename or "").strip())
+    if not user or not name:
+        return ""
     return os.path.join(
-        NC_HTML_ROOT, "data", nc_user, "files", NC_VIDEO_PATH, sub, filename
+        NC_HTML_ROOT, "data", user, "files", NC_VIDEO_PATH, sub_clean, name
     )
 
 

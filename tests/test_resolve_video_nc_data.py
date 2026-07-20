@@ -75,3 +75,30 @@ def test_resolve_without_mount_falls_through_to_pull(tmp_path, monkeypatch):
     )
     assert path and path.endswith("x.MOV")
     assert Path(path).read_bytes() == b"pulled"
+
+
+def test_nc_data_video_path_never_glues_data_user(tmp_path, monkeypatch):
+    """Regression: path must be .../data/<user>/... never .../datajason/..."""
+    html = tmp_path / "html"
+    html.mkdir()
+    vc = _load_vc(monkeypatch, NC_HTML_ROOT=str(html))
+    p = vc.nc_data_video_path("jason", "inbox", "IMG_7171.MOV")
+    assert "/data/jason/" in p.replace("\\", "/")
+    assert "/datajason/" not in p.replace("\\", "/")
+    # Leading slash on user must not reset join to /jason/...
+    p2 = vc.nc_data_video_path("/jason", "processing", "IMG_7171.MOV")
+    assert p2.replace("\\", "/").startswith(str(html).replace("\\", "/") + "/data/jason/")
+
+
+def test_find_on_nc_data_prefers_processing_after_move(tmp_path, monkeypatch):
+    """After inbox→processing MOVE on the shared volume, resolve hits processing/."""
+    html = tmp_path / "html"
+    user = "jason"
+    base = html / "data" / user / "files" / "AgentSkills" / "Content" / "video"
+    (base / "inbox").mkdir(parents=True)
+    (base / "processing").mkdir(parents=True)
+    target = base / "processing" / "IMG_7171.MOV"
+    target.write_bytes(b"moved")
+    vc = _load_vc(monkeypatch, NC_HTML_ROOT=str(html))
+    found = vc.find_on_nc_data(user, "IMG_7171.MOV")
+    assert found == str(target)
