@@ -82,13 +82,33 @@ async def process_moments(request: Request):
     # Forward to pipecat-voice for processing
     _nch = await pipecat_nc_headers(request)
     try:
+        try:
+            from src.dashboard.routes.video_jobs import set_phase
+            set_phase("rendering")
+        except Exception:
+            pass
         async with httpx.AsyncClient(timeout=1800) as client:  # 30min for batch
             resp = await client.post(
                 f"{PIPECAT_URL}/api/video/process-moments",
                 json=body,
                 headers=_nch,
             )
-            result = resp.json()
+            raw = (resp.text or "").strip()
+            if not raw:
+                return JSONResponse(
+                    {"error": (
+                        f"process-moments empty response (HTTP {resp.status_code}). "
+                        "Use /process-moments/start for long batches."
+                    )},
+                    status_code=502,
+                )
+            try:
+                result = resp.json()
+            except Exception:
+                return JSONResponse(
+                    {"error": f"process-moments non-JSON (HTTP {resp.status_code}): {raw[:240]}"},
+                    status_code=502,
+                )
             if resp.status_code != 200:
                 return JSONResponse(result, status_code=resp.status_code)
     except httpx.TimeoutException:
@@ -280,13 +300,39 @@ async def caption_full_video(request: Request):
     stem = body.get("stem", "")
     _nch = await pipecat_nc_headers(request)
     try:
+        # Mark render phase when running under video_jobs (#A14 caption-full async).
+        try:
+            from src.dashboard.routes.video_jobs import set_phase
+            set_phase("rendering")
+        except Exception:
+            pass
         async with httpx.AsyncClient(timeout=3600) as client:  # 1hr for long videos
             resp = await client.post(
                 f"{PIPECAT_URL}/api/video/caption-full",
                 json=body,
                 headers=_nch,
             )
-            result = resp.json()
+            # Empty body = gateway/proxy cut mid-render — never throw JSONDecodeError
+            # up to the browser as "Unexpected end of JSON input".
+            raw = (resp.text or "").strip()
+            if not raw:
+                return JSONResponse(
+                    {"error": (
+                        "Captioned full returned an empty response "
+                        f"(HTTP {resp.status_code}). The render may still be running "
+                        "or was cut by a proxy — check voice logs / shorts folder, "
+                        "or re-run via /caption-full/start."
+                    )},
+                    status_code=502,
+                )
+            try:
+                result = resp.json()
+            except Exception:
+                return JSONResponse(
+                    {"error": f"Captioned full non-JSON response (HTTP {resp.status_code}): "
+                              f"{raw[:240]}"},
+                    status_code=502,
+                )
 
             if resp.status_code == 200 and stem:
                 # Generate YouTube metadata from transcript
