@@ -829,23 +829,25 @@ async def _identify_moments(
 
     # ── Duration-based analysis tiers ──────────────────────────────
     # Scale moments count and clip types to video length
+    # Hard platform lines (also enforced post-parse in moment_clip_sizes):
+    #   quote  8–30s | thought MUST be <60s (technical short) | story 120–180s (2–3 min)
+    # Moments whose window is >= 2 minutes MUST include all three nested sizes.
     if duration_mins < 5:
-        # SHORT: still propose nested sizes so the operator can mix/match.
-        # Story is allowed when the moment actually holds a longer arc; otherwise
-        # omit story rather than padding. Whole-video caption path remains separate.
+        # SHORT: nested sizes when the content supports them; story only if the
+        # moment truly spans >= 2 minutes. Whole-video caption path remains separate.
         expected_moments = max(1, min(2, max(1, duration_mins)))
-        clip_tiers = """For EVERY moment, propose nested clip lengths when the content supports them:
-- **Quote** (8-20 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
-- **Thought** (25-60 seconds): A complete idea with setup and payoff. Good for YouTube Shorts, TikTok, Reels.
-- **Story** (45-120 seconds, only if the moment truly holds it): A fuller arc of the same idea. Good for longer Shorts / YT / TikTok. SKIP story if it would just pad silence or repeat — never invent length.
+        clip_tiers = """HARD PLATFORM LINES — honor these durations (operator sliders fine-trim later):
+- **Quote** (8-30 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
+- **Thought** (35-59 seconds): A complete idea with setup and payoff. MUST stay under 60 seconds — this is the technical short for platform short-form traffic.
+- **Story** (120-180 seconds / 2-3 minutes): ONLY when the moment window is at least 2 minutes. Hard max 180 seconds (3 min short ceiling). Target ~150s. If the moment is shorter than 2 minutes, OMIT story — do not invent a long story from thin content.
 
-Prefer all three when clean. Quote lives inside thought lives inside story when all three exist. The operator will mix and match approved sizes."""
+When the moment is >= 2 minutes long, you MUST propose all three (quote inside thought inside story). The operator will mix and match approved sizes."""
         clip_example = """        {{
           "type": "quote",
           "label": "Short title for this clip",
           "start_seconds": 30.0,
-          "end_seconds": 42.0,
-          "duration_seconds": 12,
+          "end_seconds": 48.0,
+          "duration_seconds": 18,
           "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "The exact quote or opening line"
         }},
@@ -853,8 +855,8 @@ Prefer all three when clean. Quote lives inside thought lives inside story when 
           "type": "thought",
           "label": "Short title for this clip",
           "start_seconds": 25.0,
-          "end_seconds": 70.0,
-          "duration_seconds": 45,
+          "end_seconds": 80.0,
+          "duration_seconds": 55,
           "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "Opening line that sets up the idea"
         }},
@@ -862,25 +864,25 @@ Prefer all three when clean. Quote lives inside thought lives inside story when 
           "type": "story",
           "label": "Short title for this clip",
           "start_seconds": 20.0,
-          "end_seconds": 95.0,
-          "duration_seconds": 75,
+          "end_seconds": 170.0,
+          "duration_seconds": 150,
           "platform_fit": ["youtube", "youtube_shorts", "tiktok", "facebook"],
           "hook_line": "Opening line that draws the viewer in"
         }}"""
         length_guidance = (
             f"This video is only about {duration_mins} minutes long. Find 1-2 of the strongest "
-            "moments — don't force extra moments. For each moment, still offer the nested sizes "
-            "that cleanly exist so the operator can pick quote/thought/story without re-cutting."
+            "moments — don't force extra moments. For each moment that spans at least 2 minutes, "
+            "offer quote + thought + story so the operator can pick without re-cutting."
         )
     elif duration_mins < 15:
         # MEDIUM: standard three tiers, moderate count
         expected_moments = max(2, min(4, duration_mins // 3))
-        clip_tiers = """For EVERY moment, propose ALL THREE clip lengths:
-- **Quote** (15-30 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
-- **Thought** (45-90 seconds): A complete idea with setup and payoff. Good for YouTube Shorts, TikTok, Reels.
-- **Story** (2-4 minutes): A full narrative arc or detailed explanation. Good for YouTube, longer TikTok.
+        clip_tiers = """HARD PLATFORM LINES — for EVERY moment whose arc is at least 2 minutes, propose ALL THREE nested sizes:
+- **Quote** (8-30 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
+- **Thought** (35-59 seconds): A complete idea with setup and payoff. MUST stay under 60 seconds (technical short / short-form traffic). Never 60s or longer.
+- **Story** (120-180 seconds / 2-3 minutes): Full narrative arc of the same idea. Hard max 180 seconds (3 min short ceiling). Target about 150 seconds. Never under 120 seconds for a story.
 
-Always propose all three. The clips from the same moment WILL overlap — the quote exists inside the thought which exists inside the story."""
+Always propose all three when the moment window is >= 2 minutes. Quote lives inside thought lives inside story. The operator may skip sizes but all three must be available."""
         clip_example = """        {{
           "type": "quote",
           "label": "Short title for this clip",
@@ -894,8 +896,8 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "type": "thought",
           "label": "Short title for this clip",
           "start_seconds": 130.0,
-          "end_seconds": 200.0,
-          "duration_seconds": 70,
+          "end_seconds": 185.0,
+          "duration_seconds": 55,
           "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "Opening line that sets up the idea"
         }},
@@ -903,8 +905,8 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "type": "story",
           "label": "Short title for this clip",
           "start_seconds": 120.0,
-          "end_seconds": 280.0,
-          "duration_seconds": 160,
+          "end_seconds": 270.0,
+          "duration_seconds": 150,
           "platform_fit": ["youtube", "youtube_shorts", "tiktok", "facebook"],
           "hook_line": "Opening line that draws the viewer in"
         }}"""
@@ -912,12 +914,12 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
     elif duration_mins < 30:
         # LONG: full extraction
         expected_moments = max(5, duration_mins // 3)
-        clip_tiers = """For EVERY moment, propose ALL THREE clip lengths:
-- **Quote** (15-30 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
-- **Thought** (45-90 seconds): A complete idea with setup and payoff. Good for YouTube Shorts, TikTok, Reels.
-- **Story** (2-5 minutes): A full narrative arc or detailed explanation. Good for YouTube, longer TikTok.
+        clip_tiers = """HARD PLATFORM LINES — for EVERY moment whose arc is at least 2 minutes, propose ALL THREE nested sizes:
+- **Quote** (8-30 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
+- **Thought** (35-59 seconds): A complete idea with setup and payoff. MUST stay under 60 seconds (technical short / short-form traffic). Never 60s or longer.
+- **Story** (120-180 seconds / 2-3 minutes): Full narrative arc of the same idea. Hard max 180 seconds (3 min short ceiling). Target about 150 seconds. Never under 120 seconds for a story.
 
-Always propose all three. The clips from the same moment WILL overlap — the quote exists inside the thought which exists inside the story."""
+Always propose all three when the moment window is >= 2 minutes. Quote lives inside thought lives inside story. The operator may skip sizes but all three must be available."""
         clip_example = """        {{
           "type": "quote",
           "label": "Short title for this clip",
@@ -931,8 +933,8 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "type": "thought",
           "label": "Short title for this clip",
           "start_seconds": 130.0,
-          "end_seconds": 200.0,
-          "duration_seconds": 70,
+          "end_seconds": 185.0,
+          "duration_seconds": 55,
           "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "Opening line that sets up the idea"
         }},
@@ -940,8 +942,8 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "type": "story",
           "label": "Short title for this clip",
           "start_seconds": 120.0,
-          "end_seconds": 280.0,
-          "duration_seconds": 160,
+          "end_seconds": 270.0,
+          "duration_seconds": 150,
           "platform_fit": ["youtube", "youtube_shorts", "tiktok", "facebook"],
           "hook_line": "Opening line that draws the viewer in"
         }}"""
@@ -949,12 +951,12 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
     else:
         # EXTENDED: deep extraction
         expected_moments = max(8, duration_mins // 3)
-        clip_tiers = """For EVERY moment, propose ALL THREE clip lengths:
-- **Quote** (15-30 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
-- **Thought** (45-90 seconds): A complete idea with setup and payoff. Good for YouTube Shorts, TikTok, Reels.
-- **Story** (2-5 minutes): A full narrative arc or detailed explanation. Good for YouTube, longer TikTok.
+        clip_tiers = """HARD PLATFORM LINES — for EVERY moment whose arc is at least 2 minutes, propose ALL THREE nested sizes:
+- **Quote** (8-30 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
+- **Thought** (35-59 seconds): A complete idea with setup and payoff. MUST stay under 60 seconds (technical short / short-form traffic). Never 60s or longer.
+- **Story** (120-180 seconds / 2-3 minutes): Full narrative arc of the same idea. Hard max 180 seconds (3 min short ceiling). Target about 150 seconds. Never under 120 seconds for a story.
 
-Always propose all three. The clips from the same moment WILL overlap — the quote exists inside the thought which exists inside the story."""
+Always propose all three when the moment window is >= 2 minutes. Quote lives inside thought lives inside story. The operator may skip sizes but all three must be available."""
         clip_example = """        {{
           "type": "quote",
           "label": "Short title for this clip",
@@ -968,8 +970,8 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "type": "thought",
           "label": "Short title for this clip",
           "start_seconds": 130.0,
-          "end_seconds": 200.0,
-          "duration_seconds": 70,
+          "end_seconds": 185.0,
+          "duration_seconds": 55,
           "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "Opening line that sets up the idea"
         }},
@@ -977,8 +979,8 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "type": "story",
           "label": "Short title for this clip",
           "start_seconds": 120.0,
-          "end_seconds": 280.0,
-          "duration_seconds": 160,
+          "end_seconds": 270.0,
+          "duration_seconds": 150,
           "platform_fit": ["youtube", "youtube_shorts", "tiktok", "facebook"],
           "hook_line": "Opening line that draws the viewer in"
         }}"""
@@ -1025,7 +1027,9 @@ IMPORTANT:
 - Timestamps must be exact - use the [M:SS] markers in the transcript.
 - Each clip needs a hook - what makes someone stop scrolling?
 - Think about what would make a viewer want to see the full video.
-- Only surface moments that justify their length - don't pad short content into long clips.
+- Prefer moments that can support a full 2–3 minute story arc when the talk allows it — then always nest quote + thought + story.
+- Thought clips must stay under 60 seconds. Story clips must be 2–3 minutes (120–180s), never ~1 minute labeled as story.
+- Do not invent empty padding, but DO extend a real arc to a complete 2–3 min story when the transcript supports it.
 - Reject near-duplicate moments: if two candidates share the same core claim, keep the stronger one.
 - Include "theme_tag": a short 2-5 word label for the distinct theme of the moment (for mix review).
 
@@ -1303,6 +1307,13 @@ Each clip object additionally carries:  "virality_score": 82  with  "why": "the 
 
     result["_model"] = model_used
     result["_duration_ms"] = duration_ms
+    # Hard platform lines — LLM prompt is soft; clamp/nest so review sliders
+    # start from on-spec quote (<60s thought) / 2–3 min story sizes.
+    try:
+        from src.moment_clip_sizes import normalize_moments_result
+        result = normalize_moments_result(result, video_duration=duration)
+    except Exception as e:
+        logger.warning("moment clip size normalize skipped: %s", e)
     return result
 
 
