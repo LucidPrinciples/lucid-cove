@@ -522,7 +522,9 @@ async function openVideo(stem, filename, status, hasMoments, card) {
             if (!start.ok || !sd.job_id) {
                 action.textContent = 'Failed';
                 action.style.color = '#ff7070';
+                const why = sd.error || sd.detail || ('HTTP ' + start.status);
                 console.error('Transcription start failed:', sd);
+                alert('Transcription failed to start: ' + why);
                 return;
             }
             // #4: show the live PHASE instead of a static "Transcribing…" — a
@@ -537,11 +539,14 @@ async function openVideo(stem, filename, status, hasMoments, card) {
             } else {
                 action.textContent = 'Failed';
                 action.style.color = '#ff7070';
+                const why = (job && (job.error || (job.result && job.result.error))) || 'Unknown error';
                 console.error('Transcription failed:', job.error || job);
+                alert('Transcription failed: ' + why);
             }
         } catch(e) {
             action.textContent = 'Error';
             console.error(e);
+            alert('Transcription error: ' + (e && e.message ? e.message : e));
         }
         return;
     }

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from src.voice_common import (
-    VIDEO_MOUNT, NC_VIDEO_PATH,
+    VIDEO_MOUNT, NC_VIDEO_PATH, NC_HTML_ROOT,
     NEXTCLOUD_URL, NEXTCLOUD_ADMIN_USER, NEXTCLOUD_ADMIN_PASSWORD,
     _nc_scan, _get_qwen_asr,
     NCSession, resolve_video_source, publish_video_output,
@@ -298,9 +298,12 @@ async def transcribe_video(request: Request):
 async def video_transcription_status():
     """Check if Qwen3-ASR is currently loaded (transcription in progress)."""
     asr = _get_qwen_asr()
+    nc_html_ok = bool(NC_HTML_ROOT) and os.path.isdir(NC_HTML_ROOT)
     return {
         "model": asr.ASR_MODEL,
         "loaded": asr.is_loaded,
         "video_mount": os.path.isdir(VIDEO_MOUNT),
+        "nc_html_root": NC_HTML_ROOT or "",
+        "nc_html_mounted": nc_html_ok,
         "inbox_files": os.listdir(f"{VIDEO_MOUNT}/inbox") if os.path.isdir(f"{VIDEO_MOUNT}/inbox") else [],
     }

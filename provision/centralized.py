@@ -953,8 +953,13 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
       # app secret OR a verified renter grant — fresh installs no longer ship open.
       PIPECAT_INTERNAL_SECRET: ${{PIPECAT_INTERNAL_SECRET:-}}
       GPU_GRANT_VERIFY_URL: http://{cid}-app:{app_port}{_v_asr_env}{_v_nvidia_env}
+      # Same NC html root as nextcloud service — voice reads presence video trees in
+      # place (data/{{user}}/files/AgentSkills/Content/video) instead of WebDAV-pulling
+      # multi-GB sources into scratch on every job. See voice_common.NC_HTML_ROOT.
+      NC_HTML_ROOT: /var/www/html
     volumes:
       - voice_cache:/root/.cache
+      - {_stg_src["nextcloud_data"]}:/var/www/html:ro
     ports:
       - "{bind}{voice_port}:8300"{svc_nets}
 """ if voice_local else "")
