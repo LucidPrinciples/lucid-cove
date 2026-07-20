@@ -688,11 +688,21 @@ async def analyze_transcript(request: Request):
     except Exception:
         _aid = ""
     try:
+        # Presence/Cove profile can steer theme diversity for moment mining.
+        _vm = {}
+        try:
+            from src.dashboard.routes.video_meta import resolve_video_meta
+            from src.dashboard.routes.posting_identity import owner_id_from_request
+            _oid = await owner_id_from_request(request)
+            _vm = await resolve_video_meta(owner_id=_oid, request=request) or {}
+        except Exception:
+            _vm = {}
         moments = await _identify_moments(
             timestamped_text=timestamped_text,
             full_text=full_text,
             duration=duration,
             agent_id=_aid or "",
+            video_meta=_vm,
         )
     except Exception as e:
         logger.error(f"Moments analysis failed: {e}")
@@ -800,6 +810,7 @@ async def _identify_moments(
     full_text: str,
     duration: float,
     agent_id: str = "",
+    video_meta: dict | None = None,
 ) -> dict:
     """Send transcript to LLM for moments identification.
 
@@ -957,6 +968,34 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
         }}"""
         length_guidance = f"This video is about {duration_mins} minutes long. Find at least {expected_moments} moments. A long video like this has many moments — don't leave good content on the table."
 
+    # Theme diversity — mining mix so one long talk does not yield five clones.
+    _vm = video_meta or {}
+    _theme_mix = (_vm.get("theme_mix") or "").strip()
+    _brand_topics = (_vm.get("brand_topics") or "").strip()
+    if _theme_mix:
+        diversity_guidance = (
+            "THEME MIX (creator-configured — honor this as a mining target, not a hard quota):\n"
+            f"{_theme_mix}\n"
+            "Spread moments across different themes and content_type values. "
+            "Do not return multiple moments that are basically the same idea rephrased. "
+            "Prefer coverage across the timeline (early / middle / late) when quality allows."
+        )
+    else:
+        diversity_guidance = (
+            "THEME DIVERSITY (default organic mix):\n"
+            "Mine a rounded set of moments — not five cuts of the same rant. Aim to cover "
+            "different angles when the talk supports them: practical takeaway, personal story, "
+            "bold opinion or contrast, quiet insight, demonstration or build detail, emotional beat. "
+            "Each moment needs a distinct topic. Prefer different content_type values across the set. "
+            "Spread across the timeline (early / middle / late) when quality allows. "
+            "If the talk is narrow, fewer high-quality diverse moments beat padded duplicates."
+        )
+    topics_line = (
+        f"Creator topics to recognize when they appear (do not force if absent): {_brand_topics}"
+        if _brand_topics else
+        "Infer topics only from the transcript — no brand topics configured."
+    )
+
     system_prompt = f"""You are a video content analyst for a creator's team. Your job is to find the most compelling MOMENTS in a video transcript and propose clips for each.
 
 A MOMENT is a region of the video where something worth sharing happens — a clear insight, a story with an arc, a strong opinion, an emotional beat, a practical demonstration, or a quotable line.
@@ -965,10 +1004,14 @@ A MOMENT is a region of the video where something worth sharing happens — a cl
 
 IMPORTANT:
 - {length_guidance}
-- Timestamps must be exact — use the [M:SS] markers in the transcript.
-- Each clip needs a hook — what makes someone stop scrolling?
+- {topics_line}
+- {diversity_guidance}
+- Timestamps must be exact - use the [M:SS] markers in the transcript.
+- Each clip needs a hook - what makes someone stop scrolling?
 - Think about what would make a viewer want to see the full video.
-- Only surface moments that justify their length — don't pad short content into long clips.
+- Only surface moments that justify their length - don't pad short content into long clips.
+- Reject near-duplicate moments: if two candidates share the same core claim, keep the stronger one.
+- Include "theme_tag": a short 2-5 word label for the distinct theme of the moment (for mix review).
 
 ## Virality rubric — SCORE EVERY CLIP
 For each clip include "virality_score" (integer 0-100) and "why" (one short line). Score on:
@@ -986,6 +1029,7 @@ Return ONLY valid JSON in this format. EVERY clip object MUST include "virality_
     {{
       "id": 1,
       "content_type": "insight",
+      "theme_tag": "short distinct theme label",
       "topic": "Brief description of what this moment is about",
       "hook": "The specific line or idea that grabs attention",
       "start_seconds": 120.0,
