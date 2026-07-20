@@ -604,7 +604,9 @@ async function loadSettingsDevices() {
             <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.45;"><strong>1.</strong> On the phone, install the free <strong>Tailscale</strong> app (App Store / Play Store). Log out of any other Tailscale network first — this is a separate one.<br>
             <strong>2.</strong> On this computer, tap <strong>Get join code</strong> below.<br>
             <strong>3.</strong> With Tailscale already installed, scan the QR (opens a short join page — not Nextcloud's login QR) <em>or</em> open the join link on the phone.<br>
-            <strong>4.</strong> In Tailscale: <strong>⋯ → “Use a custom coordination server”</strong> → <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code> → sign in with the join code. Scanning alone does not install the app.</div>
+            <strong>4.</strong> In Tailscale: <strong>⋯ → “Use a custom coordination server”</strong> → <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code> → sign in with the join code. Scanning alone does not install the app.<br>
+            <strong>5.</strong> Wait until Tailscale shows <strong style="color:var(--text);">Connected</strong>, then open your Cove and sign in.<br>
+            <strong>6.</strong> <strong style="color:var(--text);">iPhone:</strong> enable <strong style="color:var(--text);">VPN On Demand</strong> in Tailscale so the mesh stays up in the background. If Mission Control will not load, open Tailscale first — offline phone ≠ Cove down.</div>
             <button class="btn-sm" onclick="getDevicesMeshKey(this)">Get join code</button>
             <div id="devices-mesh-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>
 
@@ -834,6 +836,7 @@ async function getDevicesMeshKey(btn) {
                     html += '<div style="color:var(--dim);margin-bottom:4px;">Join code (valid ~1h):</div>'
                         + '<code style="display:block;padding:6px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;word-break:break-all;">'
                         + ESC(d.key) + '</code>';
+                    html += '<div style="color:var(--dim);font-size:0.66rem;margin-top:6px;line-height:1.45;">After Connected: <strong style="color:var(--text);">iPhone → VPN On Demand</strong> in Tailscale (keeps mesh up in background). MC blank? Open Tailscale first.</div>';
                 }
                 if (d.join_cmd) {
                     html += '<div style="color:var(--dim);margin:8px 0 4px;">Laptop/server command:</div>'

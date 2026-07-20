@@ -61,6 +61,17 @@
   </div>
 
   <div class="card">
+    <div class="label">Step 5 — Keep this phone on the mesh (iPhone)</div>
+    <p style="margin:8px 0 0;">iPhone often suspends Tailscale in the background. When that happens every mesh Mission Control fails at once, then comes back when the tunnel wakes — the Cove itself is usually fine.</p>
+    <ol>
+      <li>In the <strong>Tailscale</strong> app, turn on <strong>VPN On Demand</strong> for this network (wording varies by version; look under settings for this account).</li>
+      <li>Allow Tailscale as a VPN in iOS Settings. Avoid Low Power Mode while you need the Cove.</li>
+      <li>If Mission Control will not load: open Tailscale first. If it is not <strong>Connected</strong>, fix that before refreshing Safari.</li>
+      <li><strong>Android:</strong> usually stays connected; if it drops, open Tailscale and turn off battery optimizations for the app.</li>
+    </ol>
+  </div>
+
+  <div class="card">
     <div class="label">Name this device (#MESH-NAME)</div>
     <p style="margin:0">Junk names like <strong>localhost-…</strong> or <strong>invalid-…</strong> make family device lists hard to read. Before or right after joining:</p>
     <ol>

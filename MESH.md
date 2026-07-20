@@ -67,10 +67,41 @@ join code**, good for ~1 hour).
 5. **Name the phone (#MESH-NAME).** Junk mesh names (`localhost-…`, `invalid-…`) are hard to
    manage. Set a clear device name in phone settings before join when you can. On a computer
    already on the mesh: `tailscale set --hostname jade-iphone`.
+6. **Keep the phone on the mesh (iPhone — #MESH6).** iOS often suspends background VPNs. When
+   that happens Mission Control for *every* mesh-only Cove fails at once, then comes back when
+   the tunnel wakes — it is not your Cove crashing. In the Tailscale app, turn on **VPN On
+   Demand** (wording varies by app version; look under the network / settings for this account)
+   so iOS reconnects without you opening the app. Also leave Low Power Mode off while you rely
+   on the Cove, and allow Tailscale under iOS VPN / background settings. **Android** usually
+   stays up without On Demand; if it drops, open Tailscale, confirm Connected, and disable
+   battery optimizations for Tailscale in system settings.
 
 > Custom-server setup is still the fiddliest part of the stock Tailscale apps (wording shifts
 > between versions). The QR path reduces typing; if a "open Tailscale" button on the join page
 > does nothing, use the on-page coordinator + code. Desktop steps above still confirm the rest.
+
+### End-to-end order (host box → first phone)
+
+Do not skip steps — each one unblocks the next:
+
+1. **Cove box on the mesh** — after setup wizard, mint a join code in MC, run
+   `bash connect-mesh.sh <JOIN-KEY>` on the host (optional hostname arg). Confirm
+   `tailscale status` on the host shows this machine with a `100.64.x.x` address.
+2. **Claim address** — in MC, claim `yourcove.lucidcove.org` (or your domain) so DNS A records
+   point at the host mesh IP. Prefer live mesh IP (MESH5); stale IPs from an older install on
+   the same box are a real failure mode.
+3. **Mint from a device already signed into the Cove** — Get join code / QR only works from a
+   session that can reach MC. Do not email a QR that points at a mesh-only page (MESH5 serves
+   the walkthrough on the public hub).
+4. **Phone: install Tailscale before scanning** — App Store / Play Store first; log out of any
+   other Tailscale network.
+5. **Phone: custom coordinator before any login** —
+   `https://headscale.lucidcove.org` (iPhone: custom coordination server; Android: alternate
+   server). Then paste the join code only.
+6. **Phone: Connected, then open Cove** — never open `https://yourcove…` before Connected.
+7. **iPhone keep-alive** — enable VPN On Demand (step 6 above) before you walk away.
+8. **Sign in as you** — mesh is the network; the sign-in link is identity. Personal MC needs both.
+9. **Name the device** — clear hostname so `tailscale status` stays readable (#MESH-NAME).
 
 ---
 
@@ -188,6 +219,38 @@ available via `headscale nodes rename` for your Headscale version — prefer cli
   in front of it) is blocking DNS, not your box. Your Cove's Caddy keeps retrying and picks
   up automatically once it clears. (Hub operators: allow TCP **and** UDP 53 to the acme-dns
   container — cloud-provider firewalls often block them by default.)
+
+### Phone: Mission Control won't load, then suddenly does (#MESH6)
+
+Classic pattern: several mesh MCs fail together for a minute, Tailscale app open sometimes
+fixes it, then everything loads at once (shell first, badges a few seconds later).
+
+**Split the case on the phone first — before blaming the Cove:**
+
+1. Open **Tailscale**. Does it say **Connected**?
+2. On the **Cove host**, run `tailscale status`. Find the phone row.
+   - `idle; offline, last seen …` → the phone peer is asleep or off-mesh. Wake Tailscale on
+     the phone (open app, toggle VPN, confirm VPN On Demand on iPhone). Host and Headscale
+     can be healthy the whole time.
+   - Phone **active** (direct or relay) but Safari still fails → then check DNS / accept-DNS
+     / rebinding filters (section above) or cert mid-issue.
+3. Do **not** debug Cove app logs until the phone row is online. Multiple Coves on one host
+   share one mesh IP — one offline phone looks like “everything is down.”
+
+### Mesh node hygiene (operator)
+
+`tailscale status` should list real family devices with clear names. Leftover test joins
+(`invalid-…`, `localhost-…`, old Cove container ids) clutter diagnosis and are safe to remove
+**only** when you are sure the device is gone:
+
+```bash
+# on the Headscale host (VPS), after confirming the node id:
+docker exec headscale headscale nodes list
+docker exec headscale headscale nodes delete --identifier <NODE_ID>
+```
+
+Prefer renaming a live device (`tailscale set --hostname …`) over deleting. Re-join with a
+fresh code if you deleted the wrong node.
 
 
 ## Host reachability (optional, MESH3 L2)
