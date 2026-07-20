@@ -18,7 +18,13 @@ def test_qr_svg_emits_svg():
 def test_enrich_mesh_key_payload_adds_join_url_and_qr(monkeypatch):
     from src.dashboard.routes import onboarding as ob
 
-    monkeypatch.setattr(ob, "_cove_public_origin", lambda request: "https://clearfield.lucidcove.org")
+    # #MESH5: join URL is public hub, not mesh-only Cove apex
+    monkeypatch.setattr(
+        ob, "_public_mesh_join_origin", lambda request: "https://app.lucidcove.org"
+    )
+    monkeypatch.setattr(
+        ob, "_cove_apex_origin", lambda: "https://clearfield.lucidcove.org"
+    )
     monkeypatch.setattr(ob, "_mesh_login_server", lambda res=None: "https://headscale.lucidcove.org")
 
     req = MagicMock()
@@ -33,13 +39,36 @@ def test_enrich_mesh_key_payload_adds_join_url_and_qr(monkeypatch):
     }
     out = ob._enrich_mesh_key_payload(res, req)
     assert out["ok"] is True
-    assert out["join_url"].startswith("https://clearfield.lucidcove.org/mesh-join?")
+    assert out["join_url"].startswith("https://app.lucidcove.org/mesh-join?")
     parsed = urlparse(out["join_url"])
     qs = parse_qs(parsed.query)
     assert qs["k"] == ["tskey-auth-testkey123"]
     assert qs["s"] == ["https://headscale.lucidcove.org"]
+    assert qs["c"] == ["https://clearfield.lucidcove.org"]
+    assert out.get("cove_apex") == "https://clearfield.lucidcove.org"
     assert "qr_svg" in out and "<svg" in out["qr_svg"]
     assert "tailscale_authkey" in out["deep_links"]
+
+
+def test_public_mesh_join_origin_defaults_to_hub(monkeypatch):
+    """Stranger phone QR must not encode a mesh-only Cove apex (#MESH5)."""
+    from src.dashboard.routes import onboarding as ob
+
+    monkeypatch.delenv("LP_PUBLIC_BASE", raising=False)
+    monkeypatch.delenv("LP_REGISTRY_URL", raising=False)
+    monkeypatch.setattr(ob, "env_bool", lambda k: False)
+    req = MagicMock()
+    req.base_url = "http://127.0.0.1:8200/"
+    assert ob._public_mesh_join_origin(req) == "https://app.lucidcove.org"
+
+
+def test_public_mesh_join_origin_uses_registry_url(monkeypatch):
+    from src.dashboard.routes import onboarding as ob
+
+    monkeypatch.setenv("LP_REGISTRY_URL", "https://app.lucidcove.org/")
+    monkeypatch.delenv("LP_PUBLIC_BASE", raising=False)
+    req = MagicMock()
+    assert ob._public_mesh_join_origin(req) == "https://app.lucidcove.org"
 
 
 def test_enrich_skips_failed_payload():
@@ -59,6 +88,7 @@ async def test_mesh_join_page_renders_key():
     req.query_params = {
         "s": "https://headscale.lucidcove.org",
         "k": "tskey-auth-abc",
+        "c": "https://ridgedale.lucidcove.org",
     }
     resp = await ob.mesh_join_page(req)
     body = resp.body.decode("utf-8")
@@ -70,3 +100,7 @@ async def test_mesh_join_page_renders_key():
     assert "Install Tailscale first" in body
     assert "App Store" in body or "apps.apple.com" in body
     assert "does not install the app" in body
+    # #MESH5: post-join Cove open only after Connected
+    assert "ridgedale.lucidcove.org" in body
+    assert "Open your Cove" in body
+    assert "Connected" in body

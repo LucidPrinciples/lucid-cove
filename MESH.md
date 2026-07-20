@@ -48,18 +48,22 @@ join code**, good for ~1 hour).
 
 ### Phone (iPhone / Android)
 1. Install the **Tailscale** app (App Store / Play Store / F-Droid).
-2. **QR (preferred, #MESH2):** in Mission Control open **Start Here → Connect on mobile** or
-   **Settings → Devices → Get join code**, then scan the QR with the phone camera. It opens a
-   short **Cove-hosted** `/mesh-join` page (on your Cove's tunnel address) that shows the
-   coordinator + join code. This is **not** Nextcloud's app-login QR and **not** a native
-   Tailscale deep link — we host the walkthrough so typing is optional.
+2. **QR (preferred, #MESH2 + #MESH5):** in Mission Control open **Start Here → Connect on mobile**
+   or **Settings → Devices → Get join code**, then scan the QR with the phone camera. It opens a
+   short **public** `/mesh-join` page on the Lucid Cove hub (`app.lucidcove.org`) — not your
+   mesh-only Cove address — so the walkthrough loads **before** the phone is on the mesh. The
+   page shows the coordinator + join code and, when known, an “Open your Cove” link to use
+   **only after** Tailscale shows Connected. This is **not** Nextcloud's app-login QR and
+   **not** a native Tailscale deep link.
 3. Or by hand: point Tailscale at the Lucid Cove coordinator
    `https://headscale.lucidcove.org`
-   - **iPhone:** account menu → *Use custom coordination server*.
+   - **iPhone:** account menu → *Use a custom coordination server*.
    - **Android:** account menu → *Use an alternate server*.
    Then sign in with the join code from your Cove.
-4. Open `https://yourcove.lucidcove.org` in the browser and add **jules** to your Home Screen
-   for voice capture. Leave MagicDNS / accept DNS on when asked.
+4. Wait until Tailscale shows **Connected**, then open `https://yourcove.lucidcove.org` (or the
+   button on the join page) and add **jules** to your Home Screen for voice capture. Leave
+   MagicDNS / accept DNS on when asked. Opening the Cove URL before Connected will fail — that
+   address is private mesh-only by design.
 5. **Name the phone (#MESH-NAME).** Junk mesh names (`localhost-…`, `invalid-…`) are hard to
    manage. Set a clear device name in phone settings before join when you can. On a computer
    already on the mesh: `tailscale set --hostname jade-iphone`.

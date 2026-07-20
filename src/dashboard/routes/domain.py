@@ -107,27 +107,31 @@ def _cove_id(cove: dict) -> str:
 
 
 def _reachable(cove: dict) -> dict:
-    """CF-90b: where DNS for this box could point RIGHT NOW, and how we know.
-    Mesh-first order (matches the provisioner's _detect_host_ip): explicit config
-    deploy.host_ip/mesh_ip → COVE_MESH_IP env (written by connect-mesh.sh) →
-    live mesh detect (only works when the app can see the host's tailscale —
-    normally it can't; harmless). ok=False means the address claim would refuse
-    (home/NAT box that hasn't joined the mesh) — the UI puts the mesh step first."""
+    """CF-90b + #MESH5: where DNS for this box could point RIGHT NOW, and how we know.
+
+    Prefer LIVE mesh detect when the process can see host Tailscale — stamped
+    COVE_MESH_IP / deploy.mesh_ip can lag a re-join or a second Cove on the same
+    box (wrong A record → phone Connected but Cove URL dead). Order:
+      1. live mesh detect (host tailscale / interfaces)
+      2. COVE_MESH_IP env (connect-mesh.sh)
+      3. deploy.host_ip / deploy.mesh_ip (config)
+    ok=False means the address claim would refuse (home/NAT, no mesh yet).
+    """
     import os as _os
+    try:
+        from provision.centralized import _detect_mesh_ip
+        live = (_detect_mesh_ip() or "").strip()
+        if live:
+            return {"ok": True, "ip": live, "source": "live"}
+    except Exception:
+        pass
+    mesh_env = (_os.getenv("COVE_MESH_IP", "") or "").strip()
+    if mesh_env:
+        return {"ok": True, "ip": mesh_env, "source": "mesh"}
     deploy = (cove.get("deploy") or {}) if isinstance(cove.get("deploy"), dict) else {}
     explicit = (str(deploy.get("host_ip") or "") or str(deploy.get("mesh_ip") or "")).strip()
     if explicit:
         return {"ok": True, "ip": explicit, "source": "config"}
-    mesh_env = (_os.getenv("COVE_MESH_IP", "") or "").strip()
-    if mesh_env:
-        return {"ok": True, "ip": mesh_env, "source": "mesh"}
-    try:
-        from provision.centralized import _detect_mesh_ip
-        live = _detect_mesh_ip()
-        if live:
-            return {"ok": True, "ip": live, "source": "mesh"}
-    except Exception:
-        pass
     return {"ok": False, "ip": "", "source": "none"}
 
 
@@ -774,30 +778,69 @@ async def check_records(request: Request):
 
 @router.post("/api/domain/reconcile-dns")
 async def reconcile_dns(request: Request):
-    """CF-90b self-heal: re-point the EXISTING address at the box's CURRENT mesh IP.
+    """CF-90b + #MESH5 self-heal: re-point the EXISTING address at CURRENT mesh IP.
 
     Called by connect-mesh.sh on localhost right after the box joins the mesh (that
-    shell has no browser session, so this is a PUBLIC_PATH). Deliberately takes NO
-    input: it only re-asserts what the Cove already claims (its configured domain →
-    its own current mesh/host IP), so the worst an outside caller can do is make the
-    Cove re-assert correct state. No domain change, no persist, no confirm bypass —
-    the claim-change guard in /api/domain/set is untouched."""
+    shell has no browser session, so this is a PUBLIC_PATH).
+
+    Optional JSON/query ``ip`` / ``mesh_ip``: only accepted when it is a mesh CGNAT
+    address (100.64/10). connect-mesh.sh passes the fresh ``tailscale ip -4`` so DNS
+    cannot stick to a stale COVE_MESH_IP from a previous Cove on the same host.
+    Without that, we use _reachable (live detect first). No domain change, no
+    confirm bypass — the claim-change guard in /api/domain/set is untouched.
+    """
+    import re as _re
     cove = load_cove_config()
     domain = (cove.get("domain") or "").strip()
     if not domain:
         return {"ok": False, "reason": "no address set yet — claim one in the Cove first"}
-    reach = _reachable(cove)
-    if not reach.get("ok"):
-        return {"ok": False, "reason": "no mesh/host IP visible here yet — is COVE_MESH_IP "
-                                       "in the instance .env and the app recreated?"}
+
+    def _mesh_cgnat(ip: str) -> str:
+        ip = (ip or "").strip()
+        if not _re.fullmatch(r"100\.\d{1,3}\.\d{1,3}\.\d{1,3}", ip):
+            return ""
+        try:
+            parts = [int(x) for x in ip.split(".")]
+        except Exception:
+            return ""
+        if parts[0] == 100 and 64 <= parts[1] <= 127:
+            return ip
+        return ""
+
+    forced = ""
+    try:
+        if request.method == "POST":
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            if isinstance(body, dict):
+                forced = _mesh_cgnat(str(body.get("ip") or body.get("mesh_ip") or ""))
+        if not forced:
+            forced = _mesh_cgnat(str(request.query_params.get("ip")
+                                     or request.query_params.get("mesh_ip") or ""))
+    except Exception:
+        forced = ""
+
+    if forced:
+        ip = forced
+        source = "connect-mesh"
+    else:
+        reach = _reachable(cove)
+        if not reach.get("ok"):
+            return {"ok": False, "reason": "no mesh/host IP visible here yet — is COVE_MESH_IP "
+                                           "in the instance .env and the app recreated?"}
+        ip = reach["ip"]
+        source = reach.get("source") or "reachable"
+
     try:
         from provision import centralized as C
     except Exception as e:
         return {"ok": False, "reason": f"provision modules unavailable: {str(e)[:120]}"}
     try:
-        dns = C._auto_dns(domain, {"mesh_ip": reach["ip"]}, {})
+        dns = C._auto_dns(domain, {"mesh_ip": ip}, {})
     except Exception as e:
         dns = {"ok": False, "reason": f"auto-DNS error: {str(e)[:160]}"}
-    return {"ok": bool(dns.get("ok")), "domain": domain, "ip": reach["ip"],
+    return {"ok": bool(dns.get("ok")), "domain": domain, "ip": ip, "source": source,
             "dns": {k: dns.get(k) for k in ("ok", "auto", "via", "reason") if k in dns},
             "records": ([] if dns.get("auto") else dns.get("records", []))}
