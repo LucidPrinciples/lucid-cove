@@ -1069,11 +1069,10 @@ async def caption_full_video(request: Request):
                 status_code=500,
             )
 
-        # Stage the finished video locally, then publish to the presence's NC via
-        # WebDAV (nc set) or copy into the local /video mount + NC scan (nc None).
-        # For the founder mount, publish_video_output writes to the NC data dir,
-        # which is accessible via Finder/Syncthing immediately and avoids the 413
-        # WebDAV PUT limit on large files.
+        # Stage the finished video locally, then publish to the presence's NC.
+        # Prefer NC data mount write inside publish_video_output (multi-GB safe);
+        # WebDAV is fallback only. Never graduate or 200 if publish fails — the
+        # local /tmp/cove-out file is kept for operator recovery.
         import shutil
         local_out_dir = "/tmp/cove-out"
         os.makedirs(local_out_dir, exist_ok=True)
@@ -1081,14 +1080,30 @@ async def caption_full_video(request: Request):
         shutil.move(out_tmp, dest_path)
         size_mb = os.path.getsize(dest_path) / (1024 * 1024)
         nc_path = f"{NC_VIDEO_PATH}/shorts/{out_name}"
-        await publish_video_output(dest_path, f"shorts/{out_name}", nc, "video/mp4")
+        wrote = await publish_video_output(dest_path, f"shorts/{out_name}", nc, "video/mp4")
 
         if ass_path and os.path.isfile(ass_path):
             os.remove(ass_path)
 
+        if not wrote:
+            logger.error(
+                f"Captioned full publish FAILED: {out_name} ({size_mb:.1f} MB) "
+                f"still at {dest_path} — not graduating, not claiming success"
+            )
+            return JSONResponse({
+                "error": (
+                    f"Captioned full rendered ({size_mb:.1f} MB) but failed to publish "
+                    f"to shorts/{out_name}. Local recovery path on voice: {dest_path}"
+                ),
+                "filename": out_name,
+                "local_path": dest_path,
+                "size_mb": round(size_mb, 1),
+                "published": False,
+            }, status_code=502)
+
         logger.info(f"Captioned full video done: {out_name} ({size_mb:.1f} MB) → {dest_path}")
 
-        # C4 #1 — captioned-full succeeded for this stem: GRADUATE the original
+        # C4 #1 — captioned-full published for this stem: GRADUATE the original
         # processing/ → raw/ (finished source material, never auto-deleted).
         # Best-effort — a graduation hiccup must never fail the render.
         try:
@@ -1102,6 +1117,7 @@ async def caption_full_video(request: Request):
             "nc_path": nc_path,
             "size_mb": round(size_mb, 1),
             "duration_seconds": round(effective_duration, 1),
+            "published": True,
         })
 
     except subprocess.TimeoutExpired:
