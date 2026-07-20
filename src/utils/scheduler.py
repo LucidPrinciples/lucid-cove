@@ -1004,13 +1004,17 @@ class AgentScheduler:
         """Notify when AgentSkills/To-Delete or video/to-delete exceeds threshold.
 
         Operator policy 2026-07-20: we MOVE retired content instead of deleting.
-        When the holding area grows past TO_DELETE_NOTIFY_BYTES (default 5 GiB),
+        When the holding area grows past TO_DELETE_NOTIFY_BYTES (default 100 GiB),
         raise a normal Attention/notify so the operator can offload or empty.
+
+        Default is deliberately high: video originals are often 4–5 GiB each and
+        multi-clip retires stack fast. 5 GiB fired on a single original. Override
+        with TO_DELETE_NOTIFY_BYTES (bytes) when a Cove wants a tighter guard.
         """
         try:
-            threshold = int(env("TO_DELETE_NOTIFY_BYTES", str(5 * 1024 ** 3)))
+            threshold = int(env("TO_DELETE_NOTIFY_BYTES", str(100 * 1024 ** 3)))
         except ValueError:
-            threshold = 5 * 1024 ** 3
+            threshold = 100 * 1024 ** 3
         total = 0
         # Local video mount to-delete
         try:

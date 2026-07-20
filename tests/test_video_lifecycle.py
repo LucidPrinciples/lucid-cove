@@ -145,3 +145,24 @@ def test_files_delete_moves_to_to_delete():
     block = src[start:start + 2500]
     assert "AgentSkills/To-Delete" in block
     assert 'request("MOVE"' in block or "MOVE" in block
+
+
+def test_to_delete_notify_default_is_100_gib():
+    """Video originals are multi-GiB; 5 GiB was noise. Default must stay high."""
+    root = Path(__file__).resolve().parents[1]
+    sched = (root / "src/utils/scheduler.py").read_text()
+    assert "100 * 1024 ** 3" in sched
+    assert "TO_DELETE_NOTIFY_BYTES" in sched
+    env_src = (root / "src/env.py").read_text()
+    assert "TO_DELETE_NOTIFY_BYTES" in env_src
+    assert "100 * 1024 ** 3" in env_src
+
+
+def test_inbox_seed_documents_jules_hot_path_vs_video_sync():
+    """Seeded READMEs teach selective sync so Jules stays off the video queue."""
+    src = (Path(__file__).resolve().parents[1]
+           / "src/dashboard/routes/nextcloud.py").read_text()
+    assert "Jules hot path" in src or "jules hot path" in src.lower()
+    assert "selective sync" in src.lower() or "selective-sync" in src.lower()
+    assert "AgentSkills/Content/video/README.md" in src
+    assert "100 GiB" in src

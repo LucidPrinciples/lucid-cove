@@ -1254,35 +1254,98 @@ Each file has frontmatter with name, description, and type for machine-readabili
 
 Drop files, voice notes, and ideas here. Your agents pick them up and process them.
 
+This folder is the **Jules hot path**. Recordings and screenshots land here
+(`jules-…md` + audio, plus any file drops). The steward processes them and
+archives to `Archive/`. Keep this path light and always included in desktop
+sync if you use the Nextcloud client.
+
 ## Voice Notes (Jules)
 
-Voice transcriptions land here as `jules-YYYY-MM-DD_HHMM.md`. Your agent processes them:
-adds a header, parses the content, routes action items, and archives to `Archive/`.
+Voice transcriptions land here as `jules-YYYY-MM-DD_HHMM.md` (and matching
+audio). Your agent processes them: header, action items, board/context, then
+archive.
 
 ## File Drops
 
 Any file dropped here gets picked up by your agent on next interaction.
+
+## Desktop sync (important)
+
+Jules and multi‑GB video must not share one clogged client queue.
+
+- **Always sync** `AgentSkills/Inbox` (and `Inbox/Archive` if you want local copies).
+- **Prefer server-side** for bulk video: Mission Control Files + agents work on
+  the Cove Nextcloud tree without pulling every original to a laptop.
+- If you do desktop-sync video, use the client’s **selective sync** and exclude
+  heavy trees under `AgentSkills/Content/video/` (especially `raw/`,
+  `processing/`, full downloads, captioned masters). Sync only the small
+  folders you actually edit on the laptop (often `shorts/` or nothing).
+- A single multi‑GB pull in progress can block Inbox uploads; on conflict the
+  client may drop local files that never finished their first upload. That is
+  client queue behavior, not the agent deleting your drops.
+
+Standard product path: work through agents and cloud Nextcloud. Desktop sync
+of media is optional and should stay selective.
+""",
+
+    "AgentSkills/Content/video/README.md": """\
+# Video pipeline folders
+
+Server-side tree the video pipeline uses:
+
+| Folder | Role |
+|--------|------|
+| `inbox/` | Untouched originals dropped for processing |
+| `processing/` | Active original while the pipeline runs |
+| `raw/` | Finished originals (graduated; kept, not auto-deleted) |
+| `transcripts/` | Transcript / moment JSON |
+| `shorts/` | Cut outputs |
+| `moments/` | Moment markers |
+| `to-delete/` | Retired user content (MOVE, never hard-delete) |
+
+## Desktop sync
+
+These folders hold multi‑GB files. **Do not** full-sync this tree next to
+`AgentSkills/Inbox` on a laptop client unless you need local copies.
+
+Recommended:
+
+1. Leave bulk video on the server (Files in Mission Control, agents, pipeline UI).
+2. If the Nextcloud desktop client is on, use **selective sync** — uncheck
+   `raw/`, `processing/`, large masters; only enable folders you must have offline.
+3. Keep Jules traffic on `AgentSkills/Inbox`, which stays small and interactive.
+
+Product deletes retire into `to-delete/` (and `AgentSkills/To-Delete` for
+non-video Files deletes). You get a daily notify when the holding area grows
+past the configured size (default 100 GiB) so you can offload externally.
 """,
 
     "AgentSkills/README.md": """\
 # AgentSkills
 
-Your working surface. This folder syncs between your device and your Cove.
-Everything you and your agents collaborate on lives here.
+Your working surface. This folder is the Cove file tree agents and Mission
+Control use. Desktop sync is optional — the standard path is server-side
+through agents and cloud Nextcloud.
 
-**Inbox/** -- Drop files, voice notes, and ideas here. Your agents pick them up.
+**Inbox/** -- Jules hot path. Voice notes, screenshots, quick drops. Keep this
+synced if you use a desktop client; keep it off the multi‑GB video queue
+(selective-sync `Content/video` bulk folders).
 
-**Flows/** -- Active Creation Flows. Each guided pipeline gets its own folder.
+**Content/** -- Media staging. `Content/video/` is the pipeline tree (often
+multi‑GiB). Prefer server-side; selective-sync only what you need locally.
 
-**Actions/** -- Ready-to-execute items from your Action Board.
+**To-Delete/** -- Recoverable holding area for product “deletes” (never a silent
+hard wipe of user content). Offload when notified.
 
-**Content/** -- Media staging. Videos, images, and posts before they hit platforms.
+**Sites/** -- Website working files.
 
-**Sites/** -- Website working files. Repos, configs, and deploy settings.
+**Context/** -- Second brain for you and your agents.
 
-**Context/** -- Your second brain. Memory, decisions, and context for your agents.
+**Ops/** -- Cove ops notes, backlog, runbooks.
 
-**Shared/** -- Cove-level resources your steward puts here for everyone.
+**Shared/** -- Cove-level resources the steward puts here for everyone.
+
+**Knowledge Base/** -- Steward-curated framework mirror (read-only for members).
 """,
 }
 
