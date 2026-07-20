@@ -1613,7 +1613,7 @@ async function startGuidedFlow() {
             body: JSON.stringify({
                 system_prompt: 'You are a routing assistant. Given what the user wants to create, pick the best matching flow or tool, or say "none". Return ONLY valid JSON.',
                 messages: [{ role: 'user', content: `The user said: "${text}"\n\nFlows:\n${templates}\n\nTools:\n${tools}\n\nReturn JSON: {"id": "matched-id" or "none", "type": "flow" or "tool", "reason": "one sentence"}` }],
-                model_id: 'kimi-k2.5',
+                model_id: 'kimi-k2.5-openrouter',
                 temperature: 0.1,
             }),
         });

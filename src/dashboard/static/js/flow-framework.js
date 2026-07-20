@@ -172,7 +172,7 @@ Return ONLY valid JSON, no markdown, no code fences:
                 body: JSON.stringify({
                     system_prompt: 'You extract structured data from user input. Return only valid JSON.',
                     messages: [{ role: 'user', content: extractPrompt }],
-                    model_id: 'kimi-k2.5',
+                    model_id: 'kimi-k2.5-openrouter',
                     temperature: 0.2,
                 }),
             });

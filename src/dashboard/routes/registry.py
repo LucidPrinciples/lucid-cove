@@ -168,13 +168,41 @@ async def availability(request: Request, name: str = "", handle: str = ""):
     return out
 
 
+# Per-operator daily spark budget (in-memory: {account_id: (yyyymmdd, count)}). Cove
+# creation is a handful of single-turn calls — the budget is a hard brake on a stuck
+# or hostile client looping the endpoint, not a meter honest installs will ever see.
+# In-memory is intentional: a hub restart forgiving the count is fine for a brake.
+SPARK_DAILY_BUDGET = 40
+_spark_usage: dict = {}
+
+
+def _spark_budget_ok(account_id) -> bool:
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    day, count = _spark_usage.get(account_id, (today, 0))
+    if day != today:
+        day, count = today, 0
+    if count >= SPARK_DAILY_BUDGET:
+        return False
+    _spark_usage[account_id] = (day, count + 1)
+    return True
+
+
 @router.post("/api/registry/spark")
 async def spark(request: Request):
     """The shared onboarding model — the spark. A registered Cove asks the hub to run a
     guided/onboarding completion (naming, wake, guided discovery) with LP's key, so a
     keyless stranger's agent can wake and the tour can run. The LP key lives ONLY on the
     hub, never in the repo or on the stranger's box. Auth: the operator's app-account
-    token (any registered operator) or the fleet secret. Creation-Flow inference only."""
+    token or the fleet secret. Creation-Flow inference only.
+
+    THE SPARK BOUNDARY + PIN (2026-07-19): this endpoint runs LP's key, so it trusts
+    nothing from the client. The model is PINNED to Kimi K2.5 via OpenRouter — the
+    body's model_id is ignored (it used to be honored, and it used to default to the
+    HUB's own Cove brain → provider mismatch → openrouter/auto → Opus 4.6 billed to
+    the LP Cove Onboarding key). Requests are single short creation turns, capped in
+    size and per-operator daily count. The Cove side additionally gates on creation
+    state (spark.py spark_allowed); a modified Cove that lies still hits the budget."""
     try:
         body = await request.json()
     except Exception:
@@ -184,23 +212,27 @@ async def spark(request: Request):
     messages = body.get("messages") or []
     if not system_prompt or not isinstance(messages, list) or not messages:
         raise HTTPException(400, "system_prompt and messages are required")
-    # Light abuse guard — the spark is for short onboarding turns, not bulk inference.
-    if len(system_prompt) > 8000 or len(messages) > 24:
-        raise HTTPException(413, "spark request too large")
-    if sum(len(str(m.get("content", ""))) for m in messages) > 12000:
+    # Abuse guard — creation calls are single-turn JSON generations, not conversations.
+    from src.models.spark import spark_caps_ok, SPARK_MODEL_ID, SPARK_MODEL_STRING
+    if not spark_caps_ok(system_prompt, messages):
         raise HTTPException(413, "spark request too large")
 
     # Gate to a valid operator token (or the fleet secret). Raises 403 otherwise.
     from src.memory.database import get_db
     async with get_db() as conn:
-        await _authorize_write(request, conn)
+        _auth = await _authorize_write(request, conn)
+    if _auth.get("mode") == "operator":
+        _acct = _auth.get("account") or {}
+        if not _spark_budget_ok(_acct.get("id")):
+            raise HTTPException(429, "spark budget exhausted for today — connect your own intelligence to continue")
 
-    lp_key = (env("LP_GUIDED_OPENROUTER_KEY") or env("OPENROUTER_API_KEY") or "").strip()
+    # The dedicated onboarding key ONLY — never the hub's own OPENROUTER_API_KEY
+    # (that fallback made hub-brain usage and onboarding usage indistinguishable).
+    lp_key = (env("LP_GUIDED_OPENROUTER_KEY") or "").strip()
     if not lp_key:
         raise HTTPException(503, "spark not configured on the hub")
 
-    from src.models.provider import current_cove_brain
-    model_id = (body.get("model_id") or current_cove_brain().get("model") or "").strip()
+    model_id = SPARK_MODEL_ID
     try:
         temperature = float(body.get("temperature", 0.7))
     except (TypeError, ValueError):
@@ -218,7 +250,8 @@ async def spark(request: Request):
         c = m.get("content", "")
         lc.append(AIMessage(content=c) if m.get("role") == "assistant" else HumanMessage(content=c))
 
-    tok = set_request_byok("openrouter", lp_key)
+    # Pin rides the BYOK context too — no resolution path can reroute off Kimi.
+    tok = set_request_byok("openrouter", lp_key, model=SPARK_MODEL_STRING)
     try:
         client = get_model_client(model_id, temperature=temperature)
     finally:
