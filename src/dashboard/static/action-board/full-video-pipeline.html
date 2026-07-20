@@ -87,6 +87,7 @@ if (window.location.search.includes('embedded=1')) {
 
 <div style="margin-bottom:18px;">
     <button id="pa-toggle" onclick="togglePostingAccounts()" style="background:#14140e;border:1px solid #2a2d3a;color:#ccc;border-radius:6px;padding:8px 12px;font-size:12px;cursor:pointer;">📡 Posting Accounts <span id="pa-state" style="color:#888;margin-left:6px;font-size:11px;"></span></button>
+    <button id="vm-toggle" onclick="toggleVideoMeta()" style="background:#14140e;border:1px solid #2a2d3a;color:#ccc;border-radius:6px;padding:8px 12px;font-size:12px;cursor:pointer;margin-left:8px;">📝 Description profile <span id="vm-state" style="color:#888;margin-left:6px;font-size:11px;"></span></button>
     <button id="pk-toggle" onclick="togglePipelineKeys()" style="background:#14140e;border:1px solid #2a2d3a;color:#ccc;border-radius:6px;padding:8px 12px;font-size:12px;cursor:pointer;margin-left:8px;">🔑 Pipeline Services <span id="pk-state" style="color:#888;margin-left:6px;font-size:11px;"></span></button>
     <div id="pipeline-keys" style="display:none;margin-top:10px;max-width:580px;border:1px solid #232633;border-radius:8px;padding:14px 16px;background:#0d0d12;">
         <!-- CF-96: active transcription path from the ONE compute resolver -->
@@ -126,6 +127,32 @@ if (window.location.search.includes('embedded=1')) {
             <a onclick="loadPostingAccounts()" style="color:#888;cursor:pointer;font-size:11px;">↻ refresh</a>
         </div>
         <div style="font-size:10px;color:#666;margin-top:4px;">Opens Google sign-in in a new tab — approve, then hit refresh.</div>
+    </div>
+    <div id="video-meta" style="display:none;margin-top:10px;max-width:640px;border:1px solid #232633;border-radius:8px;padding:14px 16px;background:#0d0d12;">
+        <div style="font-size:11px;color:#888;margin-bottom:10px;line-height:1.5;">
+            How the pipeline writes <strong style="color:#ccc;">YouTube / social titles and descriptions</strong> after clips render.
+            Combines this profile with the moment transcript. <strong style="color:#ccc;">Empty by default</strong> — no brand links forced on a new Cove.
+            Presence fields override Cove defaults field-by-field.
+        </div>
+        <div style="font-size:11px;color:#9ab;margin-bottom:8px;">Your presence <span id="vm-presence-hint" style="color:#666;"></span></div>
+        <div id="vm-presence-fields" style="display:grid;gap:8px;"></div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button onclick="savePresenceVideoMeta()" style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 14px;font-size:11px;cursor:pointer;">Save my profile</button>
+            <button onclick="clearPresenceVideoMeta()" style="background:transparent;border:1px solid #333;color:#888;border-radius:4px;padding:6px 10px;font-size:11px;cursor:pointer;">Clear mine</button>
+            <span id="vm-presence-save" style="font-size:11px;"></span>
+        </div>
+        <div id="vm-cove-wrap" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid #1c1f29;">
+            <div style="font-size:11px;color:#9ab;margin-bottom:8px;">Cove defaults <span style="color:#666;">(admin — used when a presence field is empty)</span></div>
+            <div id="vm-cove-fields" style="display:grid;gap:8px;"></div>
+            <div style="margin-top:10px;display:flex;align-items:center;gap:8px;">
+                <button onclick="saveCoveVideoMeta()" style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 14px;font-size:11px;cursor:pointer;">Save Cove defaults</button>
+                <span id="vm-cove-save" style="font-size:11px;"></span>
+            </div>
+        </div>
+        <div style="font-size:10px;color:#555;margin-top:12px;line-height:1.45;">
+            Short CTA → Shorts / Facebook final line. Full CTA → captioned full-length YouTube. Leave URLs blank for no forced link.
+            Hashtag seeds are optional hints; X still avoids links by design.
+        </div>
     </div>
 </div>
 
@@ -560,6 +587,121 @@ async function pollVideoJob(jobId, intervalMs = 5000, onPhase = null) {
 }
 
 init();
+
+// ── Description profile (video_meta — per presence + Cove) ───────────
+const VM_FIELDS = [
+    {k:'brand_name', label:'Brand / channel name', ph:'e.g. Ridge Hardware'},
+    {k:'brand_topics', label:'Topics (for the writer)', ph:'e.g. tools, DIY, local store tips'},
+    {k:'short_cta_url', label:'Short-form CTA URL', ph:'https://… (Shorts / Facebook final line if no line below)'},
+    {k:'short_cta_line', label:'Short-form final line (optional)', ph:'Full last line override for shorts'},
+    {k:'full_cta_url', label:'Full-length CTA URL', ph:'https://… (long YouTube if no line below)'},
+    {k:'full_cta_line', label:'Full-length final line (optional)', ph:'e.g. Shop local: https://…'},
+    {k:'hashtag_seeds', label:'Hashtag seeds', ph:'#hardware #diy'},
+    {k:'description_extra', label:'Always consider in descriptions', ph:'Hours, location, disclaimer…'},
+    {k:'voice_notes', label:'Voice notes', ph:'how you talk on camera'},
+];
+let _vmCache = null;
+
+function toggleVideoMeta() {
+    const p = document.getElementById('video-meta');
+    const show = p.style.display === 'none';
+    p.style.display = show ? '' : 'none';
+    if (show) loadVideoMeta();
+}
+
+function _vmInputHtml(prefix, data) {
+    data = data || {};
+    return VM_FIELDS.map(f => {
+        const id = prefix + '-' + f.k;
+        const val = (data[f.k] || '').replace(/"/g, '&quot;');
+        const isLong = f.k === 'description_extra' || f.k === 'voice_notes' || f.k.endsWith('_line');
+        if (isLong) {
+            return `<div><label style="font-size:10px;color:#777;display:block;margin-bottom:3px;">${f.label}</label>`
+                + `<textarea id="${id}" rows="2" placeholder="${f.ph}" style="width:100%;background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;resize:vertical;">${(data[f.k]||'').replace(/</g,'&lt;')}</textarea></div>`;
+        }
+        return `<div><label style="font-size:10px;color:#777;display:block;margin-bottom:3px;">${f.label}</label>`
+            + `<input type="text" id="${id}" value="${val}" placeholder="${f.ph}" autocomplete="off" style="width:100%;background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;"></div>`;
+    }).join('');
+}
+
+function _vmRead(prefix) {
+    const o = {};
+    VM_FIELDS.forEach(f => {
+        const el = document.getElementById(prefix + '-' + f.k);
+        o[f.k] = el ? (el.value || '').trim() : '';
+    });
+    return o;
+}
+
+async function loadVideoMeta() {
+    const st = document.getElementById('vm-state');
+    try {
+        const r = await fetch('/api/posting/video-meta');
+        const d = await r.json();
+        _vmCache = d;
+        document.getElementById('vm-presence-fields').innerHTML = _vmInputHtml('vm-p', d.presence || {});
+        const hint = document.getElementById('vm-presence-hint');
+        if (hint) hint.textContent = d.owner_id ? '' : '(sign in as a presence to save)';
+        const wrap = document.getElementById('vm-cove-wrap');
+        if (wrap) {
+            wrap.style.display = d.can_edit_cove ? '' : 'none';
+            if (d.can_edit_cove) {
+                document.getElementById('vm-cove-fields').innerHTML = _vmInputHtml('vm-c', d.cove || {});
+            }
+        }
+        const eff = d.effective || {};
+        const filled = Object.values(eff).filter(v => v && String(v).trim()).length;
+        if (st) st.textContent = filled ? ('· ' + filled + ' field' + (filled===1?'':'s') + ' set') : '· empty defaults';
+    } catch (e) {
+        if (st) st.textContent = '· load failed';
+    }
+}
+
+async function savePresenceVideoMeta() {
+    const msg = document.getElementById('vm-presence-save');
+    try {
+        const r = await fetch('/api/posting/video-meta', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(_vmRead('vm-p')),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        if (msg) { msg.style.color = '#7dc98f'; msg.textContent = 'Saved'; }
+        loadVideoMeta();
+    } catch (e) {
+        if (msg) { msg.style.color = '#e88'; msg.textContent = e.message; }
+    }
+}
+
+async function clearPresenceVideoMeta() {
+    VM_FIELDS.forEach(f => {
+        const el = document.getElementById('vm-p-' + f.k);
+        if (el) el.value = '';
+    });
+    return savePresenceVideoMeta();
+}
+
+async function saveCoveVideoMeta() {
+    const msg = document.getElementById('vm-cove-save');
+    try {
+        const r = await fetch('/api/posting/video-meta/cove', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(_vmRead('vm-c')),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        if (msg) { msg.style.color = '#7dc98f'; msg.textContent = 'Saved'; }
+        loadVideoMeta();
+    } catch (e) {
+        if (msg) { msg.style.color = '#e88'; msg.textContent = e.message; }
+    }
+}
+
+// Refresh badge on load (non-blocking)
+try { loadVideoMeta(); } catch (e) {}
+
 </script>
 </body>
 </html>

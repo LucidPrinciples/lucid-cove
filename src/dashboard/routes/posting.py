@@ -122,3 +122,82 @@ async def save_youtube_client(creds: YouTubeClient, request: Request):
     if not save_feature_overrides(data):
         return JSONResponse(status_code=500, content={"error": "Could not save YouTube app creds."})
     return {"ok": True, "app_configured": _youtube_app_configured()}
+
+
+# ── Video description / brand profile (empty by default) ─────────────
+
+class VideoMetaBody(BaseModel):
+    brand_name: str = ""
+    brand_topics: str = ""
+    short_cta_url: str = ""
+    short_cta_line: str = ""
+    full_cta_url: str = ""
+    full_cta_line: str = ""
+    hashtag_seeds: str = ""
+    description_extra: str = ""
+    voice_notes: str = ""
+
+
+@router.get("/api/posting/video-meta")
+async def get_video_meta(request: Request):
+    """Effective + layer video_meta for the current presence.
+
+    Returns presence, cove, and merged effective profiles. Empty strings are
+    the product default (hardware-store Cove has no Lucid Tuner links).
+    """
+    from src.dashboard.routes.video_meta import (
+        empty_video_meta,
+        get_cove_video_meta,
+        get_presence_video_meta,
+        merge_video_meta,
+        VIDEO_META_FIELDS,
+    )
+    owner_id = await owner_id_from_request(request)
+    presence = await get_presence_video_meta(owner_id)
+    cove = get_cove_video_meta()
+    effective = merge_video_meta(presence, cove)
+    can_edit_cove = False
+    try:
+        from src.dashboard.routes.settings import _is_admin_presence
+        can_edit_cove = bool(await _is_admin_presence(request))
+    except Exception:
+        pass
+    return {
+        "owner_id": owner_id,
+        "fields": list(VIDEO_META_FIELDS),
+        "presence": presence,
+        "cove": cove,
+        "effective": effective,
+        "empty": empty_video_meta(),
+        "can_edit_cove": can_edit_cove,
+    }
+
+
+@router.put("/api/posting/video-meta")
+async def put_presence_video_meta(body: VideoMetaBody, request: Request):
+    """Save this presence's video metadata profile (overrides Cove per field)."""
+    from src.dashboard.routes.video_meta import save_presence_video_meta, get_presence_video_meta
+    owner_id = await owner_id_from_request(request)
+    if not owner_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No presence in context — sign in as the presence this profile belongs to."},
+        )
+    data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    ok = await save_presence_video_meta(owner_id, data)
+    if not ok:
+        return JSONResponse(status_code=500, content={"error": "Could not save video meta."})
+    return {"ok": True, "presence": await get_presence_video_meta(owner_id)}
+
+
+@router.put("/api/posting/video-meta/cove")
+async def put_cove_video_meta(body: VideoMetaBody, request: Request):
+    """Save Cove-wide defaults (admin). Used when a presence field is empty."""
+    from src.dashboard.routes.settings import _is_admin_presence
+    if not await _is_admin_presence(request):
+        return JSONResponse(status_code=403, content={"error": "Admin only."})
+    from src.dashboard.routes.video_meta import save_cove_video_meta, get_cove_video_meta
+    data = body.model_dump() if hasattr(body, "model_dump") else body.dict()
+    if not save_cove_video_meta(data):
+        return JSONResponse(status_code=500, content={"error": "Could not save Cove video meta."})
+    return {"ok": True, "cove": get_cove_video_meta()}
