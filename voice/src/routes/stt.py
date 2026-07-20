@@ -13,6 +13,7 @@ from src.voice_common import (
     NEXTCLOUD_URL, NEXTCLOUD_ADMIN_USER, NEXTCLOUD_ADMIN_PASSWORD,
     _nc_scan, _get_qwen_asr,
     NCSession, resolve_video_source, publish_video_output,
+    find_on_nc_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,25 +125,65 @@ async def transcribe_video(request: Request):
                 moved = bool(await nc.move(f"inbox/{video_name}", f"processing/{video_name}"))
                 if moved:
                     logger.info(f"WebDAV MOVE inbox/{video_name} → processing/")
-                    # Scratch still holds the bytes under inbox/; also place under
-                    # processing/ so later resolve hits local without re-download.
-                    try:
-                        import shutil
-                        scratch_proc = os.path.join(
-                            os.path.dirname(os.path.dirname(processing_path)),
-                            "processing",
-                            video_name,
+                    # After a successful WebDAV MOVE the object lives under
+                    # processing/ on NC. When we resolved from the shared
+                    # NC_HTML_ROOT mount (read-only), the inbox path is now
+                    # gone — re-point before ffmpeg or we open a missing file
+                    # (Founders crash 2026-07-20: "Error opening input file
+                    # .../inbox/IMG_7171.MOV"). Prefer mount re-resolve;
+                    # scratch sibling copy only when the source was a pull.
+                    remounted = find_on_nc_data(
+                        nc.user, video_name,
+                        subdirs=("processing", "inbox", "raw"),
+                    )
+                    if remounted:
+                        processing_path = remounted
+                        logger.info(
+                            f"post-MOVE NC mount path: {processing_path}"
                         )
-                        # processing_path is .../user/inbox/name or .../user/sub/name
-                        # Prefer sibling swap: replace /inbox/ with /processing/ in path.
-                        alt = src_norm.replace("/inbox/", "/processing/")
-                        if alt != src_norm:
-                            os.makedirs(os.path.dirname(alt), exist_ok=True)
-                            if os.path.isfile(processing_path) and not os.path.isfile(alt):
+                    else:
+                        try:
+                            import shutil
+                            alt = src_norm.replace("/inbox/", "/processing/")
+                            if alt != src_norm and os.path.isfile(alt):
+                                processing_path = alt
+                            elif (
+                                alt != src_norm
+                                and os.path.isfile(processing_path)
+                            ):
+                                os.makedirs(
+                                    os.path.dirname(alt) or ".", exist_ok=True
+                                )
                                 shutil.copy2(processing_path, alt)
                                 processing_path = alt
-                    except Exception as scratch_err:
-                        logger.warning(f"scratch realign after MOVE: {scratch_err}")
+                                logger.info(
+                                    f"post-MOVE scratch realign: {processing_path}"
+                                )
+                        except Exception as scratch_err:
+                            logger.warning(
+                                f"scratch realign after MOVE: {scratch_err}"
+                            )
+                    if not processing_path or not os.path.isfile(processing_path):
+                        # Last chance: full resolve (processing first).
+                        processing_path = await resolve_video_source(
+                            video_name, nc,
+                            subdirs=(
+                                "processing", "inbox", "raw", "shorts",
+                                "processed", "clips", "done", "captioned",
+                            ),
+                        )
+                    if not processing_path or not os.path.isfile(processing_path):
+                        return JSONResponse(
+                            {
+                                "error": (
+                                    f"After moving {video_name} to processing/, "
+                                    f"local path is missing for ffmpeg "
+                                    f"(mount/scratch). Check NC_HTML_ROOT and "
+                                    f"that processing/{video_name} exists."
+                                )
+                            },
+                            status_code=500,
+                        )
             if not moved:
                 # Copy up (large PUT). Keep inbox original — no delete.
                 processing_copy_ok = bool(await publish_video_output(
