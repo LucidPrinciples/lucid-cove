@@ -58,6 +58,75 @@ def _formats_for_platforms(platforms: list) -> list:
     return out or ["vertical"]
 
 
+def _clip_window_seconds(clip: dict, moments_by_key: dict | None = None) -> tuple[float, float]:
+    """Source-timeline window for a rendered clip.
+
+    Prefer start/end on the processed payload (voice must stamp these). Fall back to
+    the approved moments list from the request (same keys the renderer used). Last
+    resort: start=0 + duration only — that mis-labels mid-talk clips and is logged.
+    """
+    moments_by_key = moments_by_key or {}
+    start = clip.get("start_seconds")
+    end = clip.get("end_seconds")
+    try:
+        if start is not None and end is not None:
+            s, e = float(start), float(end)
+            if e > s:
+                return s, e
+    except (TypeError, ValueError):
+        pass
+    key = (clip.get("moment_id"), clip.get("clip_type") or clip.get("type"))
+    src = moments_by_key.get(key) or moments_by_key.get((clip.get("moment_id"), None))
+    if src:
+        try:
+            s = float(src.get("start_seconds", 0) or 0)
+            e = float(src.get("end_seconds", 0) or 0)
+            if e > s:
+                return s, e
+        except (TypeError, ValueError):
+            pass
+    try:
+        s = float(clip.get("start_seconds", 0) or 0)
+    except (TypeError, ValueError):
+        s = 0.0
+    try:
+        dur = float(clip.get("duration_seconds", 0) or 0)
+    except (TypeError, ValueError):
+        dur = 0.0
+    return s, s + dur if dur > 0 else s
+
+
+def _transcript_text_for_window(
+    segments: list,
+    start: float,
+    end: float,
+    *,
+    min_overlap: float = 0.05,
+) -> str:
+    """Join transcript segment text that overlaps [start, end) on the source timeline.
+
+    Overlap (not strict containment) so word/segment boundaries that slightly straddle
+    the cut still contribute. Empty if nothing overlaps.
+    """
+    if not segments or end <= start:
+        return ""
+    parts: list[str] = []
+    for seg in segments:
+        try:
+            seg_s = float(seg.get("start", 0) or 0)
+            seg_e = float(seg.get("end", seg_s) or seg_s)
+        except (TypeError, ValueError):
+            continue
+        if seg_e <= seg_s:
+            continue
+        overlap = min(seg_e, end) - max(seg_s, start)
+        if overlap >= min_overlap:
+            t = (seg.get("text") or "").strip()
+            if t:
+                parts.append(t)
+    return " ".join(parts).strip()
+
+
 @router.post("/process-moments")
 async def process_moments(request: Request):
     """Process approved moments into finished videos, then queue for distribution.
@@ -121,6 +190,19 @@ async def process_moments(request: Request):
     processed = result.get("processed", [])
     queued_count = 0
 
+    # Approved moments from the request — fallback when processed[] lacked a window
+    # (older voice images) so metadata still keys off the cut the operator approved.
+    moments_in = body.get("moments") or []
+    moments_by_key: dict = {}
+    for m in moments_in:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("moment_id", m.get("id"))
+        ctype = m.get("clip_type") or m.get("type")
+        moments_by_key[(mid, ctype)] = m
+        # Also index by moment_id alone for loose match
+        moments_by_key.setdefault((mid, None), m)
+
     # Load transcript segments for extracting per-clip text
     transcript_segments = []
     if processed and stem:
@@ -168,7 +250,7 @@ async def process_moments(request: Request):
                 ))
 
                 for m_id, c_type in clip_units:
-                    # Extract transcript text for this clip
+                    # Extract transcript text for this clip's SOURCE window
                     any_clip = next(
                         (c for c in processed
                          if c.get("moment_id") == m_id and c.get("clip_type") == c_type),
@@ -176,15 +258,27 @@ async def process_moments(request: Request):
                     )
                     if not any_clip:
                         continue
-                    clip_start = any_clip.get("start_seconds", 0) if "start_seconds" in any_clip else 0
-                    clip_end = clip_start + any_clip.get("duration_seconds", 0)
-                    clip_text = " ".join(
-                        seg.get("text", "")
-                        for seg in transcript_segments
-                        if seg.get("start", 0) >= clip_start and seg.get("end", 0) <= clip_end
-                    ).strip()
+                    clip_start, clip_end = _clip_window_seconds(any_clip, moments_by_key)
+                    clip_text = _transcript_text_for_window(
+                        transcript_segments, clip_start, clip_end,
+                    )
                     if not clip_text:
-                        clip_text = any_clip.get("label", "")
+                        # Last resort: label/topic — never silently use t=0 of the full talk
+                        src_m = moments_by_key.get((m_id, c_type)) or moments_by_key.get((m_id, None)) or {}
+                        clip_text = (
+                            (src_m.get("topic") or src_m.get("clip_label") or "")
+                            or any_clip.get("label", "")
+                        )
+                        logger.warning(
+                            "No transcript overlap for clip m%s/%s window %.1f–%.1f — "
+                            "metadata falling back to label/topic",
+                            m_id, c_type, clip_start, clip_end,
+                        )
+                    else:
+                        logger.info(
+                            "Clip metadata window m%s/%s: %.1f–%.1f (%.0f chars)",
+                            m_id, c_type, clip_start, clip_end, len(clip_text),
+                        )
 
                     for platform in platforms:
                         # Find this clip in the platform's preferred format

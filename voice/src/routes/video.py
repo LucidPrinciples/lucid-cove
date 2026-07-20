@@ -653,6 +653,11 @@ async def process_moments(request: Request):
                         "filename": out_name,
                         "preview_filename": preview_name if preview_wrote else None,
                         "size_mb": round(size_mb, 1),
+                        # Window on the source timeline — required so social metadata
+                        # pulls transcript for THIS clip, not the first N seconds of the
+                        # full talk (book intro vs later agent-memory section).
+                        "start_seconds": round(float(start or 0), 2),
+                        "end_seconds": round(float(end or 0), 2),
                         "duration_seconds": round(duration, 1),
                         "nc_path": nc_path,
                         "preview_nc_path": (
