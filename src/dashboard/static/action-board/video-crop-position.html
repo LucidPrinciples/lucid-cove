@@ -193,8 +193,9 @@ const PLATFORMS = [
     { id: 'youtube', label: 'YouTube', icon: '📺', selected: true, format: '9:16' },
     { id: 'tiktok', label: 'TikTok', icon: '🎵', selected: true, format: '9:16' },
     { id: 'x', label: 'X', icon: '𝕏', selected: true, format: '16:9' },
-    { id: 'instagram', label: 'Instagram', icon: '📸', selected: false, format: '9:16' },
-    { id: 'facebook', label: 'Facebook', icon: '📘', selected: false, format: '9:16' },
+    // Default on so every process pass drafts the full set; operator can deselect.
+    { id: 'instagram', label: 'Instagram', icon: '📸', selected: true, format: '9:16' },
+    { id: 'facebook', label: 'Facebook', icon: '📘', selected: true, format: '9:16' },
 ];
 
 const FONT_FAMILIES = [

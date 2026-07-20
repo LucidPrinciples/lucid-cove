@@ -49,11 +49,14 @@ async def generate_platform_metadata(
     video_meta: dict | None = None,
     request=None,
     owner_id: str | None = None,
+    moment_context: str = "",
 ) -> dict:
     """Generate platform-specific metadata for a social queue draft.
 
     Uses the effective video_meta profile (presence → Cove → empty) + clip
-    transcript. Returns title/description/hashtags/tags, or a label fallback.
+    transcript. Optional moment_context carries sibling sizes / analysis so
+    each platform draft is mixed against the rest of the moment, not isolated.
+    Returns title/description/hashtags/tags, or a label fallback.
     """
     if platform not in PLATFORM_NAMES:
         return {"title": clip_label, "description": "", "hashtags": "", "tags": []}
@@ -75,16 +78,20 @@ async def generate_platform_metadata(
     )
 
     system_prompt = build_platform_system_prompt(
-        platform, video_meta, clip_type, dur_label,
+        platform,
+        video_meta,
+        clip_type,
+        dur_label,
+        moment_context=moment_context or "",
     )
     if not system_prompt:
         return {"title": clip_label, "description": "", "hashtags": "", "tags": []}
 
-    human_prompt = f"""Here's the transcript from the clip "{clip_label}":
+    human_prompt = f"""Here's the transcript from the clip "{clip_label}" ({clip_type}, {dur_label}):
 
 {transcript_text[:3000]}
 
-Generate the metadata for {PLATFORM_NAMES[platform]}."""
+Generate the metadata for {PLATFORM_NAMES[platform]}. Write from THIS clip's window; use any moment context in the system prompt only to coordinate the mix with sibling sizes."""
 
     try:
         from src.models.provider import get_model_client, _resolve_model_string
