@@ -69,6 +69,18 @@ REGISTRY: list[EnvVar] = [
     EnvVar("RUNBOOKS_DIR", "/app/data/runbooks", "path", "Paths", desc="Live runbook JSON dir."),
     EnvVar("RUNBOOKS_SEED_DIR", "/cove-core/runbooks", "path", "Paths", desc="Seed runbook JSON dir."),
     EnvVar("VIDEO_BASE_PATH", "/vault/AgentSkills/Content/video", "path", "Paths", desc="Video pipeline root."),
+    EnvVar(
+        "TO_DELETE_NOTIFY_BYTES",
+        str(100 * 1024 ** 3),
+        "int",
+        "Paths",
+        desc=(
+            "Daily Attention when AgentSkills/To-Delete + video/to-delete "
+            "exceed this many bytes (default 100 GiB). Video originals are "
+            "multi-GiB; keep well above one file so the guard is offload cue, "
+            "not noise."
+        ),
+    ),
     EnvVar("SITES_NC_PATH", "", "path", "Paths", desc="Nextcloud-synced Sites path (optional)."),
     EnvVar("TUNING_PACKAGES_DIR", "/app/data/tuning-packages", "path", "Paths", desc="LTP package cache dir."),
     EnvVar("LT_REFERENCE_PATH", "", "path", "Paths", desc="Runtime tuning-key reference json (optional)."),
