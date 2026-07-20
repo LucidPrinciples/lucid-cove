@@ -1008,6 +1008,44 @@ def _rewrite_dendrite_server_name(cove_dir: str, cove_id: str, new_server: str):
         return f"config rewrite failed: {str(e)[:120]}"
 
 
+def _clear_cove_matrix_space_ids(*, postgres_container: str, cove_id: str) -> bool:
+    """Best-effort: NULL out cove_matrix Space/Family ids in the app DB after Dendrite wipe.
+
+    App DB is stamped POSTGRES_DB={cove_id}_cove and POSTGRES_USER={cove_id}
+    (centralized provisioner). Table may be absent on very old installs — that is
+    fine (returns True). Never raises to the caller.
+    """
+    if not postgres_container or not cove_id:
+        return False
+    # cove_id is provision-stamped; reject anything else before it reaches shell/SQL ids.
+    if not re.match(r"^[a-z0-9][a-z0-9_-]{0,62}$", cove_id):
+        return False
+    db = f"{cove_id}_cove"
+    # Role matches POSTGRES_USER={cove_id}; postgres superuser as fallback.
+    sql = (
+        "UPDATE cove_matrix SET space_id = NULL, family_room_id = NULL, "
+        "updated_at = NOW() WHERE id = 1;"
+    )
+    for role in (cove_id, "postgres"):
+        # -v ON_ERROR_STOP=0 so a missing table is not a hard fail.
+        cmd = "psql -U %s -d %s -v ON_ERROR_STOP=0 -c %s" % (
+            role, db, repr(sql),
+        )
+        try:
+            r = subprocess.run(
+                ["docker", "exec", "-u", "postgres", postgres_container, "sh", "-c", cmd],
+                capture_output=True, text=True, timeout=30,
+            )
+            out = ((r.stdout or "") + (r.stderr or "")).lower()
+            if r.returncode == 0 and "error" not in out:
+                return True
+            if "does not exist" in out:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def _apply_matrix_regen(*, cove_id: str, domain: str, new_server: str,
                         postgres_container: str, dendrite_container: str,
                         cove_dir: str = "") -> dict:
@@ -1043,6 +1081,18 @@ def _apply_matrix_regen(*, cove_id: str, domain: str, new_server: str,
         r_wipe = subprocess.run(["docker", "exec", "-u", "postgres", postgres_container,
                                  "sh", "-c", wipe], capture_output=True, text=True, timeout=40)
         steps["db_wipe"] = (r_wipe.returncode == 0) or (r_wipe.stderr or r_wipe.stdout).strip()[:160]
+        # 2b. App Postgres still holds cove_matrix.space_id / family_room_id from the
+        #     pre-wipe homeserver. Leaving them makes ensure_cove_space "succeed" by
+        #     inviting into dead rooms — Connect stays empty forever (ridgedale 2026-07-20).
+        #     Clear those ids on the SAME postgres container (app DB is {cove_id}_cove).
+        #     Best-effort only — never gate regen success on this (ensure also self-heals).
+        try:
+            cove_matrix_clear = bool(_clear_cove_matrix_space_ids(
+                postgres_container=postgres_container, cove_id=cove_id))
+        except Exception as _e:
+            cove_matrix_clear = False
+            steps["cove_matrix_clear_err"] = str(_e)[:80]
+
         # 3. REWRITE server_name in the HOST-side dendrite.yaml (in-container copy is ro).
         steps["config"] = _rewrite_dendrite_server_name(cove_dir, cove_id, new_server)
         # 4. START dendrite: it rebuilds schema on the fresh DB + re-registers agents
@@ -1050,9 +1100,12 @@ def _apply_matrix_regen(*, cove_id: str, domain: str, new_server: str,
         r_start = subprocess.run(["docker", "start", dendrite_container],
                                  capture_output=True, text=True, timeout=60)
         steps["start"] = (r_start.returncode == 0) or (r_start.stderr or "").strip()[:160]
-        changed = all(v is True for v in steps.values())
+        # Only the destructive dendrite path gates success (stop/wipe/config/start).
+        core = {k: steps[k] for k in ("stop", "db_wipe", "config", "start") if k in steps}
+        changed = all(v is True for v in core.values()) if core else False
         return {"ok": changed, "virgin": True, "changed": changed,
                 "server_name": new_server, "steps": steps,
+                "cove_matrix_clear": cove_matrix_clear,
                 "message": (f"Regenerated Matrix identity to {new_server}." if changed
                             else "Matrix regen partially applied — see steps.")}
     except Exception as e:
