@@ -368,7 +368,9 @@ class NCSession:
                     logger.error(f"NC push failed ({resp.status_code}) {subpath}: {resp.text[:200]}")
                 return ok
         except Exception as e:
-            logger.error(f"NC push error ({subpath}): {e}")
+            logger.error(
+                f"NC push error ({subpath}): {type(e).__name__}: {e!r}"
+            )
             return False
 
     async def move(self, src_subpath: str, dst_subpath: str) -> bool:
@@ -498,16 +500,89 @@ async def resolve_video_source(filename: str, nc: "NCSession" = None,
 
 async def publish_video_output(local_path: str, subpath: str, nc: "NCSession" = None,
                                content_type: str = "video/mp4") -> bool:
-    """Publish a produced file to <video-tree>/<subpath>. With an NCSession, push via
-    WebDAV; without, copy into VIDEO_MOUNT + trigger an NC scan (founder path)."""
-    if nc is not None:
-        return await nc.push(subpath, local_path, content_type)
+    """Publish a produced file to <video-tree>/<subpath>.
+
+    Order:
+      1. If NC_HTML_ROOT is set and we know the presence user, copy onto the
+         mounted NC data volume and occ-scan (avoids multi-GB WebDAV / proxy
+         413s — captioned full is often 1–3GB).
+      2. Else if NCSession is set, WebDAV PUT.
+      3. Else copy into VIDEO_MOUNT + scan (legacy founder bind).
+
+    Returns False when nothing landed. Callers (caption-full especially) must
+    treat False as failure — do not graduate or rename a missing object.
+    """
     import shutil
-    dest = os.path.join(VIDEO_MOUNT, subpath)
-    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-    shutil.copy(local_path, dest)
-    _nc_scan(f"{NC_VIDEO_PATH}/{os.path.dirname(subpath)}".rstrip("/"))
-    return True
+
+    if not local_path or not os.path.isfile(local_path):
+        logger.error(f"publish_video_output: missing local file {local_path!r}")
+        return False
+
+    sub_clean = (subpath or "").strip().strip("/")
+    if not sub_clean:
+        logger.error("publish_video_output: empty subpath")
+        return False
+
+    size_mb = os.path.getsize(local_path) / (1024 * 1024)
+    nc_user = (getattr(nc, "user", None) or "").strip().strip("/") if nc is not None else ""
+    if not nc_user:
+        nc_user = (NEXTCLOUD_ADMIN_USER or "").strip().strip("/")
+
+    # 1) Same-host NC data volume — preferred for large outputs.
+    if NC_HTML_ROOT and nc_user:
+        dest = nc_data_video_path(nc_user, os.path.dirname(sub_clean), os.path.basename(sub_clean))
+        if dest:
+            try:
+                os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+                shutil.copy2(local_path, dest)
+                # NC serves as www-data; root-owned copies from voice break reads.
+                try:
+                    www_uid = int(os.environ.get("NC_WWW_UID", "33"))
+                    www_gid = int(os.environ.get("NC_WWW_GID", "33"))
+                    os.chown(dest, www_uid, www_gid)
+                except OSError as ce:
+                    logger.warning(f"publish_video_output: chown skipped on {dest}: {ce}")
+                _nc_scan(f"{NC_VIDEO_PATH}/{os.path.dirname(sub_clean)}".rstrip("/"))
+                logger.info(
+                    f"publish_video_output: NC data mount write OK "
+                    f"{sub_clean} ({size_mb:.1f} MB) → {dest}"
+                )
+                return True
+            except OSError as e:
+                # EROFS when the compose mount is :ro — fall through to WebDAV.
+                logger.warning(
+                    f"publish_video_output: NC data mount write failed "
+                    f"({e}) for {sub_clean} ({size_mb:.1f} MB); "
+                    f"falling back to WebDAV/VIDEO_MOUNT"
+                )
+
+    # 2) WebDAV for multi-presence when mount missing or read-only.
+    if nc is not None:
+        ok = await nc.push(sub_clean, local_path, content_type)
+        if ok:
+            logger.info(
+                f"publish_video_output: WebDAV OK {sub_clean} ({size_mb:.1f} MB)"
+            )
+        else:
+            logger.error(
+                f"publish_video_output: WebDAV failed {sub_clean} ({size_mb:.1f} MB)"
+            )
+        return ok
+
+    # 3) Legacy founder VIDEO_MOUNT bind.
+    dest = os.path.join(VIDEO_MOUNT, sub_clean)
+    try:
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        shutil.copy2(local_path, dest)
+        _nc_scan(f"{NC_VIDEO_PATH}/{os.path.dirname(sub_clean)}".rstrip("/"))
+        logger.info(
+            f"publish_video_output: VIDEO_MOUNT write OK "
+            f"{sub_clean} ({size_mb:.1f} MB) → {dest}"
+        )
+        return True
+    except OSError as e:
+        logger.error(f"publish_video_output: VIDEO_MOUNT write failed ({e}) {sub_clean}")
+        return False
 
 
 # ── NC filesystem scan (trigger after direct file writes) ─────────
