@@ -10,6 +10,8 @@
 # Design (locked):
 #   POST /api/video/transcribe/start  {filename}                       -> {job_id}
 #   POST /api/video/analyze/start     {stem|transcript_file, presence_name} -> {job_id}
+#   POST /api/video/caption-full/start {stem, caption?, ...}           -> {job_id}  (#MESH-n/a / A14)
+#   POST /api/video/process-moments/start {stem, moments, ...}         -> {job_id}
 #   GET  /api/video/jobs/{job_id}     -> {state, result, error, timestamps}
 # States: queued | running | done | failed. The job registry is IN-MEMORY — a
 # container restart loses in-flight jobs (accepted v1). The sync endpoints stay
@@ -17,6 +19,10 @@
 # wrapper and flips video_pipeline._JOB_MODE so the internal httpx/model timeouts
 # use the generous job caps (3600s transcribe / 1800s moments) instead of the
 # short interactive caps.
+#
+# Caption-full / process-moments were still sync held-open POSTs — long ffmpeg
+# runs left the browser with an empty body ("Unexpected end of JSON input") while
+# the render may still have succeeded server-side. Same A14 pattern as transcribe.
 #
 # Repo rule: new feature area → new file.
 # =============================================================================
@@ -52,7 +58,12 @@ _CURRENT_JOB: contextvars.ContextVar = contextvars.ContextVar(
     "current_video_job", default=None)
 
 # The working phase each job KIND starts in when it begins running.
-_KIND_START_PHASE = {"transcribe": "transferring", "analyze": "analyzing"}
+_KIND_START_PHASE = {
+    "transcribe": "transferring",
+    "analyze": "analyzing",
+    "caption_full": "rendering",
+    "process_moments": "rendering",
+}
 
 
 def set_phase(phase: str) -> None:
@@ -264,6 +275,30 @@ async def start_analyze(request: Request):
         )
     from src.dashboard.routes.video_pipeline import analyze_transcript
     return _spawn(request, body, analyze_transcript, "analyze")
+
+
+@router.post("/caption-full/start")
+async def start_caption_full(request: Request):
+    """Kick off captioned full-length render as a background job.
+
+    Same body as POST /api/video/caption-full. Long ffmpeg + metadata must not
+    hold the browser request open (empty JSON body / gateway cut).
+    """
+    body = await request.json()
+    if not (body.get("stem") or "").strip():
+        return JSONResponse({"error": "stem required"}, status_code=400)
+    from src.dashboard.routes.video_processing import caption_full_video
+    return _spawn(request, body, caption_full_video, "caption_full")
+
+
+@router.post("/process-moments/start")
+async def start_process_moments(request: Request):
+    """Kick off clip batch render as a background job. Same body as /process-moments."""
+    body = await request.json()
+    if not (body.get("stem") or "").strip() or not body.get("moments"):
+        return JSONResponse({"error": "stem and moments required"}, status_code=400)
+    from src.dashboard.routes.video_processing import process_moments
+    return _spawn(request, body, process_moments, "process_moments")
 
 
 @router.get("/jobs/{job_id}")

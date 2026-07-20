@@ -616,7 +616,44 @@ function onCapDisplay(s) {
     updateCapPreview();
 }
 
-// -- Process --
+// -- Process (A14 async jobs — no held-open multi-minute POST) --
+const PHASE_LABELS = {
+    queued: 'Queued…', transferring: 'Transferring…', transcribing: 'Transcribing…',
+    analyzing: 'Analyzing…', rendering: 'Rendering…',
+};
+
+async function pollVideoJob(jobId, intervalMs, onPhase) {
+    intervalMs = intervalMs || 4000;
+    while (true) {
+        await new Promise(r => setTimeout(r, intervalMs));
+        try {
+            const r = await fetch('/api/video/jobs/' + jobId);
+            if (!r.ok) continue;
+            const j = await r.json().catch(() => null);
+            if (!j) continue;
+            if (onPhase && j.phase) { try { onPhase(j.phase); } catch (e) {} }
+            if (j.state === 'done' || j.state === 'failed') return j;
+        } catch (e) { /* keep polling through blips */ }
+    }
+}
+
+async function startJob(path, body) {
+    const resp = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    const text = await resp.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (e) {
+        throw new Error(text ? text.slice(0, 200) : 'Empty response starting job');
+    }
+    if (!resp.ok || !data.job_id) {
+        throw new Error((data && data.error) || ('HTTP ' + resp.status));
+    }
+    return data.job_id;
+}
+
 async function startProcessing() {
     const btn = document.getElementById('btn-cut');
     const status = document.getElementById('status');
@@ -648,50 +685,52 @@ async function startProcessing() {
     };
 
     try {
-        const resp = await fetch('/api/video/process-moments', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stem, crop_template: cropTemplate, moments: clips, platforms: getSelectedPlatforms() }),
+        status.textContent = 'Starting clip render…';
+        const clipJobId = await startJob('/api/video/process-moments/start', {
+            stem, crop_template: cropTemplate, moments: clips, platforms: getSelectedPlatforms(),
         });
-        const result = await resp.json();
-        if (resp.ok) {
-            const count = (result.processed || []).length;
-            btn.textContent = `Done — ${count} clips rendered`;
-            status.textContent = 'Clips will appear in Actions when ready.';
-            // Tell the parent Action Board to refresh — the clips just enqueued
-            // social_queue drafts, but the board caches and won't re-fetch on its own.
-            try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
-
-            // Fire caption-full if checked
-            const captionFull = document.getElementById('chk-caption-full');
-            if (captionFull && captionFull.checked) {
-                status.textContent = 'Rendering captioned full-length video...';
-                try {
-                    const cfResp = await fetch('/api/video/caption-full', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            stem,
-                            caption: { ...cap },
-                            video_filter: videoFilter,
-                            crop_template: cropTemplate,
-                        }),
-                    });
-                    const cfResult = await cfResp.json();
-                    if (cfResp.ok) {
-                        status.textContent = `All done — ${count} clips + captioned full video (${cfResult.size_mb || '?'} MB)`;
-                        try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
-                    } else {
-                        status.textContent = `Clips done. Captioned full failed: ${cfResult.error || 'unknown'}`;
-                    }
-                } catch (cfErr) {
-                    status.textContent = `Clips done. Captioned full failed: ${cfErr.message}`;
-                }
-            }
-        } else {
+        const clipJob = await pollVideoJob(clipJobId, 4000, (phase) => {
+            const label = PHASE_LABELS[phase];
+            if (label) status.textContent = label + ' clips…';
+            btn.textContent = label || 'Processing...';
+        });
+        if (clipJob.state !== 'done') {
             btn.textContent = 'Error — try again';
             btn.disabled = false;
-            status.textContent = result.error || 'Unknown error';
+            status.textContent = clipJob.error || 'Clip render failed';
+            return;
+        }
+        const result = clipJob.result || {};
+        const count = (result.processed || []).length;
+        btn.textContent = `Done — ${count} clips rendered`;
+        status.textContent = 'Clips will appear in Actions when ready.';
+        try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
+
+        // Fire caption-full if checked (background job — same empty-body class of bug)
+        const captionFull = document.getElementById('chk-caption-full');
+        if (captionFull && captionFull.checked) {
+            status.textContent = 'Starting captioned full-length video…';
+            try {
+                const cfJobId = await startJob('/api/video/caption-full/start', {
+                    stem,
+                    caption: { ...cap },
+                    video_filter: videoFilter,
+                    crop_template: cropTemplate,
+                });
+                const cfJob = await pollVideoJob(cfJobId, 5000, (phase) => {
+                    const label = PHASE_LABELS[phase];
+                    if (label) status.textContent = label + ' captioned full…';
+                });
+                if (cfJob.state === 'done') {
+                    const cfResult = cfJob.result || {};
+                    status.textContent = `All done — ${count} clips + captioned full video (${cfResult.size_mb || '?'} MB)`;
+                    try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
+                } else {
+                    status.textContent = `Clips done. Captioned full failed: ${cfJob.error || 'unknown'}`;
+                }
+            } catch (cfErr) {
+                status.textContent = `Clips done. Captioned full failed: ${cfErr.message}`;
+            }
         }
     } catch(e) {
         btn.textContent = 'Error — try again';
