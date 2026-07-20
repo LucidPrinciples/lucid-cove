@@ -414,14 +414,48 @@ class NCSession:
 
 
 SCRATCH_ROOT = os.environ.get("VIDEO_SCRATCH", "/tmp/cove-video")
+# Optional bind of the Cove Nextcloud html root (same volume as nextcloud:/var/www/html).
+# When set, resolve_video_source can read presence files in place under
+#   {NC_HTML_ROOT}/data/{nc_user}/files/AgentSkills/Content/video/...
+# instead of WebDAV-pulling multi-GB objects into scratch every job.
+NC_HTML_ROOT = (os.environ.get("NC_HTML_ROOT") or "").rstrip("/")
+
+
+def nc_data_video_path(nc_user: str, sub: str, filename: str) -> str:
+    """Absolute path on a mounted NC data volume for one video object."""
+    if not NC_HTML_ROOT or not nc_user:
+        return ""
+    return os.path.join(
+        NC_HTML_ROOT, "data", nc_user, "files", NC_VIDEO_PATH, sub, filename
+    )
+
+
+def find_on_nc_data(nc_user: str, filename: str,
+                    subdirs=("processing", "inbox", "raw",
+                             "shorts", "processed", "clips", "done", "captioned")) -> str:
+    """Return local path if filename exists under mounted NC data for this user."""
+    if not NC_HTML_ROOT or not nc_user:
+        return ""
+    for sub in subdirs:
+        cand = nc_data_video_path(nc_user, sub, filename)
+        if cand and os.path.isfile(cand):
+            return cand
+    return ""
 
 
 async def resolve_video_source(filename: str, nc: "NCSession" = None,
                                subdirs=("processing", "inbox", "raw",
                                         "shorts", "processed", "clips", "done", "captioned")) -> str:
-    """Local path to a source video. With an NCSession, pull it from the presence's
-    NC (trying each subdir) into scratch; without, read the local VIDEO_MOUNT
-    (founder). Returns None if not found."""
+    """Local path to a source video.
+
+    Order when an NCSession is present:
+      1. scratch (prior pull)
+      2. mounted NC data dir for that presence (NC_HTML_ROOT) — no network
+      3. WebDAV pull into scratch
+
+    Without NCSession, read the local VIDEO_MOUNT (founder bind). Returns None if
+    not found.
+    """
     if nc is not None:
         # Scratch-first across ALL subdirs (crop-page find, 2026-07-03): the file is
         # often already local under a DIFFERENT subdir than the caller's first guess
@@ -433,6 +467,11 @@ async def resolve_video_source(filename: str, nc: "NCSession" = None,
             local = os.path.join(SCRATCH_ROOT, nc.user, sub, filename)
             if os.path.isfile(local):
                 return local
+        # Same-host NC volume mount: read jason/.../inbox in place (no multi-GB DAV).
+        on_disk = find_on_nc_data(nc.user, filename, subdirs=subdirs)
+        if on_disk:
+            logger.info(f"resolve_video_source: NC data mount hit {on_disk}")
+            return on_disk
         for sub in subdirs:
             local = os.path.join(SCRATCH_ROOT, nc.user, sub, filename)
             if await nc.pull(f"{sub}/{filename}", local):
@@ -442,6 +481,11 @@ async def resolve_video_source(filename: str, nc: "NCSession" = None,
         cand = os.path.join(VIDEO_MOUNT, sub, filename)
         if os.path.isfile(cand):
             return cand
+    # Last resort: NC data mount with admin/env user if someone set NC_HTML_ROOT only.
+    if NC_HTML_ROOT and NEXTCLOUD_ADMIN_USER:
+        on_disk = find_on_nc_data(NEXTCLOUD_ADMIN_USER, filename, subdirs=subdirs)
+        if on_disk:
+            return on_disk
     return None
 
 
