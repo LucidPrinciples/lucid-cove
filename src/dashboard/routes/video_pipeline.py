@@ -830,32 +830,48 @@ async def _identify_moments(
     # ── Duration-based analysis tiers ──────────────────────────────
     # Scale moments count and clip types to video length
     if duration_mins < 5:
-        # SHORT: quick clips, no story tier — the whole video is the story
-        expected_moments = max(1, min(2, duration_mins))
-        clip_tiers = """For EVERY moment, propose TWO clip lengths:
-- **Quote** (8-15 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
-- **Thought** (20-45 seconds): A complete idea with setup and payoff. Good for YouTube Shorts, TikTok, Reels.
+        # SHORT: still propose nested sizes so the operator can mix/match.
+        # Story is allowed when the moment actually holds a longer arc; otherwise
+        # omit story rather than padding. Whole-video caption path remains separate.
+        expected_moments = max(1, min(2, max(1, duration_mins)))
+        clip_tiers = """For EVERY moment, propose nested clip lengths when the content supports them:
+- **Quote** (8-20 seconds): A single punchy statement or reaction. The hook — what stops scrolling.
+- **Thought** (25-60 seconds): A complete idea with setup and payoff. Good for YouTube Shorts, TikTok, Reels.
+- **Story** (45-120 seconds, only if the moment truly holds it): A fuller arc of the same idea. Good for longer Shorts / YT / TikTok. SKIP story if it would just pad silence or repeat — never invent length.
 
-Do NOT propose "story" clips — this video is short enough to be shared whole."""
+Prefer all three when clean. Quote lives inside thought lives inside story when all three exist. The operator will mix and match approved sizes."""
         clip_example = """        {{
           "type": "quote",
           "label": "Short title for this clip",
           "start_seconds": 30.0,
           "end_seconds": 42.0,
           "duration_seconds": 12,
-          "platform_fit": ["youtube_shorts", "tiktok", "reels"],
+          "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "The exact quote or opening line"
         }},
         {{
           "type": "thought",
           "label": "Short title for this clip",
           "start_seconds": 25.0,
-          "end_seconds": 60.0,
-          "duration_seconds": 35,
-          "platform_fit": ["youtube_shorts", "tiktok"],
+          "end_seconds": 70.0,
+          "duration_seconds": 45,
+          "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "Opening line that sets up the idea"
+        }},
+        {{
+          "type": "story",
+          "label": "Short title for this clip",
+          "start_seconds": 20.0,
+          "end_seconds": 95.0,
+          "duration_seconds": 75,
+          "platform_fit": ["youtube", "youtube_shorts", "tiktok", "facebook"],
+          "hook_line": "Opening line that draws the viewer in"
         }}"""
-        length_guidance = f"This video is only about {duration_mins} minutes long. Find 1-2 of the strongest moments — don't force clips where there isn't enough content to justify them."
+        length_guidance = (
+            f"This video is only about {duration_mins} minutes long. Find 1-2 of the strongest "
+            "moments — don't force extra moments. For each moment, still offer the nested sizes "
+            "that cleanly exist so the operator can pick quote/thought/story without re-cutting."
+        )
     elif duration_mins < 15:
         # MEDIUM: standard three tiers, moderate count
         expected_moments = max(2, min(4, duration_mins // 3))
@@ -871,7 +887,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 145.0,
           "end_seconds": 168.0,
           "duration_seconds": 23,
-          "platform_fit": ["youtube_shorts", "tiktok", "reels"],
+          "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "The exact quote or opening line"
         }},
         {{
@@ -880,7 +896,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 130.0,
           "end_seconds": 200.0,
           "duration_seconds": 70,
-          "platform_fit": ["youtube_shorts", "tiktok"],
+          "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "Opening line that sets up the idea"
         }},
         {{
@@ -889,7 +905,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 120.0,
           "end_seconds": 280.0,
           "duration_seconds": 160,
-          "platform_fit": ["youtube"],
+          "platform_fit": ["youtube", "youtube_shorts", "tiktok", "facebook"],
           "hook_line": "Opening line that draws the viewer in"
         }}"""
         length_guidance = f"This video is about {duration_mins} minutes long. Find 2-4 strong moments — quality over quantity."
@@ -908,7 +924,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 145.0,
           "end_seconds": 168.0,
           "duration_seconds": 23,
-          "platform_fit": ["youtube_shorts", "tiktok", "reels"],
+          "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "The exact quote or opening line"
         }},
         {{
@@ -917,7 +933,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 130.0,
           "end_seconds": 200.0,
           "duration_seconds": 70,
-          "platform_fit": ["youtube_shorts", "tiktok"],
+          "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "Opening line that sets up the idea"
         }},
         {{
@@ -926,7 +942,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 120.0,
           "end_seconds": 280.0,
           "duration_seconds": 160,
-          "platform_fit": ["youtube"],
+          "platform_fit": ["youtube", "youtube_shorts", "tiktok", "facebook"],
           "hook_line": "Opening line that draws the viewer in"
         }}"""
         length_guidance = f"This video is about {duration_mins} minutes long. Find 5-{expected_moments} moments. Be generous — it's better to surface too many than too few."
@@ -945,7 +961,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 145.0,
           "end_seconds": 168.0,
           "duration_seconds": 23,
-          "platform_fit": ["youtube_shorts", "tiktok", "reels"],
+          "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "The exact quote or opening line"
         }},
         {{
@@ -954,7 +970,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 130.0,
           "end_seconds": 200.0,
           "duration_seconds": 70,
-          "platform_fit": ["youtube_shorts", "tiktok"],
+          "platform_fit": ["youtube_shorts", "tiktok", "reels", "instagram"],
           "hook_line": "Opening line that sets up the idea"
         }},
         {{
@@ -963,7 +979,7 @@ Always propose all three. The clips from the same moment WILL overlap — the qu
           "start_seconds": 120.0,
           "end_seconds": 280.0,
           "duration_seconds": 160,
-          "platform_fit": ["youtube"],
+          "platform_fit": ["youtube", "youtube_shorts", "tiktok", "facebook"],
           "hook_line": "Opening line that draws the viewer in"
         }}"""
         length_guidance = f"This video is about {duration_mins} minutes long. Find at least {expected_moments} moments. A long video like this has many moments — don't leave good content on the table."

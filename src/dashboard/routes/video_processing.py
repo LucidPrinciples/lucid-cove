@@ -249,6 +249,45 @@ async def process_moments(request: Request):
                     (c.get("moment_id"), c.get("clip_type")) for c in processed
                 ))
 
+                # Sibling sizes + moment analysis so each platform draft is mixed
+                # against the rest of the moment, not written in isolation.
+                def _moment_context_for(m_id, c_type) -> str:
+                    lines: list[str] = []
+                    src = moments_by_key.get((m_id, c_type)) or moments_by_key.get((m_id, None)) or {}
+                    for key in ("topic", "theme_tag", "hook", "reasoning", "content_type"):
+                        val = (src.get(key) or "").strip() if isinstance(src.get(key), str) else ""
+                        if val:
+                            lines.append(f"{key}: {val[:400]}")
+                    siblings = []
+                    for oc in processed:
+                        if oc.get("moment_id") != m_id:
+                            continue
+                        ot = oc.get("clip_type") or ""
+                        if ot == c_type:
+                            continue
+                        lab = oc.get("label") or ot
+                        dur = oc.get("duration_seconds") or 0
+                        siblings.append(f"- {ot}: {lab} ({dur}s)")
+                    # Also surface approved-but-not-yet-keyed siblings from moments_in
+                    for m in moments_in:
+                        if not isinstance(m, dict):
+                            continue
+                        mid = m.get("moment_id", m.get("id"))
+                        if mid != m_id:
+                            continue
+                        ot = m.get("clip_type") or m.get("type") or ""
+                        if not ot or ot == c_type:
+                            continue
+                        lab = m.get("label") or m.get("clip_label") or ot
+                        dur = m.get("duration_seconds") or 0
+                        entry = f"- {ot}: {lab} ({dur}s)"
+                        if entry not in siblings:
+                            siblings.append(entry)
+                    if siblings:
+                        lines.append("sibling sizes in this moment:")
+                        lines.extend(siblings[:8])
+                    return "\n".join(lines).strip()
+
                 for m_id, c_type in clip_units:
                     # Extract transcript text for this clip's SOURCE window
                     any_clip = next(
@@ -280,6 +319,8 @@ async def process_moments(request: Request):
                             m_id, c_type, clip_start, clip_end, len(clip_text),
                         )
 
+                    moment_ctx = _moment_context_for(m_id, c_type)
+
                     for platform in platforms:
                         # Find this clip in the platform's preferred format
                         pref_fmt = PLATFORM_FORMATS.get(platform, "vertical")
@@ -305,6 +346,7 @@ async def process_moments(request: Request):
                                 video_meta=_vm,
                                 request=request,
                                 owner_id=owner_id,
+                                moment_context=moment_ctx,
                             )
                         except Exception as me:
                             logger.warning(f"Metadata gen failed for {platform}: {me}")

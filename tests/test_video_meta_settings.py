@@ -65,17 +65,66 @@ def test_filled_prompt_includes_cta():
         empty_video_meta,
         build_platform_system_prompt,
         build_full_video_system_prompt,
+        _compose_closing_block,
     )
 
     m = empty_video_meta()
     m["brand_name"] = "Ridge Hardware"
     m["short_cta_url"] = "https://ridge.example"
+    m["attribute_handle"] = "@ridge on X"
     m["full_cta_line"] = "Visit us: https://ridge.example/hours"
     yt = build_platform_system_prompt("youtube", m, "quote", "30s")
     assert "Ridge Hardware" in yt
-    assert "https://ridge.example" in yt
+    # URL is composed into a plain "More at …" closing, not forced "Creator is"
+    assert "More at ridge.example" in yt
+    assert "@ridge on X" in yt
+    # Instruction forbids inventing "Creator is …" credit prose
+    assert "Do not rewrite into 'Creator is" in yt
     full = build_full_video_system_prompt(m)
     assert "Visit us: https://ridge.example/hours" in full
+
+    # Explicit multi-line block wins over URL composition
+    block = _compose_closing_block(
+        "More at lucidprinciples.com\n@jasonbroadcast on X",
+        "https://ignored.example",
+        "@ignored",
+    )
+    assert block == "More at lucidprinciples.com\n@jasonbroadcast on X"
+
+
+def test_moment_context_and_all_platforms_in_prompt():
+    from src.dashboard.routes.video_meta import empty_video_meta, build_platform_system_prompt
+    from src.dashboard.routes.social_templates import PLATFORM_NAMES
+
+    m = empty_video_meta()
+    ctx = "theme_tag: Deep Work\nsibling sizes in this moment:\n- quote: hook (12s)\n- story: arc (75s)"
+    for platform in PLATFORM_NAMES:
+        out = build_platform_system_prompt(
+            platform, m, "thought", "45s", moment_context=ctx,
+        )
+        assert out, platform
+        assert "Deep Work" in out or "sibling sizes" in out
+        # Easy response prompt guidance, not forced bait language as a requirement dump
+        assert "response prompt" in out.lower() or platform == "x"
+
+
+def test_attribute_handle_field_present():
+    from src.dashboard.routes.video_meta import (
+        empty_video_meta,
+        VIDEO_META_FIELDS,
+        VIDEO_META_FIELD_META,
+        merge_video_meta,
+    )
+    assert "attribute_handle" in VIDEO_META_FIELDS
+    assert "attribute_handle" in VIDEO_META_FIELD_META
+    e = empty_video_meta()
+    assert e["attribute_handle"] == ""
+    p = empty_video_meta()
+    p["attribute_handle"] = "@me on X"
+    c = empty_video_meta()
+    c["attribute_handle"] = "@cove"
+    assert merge_video_meta(p, c)["attribute_handle"] == "@me on X"
+    assert merge_video_meta(empty_video_meta(), c)["attribute_handle"] == "@cove"
 
 
 def test_api_and_ui_surface_exist():
@@ -126,3 +175,37 @@ def test_identify_moments_prompt_includes_diversity():
     assert "diversity_guidance" in src
     assert "theme_tag" in src
     assert "video_meta=_vm" in src or "video_meta=_vm" in src.replace(" ", "")
+
+
+def test_short_tier_offers_three_sizes_when_supported():
+    """<5 min talks still get nested quote/thought/story guidance (story optional)."""
+    src = (ROOT / "src/dashboard/routes/video_pipeline.py").read_text()
+    # Short tier block should mention story and nested sizes
+    assert "duration_mins < 5" in src
+    assert "nested clip lengths" in src or "nested sizes" in src
+    assert 'type": "story"' in src or '"type": "story"' in src
+
+
+def test_ig_fb_default_selected_in_crop_ui():
+    ui = (ROOT / "src/dashboard/static/action-board/video-crop-position.html").read_text()
+    assert "{ id: 'instagram'" in ui
+    assert "{ id: 'facebook'" in ui
+    # Both default selected true so process passes draft the full set
+    assert "id: 'instagram', label: 'Instagram'" in ui
+    assert "selected: true, format: '9:16' },\n    { id: 'facebook'" in ui or (
+        "instagram" in ui and "selected: true" in ui
+    )
+    # crude but stable: facebook line has selected: true
+    for line in ui.splitlines():
+        if "id: 'facebook'" in line:
+            assert "selected: true" in line
+        if "id: 'instagram'" in line:
+            assert "selected: true" in line
+
+
+def test_process_moments_passes_moment_context():
+    src = (ROOT / "src/dashboard/routes/video_processing.py").read_text()
+    assert "moment_context" in src
+    assert "_moment_context_for" in src
+    social = (ROOT / "src/dashboard/routes/social_templates.py").read_text()
+    assert "moment_context" in social
