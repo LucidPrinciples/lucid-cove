@@ -1391,12 +1391,16 @@ async def write_json(request: Request):
 
 @router.post("/api/video/delete-file")
 async def delete_file(request: Request):
-    """Delete a file from the video mount.
+    """Retire a file from the video tree into to-delete/ (never hard-delete).
 
     Body: { "subpath": "shorts/STEM-moments-processed.json" }
+
+    Operator policy 2026-07-20: user content is moved to to-delete/ so it can be
+    offloaded or emptied later — not os.remove'd off the mount (that bypassed NC
+    trash and made recovery impossible).
     """
     body = await request.json()
-    subpath = body.get("subpath", "")
+    subpath = (body.get("subpath") or "").strip()
 
     if not subpath:
         return JSONResponse({"error": "subpath required"}, status_code=400)
@@ -1404,14 +1408,30 @@ async def delete_file(request: Request):
     if ".." in subpath or subpath.startswith("/"):
         return JSONResponse({"error": "Invalid subpath"}, status_code=400)
 
-    dest = os.path.join(VIDEO_MOUNT, subpath)
-    if not os.path.isfile(dest):
-        return {"deleted": False, "reason": "not found"}
+    from src.video_lifecycle import retire_to_delete
 
+    nc = None
     try:
-        os.remove(dest)
-        logger.info(f"delete-file OK: {subpath}")
-        return {"deleted": True, "path": dest}
-    except Exception as e:
-        logger.error(f"delete-file FAILED: {subpath} — {e}")
-        return JSONResponse({"error": f"Delete failed: {e}"}, status_code=500)
+        nc = NCSession.from_request(request, body)
+    except Exception:
+        nc = None
+
+    result = await retire_to_delete(subpath, nc=nc, video_mount=VIDEO_MOUNT)
+    if result.get("ok"):
+        logger.info(
+            "delete-file retired %s via %s → %s",
+            subpath, result.get("method"), result.get("dest") or "(nc trash)",
+        )
+        return {
+            "deleted": True,  # backward-compat key for callers
+            "retired": True,
+            "method": result.get("method"),
+            "dest": result.get("dest") or "",
+            "path": result.get("dest") or subpath,
+        }
+    reason = result.get("reason") or "retire failed"
+    if reason == "not found":
+        return {"deleted": False, "retired": False, "reason": "not found"}
+    logger.error("delete-file FAILED: %s — %s", subpath, reason)
+    return JSONResponse({"error": f"Retire failed: {reason}"}, status_code=500)
+

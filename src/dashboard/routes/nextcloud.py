@@ -79,6 +79,9 @@ PRESENCE_FOLDERS = [
     "AgentSkills/Content/video/transcripts",
     "AgentSkills/Content/video/shorts",
     "AgentSkills/Content/video/moments",
+    # Operator policy 2026-07-20: retired content lands here (never hard-deleted).
+    "AgentSkills/Content/video/to-delete",
+    "AgentSkills/To-Delete",
     "AgentSkills/Content/images",
     "AgentSkills/Content/audio",
     "AgentSkills/Content/posts",

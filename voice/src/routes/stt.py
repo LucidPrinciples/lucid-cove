@@ -113,38 +113,57 @@ async def transcribe_video(request: Request):
         processing_path = await resolve_video_source(video_name, nc)
         if not processing_path:
             return JSONResponse({"error": f"File not found: {video_name}"}, status_code=404)
-        # Step 1: Relocate to processing/ in the presence's NC (push a copy up).
+        # Step 1: Prefer a true WebDAV MOVE inbox→processing (one object, no copy+delete).
+        # Fall back to copy only when MOVE can't run (source already outside inbox/, or
+        # MOVE rejected). Never DELETE the inbox original after a successful copy —
+        # operator policy 2026-07-20: move or leave; dual copies are cleaned by lifecycle.
         try:
-            # FAIL LOUD (nottington A12): publish_video_output returns a bool. A
-            # 787MB PUT that times out logs an ERROR and returns False WITHOUT
-            # raising — the pipeline used to sail on claiming "Moved". Check it.
-            processing_copy_ok = bool(await publish_video_output(
-                processing_path, f"processing/{video_name}", nc, "video/mp4"))
-            if processing_copy_ok:
-                logger.info(f"Moved {video_name} to processing/")
+            moved = False
+            src_norm = processing_path.replace(os.sep, "/")
+            if "/inbox/" in src_norm:
+                moved = bool(await nc.move(f"inbox/{video_name}", f"processing/{video_name}"))
+                if moved:
+                    logger.info(f"WebDAV MOVE inbox/{video_name} → processing/")
+                    # Scratch still holds the bytes under inbox/; also place under
+                    # processing/ so later resolve hits local without re-download.
+                    try:
+                        import shutil
+                        scratch_proc = os.path.join(
+                            os.path.dirname(os.path.dirname(processing_path)),
+                            "processing",
+                            video_name,
+                        )
+                        # processing_path is .../user/inbox/name or .../user/sub/name
+                        # Prefer sibling swap: replace /inbox/ with /processing/ in path.
+                        alt = src_norm.replace("/inbox/", "/processing/")
+                        if alt != src_norm:
+                            os.makedirs(os.path.dirname(alt), exist_ok=True)
+                            if os.path.isfile(processing_path) and not os.path.isfile(alt):
+                                shutil.copy2(processing_path, alt)
+                                processing_path = alt
+                    except Exception as scratch_err:
+                        logger.warning(f"scratch realign after MOVE: {scratch_err}")
+            if not moved:
+                # Copy up (large PUT). Keep inbox original — no delete.
+                processing_copy_ok = bool(await publish_video_output(
+                    processing_path, f"processing/{video_name}", nc, "video/mp4"))
+                if processing_copy_ok:
+                    logger.info(
+                        f"Copied {video_name} to processing/ (inbox original kept — no delete)"
+                    )
+                else:
+                    processing_copy_ok = False
+                    logger.error(
+                        f"processing/ copy of {video_name} did NOT land "
+                        f"(publish_video_output returned False — the PUT likely timed out). "
+                        f"Continuing with transcription; keeping the inbox original.")
             else:
-                logger.error(
-                    f"processing/ copy of {video_name} did NOT land "
-                    f"(publish_video_output returned False — the PUT likely timed out). "
-                    f"Continuing with transcription; keeping the inbox original.")
+                processing_copy_ok = True
         except Exception as move_err:
             return JSONResponse(
                 {"error": f"Failed to move {video_name} to processing/: {move_err}"},
                 status_code=500,
             )
-        # True MOVE semantics (nottington A12): the local-mount path shutil.move()s out
-        # of inbox/, but this WebDAV path only COPIED — the inbox original lingered.
-        # Now that processing/ has the copy, drop the inbox one. Best-effort — but
-        # ONLY when the copy actually landed: never drop the only copy of the video.
-        try:
-            if processing_copy_ok and "/inbox/" in processing_path.replace(os.sep, "/"):
-                await nc.delete(f"inbox/{video_name}")
-                logger.info(f"Removed inbox/{video_name} (moved to processing/)")
-            elif not processing_copy_ok:
-                logger.warning(
-                    f"Kept inbox/{video_name} — processing/ copy failed, not dropping the only copy")
-        except Exception as del_err:
-            logger.warning(f"inbox cleanup failed (non-fatal): {del_err}")
     else:
         # Resolve file path (local mount for reading)
         if not file_path and filename:
