@@ -132,6 +132,7 @@ async def flow_chat(request: Request):
 
     # #121 — use this operator's own model creds for the guided chat too (BYOK).
     _byok_tok = None
+    _on_lp_key = False
     try:
         from src.dashboard.routes.presence import get_current_presence
         from src.models.provider import set_request_byok
@@ -147,22 +148,31 @@ async def flow_chat(request: Request):
             _prov = (_fac.get("model_provider") or "").strip()
             _key = (_fac.get("model_api_key") or "").strip()
             _model = (_fac.get("model_name") or "").strip()
-            # Guided cove-creation tour ONLY: if the operator hasn't added their own model
-            # yet, run the guided conversation on LP's shared guided key (Kimi via
-            # OpenRouter). This key is scoped to THIS flow — the operator's normal agent
-            # (chat.py) has no such fallback and still requires their own key or Ollama, so
-            # LP never pays for anyone's day-to-day usage, only the setup tour.
+            # THE SPARK BOUNDARY (2026-07-19): LP's guided key carries the install
+            # wizard ONLY — an admin whose agent_identity is still empty. It used to be
+            # "any keyless operator, forever", which silently billed post-setup Action
+            # Board tools (mirror builder, site builder) to the LP Cove Onboarding key.
+            # On LP's key the model is PINNED — the client's model_id is ignored.
             if not _key and _prov != "ollama":
                 _lp_guided = (env("LP_GUIDED_OPENROUTER_KEY") or "").strip()
                 if _lp_guided:
-                    _prov, _key, _model = "openrouter", _lp_guided, ""
+                    from src.models.spark import spark_allowed, spark_caps_ok, \
+                        SPARK_MODEL_ID, SPARK_MODEL_STRING
+                    if await spark_allowed(request):
+                        if not spark_caps_ok(system_prompt, messages_raw):
+                            return JSONResponse(
+                                {"error": "spark request too large"}, status_code=413)
+                        _prov, _key, _model = "openrouter", _lp_guided, SPARK_MODEL_STRING
+                        model_id = SPARK_MODEL_ID
+                        _on_lp_key = True
             _byok_tok = set_request_byok(_prov, _key, model=_model)
     except Exception:
         _byok_tok = None
 
     # Tier 3 — the stranger spark. No operator key and no local guided key, but the hub
     # is reachable: run the guided turn on the hub with LP's key (the key never leaves the
-    # hub). Returns early; the founder/BYOK tiers below are untouched.
+    # hub). Returns early; the founder/BYOK tiers below are untouched. guided_complete
+    # enforces the creation boundary + caps + model pin for this tier.
     _has_local_key = False
     try:
         _has_local_key = bool(_key)

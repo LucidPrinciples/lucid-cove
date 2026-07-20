@@ -479,7 +479,11 @@ _byok_ctx = _ctx.ContextVar("byok_model", default=None)
 # Default model per provider for the case where the operator's chosen provider differs
 # from the Cove's configured model — so their key actually drives the agent.
 BYOK_DEFAULT_MODEL = {
-    "openrouter": "openrouter/auto",
+    # NEVER openrouter/auto — the router lottery has landed on Opus-class models,
+    # which is unbounded spend on someone else's default (2026-07-19 incident:
+    # onboarding spark + provider mismatch → auto → Opus 4.6/GPT-5.6). A named
+    # cheap-strong model or nothing.
+    "openrouter": "moonshotai/kimi-k2.5",
     "openai": "gpt-4o-mini",
     "google": "gemini-2.0-flash",
     "groq": "llama-3.3-70b-versatile",

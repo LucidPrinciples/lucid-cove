@@ -915,7 +915,7 @@ async function suggestDomains() {
             body: JSON.stringify({
                 system_prompt: 'You are Archimedes, a technical architect. Suggest 5-7 domain name options. For each, give the domain (with TLD) and one-line rationale. Prefer .com, .org, .io, .co. Short, memorable, brandable. Respond in HTML paragraphs. Use <strong> for domains.',
                 messages: [{ role: 'user', content: ctx }],
-                model_id: 'kimi-k2.5',
+                model_id: 'kimi-k2.5-openrouter',
                 temperature: 0.7,
             }),
         });
