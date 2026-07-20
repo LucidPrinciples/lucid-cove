@@ -208,6 +208,35 @@ async def _invite(token: str, rooms: list, user_ids: list):
                 log.warning("matrix invite %s -> %s: %s %s", uid, room, s, r.get("error"))
 
 
+async def _room_alive_for_steward(token: str, room_id: str) -> bool:
+    """True if the steward can still see this room on the LIVE homeserver.
+
+    After set_domain Matrix regen, Dendrite's DB is wiped but app Postgres keeps
+    cove_matrix.space_id / family_room_id. ensure then "succeeds" by inviting into
+    dead room ids and Connect stays empty forever. create-state 200 = room exists
+    and steward is in it; anything else = treat as stale and recreate.
+    """
+    if not (token and room_id):
+        return False
+    s, r = await _http(
+        "GET",
+        "/_matrix/client/v3/rooms/%s/state/m.room.create" % _up.quote(room_id),
+        token,
+    )
+    if s == 200:
+        return True
+    log.warning(
+        "cove space room stale room=%s status=%s err=%s — will recreate",
+        room_id, s, (r or {}).get("errcode") or (r or {}).get("error") or r,
+    )
+    return False
+
+
+async def _clear_space_ids() -> None:
+    """Drop persisted Space/Family ids so the next ensure recreates them."""
+    await _save_state(space_id=None, family_room_id=None)
+
+
 # ── The Cove Space ───────────────────────────────────────────────────────────
 
 async def ensure_cove_space() -> dict:
@@ -226,9 +255,19 @@ async def ensure_cove_space() -> dict:
     st = await _state()
     space_id, room_id = st.get("space_id"), st.get("family_room_id")
     if space_id and room_id:
-        await _invite(tok, [space_id, room_id], invites)
-        await _sync_space_to_registry(cove_name, space_id)  # self-healing
-        return {"ok": True, "space_id": space_id, "room_id": room_id, "created": False}
+        # Both ids must still resolve on live Dendrite (post-regen self-heal).
+        space_ok = await _room_alive_for_steward(tok, space_id)
+        room_ok = await _room_alive_for_steward(tok, room_id)
+        if space_ok and room_ok:
+            await _invite(tok, [space_id, room_id], invites)
+            await _sync_space_to_registry(cove_name, space_id)  # self-healing
+            return {"ok": True, "space_id": space_id, "room_id": room_id, "created": False}
+        log.warning(
+            "clearing stale cove_matrix rooms space_ok=%s room_ok=%s space=%s room=%s",
+            space_ok, room_ok, space_id, room_id,
+        )
+        await _clear_space_ids()
+        space_id, room_id = None, None
 
     # Create the Space (m.space) — steward-owned.
     s, r = await _http("POST", "/_matrix/client/v3/createRoom", tok, {
@@ -415,12 +454,10 @@ async def invite_presence_to_cove_space(handle: str) -> dict:
         return {"ok": False}
     if not await _has_state_table():
         return {"ok": False, "reason": "cove_matrix table absent — steward Space disabled here"}
-    st = await _state()
-    if not st.get("space_id"):
-        return await ensure_cove_space()
-    steward = await ensure_steward()
-    await _invite(steward["token"], [st["space_id"], st["family_room_id"]], [_uid(handle)])
-    return {"ok": True}
+    # Always go through ensure — it self-heals stale ids after Matrix regen and
+    # re-invites every presence (including this handle). Direct invite-only used
+    # to no-op against dead room ids left in cove_matrix.
+    return await ensure_cove_space()
 
 
 @router.post("/api/admin/matrix/ensure-space")
