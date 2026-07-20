@@ -129,6 +129,7 @@ async def save_youtube_client(creds: YouTubeClient, request: Request):
 class VideoMetaBody(BaseModel):
     brand_name: str = ""
     brand_topics: str = ""
+    theme_mix: str = ""
     short_cta_url: str = ""
     short_cta_line: str = ""
     full_cta_url: str = ""
@@ -151,6 +152,7 @@ async def get_video_meta(request: Request):
         get_presence_video_meta,
         merge_video_meta,
         VIDEO_META_FIELDS,
+        VIDEO_META_FIELD_META,
     )
     owner_id = await owner_id_from_request(request)
     presence = await get_presence_video_meta(owner_id)
@@ -165,6 +167,7 @@ async def get_video_meta(request: Request):
     return {
         "owner_id": owner_id,
         "fields": list(VIDEO_META_FIELDS),
+        "field_meta": VIDEO_META_FIELD_META,
         "presence": presence,
         "cove": cove,
         "effective": effective,

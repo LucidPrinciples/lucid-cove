@@ -95,3 +95,34 @@ def test_braces_in_brand_do_not_crash_prompt():
     m["brand_name"] = "Foo {bar} Baz"
     out = build_platform_system_prompt("x", m, "story", "90s")
     assert "Foo {bar} Baz" in out
+
+
+def test_theme_mix_field_and_meta():
+    from src.dashboard.routes.video_meta import (
+        empty_video_meta,
+        VIDEO_META_FIELDS,
+        VIDEO_META_FIELD_META,
+        merge_video_meta,
+    )
+    assert "theme_mix" in VIDEO_META_FIELDS
+    assert "theme_mix" in VIDEO_META_FIELD_META
+    assert VIDEO_META_FIELD_META["theme_mix"]["label"]
+    e = empty_video_meta()
+    assert e["theme_mix"] == ""
+    p = empty_video_meta()
+    p["theme_mix"] = "story; howto"
+    c = empty_video_meta()
+    c["theme_mix"] = "cove default"
+    m = merge_video_meta(p, c)
+    assert m["theme_mix"] == "story; howto"
+    m2 = merge_video_meta(empty_video_meta(), c)
+    assert m2["theme_mix"] == "cove default"
+
+
+def test_identify_moments_prompt_includes_diversity():
+    """Static check: analyzer prompt builder mentions theme diversity."""
+    src = (ROOT / "src/dashboard/routes/video_pipeline.py").read_text()
+    assert "THEME DIVERSITY" in src or "theme_mix" in src
+    assert "diversity_guidance" in src
+    assert "theme_tag" in src
+    assert "video_meta=_vm" in src or "video_meta=_vm" in src.replace(" ", "")

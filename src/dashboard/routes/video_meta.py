@@ -19,16 +19,83 @@ logger = logging.getLogger(__name__)
 
 # All string fields. Empty string is the product default for every Cove.
 VIDEO_META_FIELDS = (
-    "brand_name",          # e.g. "Ridge Hardware" — voice line for the LLM
+    "brand_name",          # e.g. "Ridge Hardware" - voice line for the LLM
     "brand_topics",        # e.g. "home improvement, tools, local store tips"
+    "theme_mix",           # optional moment-mining mix; empty = balanced default
     "short_cta_url",       # final-line URL for Shorts / Facebook (optional)
-    "short_cta_line",      # full final line for shorts; if empty + url → url only
-    "full_cta_url",        # long-form YouTube CTA URL
-    "full_cta_line",        # full final line for long-form; if empty + url → url only
-    "hashtag_seeds",       # "#hardware #diy" — seeds, model may add topical tags
+    "short_cta_line",       # full final line for shorts; if empty + url -> url only
+    "full_cta_url",         # long-form YouTube CTA URL
+    "full_cta_line",        # full final line for long-form; if empty + url -> url only
+    "hashtag_seeds",       # "#hardware #diy" - seeds, model may add topical tags
     "description_extra",   # free text to weave into descriptions when relevant
     "voice_notes",         # how this creator talks (optional)
 )
+
+# Field labels/help for API consumers and the pipeline UI (any Cove, any brand).
+VIDEO_META_FIELD_META = {
+    "brand_name": {
+        "label": "Brand / channel name",
+        "help": "How the writer should name you. Leave empty to avoid inventing a brand.",
+        "placeholder": "e.g. Ridge Hardware",
+    },
+    "brand_topics": {
+        "label": "Topics you cover",
+        "help": "Themes the metadata writer should recognize. Semicolons or commas are fine.",
+        "placeholder": "e.g. tools, DIY, local store tips",
+    },
+    "theme_mix": {
+        "label": "Moment theme mix (mining)",
+        "help": (
+            "Guides which kinds of moments the analyzer prefers across one long video "
+            "so clips are not all the same idea. Empty = balanced organic mix."
+        ),
+        "placeholder": (
+            "e.g. practical how-to; personal story; bold opinion; product peek; "
+            "quiet insight - spread across the talk"
+        ),
+    },
+    "short_cta_url": {
+        "label": "Short-form CTA URL",
+        "help": "Final-line link for Shorts / Facebook when no full line is set.",
+        "placeholder": "https://...",
+    },
+    "short_cta_line": {
+        "label": "Short-form final line",
+        "help": "Exact last line for shorts (overrides URL-only). Leave blank for URL or none.",
+        "placeholder": "Full last line override for shorts",
+    },
+    "full_cta_url": {
+        "label": "Full-length CTA URL",
+        "help": "Link for captioned long-form YouTube when no full line is set.",
+        "placeholder": "https://...",
+    },
+    "full_cta_line": {
+        "label": "Full-length final line",
+        "help": "Exact last line for long-form YouTube descriptions.",
+        "placeholder": "e.g. Shop local: https://...",
+    },
+    "hashtag_seeds": {
+        "label": "Hashtag seeds",
+        "help": "Optional tags the writer may include when they fit. X still stays light on tags.",
+        "placeholder": "#hardware #diy",
+    },
+    "description_extra": {
+        "label": "Always consider in descriptions",
+        "help": (
+            "Standing notes: promo rules, location, disclaimers. "
+            "Writer weaves in only when natural."
+        ),
+        "placeholder": "hours, location, soft promo rules...",
+    },
+    "voice_notes": {
+        "label": "Voice notes",
+        "help": (
+            "How you sound on camera and in posts. Paste a short style guide. "
+            "Used for titles/descriptions - not for inventing facts."
+        ),
+        "placeholder": "how you talk on camera",
+    },
+}
 
 _COVE_FLAG = "video_meta"
 
