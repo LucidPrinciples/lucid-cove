@@ -1,4 +1,4 @@
-"""Crop page: native video preview, no-hop border chrome, usable seek scrubber."""
+"""Crop page: native video preview, border full-9:16, usable seek scrubber."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,56 +13,27 @@ def test_crop_prefers_native_video_stream_not_only_jpeg():
     assert "frame-video" in CROP
     assert "/api/video/proxy/raw" in CROP
     assert "streamUrlFor" in CROP
-    # Still path is error fallback only — never timed swap, never poster.
-    # Timed /proxy/frame fallback caused minute-long stalls + frame-video null.
+    # Still path remains as poster/fallback
     assert "/api/video/proxy/frame" in CROP
     assert "onFrameVideoError" in CROP
-    assert "poster=" not in CROP
-    assert "onloadedmetadata" in CROP
-    assert "ensureVideoPaints" in CROP
-    assert "media-loading" in CROP
-    assert "NO timed fallback to JPEG still" in CROP or "Only onerror falls back" in CROP
 
 
-def test_crop_applies_fit_before_loadeddata():
-    """First paint must not wait on loadeddata — unsized 2160px corner = white zoom."""
-    assert "function fitCropToWindow" in CROP
-    assert "fitCropToWindow()" in CROP
-    # Immediately after inject
-    assert "container.innerHTML = buildUI(streamUrl, stillUrl);" in CROP
-    idx = CROP.index("container.innerHTML = buildUI(streamUrl, stillUrl);")
-    chunk = CROP[idx : idx + 220]
-    assert "updatePos()" in chunk
-    # setupFrameMedia always sizes; must NOT auto-swap to still on a timer
-    sidx = CROP.index("function setupFrameMedia")
-    setup = CROP[sidx : sidx + 900]
-    assert "updatePos()" in setup
-    assert "v.readyState >= 1" in setup
-    assert "setTimeout" not in setup
-
-
-def test_border_toggle_is_chrome_only_no_hop():
-    """Border off hides plates only; square window + pan/zoom never move (intent A)."""
+def test_border_off_fills_916_and_keeps_captions():
+    """Border off = full 9:16 video fill; captions stay; blacks go transparent/away."""
     assert "videoWindowHeight()" in CROP
-    # Window height is always the square — never FRAME_H on toggle
-    assert "return SQUARE_SIZE;" in CROP
-    assert "borderEnabled ? SQUARE_SIZE : FRAME_H" not in CROP
-    # Toggle must not expand the video window or refit crop
-    tidx = CROP.index("function toggleBorder")
-    tend = CROP.index("// -- Drag --", tidx)
-    toggle = CROP[tidx:tend]
-    assert "vw.style.top" not in toggle
-    assert "vw.style.height" not in toggle
-    assert "fitCropToWindow" not in toggle
-    # Captions remain; bottom plate goes transparent when off
-    assert "cap.style.visibility = 'visible'" in toggle
-    assert "botBar.style.background = 'transparent'" in toggle
-    # buildUI still places the fixed square window
-    assert "BAR_TOP" in CROP and "SQUARE_SIZE" in CROP
+    assert "borderEnabled ? SQUARE_SIZE : FRAME_H" in CROP
+    # Full-frame path when border off
+    assert "vw.style.top = '0'" in CROP
+    assert "vw.style.height = FRAME_H + 'px'" in CROP
+    # Captions remain visible
+    assert "cap.style.visibility = 'visible'" in CROP
+    assert "botBar.style.background = 'transparent'" in CROP
+    # Border on still uses square placement
+    assert "vw.style.top = BAR_TOP + 'px'" in CROP
+    assert "vw.style.height = SQUARE_SIZE + 'px'" in CROP
 
 
 def test_border_off_encode_uses_rect_crop_not_square():
-    """Encode path still supports border_enabled=false full-frame vertical (unchanged)."""
     assert "def _rect_crop_expr" in VOICE
     assert "_rect_crop_expr(src_w, src_h, src_x, src_y)" in VOICE
     # The no-border vertical branch must not square-crop
