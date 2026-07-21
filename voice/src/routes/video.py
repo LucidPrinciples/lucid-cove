@@ -191,6 +191,22 @@ def join_vf(*parts) -> str:
     return ",".join(out)
 
 
+def _rect_crop_expr(src_w, src_h, src_x, src_y) -> str:
+    """Clamped rectangular crop that never exceeds the (post-rotation) source.
+
+    Used for full 9:16 (border off) where src_w/src_h are not square. iw/ih and
+    ow/oh are evaluated by ffmpeg AFTER auto-rotation. min() takes exactly two
+    args — nest runtime pairs; fold Python constants first.
+    """
+    w_req = max(1, int(src_w))
+    h_req = max(1, int(src_h))
+    w = f"min({w_req}\,iw)"
+    h = f"min({h_req}\,ih)"
+    x = f"max(0\,min({int(src_x)}\,iw-ow))"
+    y = f"max(0\,min({int(src_y)}\,ih-oh))"
+    return f"crop={w}:{h}:{x}:{y}"
+
+
 def _square_crop_expr(src_w, src_h, src_x, src_y) -> str:
     """Clamped square-crop filter that can NEVER exceed the (post-rotation) source.
 
@@ -877,10 +893,10 @@ async def process_moments(request: Request):
                         vf_color,
                     )
                 elif fmt == "vertical":
-                    # Vertical without border — full 9:16 crop
+                    # Vertical without border — full 9:16 rect crop (not square stretch)
                     vf = join_vf(
                         vf_prep,
-                        _square_crop_expr(src_w, src_h, src_x, src_y),
+                        _rect_crop_expr(src_w, src_h, src_x, src_y),
                         hq_scale(fmt_out_w, fmt_out_h),
                         vf_color,
                     )
@@ -922,6 +938,14 @@ async def process_moments(request: Request):
                 # Generate ASS subtitle file
                 ass_path = None
                 if transcript_segments and caption:
+                    # Border-off vertical: geometry bars are 0 (full 9:16 fill) but
+                    # captions still sit in the template bottom zone — same place as
+                    # the transparent caption overlay in the crop preview.
+                    ass_bar_top = fmt_bar_top
+                    ass_bar_bot = fmt_bar_bot
+                    if fmt == "vertical" and not border_enabled:
+                        ass_bar_top = 0
+                        ass_bar_bot = bar_bot  # template bottom zone from crop page
                     ass_path = _generate_ass_subtitles(
                         segments=transcript_segments,
                         start_time=start,
@@ -930,8 +954,8 @@ async def process_moments(request: Request):
                         format_name=fmt,
                         out_w=fmt_out_w,
                         out_h=fmt_out_h,
-                        bar_top=fmt_bar_top,
-                        bar_bot=fmt_bar_bot,
+                        bar_top=ass_bar_top,
+                        bar_bot=ass_bar_bot,
                         moment_id=m_id,
                         stem=stem,
                         content_w=h_square if fmt == "horizontal" else 0,

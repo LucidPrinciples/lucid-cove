@@ -185,6 +185,7 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
     cursor: grab;
     touch-action: none;
     user-select: none;
+    z-index: 1;
 }
 .video-window:active { cursor: grabbing; }
 .video-window img,
@@ -405,9 +406,9 @@ document.getElementById('back-link').href =
     (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
 
 function videoWindowHeight() {
-    // Always the square crop window — border on/off must NOT change this.
-    // Toggling border only shows/hides the black bars; pan/zoom stay stable.
-    return SQUARE_SIZE;
+    // Border ON = square crop between bars. Border OFF = full 9:16 frame
+    // (video fills the phone canvas; captions stay overlaid, blacks gone).
+    return borderEnabled ? SQUARE_SIZE : FRAME_H;
 }
 
 /** Scrubber max (seconds). floor(duration) was pegging short/unknown clips at 0. */
@@ -555,7 +556,7 @@ function buildUI(streamUrl, stillUrl) {
                     <label style="font-size:13px;color:#aaa;cursor:pointer" onclick="toggleBorder()">Black border template</label>
                 </div>
                 <div style="font-size:11px;color:#555;line-height:1.4;margin-top:-4px">
-                    Border is template only — crop window stays put. Off = same square, bars hidden.
+                    On = black bars + square crop. Off = full 9:16 video with captions still overlaid (no black covering the frame).
                 </div>
             </div>
 
@@ -802,8 +803,9 @@ function onSeek(val) {
 }
 
 // -- Border toggle --
-// Bars are a template overlay only. Crop square (video-window) NEVER moves or
-// resizes — that jump-to-top was the bug. Pan/zoom stay valid with border off.
+// ON  = black letterbox bars + 1:1 square crop window (template).
+// OFF = full 9:16 video fill; blacks gone; captions STAY overlaid at the
+//       bottom caption zone (transparent bar, not removed).
 let borderEnabled = true;
 function toggleBorder() {
     borderEnabled = !borderEnabled;
@@ -822,24 +824,67 @@ function toggleBorder() {
         knob.style.background = borderEnabled ? '#5ce1e6' : '#888';
     }
 
-    // Always keep square crop window at the standard place
-    if (vw) {
-        vw.style.top = BAR_TOP + 'px';
-        vw.style.height = SQUARE_SIZE + 'px';
+    if (borderEnabled) {
+        // Square crop between black bars
+        if (vw) {
+            vw.style.top = BAR_TOP + 'px';
+            vw.style.height = SQUARE_SIZE + 'px';
+        }
+        if (topBar) {
+            topBar.style.height = BAR_TOP + 'px';
+            topBar.style.opacity = '1';
+            topBar.style.background = '#000';
+            topBar.style.pointerEvents = 'none';
+        }
+        if (botBar) {
+            botBar.style.height = BAR_BOT + 'px';
+            botBar.style.display = 'flex';
+            botBar.style.opacity = '1';
+            botBar.style.visibility = 'visible';
+            botBar.style.background = '#000';
+            botBar.style.pointerEvents = 'none';
+        }
+    } else {
+        // Full 9:16 — video under the whole phone frame; no black cover
+        if (vw) {
+            vw.style.top = '0';
+            vw.style.height = FRAME_H + 'px';
+        }
+        if (topBar) {
+            topBar.style.height = '0';
+            topBar.style.opacity = '0';
+            topBar.style.pointerEvents = 'none';
+        }
+        if (botBar) {
+            // Keep caption zone height + flex; transparent so video shows through
+            botBar.style.height = BAR_BOT + 'px';
+            botBar.style.display = 'flex';
+            botBar.style.opacity = '1';
+            botBar.style.visibility = 'visible';
+            botBar.style.background = 'transparent';
+            botBar.style.pointerEvents = 'none';
+        }
     }
-    if (topBar) {
-        topBar.style.height = BAR_TOP + 'px';
-        topBar.style.opacity = borderEnabled ? '1' : '0';
-        topBar.style.pointerEvents = 'none';
+    // Captions always visible — border only controls the black plates
+    if (cap) cap.style.visibility = 'visible';
+
+    // Refit pan/zoom to the new window height so the frame still fills
+    if (videoInfo) {
+        const vwH = videoWindowHeight();
+        const scaleH = vwH / videoInfo.height;
+        const scaleW = FRAME_W / videoInfo.width;
+        const nz = Math.max(scaleH, scaleW);
+        cropState.zoom = nz;
+        const scaledW = videoInfo.width * nz;
+        const scaledH = videoInfo.height * nz;
+        cropState.x = (FRAME_W - scaledW) / 2;
+        cropState.y = (vwH - scaledH) / 2;
+        const zoomSlider = document.getElementById('zoom-slider');
+        const zv = document.getElementById('zoom-val');
+        if (zoomSlider) zoomSlider.value = String(nz);
+        if (zv) zv.textContent = Math.round(nz * 100) + '%';
+        updatePos();
     }
-    if (botBar) {
-        botBar.style.height = BAR_BOT + 'px';
-        botBar.style.display = 'flex';
-        botBar.style.opacity = borderEnabled ? '1' : '0';
-        // Keep layout; hide caption chrome when border off
-        botBar.style.visibility = borderEnabled ? 'visible' : 'hidden';
-    }
-    if (cap) cap.style.visibility = borderEnabled ? 'visible' : 'hidden';
 }
 
 // -- Drag --
