@@ -543,35 +543,70 @@ async def caption_full_video(request: Request):
                         ),
                     }
                     async with get_db() as conn:
+                        queued_platforms = []
                         for full_platform, (p_title, p_desc, p_tags_str, p_tags_json) in per_platform.items():
-                            await conn.execute(
-                                """INSERT INTO social_queue
-                                   (platform, title, description, hashtags, tags,
-                                    file_path, preview_path,
-                                    source_stem, clip_type, clip_label,
-                                    duration_seconds, is_vertical, format, series, agent_id,
-                                    presence_id, status)
-                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft')""",
-                                (
-                                    full_platform,
-                                    p_title,
-                                    p_desc,
-                                    p_tags_str,
-                                    p_tags_json,
-                                    result.get("nc_path", ""),
-                                    "",
-                                    stem,
-                                    "full",
-                                    p_title,
-                                    result.get("duration_seconds", 0),
-                                    False,
-                                    "horizontal",
-                                    f"moments-{stem}",
-                                    owner_id,
-                                    _cf1_pid if _cf1_pid else None,
-                                ),
+                            # Idempotent re-queue: if a non-cancelled full already
+                            # exists for this stem+platform, refresh path/metadata
+                            # instead of inserting a duplicate draft card.
+                            existing = await conn.execute(
+                                """SELECT id, status FROM social_queue
+                                   WHERE source_stem = %s AND clip_type = 'full'
+                                     AND platform = %s AND status != 'cancelled'
+                                   ORDER BY id DESC LIMIT 1""",
+                                (stem, full_platform),
                             )
-                    logger.info(f"Queued captioned full (youtube + x): {title}")
+                            row = await existing.fetchone()
+                            if row:
+                                await conn.execute(
+                                    """UPDATE social_queue SET
+                                         title = %s, description = %s, hashtags = %s,
+                                         tags = %s, file_path = %s, clip_label = %s,
+                                         duration_seconds = %s, agent_id = %s,
+                                         presence_id = %s
+                                       WHERE id = %s""",
+                                    (
+                                        p_title, p_desc, p_tags_str, p_tags_json,
+                                        result.get("nc_path", ""),
+                                        p_title,
+                                        result.get("duration_seconds", 0),
+                                        owner_id,
+                                        _cf1_pid if _cf1_pid else None,
+                                        row["id"] if isinstance(row, dict) else row[0],
+                                    ),
+                                )
+                                queued_platforms.append(f"{full_platform}:update")
+                            else:
+                                await conn.execute(
+                                    """INSERT INTO social_queue
+                                       (platform, title, description, hashtags, tags,
+                                        file_path, preview_path,
+                                        source_stem, clip_type, clip_label,
+                                        duration_seconds, is_vertical, format, series, agent_id,
+                                        presence_id, status)
+                                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft')""",
+                                    (
+                                        full_platform,
+                                        p_title,
+                                        p_desc,
+                                        p_tags_str,
+                                        p_tags_json,
+                                        result.get("nc_path", ""),
+                                        "",
+                                        stem,
+                                        "full",
+                                        p_title,
+                                        result.get("duration_seconds", 0),
+                                        False,
+                                        "horizontal",
+                                        f"moments-{stem}",
+                                        owner_id,
+                                        _cf1_pid if _cf1_pid else None,
+                                    ),
+                                )
+                                queued_platforms.append(f"{full_platform}:insert")
+                    logger.info(
+                        f"Queued captioned full (youtube + x): {title} [{', '.join(queued_platforms)}]"
+                    )
                 except Exception as e:
                     logger.warning(f"social_queue insert for captioned full failed: {e}")
                     result["queue_error"] = str(e)

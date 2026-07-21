@@ -13,6 +13,7 @@ from src.voice_common import (
     VIDEO_MOUNT, NC_VIDEO_PATH,
     NEXTCLOUD_URL, NEXTCLOUD_ADMIN_USER, NEXTCLOUD_ADMIN_PASSWORD,
     _nc_scan, NCSession, resolve_video_source, publish_video_output,
+    find_on_nc_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -715,13 +716,28 @@ async def caption_full_exists(request: Request, stem: str = ""):
     nc = NCSession.from_request(request)
 
     if nc is not None:
-        # No WebDAV listing helper, so we can only check the plain name (the
-        # title-renamed glob isn't expressible over pull/push). Pull it to scratch.
+        # Prefer NC data mount / scratch — never WebDAV-pull multi-GB just to
+        # answer exists=true (caption-full re-queue path).
         plain = f"{stem}-captioned.mp4"
+        on_disk = find_on_nc_data(nc.user, plain, subdirs=("shorts", "captioned"))
+        if on_disk and os.path.isfile(on_disk):
+            size_mb = os.path.getsize(on_disk) / (1024 * 1024)
+            return JSONResponse({
+                "exists": True, "filename": plain, "size_mb": round(size_mb, 1),
+            })
         local = os.path.join("/tmp/cove-video", nc.user, "shorts", plain)
-        if os.path.isfile(local) or await nc.pull(f"shorts/{plain}", local):
+        if os.path.isfile(local):
             size_mb = os.path.getsize(local) / (1024 * 1024)
-            return JSONResponse({"exists": True, "filename": plain, "size_mb": round(size_mb, 1)})
+            return JSONResponse({
+                "exists": True, "filename": plain, "size_mb": round(size_mb, 1),
+            })
+        # Head-style existence via a tiny PROPFIND would be ideal; pull is last
+        # resort and only used when mount is missing (remote GPU path).
+        if await nc.pull(f"shorts/{plain}", local):
+            size_mb = os.path.getsize(local) / (1024 * 1024)
+            return JSONResponse({
+                "exists": True, "filename": plain, "size_mb": round(size_mb, 1),
+            })
         return JSONResponse({"exists": False})
 
     import glob as glob_mod
@@ -763,19 +779,62 @@ async def rename_captioned(request: Request):
     nc_path = f"{NC_VIDEO_PATH}/shorts/{new_name}"
 
     if nc is not None:
-        # No per-presence WebDAV MOVE helper, so pull the old file to scratch and
-        # push it up under the new name (the observable result is the new file).
+        # Prefer in-place rename on NC data mount (zero copy). Else WebDAV MOVE
+        # (server-side). Never pull+push multi-GB captioned fulls.
         old_name = f"{stem}-captioned.mp4"
-        local = os.path.join("/tmp/cove-video", nc.user, "shorts", old_name)
-        if not (os.path.isfile(local) or await nc.pull(f"shorts/{old_name}", local)):
-            return JSONResponse({"error": f"Captioned file not found: {stem}"}, status_code=404)
-        await nc.push(f"shorts/{new_name}", local, "video/mp4")
-        logger.info(f"Renamed captioned: {old_name} → {new_name}")
+        on_disk = find_on_nc_data(nc.user, old_name, subdirs=("shorts", "captioned"))
+        if on_disk and os.path.isfile(on_disk):
+            new_disk = os.path.join(os.path.dirname(on_disk), new_name)
+            try:
+                os.rename(on_disk, new_disk)
+                try:
+                    www_uid = int(os.environ.get("NC_WWW_UID", "33"))
+                    www_gid = int(os.environ.get("NC_WWW_GID", "33"))
+                    os.chown(new_disk, www_uid, www_gid)
+                except OSError:
+                    pass
+                _nc_scan(f"{NC_VIDEO_PATH}/shorts")
+                size_mb = round(os.path.getsize(new_disk) / (1024 * 1024), 1)
+                logger.info(f"Renamed captioned on mount: {old_name} → {new_name}")
+                return JSONResponse({
+                    "old_name": old_name,
+                    "new_name": new_name,
+                    "nc_path": nc_path,
+                    "size_mb": size_mb,
+                })
+            except OSError as e:
+                logger.warning(f"Mount rename failed ({e}); trying WebDAV MOVE")
+
+        moved = await nc.move(f"shorts/{old_name}", f"shorts/{new_name}")
+        if not moved:
+            # Confirm source exists for a clear 404 vs MOVE failure
+            local = os.path.join("/tmp/cove-video", nc.user, "shorts", old_name)
+            exists = (
+                (on_disk and os.path.isfile(on_disk))
+                or os.path.isfile(local)
+                or await nc.pull(f"shorts/{old_name}", local)
+            )
+            if not exists:
+                return JSONResponse(
+                    {"error": f"Captioned file not found: {stem}"}, status_code=404
+                )
+            return JSONResponse(
+                {"error": f"Rename MOVE failed for {old_name} → {new_name}"},
+                status_code=502,
+            )
+        # Size unknown without another pull — omit precise MB when MOVE-only
+        size_mb = 0.0
+        if on_disk and os.path.isfile(os.path.join(os.path.dirname(on_disk), new_name)):
+            size_mb = round(
+                os.path.getsize(os.path.join(os.path.dirname(on_disk), new_name))
+                / (1024 * 1024), 1
+            )
+        logger.info(f"Renamed captioned via WebDAV MOVE: {old_name} → {new_name}")
         return JSONResponse({
             "old_name": old_name,
             "new_name": new_name,
             "nc_path": nc_path,
-            "size_mb": round(os.path.getsize(local) / (1024 * 1024), 1),
+            "size_mb": size_mb,
         })
 
     shorts_dir = os.path.join(VIDEO_MOUNT, "shorts")
@@ -827,19 +886,45 @@ async def caption_full_video(request: Request):
     # Per-presence NC session (cove-core injects X-NC-* headers); None = local mount.
     nc = NCSession.from_request(request, body)
 
-    # Guard: skip if captioned full already exists (plain or title-renamed)
+    # Guard: skip if captioned full already exists (plain or title-renamed).
+    # Mount/scratch first — do not WebDAV-pull multi-GB just to skip encode.
     if nc is not None:
-        # No WebDAV listing helper, so we can only check the plain name (the
-        # title-renamed glob isn't expressible over pull/push). Pull to scratch.
         plain = f"{stem}-captioned.mp4"
+        on_disk = find_on_nc_data(nc.user, plain, subdirs=("shorts", "captioned"))
         existing_local = os.path.join("/tmp/cove-video", nc.user, "shorts", plain)
-        if os.path.isfile(existing_local) or await nc.pull(f"shorts/{plain}", existing_local):
-            size_mb = os.path.getsize(existing_local) / (1024 * 1024)
-            logger.info(f"Caption-full already exists: {plain} ({size_mb:.1f} MB) — skipping render")
+        existing_path = None
+        if on_disk and os.path.isfile(on_disk):
+            existing_path = on_disk
+        elif os.path.isfile(existing_local):
+            existing_path = existing_local
+        elif await nc.pull(f"shorts/{plain}", existing_local):
+            existing_path = existing_local
+        if existing_path:
+            size_mb = os.path.getsize(existing_path) / (1024 * 1024)
+            # Best-effort duration for social_queue (ffprobe); 0 if unavailable.
+            duration_seconds = 0.0
+            try:
+                import subprocess as _sp
+                _p = _sp.run(
+                    [
+                        "ffprobe", "-v", "error", "-show_entries",
+                        "format=duration", "-of",
+                        "default=noprint_wrappers=1:nokey=1", existing_path,
+                    ],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if _p.returncode == 0 and _p.stdout.strip():
+                    duration_seconds = float(_p.stdout.strip())
+            except Exception:
+                pass
+            logger.info(
+                f"Caption-full already exists: {plain} ({size_mb:.1f} MB) — skipping render"
+            )
             return JSONResponse({
                 "filename": plain,
                 "nc_path": f"{NC_VIDEO_PATH}/shorts/{plain}",
                 "size_mb": round(size_mb, 1),
+                "duration_seconds": round(duration_seconds, 1),
                 "skipped": True,
                 "reason": "Captioned full already exists",
             })
