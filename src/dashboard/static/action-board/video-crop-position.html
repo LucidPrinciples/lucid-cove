@@ -186,21 +186,6 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
     touch-action: none;
     user-select: none;
     z-index: 1;
-    background: #0a0a0f;
-}
-.video-window.media-loading::after {
-    content: 'Loading preview…';
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    color: #666;
-    letter-spacing: 0.02em;
-    pointer-events: none;
-    z-index: 2;
-    background: rgba(10, 10, 15, 0.55);
 }
 .video-window:active { cursor: grabbing; }
 .video-window img,
@@ -421,9 +406,9 @@ document.getElementById('back-link').href =
     (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
 
 function videoWindowHeight() {
-    // The video window is always SQUARE_SIZE (270px). Border toggle only shows/hides
-    // the black bars and caption chrome. This ensures the crop window does not hop.
-    return SQUARE_SIZE;
+    // Border ON = square crop between bars. Border OFF = full 9:16 frame
+    // (video fills the phone canvas; captions stay overlaid, blacks gone).
+    return borderEnabled ? SQUARE_SIZE : FRAME_H;
 }
 
 /** Scrubber max (seconds). floor(duration) was pegging short/unknown clips at 0. */
@@ -448,10 +433,6 @@ function streamUrlFor(filename) {
 async function init() {
     const container = document.getElementById('main-content');
     if (!stem) { container.innerHTML = '<div class="loading">No video stem.</div>'; return; }
-    // Visible immediately — first /proxy/info on presence may cold-pull the file.
-    if (container && container.classList.contains('loading')) {
-        container.innerHTML = '<div class="loading">Loading video info…</div>';
-    }
 
     // If no approved moments, redirect to moments review to make selections —
     // UNLESS we're in whole-video mode (#D5), where the single clip is the video
@@ -525,19 +506,24 @@ async function init() {
         }];
     }
 
-    // Initial zoom: cover the video window (same math as border toggle refit).
-    fitCropToWindow();
+    // Initial zoom: fill video window width
+    const vwH = videoWindowHeight();
+    const scaleH = vwH / videoInfo.height;
+    const scaleW = FRAME_W / videoInfo.width;
+    cropState.zoom = Math.max(scaleH, scaleW);
+    const scaledW = videoInfo.width * cropState.zoom;
+    const scaledH = videoInfo.height * cropState.zoom;
+    cropState.x = (FRAME_W - scaledW) / 2;
+    cropState.y = (vwH - scaledH) / 2;
 
     // Prefer native video stream for crop preview (browser tone-maps HLG like
     // the side-by-side player that looks correct). JPEG still was always a
-    // re-encode and stayed washed vs source — used only as error fallback.
+    // re-encode and stayed washed vs source.
     const streamUrl = streamUrlFor(videoInfo.filename);
     const stillUrl = `/api/video/proxy/frame?filename=${encodeURIComponent(videoInfo.filename)}&t=${seekMid()}`;
 
     container.className = '';
     container.innerHTML = buildUI(streamUrl, stillUrl);
-    // Fit size/transform on the injected media BEFORE paint/network settle.
-    updatePos();
     // Seed sliders from default/active preset and paint CSS look on the frame
     onVideoFilter(videoFilter);
 
@@ -569,16 +555,12 @@ function buildUI(streamUrl, stillUrl) {
     // step fine enough for short clips; whole seconds only when long
     const seekStep = dur <= 30 ? 0.1 : 1;
     const seekMax = Math.max(seekStep, dur);
-    // Native video for color (browser HDR tone-map). Do NOT use /proxy/frame as
-    // poster: on presence NC the still path pulls+ffmpeg and can stall a minute,
-    // while ranged /proxy/raw usually paints sooner. Loading chrome is CSS-only;
-    // JPEG still is error fallback only. Size+transform apply immediately.
+    // Native video: browser HDR tone-map. poster = still as interim.
     const mediaHtml = streamUrl
         ? `<video id="frame-video" class="frame-media" muted playsinline preload="auto"
+                poster="${stillUrl || ''}"
                 src="${streamUrl}"
-                onloadedmetadata="onFrameMediaReady()"
                 onloadeddata="onFrameMediaReady()"
-                oncanplay="onFrameMediaReady()"
                 onerror="onFrameVideoError()"></video>`
         : `<img id="frame-img" class="frame-media" src="${stillUrl || ''}" onload="onFrameMediaReady()" />`;
 
@@ -587,7 +569,7 @@ function buildUI(streamUrl, stillUrl) {
         <div>
             <div class="crop-frame-outer" id="crop-frame-outer">
                 <div class="bar-top" id="bar-top" style="height:${topH}px"></div>
-                <div class="video-window media-loading" id="video-window" style="top:${topH}px;height:${vwH}px">
+                <div class="video-window" id="video-window" style="top:${topH}px;height:${vwH}px">
                     ${mediaHtml}
                 </div>
                 <div class="bar-bottom" id="bar-bottom" style="height:${botH}px">
@@ -756,47 +738,17 @@ function updatePos() {
     const el = frameMediaEl();
     if (!el || !videoInfo) return;
     // Displayed size in SOURCE pixels; scale() applies crop zoom. Same for video + img.
-    // Set BEFORE first paint whenever possible — default <video> layout is full
-    // source resolution (e.g. 2160x3840) inside a 270px window, which reads as a
-    // white/zoomed corner until loadeddata fires.
     el.style.width = videoInfo.width + 'px';
     el.style.height = videoInfo.height + 'px';
-    el.style.maxWidth = 'none';
-    el.style.maxHeight = 'none';
-    el.style.transformOrigin = '0 0';
     el.style.transform = `translate(${cropState.x}px,${cropState.y}px) scale(${cropState.zoom})`;
-}
-
-/** Fit cropState so source fills the current video window (cover). */
-function fitCropToWindow() {
-    if (!videoInfo || !videoInfo.width || !videoInfo.height) return;
-    const vwH = videoWindowHeight();
-    const scaleH = vwH / videoInfo.height;
-    const scaleW = FRAME_W / videoInfo.width;
-    const nz = Math.max(scaleH, scaleW);
-    cropState.zoom = nz;
-    const scaledW = videoInfo.width * nz;
-    const scaledH = videoInfo.height * nz;
-    cropState.x = (FRAME_W - scaledW) / 2;
-    cropState.y = (vwH - scaledH) / 2;
-    const zoomSlider = document.getElementById('zoom-slider');
-    const zv = document.getElementById('zoom-val');
-    if (zoomSlider) zoomSlider.value = String(nz);
-    if (zv) zv.textContent = Math.round(nz * 100) + '%';
 }
 
 function onFrameMediaReady() {
     updatePos();
     applyLookPreview();
     const v = document.getElementById('frame-video');
-    if (!v) {
-        const img = document.getElementById('frame-img');
-        if (img && img.naturalWidth) clearMediaLoading();
-        return;
-    }
-
-    // Prefer media duration when probe was wrong / zero (unpegs scrubber)
-    if (Number.isFinite(v.duration) && v.duration > 0.05) {
+    if (v && Number.isFinite(v.duration) && v.duration > 0.05) {
+        // Prefer media duration when probe was wrong / zero (unpegs scrubber)
         if (!videoInfo.duration || videoInfo.duration < 0.5 ||
             Math.abs(videoInfo.duration - v.duration) > 1) {
             videoInfo.duration = v.duration;
@@ -813,84 +765,21 @@ function onFrameMediaReady() {
                 if (sv) sv.textContent = fmtTime(parseFloat(slider.value));
             }
         }
+        // Land on mid (or current slider) without playing
+        const slider = document.getElementById('seek-slider');
+        const t = slider ? parseFloat(slider.value) : seekMid();
+        try {
+            v.pause();
+            if (Math.abs((v.currentTime || 0) - t) > 0.05) v.currentTime = t;
+        } catch (e) { /* seek may throw until enough data */ }
     }
-
-    // Force a decoded frame into the element. Loading chrome clears once videoWidth > 0.
-    ensureVideoPaints(v);
-}
-
-let _paintKickFor = null;
-function clearMediaLoading() {
-    const vw = document.getElementById('video-window');
-    if (vw) vw.classList.remove('media-loading');
-}
-
-function ensureVideoPaints(v) {
-    if (!v || v.tagName !== 'VIDEO') return;
-    // One kick per element instance — metadata/data/canplay all funnel here.
-    if (_paintKickFor === v && v.dataset && v.dataset.paintKicked === '1') {
-        updatePos();
-        applyLookPreview();
-        if (v.videoWidth > 0) clearMediaLoading();
-        return;
-    }
-    _paintKickFor = v;
-    if (v.dataset) v.dataset.paintKicked = '1';
-    updatePos();
-    applyLookPreview();
-
-    const slider = document.getElementById('seek-slider');
-    let t = slider ? parseFloat(slider.value) : seekMid();
-    if (!Number.isFinite(t) || t < 0) t = 0;
-    // Zero can stay blank on some decoders; nudge into the clip.
-    const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : (videoInfo && videoInfo.duration) || 0;
-    if (t <= 0 && dur > 0) t = Math.min(Math.max(0.05, dur / 2), Math.max(0, dur - 0.05));
-    if (dur > 0) t = Math.min(Math.max(0, t), Math.max(0, dur - 0.001));
-
-    const finish = () => {
-        try { v.pause(); } catch (e) { /* ignore */ }
-        if (v.videoWidth > 0) clearMediaLoading();
-        updatePos();
-        applyLookPreview();
-    };
-
-    const onSeeked = () => {
-        v.removeEventListener('seeked', onSeeked);
-        finish();
-    };
-    v.addEventListener('seeked', onSeeked);
-
-    try {
-        v.pause();
-        if (Math.abs((v.currentTime || 0) - t) > 0.001) {
-            v.currentTime = t;
-        } else {
-            // Already there — still kick a decode via play/pause
-            v.removeEventListener('seeked', onSeeked);
-        }
-    } catch (e) { /* seek may throw until enough data */ }
-
-    // play→pause forces many browsers to rasterize a frame while muted+playsinline
-    const kick = () => {
-        const p = v.play();
-        if (p && typeof p.then === 'function') {
-            p.then(() => finish()).catch(() => finish());
-        } else {
-            finish();
-        }
-    };
-    kick();
-    // NO timed fallback to JPEG still. Cold NC/raw can take well over 2.5s;
-    // replacing the <video> with /proxy/frame caused the multi-minute stall and
-    // left crop on the washed still path (frame-video null). Only onerror falls back.
 }
 
 function onFrameVideoError() {
-    // Fall back to JPEG still only when the stream actually errors.
+    // Fall back to JPEG still if stream fails (rare; NC not ready, etc.)
     const vw = document.getElementById('video-window');
     const bad = document.getElementById('frame-video');
     if (!vw || !bad || !videoInfo) return;
-    if (vw) vw.classList.add('media-loading');
     const t = (() => {
         const s = document.getElementById('seek-slider');
         return s ? parseFloat(s.value) : seekMid();
@@ -899,25 +788,19 @@ function onFrameVideoError() {
     img.id = 'frame-img';
     img.className = 'frame-media';
     img.src = `/api/video/proxy/frame?filename=${encodeURIComponent(videoInfo.filename)}&t=${t}`;
-    img.onload = () => { clearMediaLoading(); onFrameMediaReady(); };
-    img.onerror = () => { clearMediaLoading(); };
+    img.onload = () => onFrameMediaReady();
     bad.replaceWith(img);
 }
 
 function setupFrameMedia() {
-    // Always apply size/transform immediately — do not wait for loadeddata.
-    updatePos();
-    applyLookPreview();
     const v = document.getElementById('frame-video');
     if (!v) {
-        // Still-only path (no stream url)
-        const img = document.getElementById('frame-img');
-        if (img && img.complete && img.naturalWidth) clearMediaLoading();
+        updatePos();
+        applyLookPreview();
         return;
     }
-    // Metadata may already be available (cache); otherwise attribute handlers fire.
-    if (v.readyState >= 1) onFrameMediaReady();
-    if (v.videoWidth > 0) clearMediaLoading();
+    // Some browsers fire loadeddata before our handler is wired via attribute
+    if (v.readyState >= 2) onFrameMediaReady();
 }
 
 function onZoom(val) {
@@ -957,10 +840,9 @@ function onSeek(val) {
 }
 
 // -- Border toggle --
-// Intent A (locked): bars are chrome only. Square crop window + pan/zoom stay put.
-// ON  = black letterbox bars visible over the fixed 1:1 square window.
-// OFF = bars hide / go transparent; captions stay; NO window resize, NO refit.
-// (Old intent B expanded video-window to full 9:16 and called fitCropToWindow — hop bug.)
+// ON  = black letterbox bars + 1:1 square crop window (template).
+// OFF = full 9:16 video fill; blacks gone; captions STAY overlaid at the
+//       bottom caption zone (transparent bar, not removed).
 let borderEnabled = true;
 function toggleBorder() {
     borderEnabled = !borderEnabled;
@@ -969,6 +851,7 @@ function toggleBorder() {
     const knob = document.getElementById('border-knob');
     const topBar = document.getElementById('bar-top');
     const botBar = document.getElementById('bar-bottom');
+    const vw = document.getElementById('video-window');
     const cap = document.getElementById('cap-word');
 
     if (check) check.checked = borderEnabled;
@@ -978,9 +861,12 @@ function toggleBorder() {
         knob.style.background = borderEnabled ? '#5ce1e6' : '#888';
     }
 
-    // video-window geometry is fixed at buildUI (BAR_TOP + SQUARE_SIZE).
-    // Toggle never resizes the window or mutates cropState — that was the hop.
     if (borderEnabled) {
+        // Square crop between black bars
+        if (vw) {
+            vw.style.top = BAR_TOP + 'px';
+            vw.style.height = SQUARE_SIZE + 'px';
+        }
         if (topBar) {
             topBar.style.height = BAR_TOP + 'px';
             topBar.style.opacity = '1';
@@ -996,15 +882,18 @@ function toggleBorder() {
             botBar.style.pointerEvents = 'none';
         }
     } else {
+        // Full 9:16 — video under the whole phone frame; no black cover
+        if (vw) {
+            vw.style.top = '0';
+            vw.style.height = FRAME_H + 'px';
+        }
         if (topBar) {
-            // Keep slot height so layout does not reflow; hide the plate.
-            topBar.style.height = BAR_TOP + 'px';
+            topBar.style.height = '0';
             topBar.style.opacity = '0';
-            topBar.style.background = 'transparent';
             topBar.style.pointerEvents = 'none';
         }
         if (botBar) {
-            // Caption zone stays; plate transparent so chrome (not window) changes.
+            // Keep caption zone height + flex; transparent so video shows through
             botBar.style.height = BAR_BOT + 'px';
             botBar.style.display = 'flex';
             botBar.style.opacity = '1';
@@ -1015,6 +904,24 @@ function toggleBorder() {
     }
     // Captions always visible — border only controls the black plates
     if (cap) cap.style.visibility = 'visible';
+
+    // Refit pan/zoom to the new window height so the frame still fills
+    if (videoInfo) {
+        const vwH = videoWindowHeight();
+        const scaleH = vwH / videoInfo.height;
+        const scaleW = FRAME_W / videoInfo.width;
+        const nz = Math.max(scaleH, scaleW);
+        cropState.zoom = nz;
+        const scaledW = videoInfo.width * nz;
+        const scaledH = videoInfo.height * nz;
+        cropState.x = (FRAME_W - scaledW) / 2;
+        cropState.y = (vwH - scaledH) / 2;
+        const zoomSlider = document.getElementById('zoom-slider');
+        const zv = document.getElementById('zoom-val');
+        if (zoomSlider) zoomSlider.value = String(nz);
+        if (zv) zv.textContent = Math.round(nz * 100) + '%';
+        updatePos();
+    }
 }
 
 // -- Drag --
