@@ -550,15 +550,17 @@ function buildUI(streamUrl, stillUrl) {
     // step fine enough for short clips; whole seconds only when long
     const seekStep = dur <= 30 ? 0.1 : 1;
     const seekMax = Math.max(seekStep, dur);
-    // Native video: browser HDR tone-map. poster = still as interim.
-    // No poster: JPEG still is a re-encode and paints washed/wrong before the
-    // native stream tone-maps. Size+transform are applied immediately after
-    // inject so first paint is already fitted (not a 2160px corner).
+    // Native video for color (browser HDR tone-map). Poster is ONLY an interim
+    // placeholder so the window is not solid black before the first decoded
+    // frame; ensureVideoPaints removes it once videoWidth > 0. Size+transform
+    // still apply immediately so we never show an unsized 2160px corner.
     const mediaHtml = streamUrl
         ? `<video id="frame-video" class="frame-media" muted playsinline preload="auto"
+                poster="${stillUrl || ''}"
                 src="${streamUrl}"
                 onloadedmetadata="onFrameMediaReady()"
                 onloadeddata="onFrameMediaReady()"
+                oncanplay="onFrameMediaReady()"
                 onerror="onFrameVideoError()"></video>`
         : `<img id="frame-img" class="frame-media" src="${stillUrl || ''}" onload="onFrameMediaReady()" />`;
 
@@ -769,8 +771,10 @@ function onFrameMediaReady() {
     updatePos();
     applyLookPreview();
     const v = document.getElementById('frame-video');
-    if (v && Number.isFinite(v.duration) && v.duration > 0.05) {
-        // Prefer media duration when probe was wrong / zero (unpegs scrubber)
+    if (!v) return;
+
+    // Prefer media duration when probe was wrong / zero (unpegs scrubber)
+    if (Number.isFinite(v.duration) && v.duration > 0.05) {
         if (!videoInfo.duration || videoInfo.duration < 0.5 ||
             Math.abs(videoInfo.duration - v.duration) > 1) {
             videoInfo.duration = v.duration;
@@ -787,14 +791,82 @@ function onFrameMediaReady() {
                 if (sv) sv.textContent = fmtTime(parseFloat(slider.value));
             }
         }
-        // Land on mid (or current slider) without playing
-        const slider = document.getElementById('seek-slider');
-        const t = slider ? parseFloat(slider.value) : seekMid();
-        try {
-            v.pause();
-            if (Math.abs((v.currentTime || 0) - t) > 0.05) v.currentTime = t;
-        } catch (e) { /* seek may throw until enough data */ }
     }
+
+    // Force a decoded frame into the element. Without poster, a paused video that
+    // never paints reads as a solid black window (fit can be correct, pixels empty).
+    ensureVideoPaints(v);
+}
+
+let _paintTries = 0;
+let _paintKickFor = null;
+function ensureVideoPaints(v) {
+    if (!v || v.tagName !== 'VIDEO') return;
+    // One kick per element instance — metadata/data/canplay all funnel here.
+    if (_paintKickFor === v && v.dataset && v.dataset.paintKicked === '1') {
+        updatePos();
+        applyLookPreview();
+        return;
+    }
+    _paintKickFor = v;
+    if (v.dataset) v.dataset.paintKicked = '1';
+    updatePos();
+    applyLookPreview();
+
+    const slider = document.getElementById('seek-slider');
+    let t = slider ? parseFloat(slider.value) : seekMid();
+    if (!Number.isFinite(t) || t < 0) t = 0;
+    // Zero can stay blank on some decoders; nudge into the clip.
+    const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : (videoInfo && videoInfo.duration) || 0;
+    if (t <= 0 && dur > 0) t = Math.min(0.001, dur / 2);
+    if (dur > 0) t = Math.min(t, Math.max(0, dur - 0.001));
+
+    const finish = () => {
+        try { v.pause(); } catch (e) { /* ignore */ }
+        // Drop poster once we have real pixels so washed JPEG does not stick.
+        if (v.videoWidth > 0) {
+            try { v.removeAttribute('poster'); } catch (e) { /* ignore */ }
+        }
+        updatePos();
+        applyLookPreview();
+    };
+
+    const onSeeked = () => {
+        v.removeEventListener('seeked', onSeeked);
+        finish();
+    };
+    v.addEventListener('seeked', onSeeked);
+
+    try {
+        v.pause();
+        if (Math.abs((v.currentTime || 0) - t) > 0.001) {
+            v.currentTime = t;
+        } else {
+            // Already there — still kick a decode via play/pause
+            v.removeEventListener('seeked', onSeeked);
+        }
+    } catch (e) { /* seek may throw until enough data */ }
+
+    // play→pause forces many browsers to rasterize a frame while muted+playsinline
+    const kick = () => {
+        const p = v.play();
+        if (p && typeof p.then === 'function') {
+            p.then(() => finish()).catch(() => finish());
+        } else {
+            finish();
+        }
+    };
+    kick();
+
+    // If still no pixels shortly, fall back to JPEG still (better than black).
+    _paintTries += 1;
+    const tries = _paintTries;
+    setTimeout(() => {
+        if (tries !== _paintTries) return;
+        if (document.getElementById('frame-video') === v && (!v.videoWidth || v.readyState < 2)) {
+            onFrameVideoError();
+        }
+    }, 2500);
 }
 
 function onFrameVideoError() {
@@ -822,6 +894,13 @@ function setupFrameMedia() {
     if (!v) return;
     // Metadata may already be available (cache); otherwise attribute handlers fire.
     if (v.readyState >= 1) onFrameMediaReady();
+    // Hard guard: if nothing decodes, leave black for at most ~2.5s then still.
+    setTimeout(() => {
+        const cur = document.getElementById('frame-video');
+        if (cur === v && (!v.videoWidth || v.readyState < 2)) {
+            onFrameVideoError();
+        }
+    }, 2500);
 }
 
 function onZoom(val) {
