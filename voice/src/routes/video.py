@@ -337,11 +337,20 @@ def hdr_to_sdr_vf(color_info: dict | None = None, *, for_still: bool = False) ->
     rng = "pc" if for_still else "tv"
     pix = "yuvj420p" if for_still else "yuv420p"
     inp = _hdr_input_zscale_params(color_info)
+    # ★ GAMUT MAP IN LINEAR, BEFORE TONEMAP (2026-07-20). The old chain folded
+    # p=bt709 into the FINAL zscale — but by then the frame's bt2020 origin is
+    # lost through the tonemap step, so zscale TAGGED the pixels 709 without
+    # remapping them. Wide-gamut chroma wearing a 709 label = oversaturated
+    # red-pushed skin (measured: pure bt2020 red hit V=255 chroma-clip through
+    # the old chain; 235 — correct — through this one). This is the canonical
+    # ffmpeg HDR→SDR recipe: linearize → convert primaries → tonemap → re-encode
+    # transfer/matrix. The final zscale carries t/m/r only; p is done here.
     return (
         f"zscale={inp}:t=linear:npl=100,"
         "format=gbrpf32le,"
+        "zscale=p=bt709,"
         "tonemap=tonemap=hable:desat=0:peak=100,"
-        f"zscale=t=bt709:m=bt709:p=bt709:r={rng},"
+        f"zscale=t=bt709:m=bt709:r={rng},"
         f"format={pix}"
     )
 
