@@ -13,14 +13,15 @@ def test_crop_prefers_native_video_stream_not_only_jpeg():
     assert "frame-video" in CROP
     assert "/api/video/proxy/raw" in CROP
     assert "streamUrlFor" in CROP
-    # Still path: interim poster (removed once video paints) + error fallback.
-    # Solid black with no poster was worse than a brief washed still.
+    # Still path is error fallback only — never timed swap, never poster.
+    # Timed /proxy/frame fallback caused minute-long stalls + frame-video null.
     assert "/api/video/proxy/frame" in CROP
     assert "onFrameVideoError" in CROP
-    assert "poster=" in CROP
-    assert "removeAttribute('poster')" in CROP or 'removeAttribute("poster")' in CROP
+    assert "poster=" not in CROP
     assert "onloadedmetadata" in CROP
     assert "ensureVideoPaints" in CROP
+    assert "media-loading" in CROP
+    assert "NO timed fallback to JPEG still" in CROP or "Only onerror falls back" in CROP
 
 
 def test_crop_applies_fit_before_loadeddata():
@@ -32,12 +33,12 @@ def test_crop_applies_fit_before_loadeddata():
     idx = CROP.index("container.innerHTML = buildUI(streamUrl, stillUrl);")
     chunk = CROP[idx : idx + 220]
     assert "updatePos()" in chunk
-    # setupFrameMedia always sizes, even when readyState is 0
+    # setupFrameMedia always sizes; must NOT auto-swap to still on a timer
     sidx = CROP.index("function setupFrameMedia")
-    setup = CROP[sidx : sidx + 700]
+    setup = CROP[sidx : sidx + 900]
     assert "updatePos()" in setup
     assert "v.readyState >= 1" in setup
-    assert "onFrameVideoError" in setup  # black-frame timeout fallback
+    assert "setTimeout" not in setup
 
 
 def test_border_off_fills_916_and_keeps_captions():
