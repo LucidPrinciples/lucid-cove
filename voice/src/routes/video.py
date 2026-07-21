@@ -355,6 +355,32 @@ def hdr_to_sdr_vf(color_info: dict | None = None, *, for_still: bool = False) ->
     )
 
 
+def native_hdr_encode_args(color_info: dict | None) -> list | None:
+    """ORIGINAL look + HDR source → NATIVE COLOR PASSTHROUGH (2026-07-21).
+
+    No SDR conversion can match how Apple/players render an HLG original
+    (EDR brightness, 10-bit gradients): even a mathematically correct tonemap
+    reads dimmer/warmer/banded side-by-side with the camera file. 'Original'
+    must mean original. So when NO grade is applied and the source is HDR,
+    keep the video in its native color: 10-bit HEVC, source transfer/
+    primaries/matrix carried through (tags + bitstream VUI), captions burned
+    on top. Platforms ingest HLG HEVC natively — it is what iPhones upload.
+    Returns the video-encoder arg list, or None for SDR sources (x264 path).
+    Graded looks still go through hdr_to_sdr_vf — a look is an SDR deliverable."""
+    if not is_hdr_color(color_info):
+        return None
+    info = color_info or {}
+    trc = (info.get("color_transfer") or "").strip().lower() or "arib-std-b67"
+    spc = (info.get("color_space") or "").strip().lower() or "bt2020nc"
+    return [
+        "-c:v", "libx265", "-tag:v", "hvc1", "-pix_fmt", "yuv420p10le",
+        "-preset", "medium", "-crf", "18",
+        "-x265-params", f"colorprim=bt2020:transfer={trc}:colormatrix={spc}:range=limited",
+        "-colorspace", spc, "-color_primaries", "bt2020",
+        "-color_trc", trc, "-color_range", "tv",
+    ]
+
+
 def sdr_still_vf() -> str:
     """Limited-range SDR → full-range JPEG (browser stills are full-range)."""
     return (
@@ -807,6 +833,12 @@ async def process_moments(request: Request):
     vf_color = resolve_look_vf(crop)
     color_info = probe_video_color(video_path)
     vf_prep = color_prep_vf(color_info)
+    # Original (no grade) + HDR source → native HLG/PQ passthrough: no SDR
+    # conversion at all; encoder carries the source color through.
+    native_v_args = native_hdr_encode_args(color_info) if not vf_color else None
+    if native_v_args:
+        vf_prep = ""
+        logger.info("Original+HDR → NATIVE COLOR PASSTHROUGH (10-bit HEVC, no tonemap)")
     logger.info(
         "Look filter: preset=%s → %s; color_prep=%s (trc=%s prim=%s)",
         video_filter,
@@ -988,13 +1020,16 @@ async def process_moments(request: Request):
                     # CFR at SOURCE rate when known — hard-coded 30fps was
                     # re-timing 24/60fps iPhone and looking soft vs QuickTime.
                     *encode_fps_args(video_path),
-                    "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-                    # CRF 14 + slow: near-transparent after crop/scale; bt709
-                    # tags stop players mis-reading limited-range as washed.
-                    "-preset", "slow", "-crf", "14",
-                    "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
-                    "-colorspace", "bt709", "-color_primaries", "bt709",
-                    "-color_trc", "bt709", "-color_range", "tv",
+                    # Native passthrough (Original+HDR) or the SDR bt709 x264 bar.
+                    *(native_v_args or [
+                        "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
+                        # CRF 14 + slow: near-transparent after crop/scale; bt709
+                        # tags stop players mis-reading limited-range as washed.
+                        "-preset", "slow", "-crf", "14",
+                        "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+                        "-colorspace", "bt709", "-color_primaries", "bt709",
+                        "-color_trc", "bt709", "-color_range", "tv",
+                    ]),
                     "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                     "-movflags", "+faststart",
                     out_tmp,
@@ -1026,9 +1061,13 @@ async def process_moments(request: Request):
                 try:
                     is_tall = fmt_out_h > fmt_out_w
                     preview_scale = "480:-2" if is_tall else "-2:480"
+                    # A native-HLG final needs a tonemap in its SDR preview, or
+                    # the UI thumbnail plays washed and misleads the operator.
+                    _prev_prep = color_prep_vf(probe_video_color(final_path))
+                    _prev_vf = (f"{_prev_prep}," if _prev_prep else "") + f"scale={preview_scale}"
                     preview_cmd = [
                         "ffmpeg", "-y", "-i", final_path,
-                        "-vf", f"scale={preview_scale}",
+                        "-vf", _prev_vf,
                         "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
                         "-preset", "fast", "-crf", "28",
                         "-c:a", "aac", "-b:a", "64k",
@@ -1536,6 +1575,11 @@ async def caption_full_video(request: Request):
     vf_color = resolve_look_vf(look_src)
     color_info = probe_video_color(video_path)
     vf_prep = color_prep_vf(color_info)
+    # Original (no grade) + HDR source → native passthrough (see moments path).
+    native_v_args = native_hdr_encode_args(color_info) if not vf_color else None
+    if native_v_args:
+        vf_prep = ""
+        logger.info("Original+HDR (caption-full) → NATIVE COLOR PASSTHROUGH")
     logger.info(
         "Look filter (caption-full): preset=%s → %s; color_prep=%s (trc=%s)",
         video_filter,
@@ -1644,12 +1688,15 @@ async def caption_full_video(request: Request):
             "-af", af,
             # CFR at SOURCE rate when known (not hard-coded 30).
             *encode_fps_args(video_path),
-            "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-            # Match short quality bar: slow + CRF 14 + explicit bt709 tags.
-            "-preset", "slow", "-crf", "14",
-            "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
-            "-colorspace", "bt709", "-color_primaries", "bt709",
-            "-color_trc", "bt709", "-color_range", "tv",
+            # Native passthrough (Original+HDR) or the SDR bt709 x264 bar.
+            *(native_v_args or [
+                "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
+                # Match short quality bar: slow + CRF 14 + explicit bt709 tags.
+                "-preset", "slow", "-crf", "14",
+                "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+                "-colorspace", "bt709", "-color_primaries", "bt709",
+                "-color_trc", "bt709", "-color_range", "tv",
+            ]),
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
             "-movflags", "+faststart",
             "-threads", "0",
