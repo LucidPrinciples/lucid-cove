@@ -151,6 +151,39 @@ def _square_crop_expr(src_w, src_h, src_x, src_y) -> str:
     return f"crop={side}:{side}:{x}:{y}"
 
 
+def frame_still_vf() -> str:
+    """Filtergraph for crop-page stills that match the video element.
+
+    iPhone footage is limited-range (tv) bt709. A bare ``ffmpeg … -f image2``
+    JPEG leaves those 16–235 luma codes in a full-range still, so the browser
+    paints washed blacks / flat mids next to the <video> player (which expands
+    limited range correctly). Expand tv→pc with full-chroma lanczos, then hand
+    mjpeg a full-range yuvj pixel format. Geometry-only — no look grade.
+    """
+    return (
+        "scale=in_range=auto:out_range=pc"
+        ":flags=lanczos+accurate_rnd+full_chroma_int,"
+        "format=yuvj420p"
+    )
+
+
+def frame_still_ffmpeg_cmd(video_path: str, t: float) -> list:
+    """Build the ffmpeg argv for one identity still JPEG (testable)."""
+    return [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-ss", str(t), "-i", video_path,
+        "-vframes", "1",
+        "-vf", frame_still_vf(),
+        "-q:v", "2",
+        "-color_range", "pc",
+        "-colorspace", "bt709",
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
+        "-f", "image2",
+        "pipe:1",
+    ]
+
+
 @router.get("/api/video/frame")
 async def extract_frame(request: Request, filename: str = "", t: float = -1):
     """Extract a single frame from a video file as JPEG.
@@ -159,7 +192,7 @@ async def extract_frame(request: Request, filename: str = "", t: float = -1):
         filename: Video filename (looked up in /video/processing/ or /video/inbox/)
         t: Timestamp in seconds (-1 = mid-point)
 
-    Returns: JPEG image
+    Returns: JPEG image (full-range, identity — no Look grade; CSS applies that).
     """
     if not filename:
         return JSONResponse({"error": "No filename"}, status_code=400)
@@ -186,15 +219,16 @@ async def extract_frame(request: Request, filename: str = "", t: float = -1):
         except Exception:
             t = 10  # fallback
 
-    # Extract frame via ffmpeg
-    import subprocess
+    # Identity still: expand limited-range source into a full-range JPEG so the
+    # crop preview matches the native video player. Look grade stays CSS-only.
     try:
         result = subprocess.run(
-            ["ffmpeg", "-ss", str(t), "-i", video_path,
-             "-vframes", "1", "-q:v", "2", "-f", "image2", "pipe:1"],
+            frame_still_ffmpeg_cmd(video_path, t),
             capture_output=True, timeout=30,
         )
         if result.returncode != 0 or not result.stdout:
+            err = (result.stderr or b"")[-400:].decode("utf-8", errors="replace")
+            logger.error("Frame extraction failed t=%s: %s", t, err)
             return JSONResponse({"error": "Frame extraction failed"}, status_code=500)
 
         return Response(content=result.stdout, media_type="image/jpeg")
