@@ -20,6 +20,78 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# Look presets — base brightness/contrast/saturation (+ optional ffmpeg extras).
+# "original" is true source (identity eq). UI sliders override B/C/S; extras stay
+# with the chip (curves / color temp) so Rich/Cinematic keep their character.
+LOOK_PRESETS = {
+    "original": {
+        "brightness": 0.0,
+        "contrast": 1.0,
+        "saturation": 1.0,
+        "extra": "",
+    },
+    "natural": {
+        "brightness": -0.02,
+        "contrast": 1.10,
+        "saturation": 0.95,
+        "extra": "",
+    },
+    "rich": {
+        "brightness": -0.05,
+        "contrast": 1.12,
+        "saturation": 0.78,
+        "extra": "curves=all='0/0.035 0.5/0.5 1/0.965'",
+    },
+    "cinematic": {
+        "brightness": -0.04,
+        "contrast": 1.18,
+        "saturation": 0.88,
+        "extra": "colortemperature=temperature=6200",
+    },
+}
+
+
+def _clamp_look_val(name: str, val) -> float:
+    try:
+        x = float(val)
+    except (TypeError, ValueError):
+        x = LOOK_PRESETS["original"][name]
+    if name == "brightness":
+        return max(-0.5, min(0.5, x))
+    # contrast / saturation
+    return max(0.0, min(3.0, x))
+
+
+def resolve_look_vf(source=None) -> str:
+    """Build ffmpeg color filter from preset id + optional B/C/S overrides.
+
+    source may be crop_template or the request body. Keys:
+      video_filter: original|natural|rich|cinematic
+      filter_brightness / filter_contrast / filter_saturation: optional floats
+    """
+    src = source or {}
+    name = (src.get("video_filter") or "natural").strip().lower()
+    if name not in LOOK_PRESETS:
+        name = "natural"
+    preset = LOOK_PRESETS[name]
+
+    def _pick(key: str, filter_key: str) -> float:
+        if filter_key in src and src.get(filter_key) is not None and src.get(filter_key) != "":
+            return _clamp_look_val(key, src.get(filter_key))
+        return float(preset[key])
+
+    b = _pick("brightness", "filter_brightness")
+    c = _pick("contrast", "filter_contrast")
+    s = _pick("saturation", "filter_saturation")
+    eq = f"eq=contrast={c:.4g}:brightness={b:.4g}:saturation={s:.4g}"
+    extra = (preset.get("extra") or "").strip()
+    if extra:
+        return f"{eq},{extra}"
+    return eq
+
+
+
+
 def _square_crop_expr(src_w, src_h, src_x, src_y) -> str:
     """Clamped square-crop filter that can NEVER exceed the (post-rotation) source.
 
@@ -420,13 +492,9 @@ async def process_moments(request: Request):
     video_filter = crop.get("video_filter", "natural")
     border_enabled = crop.get("border_enabled", True)
 
-    # Video filter presets — Test Round 1 (see moments-look-spec.md)
-    VIDEO_FILTERS = {
-        "natural":   "eq=contrast=1.10:brightness=-0.02:saturation=0.95",
-        "rich":      "eq=contrast=1.12:brightness=-0.05:saturation=0.78,curves=all='0/0.035 0.5/0.5 1/0.965'",
-        "cinematic": "eq=contrast=1.18:brightness=-0.04:saturation=0.88,colortemperature=temperature=6200",
-    }
-    vf_color = VIDEO_FILTERS.get(video_filter, VIDEO_FILTERS["natural"])
+    # Look preset + optional B/C/S slider overrides (from crop template)
+    vf_color = resolve_look_vf(crop)
+    logger.info(f"Look filter: preset={video_filter} → {vf_color}")
     out_w = crop.get("out_w", 2160)
     out_h = crop.get("out_h", 3840)
     bar_top = crop.get("bar_top_px", 600)
@@ -1101,14 +1169,15 @@ async def caption_full_video(request: Request):
             "style": "word",
         }
 
-    # Video filter
-    video_filter = body.get("video_filter", "natural")
-    VIDEO_FILTERS = {
-        "natural":   "eq=contrast=1.10:brightness=-0.02:saturation=0.95",
-        "rich":      "eq=contrast=1.12:brightness=-0.05:saturation=0.78,curves=all='0/0.035 0.5/0.5 1/0.965'",
-        "cinematic": "eq=contrast=1.18:brightness=-0.04:saturation=0.88,colortemperature=temperature=6200",
-    }
-    vf_color = VIDEO_FILTERS.get(video_filter, VIDEO_FILTERS["natural"])
+    # Look preset + optional B/C/S overrides (body and/or crop_template)
+    video_filter = body.get("video_filter") or (body.get("crop_template") or {}).get("video_filter") or "natural"
+    look_src = dict(body.get("crop_template") or {})
+    look_src["video_filter"] = video_filter
+    for k in ("filter_brightness", "filter_contrast", "filter_saturation"):
+        if k in body and body.get(k) is not None:
+            look_src[k] = body.get(k)
+    vf_color = resolve_look_vf(look_src)
+    logger.info(f"Look filter (caption-full): preset={video_filter} → {vf_color}")
 
     # Output: 4K horizontal with crop position + caption bar
     fmt_out_w = 3840

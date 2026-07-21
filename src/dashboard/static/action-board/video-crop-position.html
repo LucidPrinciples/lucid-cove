@@ -22,6 +22,44 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 .crop-workspace { display: flex; gap: 28px; flex-wrap: wrap; }
 
 /* 9:16 output frame */
+
+#frame-img {
+    transition: filter 0.12s ease;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.look-sliders {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+.look-slider-row {
+    display: grid;
+    grid-template-columns: 72px 1fr 44px;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #9a9aa8;
+}
+.look-slider-row input[type=range] {
+    width: 100%;
+    accent-color: #5ce1e6;
+}
+.look-slider-row .look-val {
+    font-variant-numeric: tabular-nums;
+    color: #c8c8d4;
+    text-align: right;
+}
+.look-nums {
+    font-size: 10px;
+    color: #666;
+    margin-top: 6px;
+    letter-spacing: 0.02em;
+}
+
 .crop-frame-outer {
     position: relative;
     width: 270px;
@@ -180,12 +218,20 @@ let cap = {
 };
 
 // Video filter presets
-let videoFilter = 'rich';
+let videoFilter = 'original';
+const // Look chips seed B/C/S sliders. Extras (curves / color temp) stay with the
+// chip on the server; CSS preview approximates B/C/S only.
 const VIDEO_FILTER_PRESETS = [
-    { id: 'natural', label: 'Natural', desc: 'Minimal — true to source' },
-    { id: 'rich', label: 'Rich', desc: 'Deeper darks, more contrast' },
-    { id: 'cinematic', label: 'Cinematic', desc: 'Film look — dark, saturated' },
+    { id: 'original', label: 'Original', desc: 'True source — no color grade', brightness: 0, contrast: 1, saturation: 1 },
+    { id: 'natural', label: 'Natural', desc: 'Light polish', brightness: -0.02, contrast: 1.10, saturation: 0.95 },
+    { id: 'rich', label: 'Rich', desc: 'Deeper darks, more contrast', brightness: -0.05, contrast: 1.12, saturation: 0.78 },
+    { id: 'cinematic', label: 'Cinematic', desc: 'Film look — dark, cooler', brightness: -0.04, contrast: 1.18, saturation: 0.88 },
 ];
+
+// Live slider state (seeded from active preset)
+let lookBrightness = 0;
+let lookContrast = 1;
+let lookSaturation = 1;
 
 // Platforms for distribution — operator selects where clips get posted
 // Each platform maps to a preferred output format
@@ -307,6 +353,9 @@ async function init() {
 
     container.className = '';
     container.innerHTML = buildUI(frameUrl);
+    // Seed sliders from default/active preset and paint CSS look on the frame
+    onVideoFilter(videoFilter);
+
     setupDrag();
 
     // Check if captioned full-length already exists for this stem — hide checkbox if so
@@ -336,7 +385,7 @@ function buildUI(frameUrl) {
             <div class="crop-frame-outer" id="crop-frame-outer">
                 <div class="bar-top" id="bar-top" style="height:${topH}px"></div>
                 <div class="video-window" id="video-window" style="top:${topH}px;height:${vwH}px">
-                    <img id="frame-img" src="${frameUrl}" onload="updatePos()" />
+                    <img id="frame-img" src="${frameUrl}" onload="updatePos(); applyLookPreview();" />
                 </div>
                 <div class="bar-bottom" id="bar-bottom" style="height:${botH}px">
                     <div class="caption-preview-word" id="cap-word" style="${capCSS()}">STARTING</div>
@@ -379,6 +428,27 @@ function buildUI(frameUrl) {
                             `<div class="style-chip ${videoFilter===f.id?'active':''}" onclick="onVideoFilter('${f.id}')" title="${f.desc}">${f.label}</div>`
                         ).join('')}
                     </div>
+                    <div class="look-sliders" id="look-sliders">
+                        <div class="look-slider-row">
+                            <span>Bright</span>
+                            <input type="range" id="look-brightness" min="-0.30" max="0.30" step="0.01" value="${lookBrightness}"
+                                oninput="onLookSlider('brightness', this.value)">
+                            <span class="look-val" id="look-brightness-val">${lookBrightness.toFixed(2)}</span>
+                        </div>
+                        <div class="look-slider-row">
+                            <span>Contrast</span>
+                            <input type="range" id="look-contrast" min="0.50" max="1.80" step="0.01" value="${lookContrast}"
+                                oninput="onLookSlider('contrast', this.value)">
+                            <span class="look-val" id="look-contrast-val">${lookContrast.toFixed(2)}</span>
+                        </div>
+                        <div class="look-slider-row">
+                            <span>Saturate</span>
+                            <input type="range" id="look-saturation" min="0.20" max="1.80" step="0.01" value="${lookSaturation}"
+                                oninput="onLookSlider('saturation', this.value)">
+                            <span class="look-val" id="look-saturation-val">${lookSaturation.toFixed(2)}</span>
+                        </div>
+                    </div>
+                    <div class="look-nums" id="look-nums"></div>
                 </div>
             </div>
 
@@ -582,9 +652,61 @@ function getSelectedPlatforms() {
     return PLATFORMS.filter(p => p.selected).map(p => p.id);
 }
 function onVideoFilter(id) {
+    const preset = VIDEO_FILTER_PRESETS.find(f => f.id === id);
+    if (!preset) return;
     videoFilter = id;
+    lookBrightness = preset.brightness;
+    lookContrast = preset.contrast;
+    lookSaturation = preset.saturation;
     document.querySelectorAll('#filter-chips .style-chip').forEach(c =>
-        c.classList.toggle('active', c.textContent === VIDEO_FILTER_PRESETS.find(f => f.id === id)?.label));
+        c.classList.toggle('active', c.textContent === preset.label));
+    syncLookSliderInputs();
+    applyLookPreview();
+}
+
+function onLookSlider(which, raw) {
+    const v = parseFloat(raw);
+    if (Number.isNaN(v)) return;
+    if (which === 'brightness') lookBrightness = v;
+    else if (which === 'contrast') lookContrast = v;
+    else if (which === 'saturation') lookSaturation = v;
+    const el = document.getElementById('look-' + which + '-val');
+    if (el) el.textContent = v.toFixed(2);
+    applyLookPreview();
+}
+
+function syncLookSliderInputs() {
+    const map = {
+        brightness: lookBrightness,
+        contrast: lookContrast,
+        saturation: lookSaturation,
+    };
+    for (const [k, val] of Object.entries(map)) {
+        const input = document.getElementById('look-' + k);
+        const lab = document.getElementById('look-' + k + '-val');
+        if (input) input.value = String(val);
+        if (lab) lab.textContent = Number(val).toFixed(2);
+    }
+}
+
+/** CSS approx of ffmpeg eq — good enough to judge; encode uses real eq + extras. */
+function applyLookPreview() {
+    const img = document.getElementById('frame-img');
+    if (!img) return;
+    // ffmpeg brightness is additive on [-1,1]; CSS brightness is multiplier.
+    // Map small ffmpeg B onto a gentle CSS multiplier so Original stays neutral.
+    const cssBright = Math.max(0.4, Math.min(1.6, 1 + (lookBrightness * 1.35)));
+    const cssContrast = lookContrast;
+    const cssSat = lookSaturation;
+    img.style.filter = `brightness(${cssBright}) contrast(${cssContrast}) saturate(${cssSat})`;
+    const nums = document.getElementById('look-nums');
+    if (nums) {
+        const preset = VIDEO_FILTER_PRESETS.find(f => f.id === videoFilter);
+        const extra = (preset && (preset.id === 'rich' || preset.id === 'cinematic'))
+            ? (preset.id === 'rich' ? ' · +curves' : ' · +temp')
+            : '';
+        nums.textContent = `${preset ? preset.label : videoFilter}  B ${lookBrightness.toFixed(2)}  C ${lookContrast.toFixed(2)}  S ${lookSaturation.toFixed(2)}${extra}  (preview ≈ encode)`;
+    }
 }
 function onCapFamily(id) {
     cap.fontFamily = id;
@@ -685,8 +807,11 @@ async function startProcessing() {
         video_h: videoInfo.height,
         // Caption template
         caption: { ...cap },
-        // Video filter
+        // Look: preset chip + B/C/S slider overrides (encode uses resolve_look_vf)
         video_filter: videoFilter,
+        filter_brightness: lookBrightness,
+        filter_contrast: lookContrast,
+        filter_saturation: lookSaturation,
     };
 
     try {
@@ -720,6 +845,9 @@ async function startProcessing() {
                     stem,
                     caption: { ...cap },
                     video_filter: videoFilter,
+                    filter_brightness: lookBrightness,
+                    filter_contrast: lookContrast,
+                    filter_saturation: lookSaturation,
                     crop_template: cropTemplate,
                 });
                 const cfJob = await pollVideoJob(cfJobId, 5000, (phase) => {
