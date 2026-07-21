@@ -36,6 +36,7 @@ def test_rename_captioned_uses_move_not_pull_push():
 
 
 def test_queue_full_is_idempotent():
-    assert "Idempotent re-queue" in PROC_PY
-    assert "full_platform}:update" in PROC_PY or "update" in PROC_PY
+    assert "queued_platforms" in PROC_PY
+    assert ":update" in PROC_PY
     assert "SELECT id, status FROM social_queue" in PROC_PY
+    assert "_finalize_captioned_full_metadata" in PROC_PY

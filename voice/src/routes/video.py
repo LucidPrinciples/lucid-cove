@@ -761,6 +761,9 @@ async def rename_captioned(request: Request):
     Body: { "stem": "IMG_7129", "title": "The Lucid Cove AI for Families" }
     Renames: IMG_7129-captioned.mp4 → IMG_7129-The_Lucid_Cove_AI_for_Families-captioned.mp4
     Returns: { "old_name": "...", "new_name": "...", "nc_path": "..." }
+
+    Also accepts already-titled names: if plain stem-captioned.mp4 is gone but a
+    title-renamed file exists, returns that path (idempotent).
     """
     body = await request.json()
     stem = body.get("stem", "").strip()
@@ -772,94 +775,166 @@ async def rename_captioned(request: Request):
     nc = NCSession.from_request(request, body)
 
     # Sanitize title for filename: replace spaces with _, strip unsafe chars
-    import re
-    safe_title = re.sub(r'[^\w\s-]', '', title).strip()
-    safe_title = re.sub(r'\s+', '_', safe_title)[:80]
+    import re as _re
+    safe_title = _re.sub(r'[^\w\s-]', '', title).strip()
+    safe_title = _re.sub(r'\s+', '_', safe_title)[:80]
     new_name = f"{stem}-{safe_title}-captioned.mp4"
     nc_path = f"{NC_VIDEO_PATH}/shorts/{new_name}"
+    old_name = f"{stem}-captioned.mp4"
+
+    def _size_mb(path: str) -> float:
+        try:
+            return round(os.path.getsize(path) / (1024 * 1024), 1)
+        except OSError:
+            return 0.0
+
+    def _chown_www(path: str) -> None:
+        try:
+            www_uid = int(os.environ.get("NC_WWW_UID", "33"))
+            www_gid = int(os.environ.get("NC_WWW_GID", "33"))
+            os.chown(path, www_uid, www_gid)
+        except OSError:
+            pass
+
+    def _fix_mount_perms(path: str) -> None:
+        """docker cp recovery leaves root:root; NC php-fpm can't MOVE that."""
+        if not path or not os.path.isfile(path):
+            return
+        try:
+            st = os.stat(path)
+            www_uid = int(os.environ.get("NC_WWW_UID", "33"))
+            if st.st_uid == 0 or st.st_uid != www_uid:
+                _chown_www(path)
+                try:
+                    os.chmod(path, 0o644)
+                except OSError:
+                    pass
+                logger.info(
+                    f"rename-captioned: fixed ownership on {os.path.basename(path)} "
+                    f"(was uid={st.st_uid})"
+                )
+        except OSError as e:
+            logger.warning(f"rename-captioned: chown probe failed: {e}")
 
     if nc is not None:
-        # Prefer in-place rename on NC data mount (zero copy). Else WebDAV MOVE
-        # (server-side). Never pull+push multi-GB captioned fulls.
-        old_name = f"{stem}-captioned.mp4"
-        on_disk = find_on_nc_data(nc.user, old_name, subdirs=("shorts", "captioned"))
-        if on_disk and os.path.isfile(on_disk):
-            new_disk = os.path.join(os.path.dirname(on_disk), new_name)
+        on_disk_old = find_on_nc_data(nc.user, old_name, subdirs=("shorts", "captioned"))
+        on_disk_new = find_on_nc_data(nc.user, new_name, subdirs=("shorts", "captioned"))
+
+        # Already renamed to this title — idempotent success
+        if on_disk_new and os.path.isfile(on_disk_new):
+            _fix_mount_perms(on_disk_new)
+            logger.info(f"Renamed captioned already done: {new_name}")
+            return JSONResponse({
+                "old_name": old_name,
+                "new_name": new_name,
+                "nc_path": nc_path,
+                "size_mb": _size_mb(on_disk_new),
+                "already": True,
+            })
+
+        _fix_mount_perms(on_disk_old)
+
+        # Prefer in-place rename on NC data mount (zero copy).
+        if on_disk_old and os.path.isfile(on_disk_old):
+            new_disk = os.path.join(os.path.dirname(on_disk_old), new_name)
             try:
-                os.rename(on_disk, new_disk)
+                os.rename(on_disk_old, new_disk)
+                _chown_www(new_disk)
                 try:
-                    www_uid = int(os.environ.get("NC_WWW_UID", "33"))
-                    www_gid = int(os.environ.get("NC_WWW_GID", "33"))
-                    os.chown(new_disk, www_uid, www_gid)
+                    os.chmod(new_disk, 0o644)
                 except OSError:
                     pass
                 _nc_scan(f"{NC_VIDEO_PATH}/shorts")
-                size_mb = round(os.path.getsize(new_disk) / (1024 * 1024), 1)
                 logger.info(f"Renamed captioned on mount: {old_name} → {new_name}")
                 return JSONResponse({
                     "old_name": old_name,
                     "new_name": new_name,
                     "nc_path": nc_path,
-                    "size_mb": size_mb,
+                    "size_mb": _size_mb(new_disk),
                 })
             except OSError as e:
                 logger.warning(f"Mount rename failed ({e}); trying WebDAV MOVE")
 
-        moved = await nc.move(f"shorts/{old_name}", f"shorts/{new_name}")
-        if not moved:
-            # Confirm source exists for a clear 404 vs MOVE failure
-            local = os.path.join("/tmp/cove-video", nc.user, "shorts", old_name)
-            exists = (
-                (on_disk and os.path.isfile(on_disk))
-                or os.path.isfile(local)
-                or await nc.pull(f"shorts/{old_name}", local)
+        # WebDAV MOVE (server-side). Longer timeout — multi-GB metadata ops on NC
+        # can exceed the default 120s used for small lifecycle moves.
+        moved = await nc.move(
+            f"shorts/{old_name}", f"shorts/{new_name}", timeout=600.0
+        )
+        if moved:
+            on_disk_new = find_on_nc_data(
+                nc.user, new_name, subdirs=("shorts", "captioned")
             )
-            if not exists:
-                return JSONResponse(
-                    {"error": f"Captioned file not found: {stem}"}, status_code=404
-                )
+            _fix_mount_perms(on_disk_new)
+            logger.info(f"Renamed captioned via WebDAV MOVE: {old_name} → {new_name}")
+            return JSONResponse({
+                "old_name": old_name,
+                "new_name": new_name,
+                "nc_path": nc_path,
+                "size_mb": _size_mb(on_disk_new) if on_disk_new else 0.0,
+            })
+
+        # Last resort: host-side copy via Nextcloud container is operator recovery;
+        # here only confirm existence for error clarity.
+        local = os.path.join("/tmp/cove-video", nc.user, "shorts", old_name)
+        exists = (
+            (on_disk_old and os.path.isfile(on_disk_old))
+            or os.path.isfile(local)
+            or await nc.pull(f"shorts/{old_name}", local)
+        )
+        if not exists:
             return JSONResponse(
-                {"error": f"Rename MOVE failed for {old_name} → {new_name}"},
-                status_code=502,
+                {"error": f"Captioned file not found: {stem}"}, status_code=404
             )
-        # Size unknown without another pull — omit precise MB when MOVE-only
-        size_mb = 0.0
-        if on_disk and os.path.isfile(os.path.join(os.path.dirname(on_disk), new_name)):
-            size_mb = round(
-                os.path.getsize(os.path.join(os.path.dirname(on_disk), new_name))
-                / (1024 * 1024), 1
-            )
-        logger.info(f"Renamed captioned via WebDAV MOVE: {old_name} → {new_name}")
+        return JSONResponse(
+            {
+                "error": (
+                    f"Rename MOVE failed for {old_name} → {new_name}. "
+                    "If this file was docker-cp recovered, chown to www-data (uid 33) "
+                    "on the Nextcloud data file and retry finalize-captioned-full."
+                )
+            },
+            status_code=502,
+        )
+
+    # Local VIDEO_MOUNT path (founder / no NC session)
+    import glob as glob_mod
+    shorts_dir = os.path.join(VIDEO_MOUNT, "shorts")
+    old_path = os.path.join(shorts_dir, old_name)
+    new_path = os.path.join(shorts_dir, new_name)
+    if os.path.isfile(new_path):
         return JSONResponse({
             "old_name": old_name,
             "new_name": new_name,
             "nc_path": nc_path,
-            "size_mb": size_mb,
+            "size_mb": _size_mb(new_path),
+            "already": True,
         })
-
-    shorts_dir = os.path.join(VIDEO_MOUNT, "shorts")
-    old_path = os.path.join(shorts_dir, f"{stem}-captioned.mp4")
     if not os.path.isfile(old_path):
-        return JSONResponse({"error": f"Captioned file not found: {stem}"}, status_code=404)
-
-    new_path = os.path.join(shorts_dir, new_name)
-
-    import shutil
-    shutil.move(old_path, new_path)
-    logger.info(f"Renamed captioned: {stem}-captioned.mp4 → {new_name}")
-
-    # Tell NC about the rename
-    _nc_scan("AgentSkills/Content/video/shorts")
-
+        matches = glob_mod.glob(os.path.join(shorts_dir, f"{stem}-*-captioned.mp4"))
+        if matches:
+            # Already titled under a (possibly different) name — report it
+            fname = os.path.basename(matches[0])
+            return JSONResponse({
+                "old_name": old_name,
+                "new_name": fname,
+                "nc_path": f"{NC_VIDEO_PATH}/shorts/{fname}",
+                "size_mb": _size_mb(matches[0]),
+                "already": True,
+            })
+        return JSONResponse(
+            {"error": f"Captioned file not found: {stem}"}, status_code=404
+        )
+    os.rename(old_path, new_path)
+    logger.info(f"Renamed captioned: {old_name} → {new_name}")
     return JSONResponse({
-        "old_name": f"{stem}-captioned.mp4",
+        "old_name": old_name,
         "new_name": new_name,
         "nc_path": nc_path,
-        "size_mb": round(os.path.getsize(new_path) / (1024 * 1024), 1),
+        "size_mb": _size_mb(new_path),
     })
 
 
-@router.post("/api/video/caption-full")
+
 async def caption_full_video(request: Request):
     """Render the full-length source video with burnt-in captions.
 
