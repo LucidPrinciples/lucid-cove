@@ -421,9 +421,9 @@ document.getElementById('back-link').href =
     (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
 
 function videoWindowHeight() {
-    // Border ON = square crop between bars. Border OFF = full 9:16 frame
-    // (video fills the phone canvas; captions stay overlaid, blacks gone).
-    return borderEnabled ? SQUARE_SIZE : FRAME_H;
+    // The video window is always SQUARE_SIZE (270px). Border toggle only shows/hides
+    // the black bars and caption chrome. This ensures the crop window does not hop.
+    return SQUARE_SIZE;
 }
 
 /** Scrubber max (seconds). floor(duration) was pegging short/unknown clips at 0. */
@@ -957,9 +957,10 @@ function onSeek(val) {
 }
 
 // -- Border toggle --
-// ON  = black letterbox bars + 1:1 square crop window (template).
-// OFF = full 9:16 video fill; blacks gone; captions STAY overlaid at the
-//       bottom caption zone (transparent bar, not removed).
+// Intent A (locked): bars are chrome only. Square crop window + pan/zoom stay put.
+// ON  = black letterbox bars visible over the fixed 1:1 square window.
+// OFF = bars hide / go transparent; captions stay; NO window resize, NO refit.
+// (Old intent B expanded video-window to full 9:16 and called fitCropToWindow — hop bug.)
 let borderEnabled = true;
 function toggleBorder() {
     borderEnabled = !borderEnabled;
@@ -968,7 +969,6 @@ function toggleBorder() {
     const knob = document.getElementById('border-knob');
     const topBar = document.getElementById('bar-top');
     const botBar = document.getElementById('bar-bottom');
-    const vw = document.getElementById('video-window');
     const cap = document.getElementById('cap-word');
 
     if (check) check.checked = borderEnabled;
@@ -978,12 +978,9 @@ function toggleBorder() {
         knob.style.background = borderEnabled ? '#5ce1e6' : '#888';
     }
 
+    // video-window geometry is fixed at buildUI (BAR_TOP + SQUARE_SIZE).
+    // Toggle never resizes the window or mutates cropState — that was the hop.
     if (borderEnabled) {
-        // Square crop between black bars
-        if (vw) {
-            vw.style.top = BAR_TOP + 'px';
-            vw.style.height = SQUARE_SIZE + 'px';
-        }
         if (topBar) {
             topBar.style.height = BAR_TOP + 'px';
             topBar.style.opacity = '1';
@@ -999,18 +996,15 @@ function toggleBorder() {
             botBar.style.pointerEvents = 'none';
         }
     } else {
-        // Full 9:16 — video under the whole phone frame; no black cover
-        if (vw) {
-            vw.style.top = '0';
-            vw.style.height = FRAME_H + 'px';
-        }
         if (topBar) {
-            topBar.style.height = '0';
+            // Keep slot height so layout does not reflow; hide the plate.
+            topBar.style.height = BAR_TOP + 'px';
             topBar.style.opacity = '0';
+            topBar.style.background = 'transparent';
             topBar.style.pointerEvents = 'none';
         }
         if (botBar) {
-            // Keep caption zone height + flex; transparent so video shows through
+            // Caption zone stays; plate transparent so chrome (not window) changes.
             botBar.style.height = BAR_BOT + 'px';
             botBar.style.display = 'flex';
             botBar.style.opacity = '1';
@@ -1021,12 +1015,6 @@ function toggleBorder() {
     }
     // Captions always visible — border only controls the black plates
     if (cap) cap.style.visibility = 'visible';
-
-    // Refit pan/zoom to the new window height so the frame still fills
-    if (videoInfo) {
-        fitCropToWindow();
-        updatePos();
-    }
 }
 
 // -- Drag --

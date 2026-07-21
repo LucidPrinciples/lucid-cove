@@ -1,4 +1,4 @@
-"""Crop page: native video preview, border full-9:16, usable seek scrubber."""
+"""Crop page: native video preview, no-hop border chrome, usable seek scrubber."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,22 +41,28 @@ def test_crop_applies_fit_before_loadeddata():
     assert "setTimeout" not in setup
 
 
-def test_border_off_fills_916_and_keeps_captions():
-    """Border off = full 9:16 video fill; captions stay; blacks go transparent/away."""
+def test_border_toggle_is_chrome_only_no_hop():
+    """Border off hides plates only; square window + pan/zoom never move (intent A)."""
     assert "videoWindowHeight()" in CROP
-    assert "borderEnabled ? SQUARE_SIZE : FRAME_H" in CROP
-    # Full-frame path when border off
-    assert "vw.style.top = '0'" in CROP
-    assert "vw.style.height = FRAME_H + 'px'" in CROP
-    # Captions remain visible
-    assert "cap.style.visibility = 'visible'" in CROP
-    assert "botBar.style.background = 'transparent'" in CROP
-    # Border on still uses square placement
-    assert "vw.style.top = BAR_TOP + 'px'" in CROP
-    assert "vw.style.height = SQUARE_SIZE + 'px'" in CROP
+    # Window height is always the square — never FRAME_H on toggle
+    assert "return SQUARE_SIZE;" in CROP
+    assert "borderEnabled ? SQUARE_SIZE : FRAME_H" not in CROP
+    # Toggle must not expand the video window or refit crop
+    tidx = CROP.index("function toggleBorder")
+    tend = CROP.index("// -- Drag --", tidx)
+    toggle = CROP[tidx:tend]
+    assert "vw.style.top" not in toggle
+    assert "vw.style.height" not in toggle
+    assert "fitCropToWindow" not in toggle
+    # Captions remain; bottom plate goes transparent when off
+    assert "cap.style.visibility = 'visible'" in toggle
+    assert "botBar.style.background = 'transparent'" in toggle
+    # buildUI still places the fixed square window
+    assert "BAR_TOP" in CROP and "SQUARE_SIZE" in CROP
 
 
 def test_border_off_encode_uses_rect_crop_not_square():
+    """Encode path still supports border_enabled=false full-frame vertical (unchanged)."""
     assert "def _rect_crop_expr" in VOICE
     assert "_rect_crop_expr(src_w, src_h, src_x, src_y)" in VOICE
     # The no-border vertical branch must not square-crop
