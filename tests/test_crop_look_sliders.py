@@ -138,6 +138,8 @@ def test_encode_fps_prefers_source_rate():
 
 
 def test_crop_preview_identity_clears_css():
-    assert "img.style.filter = 'none'" in CROP or 'img.style.filter = "none"' in CROP
+    # Media may be <video> or <img>; identity clears CSS filter on either
+    assert "style.filter = 'none'" in CROP or 'style.filter = "none"' in CROP
     assert "identity — no color grade" in CROP
+    assert "frameMediaEl" in CROP
 

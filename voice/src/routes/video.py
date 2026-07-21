@@ -482,12 +482,25 @@ async def video_info(request: Request, filename: str = ""):
         if abs(rot) % 180 == 90:
             w, h = h, w
 
+        # Duration: format first, then stream. Guard N/A / empty so the crop
+        # scrubber never gets max=0 (range pegged at left).
+        def _dur(val) -> float:
+            try:
+                if val is None or val == "" or val == "N/A":
+                    return 0.0
+                d = float(val)
+                return d if d > 0 and d == d else 0.0  # NaN check
+            except (TypeError, ValueError):
+                return 0.0
+
+        duration = _dur(fmt.get("duration")) or _dur(stream.get("duration"))
+
         return {
             "filename": filename,
             "width": w,
             "height": h,
             "rotation": rot,
-            "duration": float(fmt.get("duration", stream.get("duration", 0))),
+            "duration": duration,
         }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
