@@ -186,6 +186,21 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
     touch-action: none;
     user-select: none;
     z-index: 1;
+    background: #0a0a0f;
+}
+.video-window.media-loading::after {
+    content: 'Loading preview…';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: #666;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+    z-index: 2;
+    background: rgba(10, 10, 15, 0.55);
 }
 .video-window:active { cursor: grabbing; }
 .video-window img,
@@ -433,6 +448,10 @@ function streamUrlFor(filename) {
 async function init() {
     const container = document.getElementById('main-content');
     if (!stem) { container.innerHTML = '<div class="loading">No video stem.</div>'; return; }
+    // Visible immediately — first /proxy/info on presence may cold-pull the file.
+    if (container && container.classList.contains('loading')) {
+        container.innerHTML = '<div class="loading">Loading video info…</div>';
+    }
 
     // If no approved moments, redirect to moments review to make selections —
     // UNLESS we're in whole-video mode (#D5), where the single clip is the video
@@ -550,13 +569,12 @@ function buildUI(streamUrl, stillUrl) {
     // step fine enough for short clips; whole seconds only when long
     const seekStep = dur <= 30 ? 0.1 : 1;
     const seekMax = Math.max(seekStep, dur);
-    // Native video for color (browser HDR tone-map). Poster is ONLY an interim
-    // placeholder so the window is not solid black before the first decoded
-    // frame; ensureVideoPaints removes it once videoWidth > 0. Size+transform
-    // still apply immediately so we never show an unsized 2160px corner.
+    // Native video for color (browser HDR tone-map). Do NOT use /proxy/frame as
+    // poster: on presence NC the still path pulls+ffmpeg and can stall a minute,
+    // while ranged /proxy/raw usually paints sooner. Loading chrome is CSS-only;
+    // JPEG still is error fallback only. Size+transform apply immediately.
     const mediaHtml = streamUrl
         ? `<video id="frame-video" class="frame-media" muted playsinline preload="auto"
-                poster="${stillUrl || ''}"
                 src="${streamUrl}"
                 onloadedmetadata="onFrameMediaReady()"
                 onloadeddata="onFrameMediaReady()"
@@ -569,7 +587,7 @@ function buildUI(streamUrl, stillUrl) {
         <div>
             <div class="crop-frame-outer" id="crop-frame-outer">
                 <div class="bar-top" id="bar-top" style="height:${topH}px"></div>
-                <div class="video-window" id="video-window" style="top:${topH}px;height:${vwH}px">
+                <div class="video-window media-loading" id="video-window" style="top:${topH}px;height:${vwH}px">
                     ${mediaHtml}
                 </div>
                 <div class="bar-bottom" id="bar-bottom" style="height:${botH}px">
@@ -771,7 +789,11 @@ function onFrameMediaReady() {
     updatePos();
     applyLookPreview();
     const v = document.getElementById('frame-video');
-    if (!v) return;
+    if (!v) {
+        const img = document.getElementById('frame-img');
+        if (img && img.naturalWidth) clearMediaLoading();
+        return;
+    }
 
     // Prefer media duration when probe was wrong / zero (unpegs scrubber)
     if (Number.isFinite(v.duration) && v.duration > 0.05) {
@@ -793,19 +815,23 @@ function onFrameMediaReady() {
         }
     }
 
-    // Force a decoded frame into the element. Without poster, a paused video that
-    // never paints reads as a solid black window (fit can be correct, pixels empty).
+    // Force a decoded frame into the element. Loading chrome clears once videoWidth > 0.
     ensureVideoPaints(v);
 }
 
-let _paintTries = 0;
 let _paintKickFor = null;
+function clearMediaLoading() {
+    const vw = document.getElementById('video-window');
+    if (vw) vw.classList.remove('media-loading');
+}
+
 function ensureVideoPaints(v) {
     if (!v || v.tagName !== 'VIDEO') return;
     // One kick per element instance — metadata/data/canplay all funnel here.
     if (_paintKickFor === v && v.dataset && v.dataset.paintKicked === '1') {
         updatePos();
         applyLookPreview();
+        if (v.videoWidth > 0) clearMediaLoading();
         return;
     }
     _paintKickFor = v;
@@ -818,15 +844,12 @@ function ensureVideoPaints(v) {
     if (!Number.isFinite(t) || t < 0) t = 0;
     // Zero can stay blank on some decoders; nudge into the clip.
     const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : (videoInfo && videoInfo.duration) || 0;
-    if (t <= 0 && dur > 0) t = Math.min(0.001, dur / 2);
-    if (dur > 0) t = Math.min(t, Math.max(0, dur - 0.001));
+    if (t <= 0 && dur > 0) t = Math.min(Math.max(0.05, dur / 2), Math.max(0, dur - 0.05));
+    if (dur > 0) t = Math.min(Math.max(0, t), Math.max(0, dur - 0.001));
 
     const finish = () => {
         try { v.pause(); } catch (e) { /* ignore */ }
-        // Drop poster once we have real pixels so washed JPEG does not stick.
-        if (v.videoWidth > 0) {
-            try { v.removeAttribute('poster'); } catch (e) { /* ignore */ }
-        }
+        if (v.videoWidth > 0) clearMediaLoading();
         updatePos();
         applyLookPreview();
     };
@@ -857,23 +880,17 @@ function ensureVideoPaints(v) {
         }
     };
     kick();
-
-    // If still no pixels shortly, fall back to JPEG still (better than black).
-    _paintTries += 1;
-    const tries = _paintTries;
-    setTimeout(() => {
-        if (tries !== _paintTries) return;
-        if (document.getElementById('frame-video') === v && (!v.videoWidth || v.readyState < 2)) {
-            onFrameVideoError();
-        }
-    }, 2500);
+    // NO timed fallback to JPEG still. Cold NC/raw can take well over 2.5s;
+    // replacing the <video> with /proxy/frame caused the multi-minute stall and
+    // left crop on the washed still path (frame-video null). Only onerror falls back.
 }
 
 function onFrameVideoError() {
-    // Fall back to JPEG still if stream fails (rare; NC not ready, etc.)
+    // Fall back to JPEG still only when the stream actually errors.
     const vw = document.getElementById('video-window');
     const bad = document.getElementById('frame-video');
     if (!vw || !bad || !videoInfo) return;
+    if (vw) vw.classList.add('media-loading');
     const t = (() => {
         const s = document.getElementById('seek-slider');
         return s ? parseFloat(s.value) : seekMid();
@@ -882,7 +899,8 @@ function onFrameVideoError() {
     img.id = 'frame-img';
     img.className = 'frame-media';
     img.src = `/api/video/proxy/frame?filename=${encodeURIComponent(videoInfo.filename)}&t=${t}`;
-    img.onload = () => onFrameMediaReady();
+    img.onload = () => { clearMediaLoading(); onFrameMediaReady(); };
+    img.onerror = () => { clearMediaLoading(); };
     bad.replaceWith(img);
 }
 
@@ -891,16 +909,15 @@ function setupFrameMedia() {
     updatePos();
     applyLookPreview();
     const v = document.getElementById('frame-video');
-    if (!v) return;
+    if (!v) {
+        // Still-only path (no stream url)
+        const img = document.getElementById('frame-img');
+        if (img && img.complete && img.naturalWidth) clearMediaLoading();
+        return;
+    }
     // Metadata may already be available (cache); otherwise attribute handlers fire.
     if (v.readyState >= 1) onFrameMediaReady();
-    // Hard guard: if nothing decodes, leave black for at most ~2.5s then still.
-    setTimeout(() => {
-        const cur = document.getElementById('frame-video');
-        if (cur === v && (!v.videoWidth || v.readyState < 2)) {
-            onFrameVideoError();
-        }
-    }, 2500);
+    if (v.videoWidth > 0) clearMediaLoading();
 }
 
 function onZoom(val) {
