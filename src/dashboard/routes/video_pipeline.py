@@ -1452,6 +1452,65 @@ async def list_processing(request: Request):
     return {"files": files}
 
 
+
+@router.post("/heal-inbox-processing")
+async def heal_inbox_processing(request: Request):
+    """One-shot: move/clear inbox duals for stems that already have transcripts.
+
+    Body optional: { "filename": "short-horses.mov" } for one file.
+    Empty body heals every video still in inbox that has a matching transcript.
+    Proxies the lifecycle heal through voice (owns NC WebDAV + mount).
+    """
+    import httpx
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    filename = (body.get("filename") or "").strip()
+    targets = []
+    if filename:
+        targets = [filename]
+    else:
+        inbox = await _list_video_dir(request, "inbox")
+        # Only heal videos that already have a transcript (post-transcribe stuck)
+        tfiles = await _list_video_dir(request, "transcripts")
+        stems_with_t = set()
+        for f in tfiles:
+            name = f.get("filename") or ""
+            if name.endswith("-transcript.json") and not name.endswith("-edited.json"):
+                stems_with_t.add(name.replace("-transcript.json", ""))
+        for f in inbox:
+            name = f.get("filename") or ""
+            stem = name.rsplit(".", 1)[0] if "." in name else name
+            if stem in stems_with_t:
+                targets.append(name)
+
+    _nch = await pipecat_nc_headers(request)
+    results = []
+    async with httpx.AsyncClient(timeout=600) as client:
+        for name in targets:
+            try:
+                resp = await client.post(
+                    f"{PIPECAT_URL}/api/video/heal-inbox-processing",
+                    json={"filename": name},
+                    headers=_nch or {},
+                )
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = {"error": resp.text[:200], "status": resp.status_code}
+                results.append({"filename": name, **(data if isinstance(data, dict) else {"raw": data})})
+            except Exception as e:
+                results.append({"filename": name, "ok": False, "reason": str(e)})
+    cleared = sum(1 for r in results if r.get("inbox_cleared") or r.get("ok"))
+    return {
+        "targets": len(targets),
+        "cleared_or_ok": cleared,
+        "results": results,
+    }
+
+
 @router.get("/transcripts")
 async def list_transcripts(request: Request):
     """List available transcripts and their analysis status (founder mount or NC)."""

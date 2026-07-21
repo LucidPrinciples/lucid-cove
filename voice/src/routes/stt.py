@@ -318,6 +318,24 @@ async def transcribe_video(request: Request):
         # missing (transcript still valid; the source is preserved in inbox/).
         transcript["processing_copy_ok"] = processing_copy_ok
 
+        # Lifecycle: original must leave inbox once processing/ has it.
+        # Copy-fallback left dual copies and the board kept listing Inbox forever.
+        try:
+            from src.video_lifecycle import ensure_inbox_cleared_after_processing
+            heal = await ensure_inbox_cleared_after_processing(video_name, nc=nc)
+            transcript["lifecycle_heal"] = heal
+            if heal.get("inbox_cleared") and heal.get("in_processing"):
+                transcript["processing_copy_ok"] = True
+                transcript["video_location"] = f"{NC_VIDEO_PATH}/processing/{video_name}"
+            elif not heal.get("in_processing"):
+                logger.warning(
+                    "post-transcribe lifecycle heal did not confirm processing/: %s",
+                    heal,
+                )
+        except Exception as heal_err:
+            logger.warning("post-transcribe lifecycle heal error: %s", heal_err)
+            transcript["lifecycle_heal"] = {"ok": False, "reason": str(heal_err)}
+
         return JSONResponse(transcript)
 
     except Exception as e:
