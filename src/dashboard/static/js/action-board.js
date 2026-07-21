@@ -89,7 +89,13 @@ function renderActions(container, actions, scheduled) {
         .map(([id, v]) => ({ id, label: v.label, count: v.items.length, items: v.items }));
     const socialTotal = socialSubs.reduce((n, s) => n + s.count, 0);
     if (socialTotal > 0) {
-        tabs.push({ id: 'social', label: '📡 Social Posts', count: socialTotal, subtabs: socialSubs });
+        tabs.push({
+            id: 'social',
+            label: '📡 Social Posts',
+            count: socialTotal,
+            subtabs: socialSubs,
+            showLegend: true,
+        });
     }
 
     // Other categories (tasks, internal, etc.)
@@ -110,6 +116,10 @@ function renderActions(container, actions, scheduled) {
     tabs.forEach((tab, i) => {
         const display = i === 0 ? '' : 'display:none;';
         html += `<div class="ab-act-panel" id="ab-act-panel-${tab.id}" style="${display}">`;
+
+        if (tab.showLegend) {
+            html += _socialBoardLegendHtml();
+        }
 
         if (tab.subtabs) {
             // Sub-tab bar
@@ -180,11 +190,73 @@ function _openWizardAtStep(toolId, param, stepId, stepPage) {
     openFlowOverlay(url, 'ab-actions', toolId);
 }
 
+/** Classify a social/scheduled card for board shading + legend.
+ *  post_mode: api (auto upload) vs paste (manual).
+ *  length_class: short vs long.
+ */
+function _cardPostClass(item) {
+    if (!item) return { mode: '', length: '', classes: '' };
+    let mode = (item.post_mode || '').toLowerCase();
+    let length = (item.length_class || '').toLowerCase();
+    const plat = (item.platform || item.source || '').toLowerCase();
+    const dur = Number(item.duration_seconds || item.duration || 0);
+    const clip = (item.clip_type || '').toLowerCase();
+    const fmt = (item.format || '').toLowerCase();
+
+    if (!mode) {
+        if (item.type === 'youtube-short' || plat === 'youtube' || plat.includes('youtube')) {
+            mode = 'api';
+        } else if (plat === 'x' || plat.includes('x-post') || plat === 'social-x') {
+            const isLong = clip === 'full' || dur > 140;
+            mode = isLong ? 'paste' : 'api';
+        } else if (plat && (plat.includes('tiktok') || plat.includes('instagram') || plat.includes('facebook'))) {
+            mode = 'paste';
+        }
+    }
+    if (!length) {
+        if (item.is_short === true) length = 'short';
+        else if (item.is_short === false) length = 'long';
+        else if (clip === 'full' || fmt === 'horizontal' || dur > 140) length = 'long';
+        else if (item.type === 'youtube-short' || fmt === 'vertical' || fmt === 'square' || dur > 0) length = 'short';
+    }
+
+    const classes = [
+        mode === 'api' ? 'ab-post-api' : '',
+        mode === 'paste' ? 'ab-post-paste' : '',
+        length === 'short' ? 'ab-len-short' : '',
+        length === 'long' ? 'ab-len-long' : '',
+    ].filter(Boolean).join(' ');
+    return { mode, length, classes };
+}
+
+function _postMetaChips(cls) {
+    if (!cls.mode && !cls.length) return '';
+    const chips = [];
+    if (cls.mode === 'api') chips.push('<span class="ab-meta-chip ab-meta-api" title="API auto-post">API</span>');
+    if (cls.mode === 'paste') chips.push('<span class="ab-meta-chip ab-meta-paste" title="Manual paste / Studio">Paste</span>');
+    if (cls.length === 'short') chips.push('<span class="ab-meta-chip ab-meta-short" title="Short-form">Short</span>');
+    if (cls.length === 'long') chips.push('<span class="ab-meta-chip ab-meta-long" title="Long-form">Long</span>');
+    return chips.length ? `<span class="ab-meta-chips">${chips.join('')}</span>` : '';
+}
+
+/** Compact legend for Social Posts — API vs paste, short vs long. */
+function _socialBoardLegendHtml() {
+    return `<div class="ab-board-legend" role="note" aria-label="Card shading legend">
+        <span class="ab-legend-title">Legend</span>
+        <span class="ab-legend-item"><span class="ab-legend-swatch ab-post-api"></span> API auto</span>
+        <span class="ab-legend-item"><span class="ab-legend-swatch ab-post-paste"></span> Paste / manual</span>
+        <span class="ab-legend-item"><span class="ab-legend-swatch ab-len-short"></span> Short</span>
+        <span class="ab-legend-item"><span class="ab-legend-swatch ab-len-long"></span> Long</span>
+    </div>`;
+}
+
 function _renderActionCards(items) {
     return items.map(a => {
         const urgencyColors = { high: 'var(--red)', normal: 'var(--accent)', low: 'var(--green)' };
         const color = urgencyColors[a.urgency] || 'var(--dim)';
         const series = a.series ? `<span class="ab-action-series">${esc(a.series)}</span>` : '';
+        const postCls = _cardPostClass(a);
+        const metaChips = _postMetaChips(postCls);
 
         // Wizard-resume cards with step indicators (standardized system)
         // Supports both: default_page (new provider system) and tool_id (legacy)
@@ -241,10 +313,10 @@ function _renderActionCards(items) {
         }
 
         return `
-        <div class="ab-action-card" data-id="${esc(a.id)}" ${clickAttr}>
+        <div class="ab-action-card ${postCls.classes}" data-id="${esc(a.id)}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${esc(a.title)}</div>
+                <div class="ab-action-title">${esc(a.title)} ${metaChips}</div>
                 <div class="ab-action-desc">${esc(a.description || '')} ${series}</div>
             </div>
             <span class="ab-action-status-badge ab-status-${esc(a.status || 'draft')}">${esc(a.status || '')}</span>
@@ -260,6 +332,8 @@ function _renderScheduledCards(items) {
         const plat = s.platform || 'youtube';
         const platTag = plat === 'x' ? '<span class="ab-action-series">𝕏</span> '
             : (plat === 'youtube' ? '<span class="ab-action-series">YT</span> ' : '');
+        const postCls = _cardPostClass(s);
+        const metaChips = _postMetaChips(postCls);
 
         let ytLink = '';
         if (s.youtube_video_id) {
@@ -283,10 +357,10 @@ function _renderScheduledCards(items) {
         const err = s.error_message ? ` · ${esc(s.error_message).slice(0, 80)}` : '';
 
         return `
-        <div class="ab-action-card ab-scheduled-card" ${clickAttr}>
+        <div class="ab-action-card ab-scheduled-card ${postCls.classes}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${platTag}${esc(s.title)}${ytLink}</div>
+                <div class="ab-action-title">${platTag}${esc(s.title)}${ytLink} ${metaChips}</div>
                 <div class="ab-action-desc">${esc(s.subtitle)} ${series}${err}</div>
             </div>
             <span class="ab-action-status-badge ab-status-${esc(s.status)}">${esc(s.status)}</span>

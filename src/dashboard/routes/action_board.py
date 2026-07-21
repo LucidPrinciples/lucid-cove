@@ -409,7 +409,7 @@ async def get_actions(request: Request):
             result = await conn.execute(
                 f"""SELECT id, title, description, tags, hashtags, file_path,
                           series, card_id, upload_date, publish_date, status,
-                          related_video, created_at
+                          related_video, created_at, is_short
                    FROM youtube_queue
                    WHERE status = 'draft'{scope_sql}
                    ORDER BY publish_date ASC""",
@@ -419,6 +419,7 @@ async def get_actions(request: Request):
 
             for row in rows:
                 series_labels = {"ras": "RAS", "hltb": "How LT Was Built", "hltagb": "How LT Got Built"}
+                is_short = bool(row["is_short"]) if row["is_short"] is not None else True
                 actions.append({
                     "id": f"yt-short-{row['id']}",
                     "queue_id": row["id"],
@@ -431,6 +432,10 @@ async def get_actions(request: Request):
                     "series": series_labels.get(row["series"], row["series"] or ""),
                     "status": row["status"],
                     "type": "youtube-short",
+                    "platform": "youtube",
+                    "post_mode": "api",
+                    "length_class": "short" if is_short else "long",
+                    "is_short": is_short,
                 })
 
             # CF-1: strict self-scope
@@ -498,6 +503,19 @@ async def get_actions(request: Request):
                 preview = row.get("preview_path") or row.get("file_path") or ""
                 preview_file = preview.rsplit("/", 1)[-1] if preview else ""
 
+                # post_mode: API auto vs manual paste. Matches openSocialDetail rules —
+                # YT always API; X short (<=140s, not full) API; else paste.
+                is_x_long = plat == "x" and (
+                    (clip_type or "") == "full" or dur > 140
+                )
+                if plat == "youtube" or (plat == "x" and not is_x_long):
+                    post_mode = "api"
+                else:
+                    post_mode = "paste"
+                length_class = "long" if (
+                    is_x_long or fmt == "horizontal" or dur > 140
+                ) else "short"
+
                 actions.append({
                     "id": f"sq-{plat}-{row['id']}",
                     "queue_id": row["id"],
@@ -510,6 +528,11 @@ async def get_actions(request: Request):
                     "status": row["status"],
                     "type": "social",
                     "format": fmt,
+                    "platform": plat,
+                    "post_mode": post_mode,
+                    "length_class": length_class,
+                    "duration_seconds": dur,
+                    "clip_type": clip_type,
                 })
     except _SkipPublic:
         pass
@@ -631,7 +654,7 @@ async def get_scheduled(request: Request):
         async with get_db() as conn:
             result = await conn.execute(
                 f"""SELECT id, title, series, status, upload_date, publish_date,
-                          youtube_video_id, youtube_url, uploaded_at
+                          youtube_video_id, youtube_url, uploaded_at, is_short
                    FROM youtube_queue
                    WHERE status IN ('queued', 'uploading', 'uploaded'){scope_sql}
                    ORDER BY upload_date ASC""",
@@ -654,6 +677,8 @@ async def get_scheduled(request: Request):
                 elif row["status"] == "uploaded":
                     subtitle = f"Goes public {_fmt_date(row['publish_date'])}"
 
+                # YT API path is always auto-upload; length from is_short.
+                is_short = bool(row["is_short"]) if row["is_short"] is not None else True
                 scheduled.append({
                     "id": row["id"],
                     "title": row["title"],
@@ -666,6 +691,9 @@ async def get_scheduled(request: Request):
                     "youtube_video_id": row["youtube_video_id"],
                     "platform": "youtube",
                     "source": "youtube_queue",
+                    "post_mode": "api",
+                    "length_class": "short" if is_short else "long",
+                    "is_short": is_short,
                 })
 
             # X (and future API auto platforms) live in social_queue — not youtube_queue.
@@ -688,6 +716,8 @@ async def get_scheduled(request: Request):
                     subtitle = f"𝕏 posts {when}"
                 else:
                     subtitle = "𝕏 uploading now..."
+                # This query only lists API-eligible X shorts (not full / long paste).
+                dur = row.get("duration_seconds") or 0
                 scheduled.append({
                     "id": row["id"],
                     "title": row["title"],
@@ -701,6 +731,10 @@ async def get_scheduled(request: Request):
                     "platform": "x",
                     "source": "social_queue",
                     "error_message": row.get("error_message"),
+                    "post_mode": "api",
+                    "length_class": "short",
+                    "duration_seconds": dur,
+                    "clip_type": row.get("clip_type") or "",
                 })
 
     except Exception:
