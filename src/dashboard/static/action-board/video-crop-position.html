@@ -30,34 +30,134 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
     object-fit: cover;
     display: block;
 }
+.look-block {
+    width: 100%;
+    margin-top: 4px;
+}
+.look-block .section-title {
+    margin-bottom: 8px;
+}
+.look-block .style-chips {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    width: 100%;
+    margin-bottom: 12px;
+}
+.look-block .style-chips .style-chip {
+    flex: 1 1 0;
+    text-align: center;
+    padding: 8px 6px;
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
 .look-sliders {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-top: 10px;
+    gap: 12px;
+    width: 100%;
+    margin-top: 2px;
 }
 .look-slider-row {
     display: grid;
-    grid-template-columns: 72px 1fr 44px;
+    grid-template-columns: 72px minmax(0, 1fr) 48px;
     align-items: center;
-    gap: 8px;
-    font-size: 11px;
+    gap: 10px;
+    font-size: 12px;
     color: #9a9aa8;
+    width: 100%;
 }
 .look-slider-row input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
     width: 100%;
+    min-width: 0;
+    height: 28px;
+    margin: 0;
+    background: transparent;
     accent-color: #5ce1e6;
+    cursor: pointer;
+    touch-action: none;
+}
+.look-slider-row input[type=range]::-webkit-slider-runnable-track {
+    height: 6px;
+    background: #2a2a3a;
+    border-radius: 3px;
+}
+.look-slider-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px;
+    height: 22px;
+    margin-top: -8px;
+    border-radius: 50%;
+    background: #5ce1e6;
+    border: none;
+    box-shadow: 0 0 0 2px rgba(10,10,15,0.9);
+    cursor: pointer;
+}
+.look-slider-row input[type=range]::-moz-range-track {
+    height: 6px;
+    background: #2a2a3a;
+    border-radius: 3px;
+    border: none;
+}
+.look-slider-row input[type=range]::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #5ce1e6;
+    border: none;
+    cursor: pointer;
 }
 .look-slider-row .look-val {
     font-variant-numeric: tabular-nums;
     color: #c8c8d4;
     text-align: right;
+    font-size: 12px;
 }
 .look-nums {
     font-size: 10px;
     color: #666;
-    margin-top: 6px;
+    margin-top: 8px;
     letter-spacing: 0.02em;
+    line-height: 1.35;
+    word-break: break-word;
+}
+@media (max-width: 520px) {
+    body { padding: 12px; }
+    .crop-workspace { gap: 16px; }
+    .controls { min-width: 0; max-width: none; width: 100%; }
+    .look-block .style-chips {
+        flex-wrap: wrap;
+    }
+    .look-block .style-chips .style-chip {
+        flex: 1 1 calc(50% - 6px);
+        min-width: calc(50% - 6px);
+        font-size: 12px;
+        padding: 10px 8px;
+        min-height: 40px;
+    }
+    .look-slider-row {
+        grid-template-columns: 64px minmax(0, 1fr) 44px;
+        gap: 8px;
+    }
+    .look-slider-row input[type=range] {
+        height: 36px;
+    }
+    .look-slider-row input[type=range]::-webkit-slider-thumb {
+        width: 26px;
+        height: 26px;
+        margin-top: -10px;
+    }
+    .look-slider-row input[type=range]::-moz-range-thumb {
+        width: 26px;
+        height: 26px;
+    }
 }
 
 .crop-frame-outer {
@@ -421,8 +521,8 @@ function buildUI(frameUrl) {
                     <input type="range" min="0" max="${Math.floor(videoInfo.duration)}" step="1" value="${Math.floor(videoInfo.duration/2)}" oninput="onSeek(this.value)" />
                     <span class="control-value" id="seek-val">${fmtTime(videoInfo.duration/2)}</span>
                 </div>
-                <div class="control-row">
-                    <label>Look</label>
+                <div class="look-block">
+                    <div class="section-title">Look</div>
                     <div class="style-chips" id="filter-chips">
                         ${VIDEO_FILTER_PRESETS.map(f =>
                             `<div class="style-chip ${videoFilter===f.id?'active':''}" onclick="onVideoFilter('${f.id}')" title="${f.desc}">${f.label}</div>`
