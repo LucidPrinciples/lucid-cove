@@ -21,8 +21,9 @@ router = APIRouter()
 
 
 # Look presets — base brightness/contrast/saturation (+ optional ffmpeg extras).
-# "original" is true source (identity eq). UI sliders override B/C/S; extras stay
-# with the chip (curves / color temp) so Rich/Cinematic keep their character.
+# "original" is TRUE identity: no eq/curves/temp when B/C/S stay at 0/1/1.
+# UI sliders override B/C/S; extras stay with the chip (curves / color temp)
+# so Rich/Cinematic keep their character on the graded path only.
 LOOK_PRESETS = {
     "original": {
         "brightness": 0.0,
@@ -50,6 +51,9 @@ LOOK_PRESETS = {
     },
 }
 
+# Default look for encode when crop/body omits video_filter.
+DEFAULT_VIDEO_FILTER = "original"
+
 
 def _clamp_look_val(name: str, val) -> float:
     try:
@@ -62,17 +66,28 @@ def _clamp_look_val(name: str, val) -> float:
     return max(0.0, min(3.0, x))
 
 
+def _is_identity_look(b: float, c: float, s: float, extra: str = "") -> bool:
+    """True when no color grade should touch the pixels."""
+    if (extra or "").strip():
+        return False
+    return abs(b) < 1e-6 and abs(c - 1.0) < 1e-6 and abs(s - 1.0) < 1e-6
+
+
 def resolve_look_vf(source=None) -> str:
     """Build ffmpeg color filter from preset id + optional B/C/S overrides.
 
     source may be crop_template or the request body. Keys:
       video_filter: original|natural|rich|cinematic
       filter_brightness / filter_contrast / filter_saturation: optional floats
+
+    Returns "" for true identity (Original + untouched sliders) so encode does
+    not run a no-op eq= chain — identity eq still resamples luma/chroma and
+    was washing iPhone 4K footage.
     """
     src = source or {}
-    name = (src.get("video_filter") or "natural").strip().lower()
+    name = (src.get("video_filter") or DEFAULT_VIDEO_FILTER).strip().lower()
     if name not in LOOK_PRESETS:
-        name = "natural"
+        name = DEFAULT_VIDEO_FILTER
     preset = LOOK_PRESETS[name]
 
     def _pick(key: str, filter_key: str) -> float:
@@ -83,13 +98,37 @@ def resolve_look_vf(source=None) -> str:
     b = _pick("brightness", "filter_brightness")
     c = _pick("contrast", "filter_contrast")
     s = _pick("saturation", "filter_saturation")
-    eq = f"eq=contrast={c:.4g}:brightness={b:.4g}:saturation={s:.4g}"
     extra = (preset.get("extra") or "").strip()
+    if _is_identity_look(b, c, s, extra):
+        return ""
+    eq = f"eq=contrast={c:.4g}:brightness={b:.4g}:saturation={s:.4g}"
     if extra:
         return f"{eq},{extra}"
     return eq
 
 
+def hq_scale(w, h) -> str:
+    """High-quality geometric scale — used on every publish path.
+
+    Default ffmpeg scale is bilinear and softens fine detail; lanczos + full
+    chroma interpolation keeps 4K source texture through crop→output.
+    """
+    return (
+        f"scale={int(w)}:{int(h)}:flags=lanczos+accurate_rnd+full_chroma_int"
+        f":force_original_aspect_ratio=disable"
+    )
+
+
+def join_vf(*parts) -> str:
+    """Comma-join non-empty filtergraph segments."""
+    out = []
+    for p in parts:
+        if p is None:
+            continue
+        s = str(p).strip().strip(",")
+        if s:
+            out.append(s)
+    return ",".join(out)
 
 
 def _square_crop_expr(src_w, src_h, src_x, src_y) -> str:
@@ -489,12 +528,12 @@ async def process_moments(request: Request):
 
     # Extract caption template and video filter
     caption = crop.get("caption", {})
-    video_filter = crop.get("video_filter", "natural")
+    video_filter = crop.get("video_filter", DEFAULT_VIDEO_FILTER)
     border_enabled = crop.get("border_enabled", True)
 
     # Look preset + optional B/C/S slider overrides (from crop template)
     vf_color = resolve_look_vf(crop)
-    logger.info(f"Look filter: preset={video_filter} → {vf_color}")
+    logger.info(f"Look filter: preset={video_filter} → {vf_color or 'identity (no eq)'}")
     out_w = crop.get("out_w", 2160)
     out_h = crop.get("out_h", 3840)
     bar_top = crop.get("bar_top_px", 600)
@@ -574,45 +613,46 @@ async def process_moments(request: Request):
 
             try:
                 # Build video filter chain per format
+                # Geometry always runs; color grade only when resolve_look_vf is non-empty.
                 if fmt == "vertical" and border_enabled:
-                    # Crop → scale to square → pad with black bars
+                    # Crop → hq scale to square → pad with black bars → optional look
                     video_h = fmt_out_h - fmt_bar_top - fmt_bar_bot
-                    vf = (
-                        f"{_square_crop_expr(src_w, src_h, src_x, src_y)},"
-                        f"scale={fmt_out_w}:{video_h},"
-                        f"pad={fmt_out_w}:{fmt_out_h}:0:{fmt_bar_top}:black,"
-                        f"{vf_color}"
+                    vf = join_vf(
+                        _square_crop_expr(src_w, src_h, src_x, src_y),
+                        hq_scale(fmt_out_w, video_h),
+                        f"pad={fmt_out_w}:{fmt_out_h}:0:{fmt_bar_top}:black",
+                        vf_color,
                     )
                 elif fmt == "vertical":
                     # Vertical without border — full 9:16 crop
-                    vf = (
-                        f"{_square_crop_expr(src_w, src_h, src_x, src_y)},"
-                        f"scale={fmt_out_w}:{fmt_out_h},"
-                        f"{vf_color}"
+                    vf = join_vf(
+                        _square_crop_expr(src_w, src_h, src_x, src_y),
+                        hq_scale(fmt_out_w, fmt_out_h),
+                        vf_color,
                     )
                 elif fmt == "horizontal":
                     # Pillarboxed: same square crop as vertical, placed in 16:9 frame
                     h_pad_left = (fmt_out_w - h_square) // 2
                     if border_enabled and src_w > 0:
-                        vf = (
-                            f"{_square_crop_expr(src_w, src_h, src_x, src_y)},"
-                            f"scale={h_square}:{h_square},"
-                            f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black,"
-                            f"{vf_color}"
+                        vf = join_vf(
+                            _square_crop_expr(src_w, src_h, src_x, src_y),
+                            hq_scale(h_square, h_square),
+                            f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black",
+                            vf_color,
                         )
                     else:
-                        vf = (
-                            f"crop=min(iw\\,ih):min(iw\\,ih),"
-                            f"scale={h_square}:{h_square},"
-                            f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black,"
-                            f"{vf_color}"
+                        vf = join_vf(
+                            r"crop=min(iw\,ih):min(iw\,ih)",
+                            hq_scale(h_square, h_square),
+                            f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black",
+                            vf_color,
                         )
                 elif fmt == "square":
-                    # Same 1:1 crop as vertical → scale to 1080×1080
-                    vf = (
-                        f"{_square_crop_expr(src_w, src_h, src_x, src_y)},"
-                        f"scale={fmt_out_w}:{fmt_out_h},"
-                        f"{vf_color}"
+                    # Same 1:1 crop as vertical → hq scale to output square
+                    vf = join_vf(
+                        _square_crop_expr(src_w, src_h, src_x, src_y),
+                        hq_scale(fmt_out_w, fmt_out_h),
+                        vf_color,
                     )
 
                 af = (
@@ -655,8 +695,13 @@ async def process_moments(request: Request):
                     # audio so the track doesn't drift out of sync on the re-encode.
                     "-vsync", "cfr", "-r", "30",
                     "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-                    "-preset", "medium", "-crf", "18",
-                    "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+                    # CRF 16 keeps fine texture after crop/scale; bt709 tags stop
+                    # players from mis-reading limited-range as washed full-range.
+                    "-preset", "slow", "-crf", "16",
+                    "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+                    "-colorspace", "bt709", "-color_primaries", "bt709",
+                    "-color_trc", "bt709", "-color_range", "tv",
+                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                     "-movflags", "+faststart",
                     out_tmp,
                 ]
@@ -1013,7 +1058,7 @@ async def caption_full_video(request: Request):
     Body: {
         "stem": "IMG_7129",
         "caption": { fontSize, fontFamily, color, stroke, font, style },  // optional
-        "video_filter": "natural"  // optional
+        "video_filter": "original"  // optional — identity when omitted
     }
 
     Returns: { "filename": "...", "nc_path": "...", "size_mb": ..., "duration": ... }
@@ -1170,14 +1215,14 @@ async def caption_full_video(request: Request):
         }
 
     # Look preset + optional B/C/S overrides (body and/or crop_template)
-    video_filter = body.get("video_filter") or (body.get("crop_template") or {}).get("video_filter") or "natural"
+    video_filter = body.get("video_filter") or (body.get("crop_template") or {}).get("video_filter") or DEFAULT_VIDEO_FILTER
     look_src = dict(body.get("crop_template") or {})
     look_src["video_filter"] = video_filter
     for k in ("filter_brightness", "filter_contrast", "filter_saturation"):
         if k in body and body.get(k) is not None:
             look_src[k] = body.get(k)
     vf_color = resolve_look_vf(look_src)
-    logger.info(f"Look filter (caption-full): preset={video_filter} → {vf_color}")
+    logger.info(f"Look filter (caption-full): preset={video_filter} → {vf_color or 'identity (no eq)'}")
 
     # Output: 4K horizontal with crop position + caption bar
     fmt_out_w = 3840
@@ -1231,25 +1276,26 @@ async def caption_full_video(request: Request):
         )
 
         if has_crop:
-            # Crop to operator's square → scale to match vertical proportions → pillarbox
-            vf = (
-                f"{_square_crop_expr(src_w, src_h, src_x, src_y)},"
-                f"scale={h_square}:{h_square},"
-                f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black,"
-                f"{vf_color}"
+            # Crop to operator's square → hq scale → pillarbox → optional look
+            vf = join_vf(
+                _square_crop_expr(src_w, src_h, src_x, src_y),
+                hq_scale(h_square, h_square),
+                f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black",
+                vf_color,
             )
             logger.info(
                 f"Caption-full: crop {src_w}x{src_h}@{src_x},{src_y} → "
                 f"square {h_square}px → pillarbox {fmt_out_w}x{fmt_out_h} "
-                f"(left={pad_left}, top={h_bar_top}, bot={h_bar_bot})"
+                f"(left={pad_left}, top={h_bar_top}, bot={h_bar_bot}); "
+                f"look={vf_color or 'identity'}"
             )
         else:
             # Fallback: center-crop to square from source, then same layout
-            vf = (
-                f"crop=min(iw\\,ih):min(iw\\,ih),"
-                f"scale={h_square}:{h_square},"
-                f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black,"
-                f"{vf_color}"
+            vf = join_vf(
+                r"crop=min(iw\,ih):min(iw\,ih)",
+                hq_scale(h_square, h_square),
+                f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black",
+                vf_color,
             )
 
         if ass_path:
@@ -1277,10 +1323,14 @@ async def caption_full_video(request: Request):
             # iPhone 4K is VFR — force CFR + resampled audio to keep A/V in sync.
             "-vsync", "cfr", "-r", "30",
             "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-            "-preset", "medium", "-crf", "20",
-            "-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+            # Match short quality bar: slow + CRF 17 + explicit bt709 tags.
+            "-preset", "slow", "-crf", "17",
+            "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
+            "-colorspace", "bt709", "-color_primaries", "bt709",
+            "-color_trc", "bt709", "-color_range", "tv",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
             "-movflags", "+faststart",
-            "-threads", "4",
+            "-threads", "0",
             out_tmp,
         ]
 

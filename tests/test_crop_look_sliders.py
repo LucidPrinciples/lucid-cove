@@ -19,15 +19,27 @@ def _load_resolve():
     return ns["resolve_look_vf"], ns["LOOK_PRESETS"]
 
 
-def test_original_is_identity_eq():
+def test_original_is_true_identity():
     resolve, _ = _load_resolve()
     vf = resolve({"video_filter": "original"})
-    assert vf.startswith("eq=")
-    assert "contrast=1" in vf
-    assert "brightness=0" in vf
-    assert "saturation=1" in vf
-    assert "curves" not in vf
-    assert "colortemperature" not in vf
+    assert vf == ""
+    vf2 = resolve({
+        "video_filter": "original",
+        "filter_brightness": 0,
+        "filter_contrast": 1,
+        "filter_saturation": 1,
+    })
+    assert vf2 == ""
+    # Slider nudge leaves identity path
+    graded = resolve({
+        "video_filter": "original",
+        "filter_brightness": -0.05,
+        "filter_contrast": 1.1,
+        "filter_saturation": 1.0,
+    })
+    assert graded.startswith("eq=")
+    assert "brightness=-0.05" in graded
+    assert "curves" not in graded
 
 
 def test_rich_keeps_curves_extra():
@@ -76,3 +88,31 @@ def test_voice_uses_resolve_look_vf():
     assert "VIDEO_FILTERS" not in text
     assert "resolve_look_vf(crop)" in text
     assert text.count("resolve_look_vf") >= 3
+
+
+def test_hq_scale_and_join_vf():
+    text = VOICE_VIDEO.read_text()
+    start = text.index("LOOK_PRESETS = {")
+    end = text.index("def _square_crop_expr")
+    ns = {}
+    exec(text[start:end], ns)
+    assert "lanczos" in ns["hq_scale"](2160, 1620)
+    assert ns["join_vf"]("crop=1", "", None, "eq=x") == "crop=1,eq=x"
+    assert ns["join_vf"]("crop=1", "") == "crop=1"
+
+
+def test_encode_defaults_original_and_quality():
+    text = VOICE_VIDEO.read_text()
+    assert 'DEFAULT_VIDEO_FILTER = "original"' in text
+    assert "flags=lanczos" in text
+    assert '"-crf", "16"' in text
+    assert "colorprim=bt709" in text
+    assert 'crop.get("video_filter", DEFAULT_VIDEO_FILTER)' in text
+    # identity path must not force eq onto original
+    assert 'return ""' in text[text.index("def resolve_look_vf"):text.index("def hq_scale")]
+
+
+def test_crop_preview_identity_clears_css():
+    assert "img.style.filter = 'none'" in CROP or 'img.style.filter = "none"' in CROP
+    assert "identity — no color grade" in CROP
+
