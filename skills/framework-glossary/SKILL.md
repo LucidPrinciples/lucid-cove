@@ -27,6 +27,7 @@ Exact-enough definitions for teaching and product prose. For deep theory, open t
 | **Cove** | One family's instance: agents, data, tuning |
 | **Presence** | Operator + their Agent as a unit |
 | **Operator** | The human in a Presence |
+| **Jules** | A *tool* (Julian the Scribe manages it), not an agent. A **jules** is a capture of the **Operator's actual spoken words** (recording + transcript). "From Jules" / "Jules said" / "agreed with Jules" always means the **Operator** said it. Never an agent named Jules; never Julian-as-Jules. |
 | **Steward** | Family-operations agent role (Stuart is the template) |
 | **Merchant** | Commerce/marketing agent role (Mercer is the template) |
 | **Drop** | Daily public coherence signal agents apply via LTP |

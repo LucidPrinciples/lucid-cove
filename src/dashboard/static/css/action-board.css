@@ -183,6 +183,73 @@
 .ab-status-queued { color: var(--green); background: rgba(76,175,80,0.15); }
 .ab-status-failed { color: var(--red); background: rgba(244,67,54,0.15); }
 
+/* ── Social card shading: API vs paste, short vs long ─────────
+   Left edge = post mode (how it leaves the Cove).
+   Soft fill tint = length class (short-form vs long-form).
+   Status badge + urgency strip stay as-is. */
+.ab-action-card.ab-post-api {
+  border-left: 3px solid #3d8bfd;
+}
+.ab-action-card.ab-post-paste {
+  border-left: 3px solid #c9a227;
+}
+.ab-action-card.ab-len-short {
+  background: color-mix(in srgb, #3d8bfd 7%, var(--card2));
+}
+.ab-action-card.ab-len-long {
+  background: color-mix(in srgb, #9b6bff 8%, var(--card2));
+}
+.ab-action-card.ab-post-api.ab-len-short:hover,
+.ab-action-card.ab-post-paste.ab-len-short:hover,
+.ab-action-card.ab-post-api.ab-len-long:hover,
+.ab-action-card.ab-post-paste.ab-len-long:hover {
+  background: var(--card);
+}
+
+.ab-meta-chips {
+  display: inline-flex; gap: 0.25rem; margin-left: 0.35rem;
+  vertical-align: middle; flex-wrap: wrap;
+}
+.ab-meta-chip {
+  font-size: 0.55rem; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; padding: 0.08rem 0.35rem; border-radius: 3px;
+  border: 1px solid var(--border); color: var(--dim); background: var(--bg);
+}
+.ab-meta-chip.ab-meta-api { color: #7eb6ff; border-color: rgba(61,139,253,0.45); }
+.ab-meta-chip.ab-meta-paste { color: #e0c36a; border-color: rgba(201,162,39,0.45); }
+.ab-meta-chip.ab-meta-short { color: #8ec5ff; border-color: rgba(61,139,253,0.35); }
+.ab-meta-chip.ab-meta-long { color: #c4a8ff; border-color: rgba(155,107,255,0.4); }
+
+.ab-board-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem 0.9rem;
+  margin: 0 0 0.65rem; padding: 0.45rem 0.65rem;
+  border: 1px dashed var(--border); border-radius: 6px;
+  background: rgba(255,255,255,0.02); font-size: 0.65rem; color: var(--dim);
+}
+.ab-legend-title {
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text); margin-right: 0.15rem;
+}
+.ab-legend-item {
+  display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;
+}
+.ab-legend-swatch {
+  width: 14px; height: 10px; border-radius: 2px; flex-shrink: 0;
+  border: 1px solid var(--border); display: inline-block;
+}
+.ab-legend-swatch.ab-post-api {
+  background: transparent; border-left: 3px solid #3d8bfd; border-color: var(--border);
+}
+.ab-legend-swatch.ab-post-paste {
+  background: transparent; border-left: 3px solid #c9a227; border-color: var(--border);
+}
+.ab-legend-swatch.ab-len-short {
+  background: color-mix(in srgb, #3d8bfd 35%, var(--card2));
+}
+.ab-legend-swatch.ab-len-long {
+  background: color-mix(in srgb, #9b6bff 40%, var(--card2));
+}
+
 /* ── Links grid ────────────────────────────────────────────── */
 .ab-link-category {
   font-size: 0.65rem; font-weight: 700; text-transform: uppercase;

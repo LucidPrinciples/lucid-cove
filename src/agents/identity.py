@@ -184,6 +184,28 @@ def _identity_directive(name: str, archetype: str) -> str:
     return MODEL_AGNOSTIC_IDENTITY.format(name=name or "this observer", archetype=archetype or "an observer of this Cove")
 
 
+# Product vocabulary injected into EVERY agent's system prompt. Compaction and
+# thread summaries drift here constantly (e.g. "agreed with Jules" read as an
+# agent). Keep this block short, hard, and model-agnostic.
+SHARED_PRODUCT_VOCAB = (
+    "## Shared product vocabulary (non-negotiable)\n"
+    "**Jules** is a *tool*, not an agent and not a person. Julian (the Scribe) "
+    "owns/manages the Jules tool; the product is name-forward today and still "
+    "being built out. A **jules** (lowercase when speaking of an instance) is a "
+    "capture of the **Operator's actual spoken words** — a voice recording plus "
+    "its transcript. When a summary, memory, or teammate says something was "
+    "\"from Jules,\" \"agreed with Jules,\" or \"Jules said,\" that always means "
+    "the **Operator** said it (via a jules transcript). Never invent an agent "
+    "named Jules. Never treat Julian and Jules as the same observer. Never "
+    "attribute a jules's content to any digital observer."
+)
+
+
+def _shared_product_vocab_block() -> str:
+    """Cove-wide terms every agent must not scramble after rotation/compaction."""
+    return SHARED_PRODUCT_VOCAB
+
+
 def get_family_defaults() -> dict:
     """Load the defaults section from config."""
     for fname in ["agent.yaml", "agents.yaml"]:
@@ -450,6 +472,9 @@ def build_system_prompt(
     _charter = _charter_block()
     if _charter:
         prompt_parts.append(f"\n{_charter}")
+
+    # ── 1c. Shared product vocabulary (Jules = Operator transcript tool, etc.)
+    prompt_parts.append(f"\n{_shared_product_vocab_block()}")
 
     # ── 2. Persona (soul doc content) ────────────────────────────────────────
     if persona:
