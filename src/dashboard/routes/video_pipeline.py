@@ -1514,7 +1514,10 @@ async def proxy_video_stream(filename: str = ""):
 
     # No local existence check — /proxy/raw resolves the source (founder mount OR the
     # presence's NC via pipecat). The player only needs to render and point at it.
-    source_type = "video/mp4"
+    _ext = os.path.splitext(filename)[1].lower()
+    _types = {".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+              ".mkv": "video/x-matroska", ".avi": "video/x-msvideo"}
+    source_type = _types.get(_ext, "video/mp4")
 
     html = f"""<!DOCTYPE html>
 <html><head>
@@ -1555,7 +1558,19 @@ async def proxy_video_raw(request: Request, filename: str = ""):
     # Founder mount fast-path
     video_path = _find_video_file(filename)
     if video_path:
-        return FileResponse(video_path, media_type="video/mp4", filename=filename)
+        ext = os.path.splitext(filename)[1].lower()
+        _raw_types = {
+            ".mp4": "video/mp4",
+            ".mov": "video/quicktime",
+            ".webm": "video/webm",
+            ".mkv": "video/x-matroska",
+            ".avi": "video/x-msvideo",
+        }
+        return FileResponse(
+            video_path,
+            media_type=_raw_types.get(ext, "video/mp4"),
+            filename=filename,
+        )
 
     # Presence path — stream through pipecat (it has the NC creds + WebDAV access)
     import httpx
