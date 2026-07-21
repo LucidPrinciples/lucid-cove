@@ -112,11 +112,71 @@ def hq_scale(w, h) -> str:
 
     Default ffmpeg scale is bilinear and softens fine detail; lanczos + full
     chroma interpolation keeps 4K source texture through crop→output.
+    in/out_color_matrix=auto avoids an accidental bt601↔bt709 matrix swap
+    mid-graph (a common pink/green cast after crop→scale→pad).
     """
     return (
         f"scale={int(w)}:{int(h)}:flags=lanczos+accurate_rnd+full_chroma_int"
+        f":in_color_matrix=auto:out_color_matrix=auto"
         f":force_original_aspect_ratio=disable"
     )
+
+
+def probe_video_fps(video_path: str) -> float | None:
+    """Best-effort constant fps for CFR output. None → let encoder decide.
+
+    Forcing 30fps on 24/60fps iPhone sources re-times every frame and looks
+    soft next to QuickTime 'same as original'. Prefer source rate when known.
+    """
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=avg_frame_rate,r_frame_rate",
+                "-of", "default=nw=1",
+                video_path,
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        rates = {}
+        for line in (probe.stdout or "").splitlines():
+            if "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            rates[k.strip()] = (v or "").strip()
+        for key in ("avg_frame_rate", "r_frame_rate"):
+            raw = rates.get(key) or ""
+            if not raw or raw in ("0/0", "N/A"):
+                continue
+            if "/" in raw:
+                num_s, _, den_s = raw.partition("/")
+                try:
+                    num, den = float(num_s), float(den_s)
+                except ValueError:
+                    continue
+                if den <= 0 or num <= 0:
+                    continue
+                fps = num / den
+            else:
+                try:
+                    fps = float(raw)
+                except ValueError:
+                    continue
+            if 5.0 <= fps <= 120.0:
+                return round(fps, 3)
+    except Exception as e:
+        logger.warning("probe_video_fps failed for %s: %s", video_path, e)
+    return None
+
+
+def encode_fps_args(video_path: str) -> list:
+    """CFR args that preserve source cadence when probeable."""
+    fps = probe_video_fps(video_path)
+    if fps:
+        # vsync cfr + explicit -r matching source (not hard-coded 30).
+        return ["-vsync", "cfr", "-r", f"{fps:g}"]
+    # Unknown rate: still CFR, but don't invent 30fps.
+    return ["-vsync", "cfr"]
 
 
 def join_vf(*parts) -> str:
@@ -197,16 +257,70 @@ def is_hdr_color(info: dict | None) -> bool:
     return "hlg" in trc or "smpte2084" in trc
 
 
-def hdr_to_sdr_vf(*, for_still: bool = False) -> str:
+def _hdr_input_zscale_params(color_info: dict | None) -> str:
+    """Declare HLG/PQ + bt2020 on the FIRST zscale so tonemap isn't guessing.
+
+    A bare `zscale=t=linear` without tin/min/pin left ffmpeg free to mis-read
+    the transfer/primaries. Wrong input matrix on HLG iPhone shows up as a
+    magenta/red cast + washed mids next to the browser player (which tone-maps
+    correctly from the stream tags).
+    """
+    info = color_info or {}
+    trc = (info.get("color_transfer") or "").strip().lower()
+    prim = (info.get("color_primaries") or "").strip().lower()
+    spc = (info.get("color_space") or "").strip().lower()
+    rng_in = (info.get("color_range") or "").strip().lower()
+
+    if trc in ("arib-std-b67",) or "hlg" in trc:
+        tin = "arib-std-b67"
+    elif trc in ("smpte2084",) or "smpte2084" in trc:
+        tin = "smpte2084"
+    elif trc in ("smpte428",):
+        tin = "smpte428"
+    else:
+        # is_hdr_color already true — prefer HLG (iPhone path)
+        tin = "arib-std-b67"
+
+    if "2020" in prim or prim in ("bt2020",):
+        pin = "bt2020"
+    else:
+        pin = "bt2020"
+
+    if "2020" in spc or spc in ("bt2020nc", "bt2020c", "bt2020"):
+        min_m = "bt2020nc" if "c" not in spc or "nc" in spc else "bt2020c"
+        if spc in ("bt2020c",):
+            min_m = "bt2020c"
+        else:
+            min_m = "bt2020nc"
+    else:
+        min_m = "bt2020nc"
+
+    # iPhone HLG is almost always limited/tv; be explicit so zscale doesn't
+    # treat the signal as full-range and crush/lift the wrong way.
+    rin = "tv"
+    if rng_in in ("pc", "jpeg", "full"):
+        rin = "pc"
+    elif rng_in in ("tv", "mpeg", "limited"):
+        rin = "tv"
+
+    return f"tin={tin}:min={min_m}:pin={pin}:rin={rin}"
+
+
+def hdr_to_sdr_vf(color_info: dict | None = None, *, for_still: bool = False) -> str:
     """HLG/PQ → display-referred bt709 SDR (zscale + hable tonemap).
 
     Used on crop stills and publish encodes. Without this, iPhone HDR is
     written as if it were already SDR and mids go flat next to <video>.
+
+    Input transfer/primaries/matrix/range are taken from probed stream tags
+    (see _hdr_input_zscale_params). Peak 100 + hable is a display-referred
+    map close to what mobile Safari/Chrome do for HLG preview — not a grade.
     """
     rng = "pc" if for_still else "tv"
     pix = "yuvj420p" if for_still else "yuv420p"
+    inp = _hdr_input_zscale_params(color_info)
     return (
-        "zscale=t=linear:npl=100,"
+        f"zscale={inp}:t=linear:npl=100,"
         "format=gbrpf32le,"
         "tonemap=tonemap=hable:desat=0:peak=100,"
         f"zscale=t=bt709:m=bt709:p=bt709:r={rng},"
@@ -218,7 +332,8 @@ def sdr_still_vf() -> str:
     """Limited-range SDR → full-range JPEG (browser stills are full-range)."""
     return (
         "scale=in_range=auto:out_range=pc"
-        ":flags=lanczos+accurate_rnd+full_chroma_int,"
+        ":flags=lanczos+accurate_rnd+full_chroma_int"
+        ":in_color_matrix=auto:out_color_matrix=auto,"
         "format=yuvj420p"
     )
 
@@ -226,7 +341,7 @@ def sdr_still_vf() -> str:
 def color_prep_vf(color_info: dict | None = None) -> str:
     """Publish-path prefix: HDR→SDR when needed; empty for ordinary SDR."""
     if is_hdr_color(color_info):
-        return hdr_to_sdr_vf(for_still=False)
+        return hdr_to_sdr_vf(color_info, for_still=False)
     return ""
 
 
@@ -238,7 +353,7 @@ def frame_still_vf(color_info: dict | None = None) -> str:
     Geometry-only / no look grade — CSS owns Original/Natural/etc.
     """
     if is_hdr_color(color_info):
-        return hdr_to_sdr_vf(for_still=True)
+        return hdr_to_sdr_vf(color_info, for_still=True)
     return sdr_still_vf()
 
 
@@ -820,13 +935,13 @@ async def process_moments(request: Request):
                     "-map", "0:v:0", "-map", "0:a:0?",
                     "-vf", vf,
                     "-af", af,
-                    # iPhone 4K is variable-frame-rate; force constant fps + resampled
-                    # audio so the track doesn't drift out of sync on the re-encode.
-                    "-vsync", "cfr", "-r", "30",
+                    # CFR at SOURCE rate when known — hard-coded 30fps was
+                    # re-timing 24/60fps iPhone and looking soft vs QuickTime.
+                    *encode_fps_args(video_path),
                     "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-                    # CRF 16 keeps fine texture after crop/scale; bt709 tags stop
-                    # players from mis-reading limited-range as washed full-range.
-                    "-preset", "slow", "-crf", "16",
+                    # CRF 14 + slow: near-transparent after crop/scale; bt709
+                    # tags stop players mis-reading limited-range as washed.
+                    "-preset", "slow", "-crf", "14",
                     "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
                     "-colorspace", "bt709", "-color_primaries", "bt709",
                     "-color_trc", "bt709", "-color_range", "tv",
@@ -1459,11 +1574,11 @@ async def caption_full_video(request: Request):
             "-map", "0:v:0", "-map", "0:a:0?",
             "-vf", vf,
             "-af", af,
-            # iPhone 4K is VFR — force CFR + resampled audio to keep A/V in sync.
-            "-vsync", "cfr", "-r", "30",
+            # CFR at SOURCE rate when known (not hard-coded 30).
+            *encode_fps_args(video_path),
             "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-            # Match short quality bar: slow + CRF 17 + explicit bt709 tags.
-            "-preset", "slow", "-crf", "17",
+            # Match short quality bar: slow + CRF 14 + explicit bt709 tags.
+            "-preset", "slow", "-crf", "14",
             "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
             "-colorspace", "bt709", "-color_primaries", "bt709",
             "-color_trc", "bt709", "-color_range", "tv",

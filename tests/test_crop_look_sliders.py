@@ -105,11 +105,36 @@ def test_encode_defaults_original_and_quality():
     text = VOICE_VIDEO.read_text()
     assert 'DEFAULT_VIDEO_FILTER = "original"' in text
     assert "flags=lanczos" in text
-    assert '"-crf", "16"' in text
+    assert "in_color_matrix=auto" in text
+    # Near-transparent publish quality (was 16; still not a free re-mux)
+    assert '"-crf", "14"' in text
     assert "colorprim=bt709" in text
     assert 'crop.get("video_filter", DEFAULT_VIDEO_FILTER)' in text
+    # Prefer source fps over hard-coded 30
+    assert "encode_fps_args" in text
+    assert '"-r", "30"' not in text.split("def process_moments")[1].split("async def")[0]
     # identity path must not force eq onto original
     assert 'return ""' in text[text.index("def resolve_look_vf"):text.index("def hq_scale")]
+
+
+def test_encode_fps_prefers_source_rate():
+    text = VOICE_VIDEO.read_text()
+    start = text.index("def probe_video_fps")
+    end = text.index("def join_vf") if "def join_vf" in text[start:] else text.index("def _square_crop_expr")
+    # load helpers that probe_video_fps needs
+    chunk_start = text.index("def hq_scale")
+    ns = {
+        "subprocess": __import__("subprocess"),
+        "logger": __import__("logging").getLogger("t"),
+    }
+    exec(text[chunk_start:text.index("def _square_crop_expr")], ns)
+    assert ns["encode_fps_args"].__name__ == "encode_fps_args"
+    # Simulated 60fps
+    def fake_probe(path):
+        return 59.94
+    ns["probe_video_fps"] = fake_probe
+    args = ns["encode_fps_args"]("/x.mov")
+    assert args == ["-vsync", "cfr", "-r", "59.94"]
 
 
 def test_crop_preview_identity_clears_css():
