@@ -151,15 +151,71 @@ def _square_crop_expr(src_w, src_h, src_x, src_y) -> str:
     return f"crop={side}:{side}:{x}:{y}"
 
 
-def frame_still_vf() -> str:
-    """Filtergraph for crop-page stills that match the video element.
+# HLG (iPhone HDR) + PQ (HDR10). Browser <video> tone-maps these for display;
+# bare libx264 / JPEG extract does not — still + encode look washed without this.
+_HDR_TRANSFERS = frozenset({
+    "arib-std-b67",  # HLG
+    "smpte2084",     # PQ
+    "smpte428",
+})
 
-    iPhone footage is limited-range (tv) bt709. A bare ``ffmpeg … -f image2``
-    JPEG leaves those 16–235 luma codes in a full-range still, so the browser
-    paints washed blacks / flat mids next to the <video> player (which expands
-    limited range correctly). Expand tv→pc with full-chroma lanczos, then hand
-    mjpeg a full-range yuvj pixel format. Geometry-only — no look grade.
+
+def probe_video_color(video_path: str) -> dict:
+    """Best-effort v:0 color tags from ffprobe. Empty strings when unknown."""
+    keys = ("color_range", "color_space", "color_transfer", "color_primaries", "pix_fmt")
+    out = {k: "" for k in keys}
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries",
+                "stream=color_range,color_space,color_transfer,color_primaries,pix_fmt",
+                "-of", "default=nw=1",
+                video_path,
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        for line in (probe.stdout or "").splitlines():
+            if "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k = k.strip()
+            if k in out:
+                out[k] = (v or "").strip()
+    except Exception as e:
+        logger.warning("probe_video_color failed for %s: %s", video_path, e)
+    return out
+
+
+def is_hdr_color(info: dict | None) -> bool:
+    """True when stream transfer is HLG/PQ (or clearly named HDR)."""
+    if not info:
+        return False
+    trc = (info.get("color_transfer") or "").strip().lower()
+    if trc in _HDR_TRANSFERS:
+        return True
+    return "hlg" in trc or "smpte2084" in trc
+
+
+def hdr_to_sdr_vf(*, for_still: bool = False) -> str:
+    """HLG/PQ → display-referred bt709 SDR (zscale + hable tonemap).
+
+    Used on crop stills and publish encodes. Without this, iPhone HDR is
+    written as if it were already SDR and mids go flat next to <video>.
     """
+    rng = "pc" if for_still else "tv"
+    pix = "yuvj420p" if for_still else "yuv420p"
+    return (
+        "zscale=t=linear:npl=100,"
+        "format=gbrpf32le,"
+        "tonemap=tonemap=hable:desat=0:peak=100,"
+        f"zscale=t=bt709:m=bt709:p=bt709:r={rng},"
+        f"format={pix}"
+    )
+
+
+def sdr_still_vf() -> str:
+    """Limited-range SDR → full-range JPEG (browser stills are full-range)."""
     return (
         "scale=in_range=auto:out_range=pc"
         ":flags=lanczos+accurate_rnd+full_chroma_int,"
@@ -167,13 +223,38 @@ def frame_still_vf() -> str:
     )
 
 
-def frame_still_ffmpeg_cmd(video_path: str, t: float) -> list:
+def color_prep_vf(color_info: dict | None = None) -> str:
+    """Publish-path prefix: HDR→SDR when needed; empty for ordinary SDR."""
+    if is_hdr_color(color_info):
+        return hdr_to_sdr_vf(for_still=False)
+    return ""
+
+
+def frame_still_vf(color_info: dict | None = None) -> str:
+    """Filtergraph for crop-page stills that match the video element.
+
+    HDR (HLG/PQ): tonemap to bt709 full-range JPEG.
+    SDR limited-range: expand tv→pc so blacks aren't lifted in the browser.
+    Geometry-only / no look grade — CSS owns Original/Natural/etc.
+    """
+    if is_hdr_color(color_info):
+        return hdr_to_sdr_vf(for_still=True)
+    return sdr_still_vf()
+
+
+def frame_still_ffmpeg_cmd(
+    video_path: str,
+    t: float,
+    color_info: dict | None = None,
+) -> list:
     """Build the ffmpeg argv for one identity still JPEG (testable)."""
+    if color_info is None:
+        color_info = probe_video_color(video_path)
     return [
         "ffmpeg", "-hide_banner", "-loglevel", "error",
         "-ss", str(t), "-i", video_path,
         "-vframes", "1",
-        "-vf", frame_still_vf(),
+        "-vf", frame_still_vf(color_info),
         "-q:v", "2",
         "-color_range", "pc",
         "-colorspace", "bt709",
@@ -219,11 +300,11 @@ async def extract_frame(request: Request, filename: str = "", t: float = -1):
         except Exception:
             t = 10  # fallback
 
-    # Identity still: expand limited-range source into a full-range JPEG so the
+    # Identity still: HDR→SDR when needed, else limited→full-range JPEG so the
     # crop preview matches the native video player. Look grade stays CSS-only.
     try:
         result = subprocess.run(
-            frame_still_ffmpeg_cmd(video_path, t),
+            frame_still_ffmpeg_cmd(video_path, t, probe_video_color(video_path)),
             capture_output=True, timeout=30,
         )
         if result.returncode != 0 or not result.stdout:
@@ -567,7 +648,16 @@ async def process_moments(request: Request):
 
     # Look preset + optional B/C/S slider overrides (from crop template)
     vf_color = resolve_look_vf(crop)
-    logger.info(f"Look filter: preset={video_filter} → {vf_color or 'identity (no eq)'}")
+    color_info = probe_video_color(video_path)
+    vf_prep = color_prep_vf(color_info)
+    logger.info(
+        "Look filter: preset=%s → %s; color_prep=%s (trc=%s prim=%s)",
+        video_filter,
+        vf_color or "identity (no eq)",
+        "hdr→sdr" if vf_prep else "none",
+        color_info.get("color_transfer") or "?",
+        color_info.get("color_primaries") or "?",
+    )
     out_w = crop.get("out_w", 2160)
     out_h = crop.get("out_h", 3840)
     bar_top = crop.get("bar_top_px", 600)
@@ -647,11 +737,12 @@ async def process_moments(request: Request):
 
             try:
                 # Build video filter chain per format
-                # Geometry always runs; color grade only when resolve_look_vf is non-empty.
+                # HDR→SDR first (when needed), then geometry; look grade last.
                 if fmt == "vertical" and border_enabled:
                     # Crop → hq scale to square → pad with black bars → optional look
                     video_h = fmt_out_h - fmt_bar_top - fmt_bar_bot
                     vf = join_vf(
+                        vf_prep,
                         _square_crop_expr(src_w, src_h, src_x, src_y),
                         hq_scale(fmt_out_w, video_h),
                         f"pad={fmt_out_w}:{fmt_out_h}:0:{fmt_bar_top}:black",
@@ -660,6 +751,7 @@ async def process_moments(request: Request):
                 elif fmt == "vertical":
                     # Vertical without border — full 9:16 crop
                     vf = join_vf(
+                        vf_prep,
                         _square_crop_expr(src_w, src_h, src_x, src_y),
                         hq_scale(fmt_out_w, fmt_out_h),
                         vf_color,
@@ -669,6 +761,7 @@ async def process_moments(request: Request):
                     h_pad_left = (fmt_out_w - h_square) // 2
                     if border_enabled and src_w > 0:
                         vf = join_vf(
+                            vf_prep,
                             _square_crop_expr(src_w, src_h, src_x, src_y),
                             hq_scale(h_square, h_square),
                             f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black",
@@ -676,6 +769,7 @@ async def process_moments(request: Request):
                         )
                     else:
                         vf = join_vf(
+                            vf_prep,
                             r"crop=min(iw\,ih):min(iw\,ih)",
                             hq_scale(h_square, h_square),
                             f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black",
@@ -684,6 +778,7 @@ async def process_moments(request: Request):
                 elif fmt == "square":
                     # Same 1:1 crop as vertical → hq scale to output square
                     vf = join_vf(
+                        vf_prep,
                         _square_crop_expr(src_w, src_h, src_x, src_y),
                         hq_scale(fmt_out_w, fmt_out_h),
                         vf_color,
@@ -1256,7 +1351,15 @@ async def caption_full_video(request: Request):
         if k in body and body.get(k) is not None:
             look_src[k] = body.get(k)
     vf_color = resolve_look_vf(look_src)
-    logger.info(f"Look filter (caption-full): preset={video_filter} → {vf_color or 'identity (no eq)'}")
+    color_info = probe_video_color(video_path)
+    vf_prep = color_prep_vf(color_info)
+    logger.info(
+        "Look filter (caption-full): preset=%s → %s; color_prep=%s (trc=%s)",
+        video_filter,
+        vf_color or "identity (no eq)",
+        "hdr→sdr" if vf_prep else "none",
+        color_info.get("color_transfer") or "?",
+    )
 
     # Output: 4K horizontal with crop position + caption bar
     fmt_out_w = 3840
@@ -1310,8 +1413,9 @@ async def caption_full_video(request: Request):
         )
 
         if has_crop:
-            # Crop to operator's square → hq scale → pillarbox → optional look
+            # HDR prep → crop to operator's square → hq scale → pillarbox → look
             vf = join_vf(
+                vf_prep,
                 _square_crop_expr(src_w, src_h, src_x, src_y),
                 hq_scale(h_square, h_square),
                 f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black",
@@ -1321,11 +1425,12 @@ async def caption_full_video(request: Request):
                 f"Caption-full: crop {src_w}x{src_h}@{src_x},{src_y} → "
                 f"square {h_square}px → pillarbox {fmt_out_w}x{fmt_out_h} "
                 f"(left={pad_left}, top={h_bar_top}, bot={h_bar_bot}); "
-                f"look={vf_color or 'identity'}"
+                f"look={vf_color or 'identity'}; prep={'hdr→sdr' if vf_prep else 'none'}"
             )
         else:
             # Fallback: center-crop to square from source, then same layout
             vf = join_vf(
+                vf_prep,
                 r"crop=min(iw\,ih):min(iw\,ih)",
                 hq_scale(h_square, h_square),
                 f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black",
