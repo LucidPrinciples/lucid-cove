@@ -373,7 +373,7 @@ class NCSession:
             )
             return False
 
-    async def move(self, src_subpath: str, dst_subpath: str) -> bool:
+    async def move(self, src_subpath: str, dst_subpath: str, timeout: float = 120.0) -> bool:
         """MOVE <video-tree>/<src> → <video-tree>/<dst> in the presence's NC (WebDAV).
         Ensures the destination parent exists first. Used for the C4 lifecycle
         graduation (processing → raw). Returns False on any non-2xx, never raises."""
@@ -385,7 +385,7 @@ class NCSession:
         src = f"{self.url}/remote.php/dav/files/{self.user}/{quote(self._rel(src_subpath), safe='/')}"
         dst = f"{self.url}/remote.php/dav/files/{self.user}/{quote(self._rel(dst_subpath), safe='/')}"
         try:
-            async with httpx.AsyncClient(timeout=120) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.request("MOVE", src, auth=(self.user, self.password),
                                             headers={"Destination": dst, "Overwrite": "T"})
                 ok = resp.status_code in (200, 201, 204)

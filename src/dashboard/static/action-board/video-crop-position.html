@@ -462,6 +462,10 @@ function buildUI(frameUrl) {
                     <input type="checkbox" id="chk-caption-full" checked style="accent-color:#5ce1e6">
                     Also generate captioned full-length video (YouTube related)
                 </label>
+                <button type="button" id="btn-finalize-full" onclick="finalizeCaptionedFull()"
+                    style="display:none;margin-top:8px;padding:8px 12px;font-size:12px;border-radius:8px;border:1px solid #5ce1e6;background:transparent;color:#5ce1e6;cursor:pointer">
+                    Title-rename full + refresh YouTube/X cards
+                </button>
                 <button class="btn-process" id="btn-cut" onclick="startProcessing()" ${clips.length===0?'disabled':''}>
                     Process ${clips.length} Moments
                 </button>
@@ -737,6 +741,32 @@ async function startProcessing() {
         btn.textContent = 'Error — try again';
         btn.disabled = false;
         status.textContent = e.message;
+    }
+}
+
+
+async function finalizeCaptionedFull() {
+    const btn = document.getElementById('btn-finalize-full');
+    const status = document.getElementById('process-status') || document.getElementById('status');
+    if (btn) { btn.disabled = true; btn.textContent = 'Finalizing…'; }
+    try {
+        const resp = await fetch('/api/video/finalize-captioned-full', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stem }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(data.error || ('HTTP ' + resp.status));
+        }
+        const renamed = data.renamed ? ('renamed → ' + (data.filename || '')) : (data.rename_error ? ('rename failed: ' + data.rename_error) : 'rename skipped');
+        const msg = 'Full finalized — ' + renamed + (data.queued ? (' · queue ' + data.queued.join(', ')) : '');
+        if (status) status.textContent = msg;
+        if (btn) { btn.textContent = 'Done — cards refreshed'; }
+        try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
+    } catch (e) {
+        if (status) status.textContent = 'Finalize failed: ' + e.message;
+        if (btn) { btn.disabled = false; btn.textContent = 'Title-rename full + refresh YouTube/X cards'; }
     }
 }
 

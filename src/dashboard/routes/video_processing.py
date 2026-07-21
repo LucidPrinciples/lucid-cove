@@ -476,140 +476,9 @@ async def caption_full_video(request: Request):
                 )
 
             if resp.status_code == 200 and stem:
-                # Generate YouTube metadata from transcript
-                metadata = await _generate_video_metadata(stem, request)
-                result["metadata"] = metadata
-
-                # Rename file to include title (if metadata generated)
-                if metadata.get("title"):
-                    try:
-                        rename_resp = await client.post(
-                            f"{PIPECAT_URL}/api/video/rename-captioned",
-                            json={"stem": stem, "title": metadata["title"]},
-                            timeout=30,
-                            headers=_nch,
-                        )
-                        if rename_resp.status_code == 200:
-                            rename_data = rename_resp.json()
-                            result["filename"] = rename_data["new_name"]
-                            result["nc_path"] = rename_data["nc_path"]
-                            logger.info(f"Renamed captioned full: {rename_data['new_name']}")
-                        else:
-                            logger.warning(f"Rename failed ({rename_resp.status_code}): {rename_resp.text}")
-                    except Exception as e:
-                        logger.warning(f"Rename request failed: {e}")
-
-                # Insert into social_queue with real metadata
-                title = metadata.get("title", f"{stem} — Full Video")
-                description = metadata.get("description", "")
-                hashtags = metadata.get("hashtags", "")
-                tags_json = json.dumps(metadata.get("tags", []))
-
-                try:
-                    from src.memory.database import get_db
-                    from src.dashboard.routes.social_templates import generate_platform_metadata
-                    from src.dashboard.routes.posting_identity import owner_id_from_request
-                    owner_id = await owner_id_from_request(request)
-                    # CF-1: strict self-scope — stamp presence_id (NULL in single mode)
-                    from src.dashboard.routes.action_board import _acting_presence_id
-                    _cf1_pid = await _acting_presence_id(request)
-
-                    # Full-length goes to every long-form home: YouTube (API
-                    # upload) + X (manual post — over 140s needs Premium, posted
-                    # natively via the card's copy-paste flow).
-                    # X gets its own post text (240 chars, no links), generated
-                    # from the YouTube summary — NOT the YouTube description.
-                    try:
-                        x_meta = await generate_platform_metadata(
-                            platform="x",
-                            clip_label=title,
-                            clip_type="full",
-                            duration_seconds=result.get("duration_seconds", 0),
-                            transcript_text=description or title,
-                            request=request,
-                            owner_id=owner_id,
-                        )
-                    except Exception as xe:
-                        logger.warning(f"X full metadata gen failed: {xe}")
-                        x_meta = {"title": title, "description": "", "hashtags": "", "tags": []}
-
-                    per_platform = {
-                        "youtube": (title, description, hashtags, tags_json),
-                        "x": (
-                            x_meta.get("title") or title,
-                            x_meta.get("description", ""),
-                            x_meta.get("hashtags", ""),
-                            json.dumps([]),
-                        ),
-                    }
-                    async with get_db() as conn:
-                        queued_platforms = []
-                        for full_platform, (p_title, p_desc, p_tags_str, p_tags_json) in per_platform.items():
-                            # Idempotent re-queue: if a non-cancelled full already
-                            # exists for this stem+platform, refresh path/metadata
-                            # instead of inserting a duplicate draft card.
-                            existing = await conn.execute(
-                                """SELECT id, status FROM social_queue
-                                   WHERE source_stem = %s AND clip_type = 'full'
-                                     AND platform = %s AND status != 'cancelled'
-                                   ORDER BY id DESC LIMIT 1""",
-                                (stem, full_platform),
-                            )
-                            row = await existing.fetchone()
-                            if row:
-                                await conn.execute(
-                                    """UPDATE social_queue SET
-                                         title = %s, description = %s, hashtags = %s,
-                                         tags = %s, file_path = %s, clip_label = %s,
-                                         duration_seconds = %s, agent_id = %s,
-                                         presence_id = %s
-                                       WHERE id = %s""",
-                                    (
-                                        p_title, p_desc, p_tags_str, p_tags_json,
-                                        result.get("nc_path", ""),
-                                        p_title,
-                                        result.get("duration_seconds", 0),
-                                        owner_id,
-                                        _cf1_pid if _cf1_pid else None,
-                                        row["id"] if isinstance(row, dict) else row[0],
-                                    ),
-                                )
-                                queued_platforms.append(f"{full_platform}:update")
-                            else:
-                                await conn.execute(
-                                    """INSERT INTO social_queue
-                                       (platform, title, description, hashtags, tags,
-                                        file_path, preview_path,
-                                        source_stem, clip_type, clip_label,
-                                        duration_seconds, is_vertical, format, series, agent_id,
-                                        presence_id, status)
-                                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft')""",
-                                    (
-                                        full_platform,
-                                        p_title,
-                                        p_desc,
-                                        p_tags_str,
-                                        p_tags_json,
-                                        result.get("nc_path", ""),
-                                        "",
-                                        stem,
-                                        "full",
-                                        p_title,
-                                        result.get("duration_seconds", 0),
-                                        False,
-                                        "horizontal",
-                                        f"moments-{stem}",
-                                        owner_id,
-                                        _cf1_pid if _cf1_pid else None,
-                                    ),
-                                )
-                                queued_platforms.append(f"{full_platform}:insert")
-                    logger.info(
-                        f"Queued captioned full (youtube + x): {title} [{', '.join(queued_platforms)}]"
-                    )
-                except Exception as e:
-                    logger.warning(f"social_queue insert for captioned full failed: {e}")
-                    result["queue_error"] = str(e)
+                result = await _finalize_captioned_full_metadata(
+                    stem, request, result, client, _nch
+                )
 
             return JSONResponse(result, status_code=resp.status_code)
     except httpx.TimeoutException:
@@ -689,6 +558,224 @@ async def _generate_video_metadata(stem: str, request=None) -> dict:
     except ImportError as e:
         logger.warning(f"Model imports failed: {e}")
         return {"title": f"{stem} — Full Video", "description": "", "hashtags": "", "tags": []}
+
+
+
+async def _finalize_captioned_full_metadata(
+    stem: str,
+    request: Request,
+    result: dict,
+    client: httpx.AsyncClient,
+    nch: dict,
+) -> dict:
+    """Shared post-render path: metadata → rename → social_queue youtube+x.
+
+    Used by caption-full after encode/skip and by finalize-captioned-full when
+    the file already exists and the crop checkbox is hidden.
+    Mutates and returns result.
+    """
+    metadata = await _generate_video_metadata(stem, request)
+    result["metadata"] = metadata
+
+    if metadata.get("title"):
+        try:
+            rename_resp = await client.post(
+                f"{PIPECAT_URL}/api/video/rename-captioned",
+                json={"stem": stem, "title": metadata["title"]},
+                timeout=600,
+                headers=nch,
+            )
+            if rename_resp.status_code == 200:
+                rename_data = rename_resp.json()
+                result["filename"] = rename_data["new_name"]
+                result["nc_path"] = rename_data["nc_path"]
+                result["renamed"] = True
+                logger.info(f"Renamed captioned full: {rename_data['new_name']}")
+            else:
+                err = (rename_resp.text or "")[:300]
+                result["rename_error"] = f"HTTP {rename_resp.status_code}: {err}"
+                logger.warning(f"Rename failed ({rename_resp.status_code}): {err}")
+        except Exception as e:
+            result["rename_error"] = str(e)
+            logger.warning(f"Rename request failed: {e}")
+
+    # Ensure nc_path for queue even when rename skipped/failed
+    if not result.get("nc_path"):
+        plain = result.get("filename") or f"{stem}-captioned.mp4"
+        result["nc_path"] = f"AgentSkills/Content/video/shorts/{plain}"
+
+    title = metadata.get("title", f"{stem} — Full Video")
+    description = metadata.get("description", "")
+    hashtags = metadata.get("hashtags", "")
+    tags_json = json.dumps(metadata.get("tags", []))
+
+    try:
+        from src.memory.database import get_db
+        from src.dashboard.routes.social_templates import generate_platform_metadata
+        from src.dashboard.routes.posting_identity import owner_id_from_request
+        owner_id = await owner_id_from_request(request)
+        from src.dashboard.routes.action_board import _acting_presence_id
+        _cf1_pid = await _acting_presence_id(request)
+
+        try:
+            x_meta = await generate_platform_metadata(
+                platform="x",
+                clip_label=title,
+                clip_type="full",
+                duration_seconds=result.get("duration_seconds", 0),
+                transcript_text=description or title,
+                request=request,
+                owner_id=owner_id,
+            )
+        except Exception as xe:
+            logger.warning(f"X full metadata gen failed: {xe}")
+            x_meta = {"title": title, "description": "", "hashtags": "", "tags": []}
+
+        per_platform = {
+            "youtube": (title, description, hashtags, tags_json),
+            "x": (
+                x_meta.get("title") or title,
+                x_meta.get("description", ""),
+                x_meta.get("hashtags", ""),
+                json.dumps([]),
+            ),
+        }
+        async with get_db() as conn:
+            queued_platforms = []
+            for full_platform, (p_title, p_desc, p_tags_str, p_tags_json) in per_platform.items():
+                existing = await conn.execute(
+                    """SELECT id, status FROM social_queue
+                       WHERE source_stem = %s AND clip_type = 'full'
+                         AND platform = %s AND status != 'cancelled'
+                       ORDER BY id DESC LIMIT 1""",
+                    (stem, full_platform),
+                )
+                row = await existing.fetchone()
+                if row:
+                    rid = row["id"] if isinstance(row, dict) else row[0]
+                    await conn.execute(
+                        """UPDATE social_queue SET
+                             title = %s, description = %s, hashtags = %s,
+                             tags = %s, file_path = %s, clip_label = %s,
+                             duration_seconds = %s, agent_id = %s,
+                             presence_id = %s
+                           WHERE id = %s""",
+                        (
+                            p_title, p_desc, p_tags_str, p_tags_json,
+                            result.get("nc_path", ""),
+                            p_title,
+                            result.get("duration_seconds", 0),
+                            owner_id,
+                            _cf1_pid if _cf1_pid else None,
+                            rid,
+                        ),
+                    )
+                    queued_platforms.append(f"{full_platform}:update")
+                else:
+                    await conn.execute(
+                        """INSERT INTO social_queue
+                           (platform, title, description, hashtags, tags,
+                            file_path, preview_path,
+                            source_stem, clip_type, clip_label,
+                            duration_seconds, is_vertical, format, series, agent_id,
+                            presence_id, status)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft')""",
+                        (
+                            full_platform,
+                            p_title,
+                            p_desc,
+                            p_tags_str,
+                            p_tags_json,
+                            result.get("nc_path", ""),
+                            "",
+                            stem,
+                            "full",
+                            p_title,
+                            result.get("duration_seconds", 0),
+                            False,
+                            "horizontal",
+                            f"moments-{stem}",
+                            owner_id,
+                            _cf1_pid if _cf1_pid else None,
+                        ),
+                    )
+                    queued_platforms.append(f"{full_platform}:insert")
+        result["queued"] = queued_platforms
+        logger.info(
+            f"Queued captioned full (youtube + x): {title} [{', '.join(queued_platforms)}]"
+        )
+    except Exception as e:
+        logger.warning(f"social_queue insert for captioned full failed: {e}")
+        result["queue_error"] = str(e)
+
+    return result
+
+
+@router.post("/finalize-captioned-full")
+async def finalize_captioned_full(request: Request):
+    """Metadata + title-rename + social_queue for an existing captioned full.
+
+    Use when the file already exists (crop checkbox hidden) but rename/cards
+    need a refresh — no ffmpeg re-encode.
+    Body: { "stem": "IMG_7171" }
+    """
+    body = await request.json()
+    stem = (body.get("stem") or "").strip()
+    if not stem:
+        return JSONResponse({"error": "stem required"}, status_code=400)
+
+    _nch = await pipecat_nc_headers(request)
+    try:
+        async with httpx.AsyncClient(timeout=600) as client:
+            # Resolve existing file via voice (mount-first exists)
+            exists_resp = await client.get(
+                f"{PIPECAT_URL}/api/video/caption-full-exists",
+                params={"stem": stem},
+                headers=_nch,
+            )
+            if exists_resp.status_code != 200 or not exists_resp.json().get("exists"):
+                return JSONResponse(
+                    {"error": f"Captioned full not found for stem {stem}"},
+                    status_code=404,
+                )
+            exists_data = exists_resp.json()
+            filename = exists_data.get("filename") or f"{stem}-captioned.mp4"
+            result = {
+                "filename": filename,
+                "nc_path": f"AgentSkills/Content/video/shorts/{filename}",
+                "size_mb": exists_data.get("size_mb", 0),
+                "duration_seconds": exists_data.get("duration_seconds", 0),
+                "skipped": True,
+                "finalized": True,
+            }
+            # Best-effort duration if exists endpoint didn't return it
+            if not result.get("duration_seconds"):
+                try:
+                    skip_resp = await client.post(
+                        f"{PIPECAT_URL}/api/video/caption-full",
+                        json={"stem": stem},
+                        headers=_nch,
+                        timeout=120,
+                    )
+                    if skip_resp.status_code == 200:
+                        skip_data = skip_resp.json()
+                        result["duration_seconds"] = skip_data.get("duration_seconds", 0)
+                        result["size_mb"] = skip_data.get("size_mb", result["size_mb"])
+                        if skip_data.get("filename"):
+                            result["filename"] = skip_data["filename"]
+                        if skip_data.get("nc_path"):
+                            result["nc_path"] = skip_data["nc_path"]
+                except Exception as e:
+                    logger.warning(f"finalize duration probe failed: {e}")
+
+            result = await _finalize_captioned_full_metadata(
+                stem, request, result, client, _nch
+            )
+            return JSONResponse(result)
+    except Exception as e:
+        logger.error(f"finalize-captioned-full error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 
 
 @router.get("/caption-full-status")
