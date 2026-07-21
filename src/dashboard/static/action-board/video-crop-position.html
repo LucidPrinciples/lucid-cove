@@ -23,12 +23,17 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 
 /* 9:16 output frame */
 
-#frame-img {
+/* Frame media (native <video> preferred — browser HDR tone-map matches
+   the good player. JPEG still path remains as fallback only.) */
+#frame-img,
+#frame-video {
     transition: filter 0.12s ease;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
     display: block;
+    /* Size + pan come from updatePos (source pixels + transform).
+       Do NOT use object-fit:cover here — it fights cropState zoom/pan. */
+    max-width: none;
+    max-height: none;
+    background: #000;
 }
 .look-block {
     width: 100%;
@@ -182,8 +187,11 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
     user-select: none;
 }
 .video-window:active { cursor: grabbing; }
-.video-window img {
+.video-window img,
+.video-window video {
     position: absolute;
+    top: 0;
+    left: 0;
     transform-origin: 0 0;
     pointer-events: none;
 }
@@ -397,7 +405,28 @@ document.getElementById('back-link').href =
     (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
 
 function videoWindowHeight() {
+    // Always the square crop window — border on/off must NOT change this.
+    // Toggling border only shows/hides the black bars; pan/zoom stay stable.
     return SQUARE_SIZE;
+}
+
+/** Scrubber max (seconds). floor(duration) was pegging short/unknown clips at 0. */
+function seekDuration() {
+    const d = Number(videoInfo && videoInfo.duration);
+    if (Number.isFinite(d) && d > 0.05) return d;
+    return 0.1;
+}
+
+function seekMid() {
+    return seekDuration() / 2;
+}
+
+function frameMediaEl() {
+    return document.getElementById('frame-video') || document.getElementById('frame-img');
+}
+
+function streamUrlFor(filename) {
+    return `/api/video/proxy/raw?filename=${encodeURIComponent(filename || '')}`;
 }
 
 async function init() {
@@ -449,14 +478,19 @@ async function init() {
     cropState.x = (FRAME_W - scaledW) / 2;
     cropState.y = (vwH - scaledH) / 2;
 
-    const frameUrl = `/api/video/proxy/frame?filename=${videoInfo.filename}&t=${videoInfo.duration / 2}`;
+    // Prefer native video stream for crop preview (browser tone-maps HLG like
+    // the side-by-side player that looks correct). JPEG still was always a
+    // re-encode and stayed washed vs source.
+    const streamUrl = streamUrlFor(videoInfo.filename);
+    const stillUrl = `/api/video/proxy/frame?filename=${encodeURIComponent(videoInfo.filename)}&t=${seekMid()}`;
 
     container.className = '';
-    container.innerHTML = buildUI(frameUrl);
+    container.innerHTML = buildUI(streamUrl, stillUrl);
     // Seed sliders from default/active preset and paint CSS look on the frame
     onVideoFilter(videoFilter);
 
     setupDrag();
+    setupFrameMedia();
 
     // Check if captioned full-length already exists for this stem — hide checkbox if so
     try {
@@ -474,10 +508,23 @@ async function init() {
     } catch(e) { /* ignore — checkbox stays visible as fallback */ }
 }
 
-function buildUI(frameUrl) {
+function buildUI(streamUrl, stillUrl) {
     const topH = BAR_TOP;
     const botH = BAR_BOT;
     const vwH = SQUARE_SIZE;
+    const dur = seekDuration();
+    const mid = seekMid();
+    // step fine enough for short clips; whole seconds only when long
+    const seekStep = dur <= 30 ? 0.1 : 1;
+    const seekMax = Math.max(seekStep, dur);
+    // Native video: browser HDR tone-map. poster = still as interim.
+    const mediaHtml = streamUrl
+        ? `<video id="frame-video" class="frame-media" muted playsinline preload="auto"
+                poster="${stillUrl || ''}"
+                src="${streamUrl}"
+                onloadeddata="onFrameMediaReady()"
+                onerror="onFrameVideoError()"></video>`
+        : `<img id="frame-img" class="frame-media" src="${stillUrl || ''}" onload="onFrameMediaReady()" />`;
 
     return `
     <div class="crop-workspace">
@@ -485,7 +532,7 @@ function buildUI(frameUrl) {
             <div class="crop-frame-outer" id="crop-frame-outer">
                 <div class="bar-top" id="bar-top" style="height:${topH}px"></div>
                 <div class="video-window" id="video-window" style="top:${topH}px;height:${vwH}px">
-                    <img id="frame-img" src="${frameUrl}" onload="updatePos(); applyLookPreview();" />
+                    ${mediaHtml}
                 </div>
                 <div class="bar-bottom" id="bar-bottom" style="height:${botH}px">
                     <div class="caption-preview-word" id="cap-word" style="${capCSS()}">STARTING</div>
@@ -507,6 +554,9 @@ function buildUI(frameUrl) {
                     </div>
                     <label style="font-size:13px;color:#aaa;cursor:pointer" onclick="toggleBorder()">Black border template</label>
                 </div>
+                <div style="font-size:11px;color:#555;line-height:1.4;margin-top:-4px">
+                    Border is template only — crop window stays put. Off = same square, bars hidden.
+                </div>
             </div>
 
             <div class="control-section">
@@ -518,8 +568,8 @@ function buildUI(frameUrl) {
                 </div>
                 <div class="control-row frame-slider">
                     <label>Preview frame</label>
-                    <input type="range" min="0" max="${Math.floor(videoInfo.duration)}" step="1" value="${Math.floor(videoInfo.duration/2)}" oninput="onSeek(this.value)" />
-                    <span class="control-value" id="seek-val">${fmtTime(videoInfo.duration/2)}</span>
+                    <input type="range" id="seek-slider" min="0" max="${seekMax}" step="${seekStep}" value="${mid}" oninput="onSeek(this.value)" />
+                    <span class="control-value" id="seek-val">${fmtTime(mid)}</span>
                 </div>
                 <div class="look-block">
                     <div class="section-title">Look</div>
@@ -647,36 +697,113 @@ function buildUI(frameUrl) {
 
 // -- Position --
 function updatePos() {
-    const img = document.getElementById('frame-img');
-    if (!img || !videoInfo) return;
-    img.style.width = videoInfo.width + 'px';
-    img.style.height = videoInfo.height + 'px';
-    img.style.transform = `translate(${cropState.x}px,${cropState.y}px) scale(${cropState.zoom})`;
+    const el = frameMediaEl();
+    if (!el || !videoInfo) return;
+    // Displayed size in SOURCE pixels; scale() applies crop zoom. Same for video + img.
+    el.style.width = videoInfo.width + 'px';
+    el.style.height = videoInfo.height + 'px';
+    el.style.transform = `translate(${cropState.x}px,${cropState.y}px) scale(${cropState.zoom})`;
+}
+
+function onFrameMediaReady() {
+    updatePos();
+    applyLookPreview();
+    const v = document.getElementById('frame-video');
+    if (v && Number.isFinite(v.duration) && v.duration > 0.05) {
+        // Prefer media duration when probe was wrong / zero (unpegs scrubber)
+        if (!videoInfo.duration || videoInfo.duration < 0.5 ||
+            Math.abs(videoInfo.duration - v.duration) > 1) {
+            videoInfo.duration = v.duration;
+            const slider = document.getElementById('seek-slider');
+            if (slider) {
+                const dur = seekDuration();
+                const step = dur <= 30 ? 0.1 : 1;
+                slider.max = Math.max(step, dur);
+                slider.step = step;
+                if (parseFloat(slider.value) <= 0 || parseFloat(slider.value) > dur) {
+                    slider.value = String(seekMid());
+                }
+                const sv = document.getElementById('seek-val');
+                if (sv) sv.textContent = fmtTime(parseFloat(slider.value));
+            }
+        }
+        // Land on mid (or current slider) without playing
+        const slider = document.getElementById('seek-slider');
+        const t = slider ? parseFloat(slider.value) : seekMid();
+        try {
+            v.pause();
+            if (Math.abs((v.currentTime || 0) - t) > 0.05) v.currentTime = t;
+        } catch (e) { /* seek may throw until enough data */ }
+    }
+}
+
+function onFrameVideoError() {
+    // Fall back to JPEG still if stream fails (rare; NC not ready, etc.)
+    const vw = document.getElementById('video-window');
+    const bad = document.getElementById('frame-video');
+    if (!vw || !bad || !videoInfo) return;
+    const t = (() => {
+        const s = document.getElementById('seek-slider');
+        return s ? parseFloat(s.value) : seekMid();
+    })();
+    const img = document.createElement('img');
+    img.id = 'frame-img';
+    img.className = 'frame-media';
+    img.src = `/api/video/proxy/frame?filename=${encodeURIComponent(videoInfo.filename)}&t=${t}`;
+    img.onload = () => onFrameMediaReady();
+    bad.replaceWith(img);
+}
+
+function setupFrameMedia() {
+    const v = document.getElementById('frame-video');
+    if (!v) {
+        updatePos();
+        applyLookPreview();
+        return;
+    }
+    // Some browsers fire loadeddata before our handler is wired via attribute
+    if (v.readyState >= 2) onFrameMediaReady();
 }
 
 function onZoom(val) {
     const old = cropState.zoom;
     const nz = parseFloat(val);
+    if (!old || !Number.isFinite(nz) || nz <= 0) return;
     const vwH = videoWindowHeight();
     const cx = FRAME_W / 2, cy = vwH / 2;
     cropState.x = cx - (cx - cropState.x) * (nz / old);
     cropState.y = cy - (cy - cropState.y) * (nz / old);
     cropState.zoom = nz;
-    document.getElementById('zoom-val').textContent = Math.round(nz * 100) + '%';
+    const zv = document.getElementById('zoom-val');
+    if (zv) zv.textContent = Math.round(nz * 100) + '%';
     updatePos();
 }
 
 let seekTimer = null;
 function onSeek(val) {
-    document.getElementById('seek-val').textContent = fmtTime(parseFloat(val));
+    const t = parseFloat(val);
+    const label = document.getElementById('seek-val');
+    if (label) label.textContent = fmtTime(t);
     clearTimeout(seekTimer);
     seekTimer = setTimeout(() => {
+        const v = document.getElementById('frame-video');
+        if (v) {
+            try {
+                v.pause();
+                v.currentTime = Math.max(0, Math.min(t, (v.duration || t)));
+            } catch (e) { /* ignore */ }
+            return;
+        }
         const img = document.getElementById('frame-img');
-        if (img) img.src = `/api/video/proxy/frame?filename=${videoInfo.filename}&t=${val}`;
-    }, 300);
+        if (img && videoInfo) {
+            img.src = `/api/video/proxy/frame?filename=${encodeURIComponent(videoInfo.filename)}&t=${t}`;
+        }
+    }, 80);
 }
 
 // -- Border toggle --
+// Bars are a template overlay only. Crop square (video-window) NEVER moves or
+// resizes — that jump-to-top was the bug. Pan/zoom stay valid with border off.
 let borderEnabled = true;
 function toggleBorder() {
     borderEnabled = !borderEnabled;
@@ -686,25 +813,33 @@ function toggleBorder() {
     const topBar = document.getElementById('bar-top');
     const botBar = document.getElementById('bar-bottom');
     const vw = document.getElementById('video-window');
+    const cap = document.getElementById('cap-word');
 
-    check.checked = borderEnabled;
-    track.style.background = borderEnabled ? 'rgba(92,225,230,0.4)' : '#2a2a3a';
-    knob.style.left = borderEnabled ? '20px' : '2px';
-    knob.style.background = borderEnabled ? '#5ce1e6' : '#888';
+    if (check) check.checked = borderEnabled;
+    if (track) track.style.background = borderEnabled ? 'rgba(92,225,230,0.4)' : '#2a2a3a';
+    if (knob) {
+        knob.style.left = borderEnabled ? '20px' : '2px';
+        knob.style.background = borderEnabled ? '#5ce1e6' : '#888';
+    }
 
-    if (borderEnabled) {
-        topBar.style.height = BAR_TOP + 'px';
-        botBar.style.height = BAR_BOT + 'px';
-        botBar.style.display = 'flex';
+    // Always keep square crop window at the standard place
+    if (vw) {
         vw.style.top = BAR_TOP + 'px';
         vw.style.height = SQUARE_SIZE + 'px';
-    } else {
-        topBar.style.height = '0';
-        botBar.style.height = '0';
-        botBar.style.display = 'none';
-        vw.style.top = '0';
-        vw.style.height = FRAME_H + 'px';
     }
+    if (topBar) {
+        topBar.style.height = BAR_TOP + 'px';
+        topBar.style.opacity = borderEnabled ? '1' : '0';
+        topBar.style.pointerEvents = 'none';
+    }
+    if (botBar) {
+        botBar.style.height = BAR_BOT + 'px';
+        botBar.style.display = 'flex';
+        botBar.style.opacity = borderEnabled ? '1' : '0';
+        // Keep layout; hide caption chrome when border off
+        botBar.style.visibility = borderEnabled ? 'visible' : 'hidden';
+    }
+    if (cap) cap.style.visibility = borderEnabled ? 'visible' : 'hidden';
 }
 
 // -- Drag --
@@ -791,19 +926,19 @@ function syncLookSliderInputs() {
 
 /** CSS approx of ffmpeg eq — good enough to judge; encode uses real eq + extras. */
 function applyLookPreview() {
-    const img = document.getElementById('frame-img');
-    if (!img) return;
-    // True identity (Original + untouched sliders): no CSS filter so the JPEG
-    // frame matches source. Any non-identity B/C/S maps ffmpeg eq onto CSS.
+    const media = frameMediaEl();
+    if (!media) return;
+    // True identity (Original + untouched sliders): no CSS filter so native
+    // video (or still) matches source. Graded looks get CSS approx on top.
     const identity = Math.abs(lookBrightness) < 1e-6
         && Math.abs(lookContrast - 1) < 1e-6
         && Math.abs(lookSaturation - 1) < 1e-6;
     if (identity) {
-        img.style.filter = 'none';
+        media.style.filter = 'none';
     } else {
         // ffmpeg brightness is additive on [-1,1]; CSS brightness is multiplier.
         const cssBright = Math.max(0.4, Math.min(1.6, 1 + (lookBrightness * 1.35)));
-        img.style.filter = `brightness(${cssBright}) contrast(${lookContrast}) saturate(${lookSaturation})`;
+        media.style.filter = `brightness(${cssBright}) contrast(${lookContrast}) saturate(${lookSaturation})`;
     }
     const nums = document.getElementById('look-nums');
     if (nums) {
@@ -815,8 +950,9 @@ function applyLookPreview() {
             && Math.abs(lookContrast - 1) < 1e-6
             && Math.abs(lookSaturation - 1) < 1e-6
             && !(preset && (preset.id === 'rich' || preset.id === 'cinematic'));
+        const via = document.getElementById('frame-video') ? 'player' : 'still';
         nums.textContent = id
-            ? `${preset ? preset.label : videoFilter}  identity — no color grade (preview = source)`
+            ? `${preset ? preset.label : videoFilter}  identity — no color grade (preview = ${via})`
             : `${preset ? preset.label : videoFilter}  B ${lookBrightness.toFixed(2)}  C ${lookContrast.toFixed(2)}  S ${lookSaturation.toFixed(2)}${extra}  (preview ≈ encode)`;
     }
 }
