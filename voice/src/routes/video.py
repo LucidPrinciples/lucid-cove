@@ -112,12 +112,14 @@ def hq_scale(w, h) -> str:
 
     Default ffmpeg scale is bilinear and softens fine detail; lanczos + full
     chroma interpolation keeps 4K source texture through crop→output.
-    in/out_color_matrix=auto avoids an accidental bt601↔bt709 matrix swap
-    mid-graph (a common pink/green cast after crop→scale→pad).
+    in_color_matrix=auto reads the source correctly; out is EXPLICIT bt709 —
+    every publish path is bt709 SDR after color_prep, and ffmpeg 7.x rejects
+    out_color_matrix=auto outright ('Value -1.000000 out of range [0 - 17]',
+    the 2026-07-20 '0 clips rendered' failure on the rebuilt voice image).
     """
     return (
         f"scale={int(w)}:{int(h)}:flags=lanczos+accurate_rnd+full_chroma_int"
-        f":in_color_matrix=auto:out_color_matrix=auto"
+        f":in_color_matrix=auto:out_color_matrix=bt709"
         f":force_original_aspect_ratio=disable"
     )
 
@@ -347,9 +349,11 @@ def hdr_to_sdr_vf(color_info: dict | None = None, *, for_still: bool = False) ->
 def sdr_still_vf() -> str:
     """Limited-range SDR → full-range JPEG (browser stills are full-range)."""
     return (
+        # out_color_matrix intentionally UNSET: ffmpeg 7.x rejects 'auto' here,
+        # and unset preserves the pre-existing still behavior (input matrix kept).
         "scale=in_range=auto:out_range=pc"
         ":flags=lanczos+accurate_rnd+full_chroma_int"
-        ":in_color_matrix=auto:out_color_matrix=auto,"
+        ":in_color_matrix=auto,"
         "format=yuvj420p"
     )
 
@@ -1346,6 +1350,7 @@ async def rename_captioned(request: Request):
 
 
 
+@router.post("/api/video/caption-full")
 async def caption_full_video(request: Request):
     """Render the full-length source video with burnt-in captions.
 
