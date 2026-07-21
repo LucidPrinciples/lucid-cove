@@ -34,6 +34,15 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
     max-width: none;
     max-height: none;
     background: #000;
+    /* ★ 2026-07-20 THE ZOOM-JUMP FIX. All the pan/zoom/export math (updatePos,
+       onZoom, startProcessing's src_x=-x/z) assumes scaling from the TOP-LEFT:
+       screen = translate + source_px * zoom. The CSS default transform-origin is
+       the element's CENTER — a 2160px-wide element — so every zoom tick drifted
+       the picture by (w/2)·Δzoom (~11px/step): the visible "jump", AND a silent
+       preview-vs-render mismatch (the framed crop landed off-center — the
+       backend's CROP DEBUG off-center investigation was chasing this). Origin
+       0 0 makes the existing math exact. Do not remove. */
+    transform-origin: 0 0;
 }
 .look-block {
     width: 100%;
@@ -905,21 +914,15 @@ function toggleBorder() {
     // Captions always visible — border only controls the black plates
     if (cap) cap.style.visibility = 'visible';
 
-    // Refit pan/zoom to the new window height so the frame still fills
+    // ★ 2026-07-20 THE BORDER-HOP FIX. The old code REFIT here — reset zoom and
+    // recentered on every toggle, throwing away the operator's framing (that's
+    // why the video never "stayed in the same place"). The border is CHROME:
+    // the same source pixels must sit in the same screen spot with the plates
+    // on or off. The video window's top shifts by BAR_TOP (75px) between modes
+    // and the media is positioned relative to it, so compensate cropState.y by
+    // exactly that shift. No rezoom, no recenter, no jump.
     if (videoInfo) {
-        const vwH = videoWindowHeight();
-        const scaleH = vwH / videoInfo.height;
-        const scaleW = FRAME_W / videoInfo.width;
-        const nz = Math.max(scaleH, scaleW);
-        cropState.zoom = nz;
-        const scaledW = videoInfo.width * nz;
-        const scaledH = videoInfo.height * nz;
-        cropState.x = (FRAME_W - scaledW) / 2;
-        cropState.y = (vwH - scaledH) / 2;
-        const zoomSlider = document.getElementById('zoom-slider');
-        const zv = document.getElementById('zoom-val');
-        if (zoomSlider) zoomSlider.value = String(nz);
-        if (zv) zv.textContent = Math.round(nz * 100) + '%';
+        cropState.y += borderEnabled ? -BAR_TOP : BAR_TOP;
         updatePos();
     }
 }
