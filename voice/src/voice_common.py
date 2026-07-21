@@ -373,7 +373,54 @@ class NCSession:
             )
             return False
 
-    async def move(self, src_subpath: str, dst_subpath: str, timeout: float = 120.0) -> bool:
+    async def exists(self, subpath: str) -> bool:
+        """True if <video-tree>/<subpath> is a file on NC (PROPFIND Depth 0)."""
+        meta = await self.file_meta(subpath)
+        return bool(meta and meta.get("exists"))
+
+    async def file_meta(self, subpath: str) -> dict:
+        """{exists, size} for <video-tree>/<subpath>. size is bytes or -1."""
+        import httpx
+        from urllib.parse import quote
+        import xml.etree.ElementTree as ET
+        rel = self._rel(subpath).strip("/")
+        if not rel:
+            return {"exists": False, "size": -1}
+        dav = f"{self.url}/remote.php/dav/files/{self.user}/{quote(rel, safe='/')}"
+        body = (
+            '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop>'
+            '<d:getcontentlength/><d:resourcetype/>'
+            '</d:prop></d:propfind>'
+        )
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.request(
+                    "PROPFIND", dav, auth=(self.user, self.password),
+                    headers={"Depth": "0", "Content-Type": "application/xml"},
+                    content=body,
+                )
+                if resp.status_code not in (200, 207):
+                    return {"exists": False, "size": -1}
+                root = ET.fromstring(resp.text)
+                ns = {"d": "DAV:"}
+                # First response is the resource itself
+                resp_el = root.find("d:response", ns)
+                if resp_el is None:
+                    return {"exists": False, "size": -1}
+                rt = resp_el.find(".//d:resourcetype", ns)
+                if rt is not None and rt.find("d:collection", ns) is not None:
+                    return {"exists": False, "size": -1}  # directory
+                size_el = resp_el.find(".//d:getcontentlength", ns)
+                size = -1
+                if size_el is not None and size_el.text and size_el.text.isdigit():
+                    size = int(size_el.text)
+                return {"exists": True, "size": size}
+        except Exception as e:
+            logger.warning(f"NC file_meta error ({subpath}): {e}")
+            return {"exists": False, "size": -1}
+
+    async def move(self, src_subpath: str, dst_subpath: str, timeout: float = 600.0) -> bool:
+
         """MOVE <video-tree>/<src> → <video-tree>/<dst> in the presence's NC (WebDAV).
         Ensures the destination parent exists first. Used for the C4 lifecycle
         graduation (processing → raw). Returns False on any non-2xx, never raises."""

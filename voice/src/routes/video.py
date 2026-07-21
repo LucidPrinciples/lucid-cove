@@ -1100,6 +1100,23 @@ async def process_moments(request: Request):
     })
 
 
+
+@router.post("/api/video/heal-inbox-processing")
+async def heal_inbox_processing(request: Request):
+    """Ensure original is in processing/ and cleared from inbox/ (post-transcribe).
+
+    Body: { "filename": "short-horses.mov" }
+    """
+    body = await request.json()
+    filename = (body.get("filename") or "").strip()
+    if not filename:
+        return JSONResponse({"error": "No filename"}, status_code=400)
+    nc = NCSession.from_request(request, body)
+    from src.video_lifecycle import ensure_inbox_cleared_after_processing
+    result = await ensure_inbox_cleared_after_processing(os.path.basename(filename), nc=nc)
+    return JSONResponse(result)
+
+
 @router.get("/api/video/caption-full-exists")
 async def caption_full_exists(request: Request, stem: str = ""):
     """Check if a captioned full-length video already exists on disk."""

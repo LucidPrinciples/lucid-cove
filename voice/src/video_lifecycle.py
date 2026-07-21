@@ -163,3 +163,114 @@ def to_delete_total_bytes(video_mount: str = None) -> int:
             except OSError:
                 pass
     return total
+
+
+async def ensure_inbox_cleared_after_processing(
+    video_name: str,
+    nc=None,
+    video_mount: str = None,
+    *,
+    min_size_ratio: float = 0.95,
+) -> dict:
+    """After a successful transcript, the original should live in processing/ only.
+
+    Prefer WebDAV/local MOVE inbox → processing. If processing already has a
+    full-size copy (copy fallback path), remove the inbox dual so the board
+    stops listing the file as still-in-inbox.
+
+    Never deletes inbox unless processing has a verified file of comparable size
+    (or inbox is already gone). Best-effort; never raises.
+    """
+    out = {
+        "ok": False,
+        "method": "none",
+        "inbox_cleared": False,
+        "in_processing": False,
+        "reason": "",
+    }
+    try:
+        name = os.path.basename(video_name or "")
+        if not name:
+            out["reason"] = "empty name"
+            return out
+
+        if nc is not None:
+            inbox_rel = f"inbox/{name}"
+            proc_rel = f"processing/{name}"
+            inbox_meta = await nc.file_meta(inbox_rel)
+            proc_meta = await nc.file_meta(proc_rel)
+
+            if proc_meta.get("exists") and not inbox_meta.get("exists"):
+                out.update(ok=True, method="already_clean", inbox_cleared=True, in_processing=True)
+                return out
+
+            if inbox_meta.get("exists") and not proc_meta.get("exists"):
+                moved = await nc.move(inbox_rel, proc_rel)
+                if moved:
+                    out.update(ok=True, method="nc_move", inbox_cleared=True, in_processing=True)
+                    logger.info(f"[lifecycle] MOVE {inbox_rel} → {proc_rel}")
+                    return out
+                out["reason"] = "nc move failed and no processing copy"
+                return out
+
+            if inbox_meta.get("exists") and proc_meta.get("exists"):
+                # Dual copy — clear inbox only if processing size is credible.
+                isz = inbox_meta.get("size") or -1
+                psz = proc_meta.get("size") or -1
+                size_ok = psz > 0 and (isz <= 0 or psz >= int(isz * min_size_ratio))
+                if not size_ok:
+                    out.update(
+                        in_processing=True,
+                        reason=f"dual copy size mismatch inbox={isz} processing={psz}",
+                    )
+                    return out
+                # Prefer MOVE overwrite (atomic-ish) then delete inbox if still there
+                moved = await nc.move(inbox_rel, proc_rel)
+                if moved:
+                    out.update(ok=True, method="nc_move_overwrite", inbox_cleared=True, in_processing=True)
+                    logger.info(f"[lifecycle] MOVE overwrite dual {inbox_rel} → {proc_rel}")
+                    return out
+                deleted = await nc.delete(inbox_rel)
+                if deleted:
+                    out.update(ok=True, method="nc_delete_inbox_dual", inbox_cleared=True, in_processing=True)
+                    logger.info(f"[lifecycle] deleted inbox dual after verified processing/{name}")
+                    return out
+                out.update(in_processing=True, reason="dual present; clear inbox failed")
+                return out
+
+            if not inbox_meta.get("exists") and not proc_meta.get("exists"):
+                out["reason"] = "missing in both inbox and processing"
+                return out
+
+            out["reason"] = "unhandled nc state"
+            return out
+
+        # Local mount path
+        base = video_mount or _video_mount()
+        src = os.path.join(base, "inbox", name)
+        dst = os.path.join(base, "processing", name)
+        if os.path.isfile(dst) and not os.path.isfile(src):
+            out.update(ok=True, method="already_clean", inbox_cleared=True, in_processing=True)
+            return out
+        if os.path.isfile(src) and not os.path.isfile(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            os.replace(src, dst)
+            out.update(ok=True, method="local_move", inbox_cleared=True, in_processing=True)
+            logger.info(f"[lifecycle] local MOVE inbox/{name} → processing/")
+            return out
+        if os.path.isfile(src) and os.path.isfile(dst):
+            isz = os.path.getsize(src)
+            psz = os.path.getsize(dst)
+            if psz > 0 and psz >= int(isz * min_size_ratio):
+                os.remove(src)
+                out.update(ok=True, method="local_delete_inbox_dual", inbox_cleared=True, in_processing=True)
+                logger.info(f"[lifecycle] removed local inbox dual for {name}")
+                return out
+            out.update(in_processing=True, reason=f"local dual size mismatch {isz}/{psz}")
+            return out
+        out["reason"] = "local missing both"
+        return out
+    except Exception as e:
+        logger.warning(f"[lifecycle] ensure_inbox_cleared_after_processing failed: {e}")
+        out["reason"] = str(e)
+        return out

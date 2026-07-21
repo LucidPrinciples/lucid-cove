@@ -377,17 +377,21 @@ async function saveXAccount() {
 async function init() {
     const container = document.getElementById('content');
 
-    // Fetch inbox, transcripts, and transcription capability in parallel
-    const [inboxResp, transcriptsResp, capResp] = await Promise.all([
+    // Fetch inbox, processing, transcripts, capability in parallel
+    const [inboxResp, processingResp, transcriptsResp, capResp] = await Promise.all([
         fetch('/api/video/inbox'),
+        fetch('/api/video/processing'),
         fetch('/api/video/transcripts'),
         fetch('/api/video/capabilities'),
     ]);
     const inboxData = await inboxResp.json();
+    let processingData = { files: [] };
+    try { processingData = await processingResp.json(); } catch (e) {}
     const transcriptsData = await transcriptsResp.json();
     try { CAN_TRANSCRIBE = (await capResp.json()).transcription !== false; } catch (e) { CAN_TRANSCRIBE = true; }
 
     const inboxFiles = inboxData.files || [];
+    const processingFiles = processingData.files || [];
     const transcripts = transcriptsData.transcripts || [];
 
     // Build a map of stems to their pipeline status
@@ -396,12 +400,18 @@ async function init() {
         transcriptMap[t.stem] = t;
     }
 
-    // Merge: inbox videos + transcribed videos that may have moved out of inbox
+    // Merge: processing first (correct post-transcribe home), then inbox leftovers,
+    // then transcript-only stems. Prefer processing over inbox when dual-copied.
     const videos = [];
     const seen = new Set();
+    const procByStem = {};
+    for (const f of processingFiles) {
+        const ext = f.filename.lastIndexOf('.');
+        const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;
+        procByStem[stem] = f;
+    }
 
-    // First: inbox videos (may or may not have transcripts)
-    for (const f of inboxFiles) {
+    for (const f of processingFiles) {
         const ext = f.filename.lastIndexOf('.');
         const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;
         const t = transcriptMap[stem];
@@ -410,19 +420,39 @@ async function init() {
             stem,
             filename: f.filename,
             size_mb: f.size_mb,
-            status: t ? (t.has_moments ? 'moments' : (t.has_edits ? 'transcribed' : 'transcribed')) : 'new',
+            folder: 'processing',
+            status: t ? (t.has_moments ? 'moments' : 'transcribed') : 'processing',
             has_moments: t?.has_moments || false,
             has_edits: t?.has_edits || false,
         });
     }
 
-    // Then: transcribed videos not in inbox (moved to processing/)
+    // Inbox only if not already represented from processing (dual-copy stuck)
+    for (const f of inboxFiles) {
+        const ext = f.filename.lastIndexOf('.');
+        const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;
+        if (seen.has(stem)) continue;
+        const t = transcriptMap[stem];
+        seen.add(stem);
+        videos.push({
+            stem,
+            filename: f.filename,
+            size_mb: f.size_mb,
+            folder: 'inbox',
+            status: t ? (t.has_moments ? 'moments' : 'transcribed') : 'new',
+            has_moments: t?.has_moments || false,
+            has_edits: t?.has_edits || false,
+        });
+    }
+
+    // Transcript-only (file already left both lists / raw)
     for (const t of transcripts) {
         if (seen.has(t.stem)) continue;
         videos.push({
             stem: t.stem,
             filename: t.stem,
             size_mb: null,
+            folder: 'pipeline',
             status: t.has_moments ? 'moments' : 'transcribed',
             has_moments: t.has_moments,
             has_edits: t.has_edits,
@@ -476,7 +506,7 @@ async function init() {
             <div class="video-icon">🎬</div>
             <div class="video-info">
                 <div class="video-name">${esc(v.filename)}</div>
-                <div class="video-meta">${sizeStr}</div>
+                <div class="video-meta">${sizeStr}${v.folder ? (sizeStr ? ' · ' : '') + v.folder + '/' : ''}</div>
             </div>
             <div class="video-status">
                 <div class="status-dot ${statusClass}"></div>
