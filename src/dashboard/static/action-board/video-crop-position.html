@@ -506,24 +506,19 @@ async function init() {
         }];
     }
 
-    // Initial zoom: fill video window width
-    const vwH = videoWindowHeight();
-    const scaleH = vwH / videoInfo.height;
-    const scaleW = FRAME_W / videoInfo.width;
-    cropState.zoom = Math.max(scaleH, scaleW);
-    const scaledW = videoInfo.width * cropState.zoom;
-    const scaledH = videoInfo.height * cropState.zoom;
-    cropState.x = (FRAME_W - scaledW) / 2;
-    cropState.y = (vwH - scaledH) / 2;
+    // Initial zoom: cover the video window (same math as border toggle refit).
+    fitCropToWindow();
 
     // Prefer native video stream for crop preview (browser tone-maps HLG like
     // the side-by-side player that looks correct). JPEG still was always a
-    // re-encode and stayed washed vs source.
+    // re-encode and stayed washed vs source — used only as error fallback.
     const streamUrl = streamUrlFor(videoInfo.filename);
     const stillUrl = `/api/video/proxy/frame?filename=${encodeURIComponent(videoInfo.filename)}&t=${seekMid()}`;
 
     container.className = '';
     container.innerHTML = buildUI(streamUrl, stillUrl);
+    // Fit size/transform on the injected media BEFORE paint/network settle.
+    updatePos();
     // Seed sliders from default/active preset and paint CSS look on the frame
     onVideoFilter(videoFilter);
 
@@ -556,10 +551,13 @@ function buildUI(streamUrl, stillUrl) {
     const seekStep = dur <= 30 ? 0.1 : 1;
     const seekMax = Math.max(seekStep, dur);
     // Native video: browser HDR tone-map. poster = still as interim.
+    // No poster: JPEG still is a re-encode and paints washed/wrong before the
+    // native stream tone-maps. Size+transform are applied immediately after
+    // inject so first paint is already fitted (not a 2160px corner).
     const mediaHtml = streamUrl
         ? `<video id="frame-video" class="frame-media" muted playsinline preload="auto"
-                poster="${stillUrl || ''}"
                 src="${streamUrl}"
+                onloadedmetadata="onFrameMediaReady()"
                 onloadeddata="onFrameMediaReady()"
                 onerror="onFrameVideoError()"></video>`
         : `<img id="frame-img" class="frame-media" src="${stillUrl || ''}" onload="onFrameMediaReady()" />`;
@@ -738,9 +736,33 @@ function updatePos() {
     const el = frameMediaEl();
     if (!el || !videoInfo) return;
     // Displayed size in SOURCE pixels; scale() applies crop zoom. Same for video + img.
+    // Set BEFORE first paint whenever possible — default <video> layout is full
+    // source resolution (e.g. 2160x3840) inside a 270px window, which reads as a
+    // white/zoomed corner until loadeddata fires.
     el.style.width = videoInfo.width + 'px';
     el.style.height = videoInfo.height + 'px';
+    el.style.maxWidth = 'none';
+    el.style.maxHeight = 'none';
+    el.style.transformOrigin = '0 0';
     el.style.transform = `translate(${cropState.x}px,${cropState.y}px) scale(${cropState.zoom})`;
+}
+
+/** Fit cropState so source fills the current video window (cover). */
+function fitCropToWindow() {
+    if (!videoInfo || !videoInfo.width || !videoInfo.height) return;
+    const vwH = videoWindowHeight();
+    const scaleH = vwH / videoInfo.height;
+    const scaleW = FRAME_W / videoInfo.width;
+    const nz = Math.max(scaleH, scaleW);
+    cropState.zoom = nz;
+    const scaledW = videoInfo.width * nz;
+    const scaledH = videoInfo.height * nz;
+    cropState.x = (FRAME_W - scaledW) / 2;
+    cropState.y = (vwH - scaledH) / 2;
+    const zoomSlider = document.getElementById('zoom-slider');
+    const zv = document.getElementById('zoom-val');
+    if (zoomSlider) zoomSlider.value = String(nz);
+    if (zv) zv.textContent = Math.round(nz * 100) + '%';
 }
 
 function onFrameMediaReady() {
@@ -793,14 +815,13 @@ function onFrameVideoError() {
 }
 
 function setupFrameMedia() {
+    // Always apply size/transform immediately — do not wait for loadeddata.
+    updatePos();
+    applyLookPreview();
     const v = document.getElementById('frame-video');
-    if (!v) {
-        updatePos();
-        applyLookPreview();
-        return;
-    }
-    // Some browsers fire loadeddata before our handler is wired via attribute
-    if (v.readyState >= 2) onFrameMediaReady();
+    if (!v) return;
+    // Metadata may already be available (cache); otherwise attribute handlers fire.
+    if (v.readyState >= 1) onFrameMediaReady();
 }
 
 function onZoom(val) {
@@ -907,19 +928,7 @@ function toggleBorder() {
 
     // Refit pan/zoom to the new window height so the frame still fills
     if (videoInfo) {
-        const vwH = videoWindowHeight();
-        const scaleH = vwH / videoInfo.height;
-        const scaleW = FRAME_W / videoInfo.width;
-        const nz = Math.max(scaleH, scaleW);
-        cropState.zoom = nz;
-        const scaledW = videoInfo.width * nz;
-        const scaledH = videoInfo.height * nz;
-        cropState.x = (FRAME_W - scaledW) / 2;
-        cropState.y = (vwH - scaledH) / 2;
-        const zoomSlider = document.getElementById('zoom-slider');
-        const zv = document.getElementById('zoom-val');
-        if (zoomSlider) zoomSlider.value = String(nz);
-        if (zv) zv.textContent = Math.round(nz * 100) + '%';
+        fitCropToWindow();
         updatePos();
     }
 }

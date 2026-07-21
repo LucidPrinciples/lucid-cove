@@ -13,9 +13,28 @@ def test_crop_prefers_native_video_stream_not_only_jpeg():
     assert "frame-video" in CROP
     assert "/api/video/proxy/raw" in CROP
     assert "streamUrlFor" in CROP
-    # Still path remains as poster/fallback
+    # Still path remains as error fallback only — not as first-paint poster
+    # (washed JPEG poster painted before native stream and fought color QA).
     assert "/api/video/proxy/frame" in CROP
     assert "onFrameVideoError" in CROP
+    assert "poster=" not in CROP
+    assert "onloadedmetadata" in CROP
+
+
+def test_crop_applies_fit_before_loadeddata():
+    """First paint must not wait on loadeddata — unsized 2160px corner = white zoom."""
+    assert "function fitCropToWindow" in CROP
+    assert "fitCropToWindow()" in CROP
+    # Immediately after inject
+    assert "container.innerHTML = buildUI(streamUrl, stillUrl);" in CROP
+    idx = CROP.index("container.innerHTML = buildUI(streamUrl, stillUrl);")
+    chunk = CROP[idx : idx + 220]
+    assert "updatePos()" in chunk
+    # setupFrameMedia always sizes, even when readyState is 0
+    sidx = CROP.index("function setupFrameMedia")
+    setup = CROP[sidx : sidx + 500]
+    assert "updatePos()" in setup
+    assert "v.readyState >= 1" in setup
 
 
 def test_border_off_fills_916_and_keeps_captions():
