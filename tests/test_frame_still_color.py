@@ -39,13 +39,23 @@ def test_is_hdr_detects_iphone_hlg():
 
 def test_frame_still_vf_hdr_uses_tonemap_not_range_only():
     ns = _load_color_helpers()
-    hlg = {"color_transfer": "arib-std-b67", "color_primaries": "bt2020"}
+    hlg = {
+        "color_transfer": "arib-std-b67",
+        "color_primaries": "bt2020",
+        "color_space": "bt2020nc",
+        "color_range": "tv",
+    }
     s = ns["frame_still_vf"](hlg)
     assert "tonemap=" in s
     assert "zscale=" in s
     assert "bt709" in s
     assert "yuvj420p" in s
     assert ":r=pc" in s
+    # Must declare HLG + bt2020 on the INPUT zscale (cast fix)
+    assert "tin=arib-std-b67" in s
+    assert "pin=bt2020" in s
+    assert "min=bt2020nc" in s
+    assert "rin=tv" in s
     assert "eq=" not in s
     assert "curves=" not in s
 
@@ -63,10 +73,17 @@ def test_frame_still_vf_sdr_expands_limited_to_full_range():
 
 def test_color_prep_vf_hdr_on_publish_sdr_empty():
     ns = _load_color_helpers()
-    prep = ns["color_prep_vf"]({"color_transfer": "arib-std-b67"})
+    prep = ns["color_prep_vf"]({
+        "color_transfer": "arib-std-b67",
+        "color_primaries": "bt2020",
+        "color_space": "bt2020nc",
+        "color_range": "tv",
+    })
     assert "tonemap=" in prep
     assert "yuv420p" in prep
     assert ":r=tv" in prep
+    assert "tin=arib-std-b67" in prep
+    assert "pin=bt2020" in prep
     assert ns["color_prep_vf"]({"color_transfer": "bt709"}) == ""
     assert ns["color_prep_vf"](None) == ""
 
