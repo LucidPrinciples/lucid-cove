@@ -609,10 +609,11 @@ async def create_task(request: Request):
 
 @router.get("/api/action-board/scheduled")
 async def get_scheduled(request: Request):
-    """Return items in the YouTube pipeline — queued, uploading, uploaded.
+    """Return in-flight scheduled posts — YouTube + X API auto.
 
-    These are NOT actions (they don't need input). They're in-flight items
-    the operator can monitor and cancel if needed before upload_date.
+    YouTube rows come from youtube_queue (queued/uploading/uploaded).
+    X short clips come from social_queue (queued/uploading). These are
+    NOT draft actions — they're monitoring cards after Schedule.
     """
     if _is_public_app():
         return {"scheduled": [], "count": 0}
@@ -663,6 +664,43 @@ async def get_scheduled(request: Request):
                     "publish_date": row["publish_date"].isoformat() if row["publish_date"] else None,
                     "youtube_url": row["youtube_url"],
                     "youtube_video_id": row["youtube_video_id"],
+                    "platform": "youtube",
+                    "source": "youtube_queue",
+                })
+
+            # X (and future API auto platforms) live in social_queue — not youtube_queue.
+            # Without this, Schedule on an X card goes green with nowhere to watch it.
+            result = await conn.execute(
+                f"""SELECT id, title, series, status, platform, upload_date, publish_date,
+                          published_at, error_message, clip_type, duration_seconds
+                   FROM social_queue
+                   WHERE platform = 'x'
+                     AND status IN ('queued', 'uploading')
+                     AND COALESCE(clip_type, '') != 'full'
+                     AND COALESCE(duration_seconds, 0) <= 140
+                     {scope_sql}
+                   ORDER BY upload_date ASC NULLS LAST""",
+                scope_args,
+            )
+            for row in await result.fetchall():
+                if row["status"] == "queued":
+                    when = _fmt_date(row["upload_date"]) if row["upload_date"] else "when due"
+                    subtitle = f"𝕏 posts {when}"
+                else:
+                    subtitle = "𝕏 uploading now..."
+                scheduled.append({
+                    "id": row["id"],
+                    "title": row["title"],
+                    "series": series_labels.get(row["series"], row["series"] or "") or (row.get("clip_type") or ""),
+                    "status": row["status"],
+                    "subtitle": subtitle,
+                    "upload_date": row["upload_date"].isoformat() if row["upload_date"] else None,
+                    "publish_date": row["publish_date"].isoformat() if row["publish_date"] else None,
+                    "youtube_url": None,
+                    "youtube_video_id": None,
+                    "platform": "x",
+                    "source": "social_queue",
+                    "error_message": row.get("error_message"),
                 })
 
     except Exception:

@@ -254,9 +254,12 @@ function _renderActionCards(items) {
 
 function _renderScheduledCards(items) {
     return items.map(s => {
-        const statusColors = { queued: 'var(--yellow)', uploading: 'var(--accent)', uploaded: 'var(--green)' };
+        const statusColors = { queued: 'var(--yellow)', uploading: 'var(--accent)', uploaded: 'var(--green)', published: 'var(--green)' };
         const color = statusColors[s.status] || 'var(--dim)';
         const series = s.series ? `<span class="ab-action-series">${esc(s.series)}</span>` : '';
+        const plat = s.platform || 'youtube';
+        const platTag = plat === 'x' ? '<span class="ab-action-series">𝕏</span> '
+            : (plat === 'youtube' ? '<span class="ab-action-series">YT</span> ' : '');
 
         let ytLink = '';
         if (s.youtube_video_id) {
@@ -264,20 +267,27 @@ function _renderScheduledCards(items) {
             ytLink = `<a href="${esc(studioUrl)}" target="_blank" style="color:var(--accent);font-size:11px;margin-left:8px;" onclick="event.stopPropagation()">Studio ↗</a>`;
         }
 
+        // Cache every scheduled row so cancel/open can tell youtube_queue vs social_queue
+        _scheduledCache[`${plat}:${s.id}`] = s;
+        _scheduledCache[s.id] = s; // back-compat for YT-only callers
+
         let clickAttr = '';
-        if (s.status === 'queued') {
+        if (plat === 'x' && (s.status === 'queued' || s.status === 'uploading')) {
+            clickAttr = `onclick="openSocialDetail(${s.id})" style="cursor:pointer;"`;
+        } else if (s.status === 'queued') {
             clickAttr = `onclick="openActionDetail(${s.id})" style="cursor:pointer;"`;
         } else if (s.status === 'uploaded') {
-            _scheduledCache[s.id] = s;
             clickAttr = `onclick="openUploadedDetail(${s.id})" style="cursor:pointer;"`;
         }
+
+        const err = s.error_message ? ` · ${esc(s.error_message).slice(0, 80)}` : '';
 
         return `
         <div class="ab-action-card ab-scheduled-card" ${clickAttr}>
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${esc(s.title)}${ytLink}</div>
-                <div class="ab-action-desc">${esc(s.subtitle)} ${series}</div>
+                <div class="ab-action-title">${platTag}${esc(s.title)}${ytLink}</div>
+                <div class="ab-action-desc">${esc(s.subtitle)} ${series}${err}</div>
             </div>
             <span class="ab-action-status-badge ab-status-${esc(s.status)}">${esc(s.status)}</span>
         </div>`;
@@ -286,12 +296,22 @@ function _renderScheduledCards(items) {
 
 async function cancelScheduled(queueId) {
     if (!confirm('Cancel this scheduled post? It will return to draft.')) return;
+    const cached = _scheduledCache[queueId] || _scheduledCache[`youtube:${queueId}`] || _scheduledCache[`x:${queueId}`];
+    const plat = (cached && cached.platform) || 'youtube';
     try {
-        await fetch(`/api/youtube/queue/${queueId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'draft' }),
-        });
+        if (plat === 'x') {
+            await fetch(`/api/action-board/social/${queueId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'draft' }),
+            });
+        } else {
+            await fetch(`/api/youtube/queue/${queueId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'draft' }),
+            });
+        }
         // Close overlay if open, then refresh
         if (document.getElementById('ab-flow-overlay')) closeFlowOverlay();
         else refreshActions();
@@ -589,6 +609,7 @@ async function openSocialDetail(itemId) {
         <div class="ab-flow-topbar">
             <button class="ab-flow-back" onclick="closeFlowOverlay()">← Back to Actions</button>
             <span class="ab-flow-title">${platLabel} · ${esc(item.clip_type || 'Moment')}</span>
+            <span data-social-platform="${esc(item.platform || '')}" hidden></span>
         </div>
         <div class="ab-detail-scroll">
             <div class="ab-detail-content">
@@ -669,6 +690,12 @@ async function publishSocialNow(itemId) {
     const btn = document.querySelector('.ab-btn-upload');
     if (btn) { btn.textContent = 'Publishing...'; btn.disabled = true; }
 
+    // Platform from the open detail (data attr) or cache
+    const platEl = document.querySelector('[data-social-platform]');
+    const platform = platEl?.getAttribute('data-social-platform')
+        || _scheduledCache[itemId]?.platform
+        || 'x';
+
     // Save edits + set to queued with immediate dates
     const body = {
         title: document.getElementById('sd-title')?.value,
@@ -687,9 +714,45 @@ async function publishSocialNow(itemId) {
             body: JSON.stringify(body),
         });
         if (!res.ok) throw new Error(`${res.status}`);
-        if (feedback) feedback.innerHTML = '<span style="color:var(--green)">Queued for immediate publish ✓</span>';
-        if (btn) { btn.textContent = 'Queued ✓'; btn.style.borderColor = 'var(--green)'; btn.style.color = 'var(--green)'; }
-        setTimeout(() => closeFlowOverlay(), 1500);
+        const saveData = await res.json().catch(() => ({}));
+
+        // YouTube path: promote already mirrored into youtube_queue — kick processor.
+        if (platform === 'youtube' || saveData.youtube_queue_id) {
+            if (feedback) feedback.innerHTML = '<span style="color:var(--yellow)">Uploading to YouTube…</span>';
+            const procRes = await fetch('/api/youtube/process-queue', { method: 'POST' });
+            if (!procRes.ok) throw new Error(`YouTube process failed: ${procRes.status}`);
+            if (feedback) feedback.innerHTML = '<span style="color:var(--green)">YouTube upload kicked ✓ — check Scheduled</span>';
+            if (btn) { btn.textContent = 'Queued ✓'; btn.style.borderColor = 'var(--green)'; btn.style.color = 'var(--green)'; }
+            setTimeout(() => closeFlowOverlay(), 1800);
+            return;
+        }
+
+        // X path: social_queue is the uploader — process now (not wait 15m scheduler).
+        if (feedback) feedback.innerHTML = '<span style="color:var(--yellow)">Posting to X… this can take a minute for video.</span>';
+        const procRes = await fetch('/api/x/process-queue', { method: 'POST' });
+        if (!procRes.ok) {
+            const err = await procRes.json().catch(() => ({}));
+            throw new Error(err.error || `X process failed: ${procRes.status}`);
+        }
+        const proc = await procRes.json();
+        const mine = (proc.results || []).find(r => r.id === itemId);
+        if (mine && mine.status === 'published') {
+            const url = mine.tweet_url || mine.url || (mine.id_str ? `https://x.com/i/web/status/${mine.id_str}` : '');
+            if (feedback) feedback.innerHTML = `<span style="color:var(--green)">Posted to X ✓${url ? ` — <a href="${url}" target="_blank" style="color:var(--accent)">open</a>` : ''}</span>`;
+            if (btn) { btn.textContent = 'Posted ✓'; btn.style.borderColor = 'var(--green)'; btn.style.color = 'var(--green)'; }
+        } else if (mine && mine.status === 'dry_run') {
+            if (feedback) feedback.innerHTML = '<span style="color:var(--yellow)">X dry-run — would post (X_DRY_RUN is on)</span>';
+            if (btn) { btn.textContent = 'Dry-run'; btn.disabled = false; }
+        } else if (mine && (mine.status === 'failed' || mine.error)) {
+            throw new Error(mine.error || 'X post failed');
+        } else if (proc.ready === 0 && !(proc.results || []).length) {
+            if (feedback) feedback.innerHTML = '<span style="color:var(--yellow)">Queued — nothing due yet (check upload date / duration ≤140s)</span>';
+            if (btn) { btn.textContent = 'Queued'; btn.disabled = false; }
+        } else {
+            if (feedback) feedback.innerHTML = `<span style="color:var(--green)">X processor ran ✓ (${proc.processed || 0}) — check Scheduled</span>`;
+            if (btn) { btn.textContent = 'Processed ✓'; btn.style.borderColor = 'var(--green)'; btn.style.color = 'var(--green)'; }
+        }
+        setTimeout(() => closeFlowOverlay(), 2200);
     } catch (e) {
         if (feedback) feedback.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
         if (btn) { btn.textContent = 'Publish Now'; btn.disabled = false; }
@@ -732,7 +795,9 @@ async function scheduleSocial(itemId) {
             if (btn) { btn.textContent = 'Scheduled (no calendar)'; btn.style.background = 'var(--yellow, #d9a441)'; }
             setTimeout(() => closeFlowOverlay(), 3500);
         } else {
-            if (feedback) feedback.innerHTML = `<span style="color:var(--green)">Scheduled ✓</span>`;
+            // YouTube promotes into youtube_queue (Scheduled). X stays on social_queue —
+            // Scheduled tab now lists those too.
+            if (feedback) feedback.innerHTML = `<span style="color:var(--green)">Scheduled ✓ — watch it under Scheduled</span>`;
             if (btn) { btn.textContent = 'Scheduled ✓'; btn.style.background = 'var(--green)'; }
             setTimeout(() => closeFlowOverlay(), 1500);
         }
