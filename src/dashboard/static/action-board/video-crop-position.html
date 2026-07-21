@@ -793,19 +793,31 @@ function syncLookSliderInputs() {
 function applyLookPreview() {
     const img = document.getElementById('frame-img');
     if (!img) return;
-    // ffmpeg brightness is additive on [-1,1]; CSS brightness is multiplier.
-    // Map small ffmpeg B onto a gentle CSS multiplier so Original stays neutral.
-    const cssBright = Math.max(0.4, Math.min(1.6, 1 + (lookBrightness * 1.35)));
-    const cssContrast = lookContrast;
-    const cssSat = lookSaturation;
-    img.style.filter = `brightness(${cssBright}) contrast(${cssContrast}) saturate(${cssSat})`;
+    // True identity (Original + untouched sliders): no CSS filter so the JPEG
+    // frame matches source. Any non-identity B/C/S maps ffmpeg eq onto CSS.
+    const identity = Math.abs(lookBrightness) < 1e-6
+        && Math.abs(lookContrast - 1) < 1e-6
+        && Math.abs(lookSaturation - 1) < 1e-6;
+    if (identity) {
+        img.style.filter = 'none';
+    } else {
+        // ffmpeg brightness is additive on [-1,1]; CSS brightness is multiplier.
+        const cssBright = Math.max(0.4, Math.min(1.6, 1 + (lookBrightness * 1.35)));
+        img.style.filter = `brightness(${cssBright}) contrast(${lookContrast}) saturate(${lookSaturation})`;
+    }
     const nums = document.getElementById('look-nums');
     if (nums) {
         const preset = VIDEO_FILTER_PRESETS.find(f => f.id === videoFilter);
         const extra = (preset && (preset.id === 'rich' || preset.id === 'cinematic'))
             ? (preset.id === 'rich' ? ' · +curves' : ' · +temp')
             : '';
-        nums.textContent = `${preset ? preset.label : videoFilter}  B ${lookBrightness.toFixed(2)}  C ${lookContrast.toFixed(2)}  S ${lookSaturation.toFixed(2)}${extra}  (preview ≈ encode)`;
+        const id = Math.abs(lookBrightness) < 1e-6
+            && Math.abs(lookContrast - 1) < 1e-6
+            && Math.abs(lookSaturation - 1) < 1e-6
+            && !(preset && (preset.id === 'rich' || preset.id === 'cinematic'));
+        nums.textContent = id
+            ? `${preset ? preset.label : videoFilter}  identity — no color grade (preview = source)`
+            : `${preset ? preset.label : videoFilter}  B ${lookBrightness.toFixed(2)}  C ${lookContrast.toFixed(2)}  S ${lookSaturation.toFixed(2)}${extra}  (preview ≈ encode)`;
     }
 }
 function onCapFamily(id) {
