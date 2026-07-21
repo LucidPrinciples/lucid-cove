@@ -13,12 +13,14 @@ def test_crop_prefers_native_video_stream_not_only_jpeg():
     assert "frame-video" in CROP
     assert "/api/video/proxy/raw" in CROP
     assert "streamUrlFor" in CROP
-    # Still path remains as error fallback only — not as first-paint poster
-    # (washed JPEG poster painted before native stream and fought color QA).
+    # Still path: interim poster (removed once video paints) + error fallback.
+    # Solid black with no poster was worse than a brief washed still.
     assert "/api/video/proxy/frame" in CROP
     assert "onFrameVideoError" in CROP
-    assert "poster=" not in CROP
+    assert "poster=" in CROP
+    assert "removeAttribute('poster')" in CROP or 'removeAttribute("poster")' in CROP
     assert "onloadedmetadata" in CROP
+    assert "ensureVideoPaints" in CROP
 
 
 def test_crop_applies_fit_before_loadeddata():
@@ -32,9 +34,10 @@ def test_crop_applies_fit_before_loadeddata():
     assert "updatePos()" in chunk
     # setupFrameMedia always sizes, even when readyState is 0
     sidx = CROP.index("function setupFrameMedia")
-    setup = CROP[sidx : sidx + 500]
+    setup = CROP[sidx : sidx + 700]
     assert "updatePos()" in setup
     assert "v.readyState >= 1" in setup
+    assert "onFrameVideoError" in setup  # black-frame timeout fallback
 
 
 def test_border_off_fills_916_and_keeps_captions():
