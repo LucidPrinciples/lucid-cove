@@ -444,15 +444,52 @@ async function init() {
         return;
     }
 
-    const infoResp = await fetch(`/api/video/proxy/info?filename=${stem}.MOV`);
-    if (!infoResp.ok) {
-        for (const ext of ['.mp4', '.mov', '.mkv']) {
-            const r = await fetch(`/api/video/proxy/info?filename=${stem}${ext}`);
-            if (r.ok) { videoInfo = await r.json(); break; }
+    // Prefer the real filename from the video tree (inbox/processing/raw) so we
+    // do not 404 on wrong casing (.MOV vs .mov) or guess a file that only exists
+    // under a different pipeline folder than the first probe.
+    async function resolveSourceFilename() {
+        const stemLower = String(stem || '').toLowerCase();
+        let candidates = [];
+        // Prefer exact names from presence video folders (same NC path the board uses).
+        for (const listUrl of ['/api/video/processing', '/api/video/inbox']) {
+            try {
+                const ir = await fetch(listUrl);
+                if (!ir.ok) continue;
+                const data = await ir.json();
+                const files = (data && data.files) || [];
+                for (const f of files) {
+                    const name = f.filename || f.name || '';
+                    const base = name.replace(/\.[^.]+$/, '');
+                    if (base.toLowerCase() === stemLower && !candidates.includes(name)) {
+                        candidates.push(name);
+                    }
+                }
+            } catch (e) { /* ignore */ }
         }
-        if (!videoInfo) { container.innerHTML = '<div class="loading">Video not found.</div>'; return; }
-    } else {
-        videoInfo = await infoResp.json();
+        // Common extensions as fallback (iPhone .MOV first)
+        for (const ext of ['.MOV', '.mov', '.mp4', '.MP4', '.mkv', '.webm']) {
+            const guess = `${stem}${ext}`;
+            if (!candidates.includes(guess)) candidates.push(guess);
+        }
+        return candidates;
+    }
+
+    const candidates = await resolveSourceFilename();
+    for (const fname of candidates) {
+        try {
+            const r = await fetch(`/api/video/proxy/info?filename=${encodeURIComponent(fname)}`);
+            if (r.ok) {
+                videoInfo = await r.json();
+                // Ensure filename on the info object matches what worked
+                if (videoInfo && !videoInfo.filename) videoInfo.filename = fname;
+                break;
+            }
+        } catch (e) { /* try next */ }
+    }
+    if (!videoInfo) {
+        container.innerHTML = '<div class="loading">Video not found for stem <code>' +
+            stem + '</code>. Is it under AgentSkills/Content/video/inbox (or processing) on this presence&rsquo;s NC?</div>';
+        return;
     }
 
     // #D5: whole-video mode — the single clip IS the full video (0 → duration).

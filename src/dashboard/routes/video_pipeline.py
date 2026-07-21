@@ -151,49 +151,71 @@ async def pipecat_nc_headers(request) -> dict:
     Returns X-NC-* headers so pipecat authenticates AS the current presence and can
     only touch THAT presence's NC files — never admin, never another presence.
     Empty in single-mode (founder) → pipecat falls back to its local mount.
-    X-NC-URL is the pipecat-reachable NC address (NC_PIPECAT_URL — e.g. internal
-    host.docker.internal:8081 when co-located, or the public cloud URL if split).
+    X-NC-URL is the pipecat-reachable NC address.
+
+    Local ASR (voice co-located): prefer in-network NEXTCLOUD_URL — same URL the
+    app uses for inbox PROPFIND via get_nc_creds. A provision-stamped
+    NC_PIPECAT_URL of host.docker.internal / localhost is NOT a real override in
+    local mode; using it made voice WebDAV-miss files the Inbox list could see
+    (crop proxy/info 404 while short-horses.MOV sat in jason NC inbox).
+
+    External ASR (rented GPU): public NC URL (or a real NC_PIPECAT_URL that is
+    not a host-only stamp).
     """
     try:
         from src.dashboard.routes.presence import get_current_presence
         p = await get_current_presence(request)
-        if not p or not p.get("nc_username") or not p.get("nc_password"):
+        nc_user = (p or {}).get("nc_username") or ""
+        nc_pass = (p or {}).get("nc_password") or ""
+        # Fall back to get_nc_creds (on-demand provision + same path as inbox list)
+        # when the session row has empty NC fields but Files/Inbox still work.
+        if not nc_user or not nc_pass:
+            try:
+                from src.dashboard.routes.nextcloud import get_nc_creds
+                _url, _u, _pw = await get_nc_creds(request)
+                if _u and _pw:
+                    nc_user, nc_pass = _u, _pw
+            except Exception:
+                pass
+        if not nc_user or not nc_pass:
             return {}
-        # X-NC-URL = where THIS presence's NC is reachable by whichever pipecat does the
-        # work, which depends on WHERE pipecat runs relative to the NC:
-        #   local mode    -> pipecat is co-located on this Cove's docker network, so the
-        #                    in-network NEXTCLOUD_URL is reachable AND avoids a mis-set
-        #                    public URL (e.g. a legacy founder whose NEXTCLOUD_PUBLIC_URL
-        #                    is a host-only http://localhost:PORT, dead inside a container).
-        #   external mode -> pipecat is on ANOTHER box (a GPU-less Cove renting a remote
-        #                    GPU); in-network names don't resolve across the internet, so
-        #                    it must be this Cove's PUBLIC NC URL (reachable through Caddy).
-        # An explicit NC_PIPECAT_URL always wins (operator/provisioner override).
+
         explicit = (env("NC_PIPECAT_URL") or "").strip()
         try:
             from src.config import get_compute_config
             _asr_mode = ((get_compute_config() or {}).get("video_asr") or {}).get("mode") or "local"
         except Exception:
             _asr_mode = "local"
-        # C2: derive the public URL from the LIVE domain (_cloud_public_url — the
-        # CF-93 pattern) instead of the provision-stamped envs, which stay
-        # localhost/host.docker.internal forever after a domainless install
-        # claims an address. The domainless NC_PIPECAT_URL stamp is a default,
-        # not an operator override — for EXTERNAL pipecat it can't cross the
-        # internet, so it doesn't count as explicit there.
         from src.config import _cloud_public_url
-        if _asr_mode == "external" and "host.docker.internal" in explicit:
+
+        def _is_host_only(u: str) -> bool:
+            ul = (u or "").lower()
+            return (
+                "host.docker.internal" in ul
+                or "localhost" in ul
+                or "127.0.0.1" in ul
+            )
+
+        # Domainless / compose stamps are not real overrides when voice is local.
+        if _is_host_only(explicit) and _asr_mode != "external":
             explicit = ""
+        if _asr_mode == "external" and _is_host_only(explicit):
+            explicit = ""
+
         if explicit:
             url = explicit
         elif _asr_mode == "external":
             url = _cloud_public_url() or env("NEXTCLOUD_URL")
         else:
+            # Local voice: same in-network NC the app uses for inbox listing.
             url = env("NEXTCLOUD_URL") or _cloud_public_url()
+
+        if not url:
+            return {}
         return {
             "X-NC-URL": url,
-            "X-NC-User": p["nc_username"],
-            "X-NC-Pass": p["nc_password"],
+            "X-NC-User": nc_user,
+            "X-NC-Pass": nc_pass,
         }
     except Exception:
         return {}
@@ -1420,6 +1442,13 @@ async def save_transcript(stem: str, request: Request):
 async def list_inbox(request: Request):
     """List videos waiting in the inbox (founder mount or the presence's NC)."""
     files = await _list_video_dir(request, "inbox")
+    return {"files": files}
+
+
+@router.get("/processing")
+async def list_processing(request: Request):
+    """List videos in processing/ (post-transcribe, pre-raw). Same NC scope as inbox."""
+    files = await _list_video_dir(request, "processing")
     return {"files": files}
 
 
