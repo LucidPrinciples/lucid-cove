@@ -56,7 +56,8 @@ def test_calendar_creds_resolve_at_call_time():
 
 def test_calendar_failure_is_surfaced_not_swallowed():
     # create returns bool; the board PATCH response reports it.
-    assert re.search(r"def create_youtube_calendar_event\([\s\S]{0,200}\)\s*->\s*bool", CAL), \
+    # Signature grew with #VP-CAL status/url kwargs — allow a wider window.
+    assert re.search(r"def create_youtube_calendar_event\([\s\S]{0,900}\)\s*->\s*bool", CAL), \
         "create_youtube_calendar_event no longer reports success/failure"
     assert '"calendar"' in BOARD and '"failed"' in BOARD, \
         "schedule PATCH response no longer surfaces calendar failure"

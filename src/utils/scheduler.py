@@ -719,7 +719,7 @@ class AgentScheduler:
                 result = await conn.execute(
                     """SELECT id, title, description, tags, hashtags, file_path,
                               category_id, made_for_kids, is_short, related_video,
-                              playlist_id, publish_date, series, presence_id
+                              playlist_id, upload_date, publish_date, series, presence_id
                        FROM youtube_queue
                        WHERE status = 'queued' AND upload_date <= NOW()
                              AND youtube_video_id IS NULL
@@ -925,12 +925,21 @@ class AgentScheduler:
             print(f"{ts_log()} [scheduler] YouTube uploaded: #{post_id} '{post['title']}' "
                   f"→ {video_url} ({file_size // 1024}KB)")
 
-            # Remove calendar event — upload is done
+            # #VP-CAL: keep the single lifecycle event — rewrite as Private + Studio/watch
+            # links. Event stays on video-pipeline until Mark Published on Actions.
             try:
-                from src.dashboard.routes.youtube_calendar import delete_youtube_calendar_event
-                await delete_youtube_calendar_event(post_id, presence_id=post.get("presence_id"))
-            except Exception:
-                pass
+                from src.dashboard.routes.youtube_calendar import update_youtube_calendar_event
+                await update_youtube_calendar_event(
+                    post_id, post["title"], post.get("upload_date"),
+                    post.get("publish_date"), post.get("series") or "",
+                    presence_id=post.get("presence_id"),
+                    status="uploaded",
+                    youtube_url=video_url,
+                    youtube_video_id=video_id,
+                    is_short=post.get("is_short"),
+                )
+            except Exception as e:
+                print(f"{ts_log()} [scheduler] calendar update after upload failed: {e}")
 
             # Create follow-up tasks for Studio-only actions
             await self._create_youtube_followups(post, video_id, video_url)

@@ -1068,7 +1068,7 @@ async def mark_published(queue_id: int, request: Request):
                 f"""UPDATE youtube_queue
                    SET status = 'published', published_at = NOW()
                    WHERE id = %s AND status = 'uploaded'{scope_sql}
-                   RETURNING id""",
+                   RETURNING id, presence_id""",
                 (queue_id,) + scope_args,
             )
             row = await result.fetchone()
@@ -1078,6 +1078,14 @@ async def mark_published(queue_id: int, request: Request):
                     status_code=404,
                     content={"error": "Item not found or not in 'uploaded' status."},
                 )
+
+        # #VP-CAL: calendar stays until Mark Published — then drop the event
+        try:
+            from src.dashboard.routes.youtube_calendar import delete_youtube_calendar_event
+            await delete_youtube_calendar_event(
+                queue_id, presence_id=(row.get("presence_id") if row else None))
+        except Exception as e:
+            logger.warning(f"mark_published calendar delete failed for #{queue_id}: {e}")
 
         return {"status": "published", "id": queue_id}
 
