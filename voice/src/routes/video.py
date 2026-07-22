@@ -355,7 +355,11 @@ def hdr_to_sdr_vf(color_info: dict | None = None, *, for_still: bool = False) ->
     )
 
 
-def native_hdr_encode_args(color_info: dict | None) -> list | None:
+def native_hdr_encode_args(
+    color_info: dict | None,
+    *,
+    preset: str = "medium",
+) -> list | None:
     """ORIGINAL look + HDR source → NATIVE COLOR PASSTHROUGH (2026-07-21).
 
     No SDR conversion can match how Apple/players render an HLG original
@@ -366,19 +370,48 @@ def native_hdr_encode_args(color_info: dict | None) -> list | None:
     primaries/matrix carried through (tags + bitstream VUI), captions burned
     on top. Platforms ingest HLG HEVC natively — it is what iPhones upload.
     Returns the video-encoder arg list, or None for SDR sources (x264 path).
-    Graded looks still go through hdr_to_sdr_vf — a look is an SDR deliverable."""
+    Graded looks still go through hdr_to_sdr_vf — a look is an SDR deliverable.
+
+    preset: x265 speed. Caption-full keeps "medium". Short moments use "fast"
+    so a ~2 min 4K HLG clip finishes inside the job budget (600s medium was
+    timing out live on IMG_7159 m2).
+    """
     if not is_hdr_color(color_info):
         return None
     info = color_info or {}
     trc = (info.get("color_transfer") or "").strip().lower() or "arib-std-b67"
     spc = (info.get("color_space") or "").strip().lower() or "bt2020nc"
+    p = (preset or "medium").strip().lower()
+    if p not in {
+        "ultrafast", "superfast", "veryfast", "faster", "fast",
+        "medium", "slow", "slower", "veryslow",
+    }:
+        p = "medium"
     return [
         "-c:v", "libx265", "-tag:v", "hvc1", "-pix_fmt", "yuv420p10le",
-        "-preset", "medium", "-crf", "18",
+        "-preset", p, "-crf", "18",
         "-x265-params", f"colorprim=bt2020:transfer={trc}:colormatrix={spc}:range=limited",
         "-colorspace", spc, "-color_primaries", "bt2020",
         "-color_trc", trc, "-color_range", "tv",
     ]
+
+
+def moment_encode_timeout_seconds(duration: float, *, native_hdr: bool) -> int:
+    """Per-clip ffmpeg wall clock for process-moments.
+
+    Fixed 600s was killing ~2 min native-HLG 4K encodes (IMG_7159 m2 vertical
+    + horizontal both "Timed out"). Scale with source window; native x265 is
+    slower than SDR x264. Cap at 45 min so a runaway encode cannot hang the
+    voice worker forever.
+    """
+    try:
+        dur = max(0.0, float(duration or 0.0))
+    except (TypeError, ValueError):
+        dur = 0.0
+    # Base + per-second budget. Native HLG 4K x265 needs more headroom.
+    per_sec = 20.0 if native_hdr else 10.0
+    base = 900 if native_hdr else 600
+    return int(min(2700, max(base, base + per_sec * dur)))
 
 
 def sdr_still_vf() -> str:
@@ -835,10 +868,16 @@ async def process_moments(request: Request):
     vf_prep = color_prep_vf(color_info)
     # Original (no grade) + HDR source → native HLG/PQ passthrough: no SDR
     # conversion at all; encoder carries the source color through.
-    native_v_args = native_hdr_encode_args(color_info) if not vf_color else None
+    # Shorts: fast x265 — same 10-bit HLG tags, finishes inside job budget.
+    # Caption-full keeps medium (longer window, one encode).
+    native_v_args = (
+        native_hdr_encode_args(color_info, preset="fast") if not vf_color else None
+    )
     if native_v_args:
         vf_prep = ""
-        logger.info("Original+HDR → NATIVE COLOR PASSTHROUGH (10-bit HEVC, no tonemap)")
+        logger.info(
+            "Original+HDR → NATIVE COLOR PASSTHROUGH (10-bit HEVC fast, no tonemap)"
+        )
     logger.info(
         "Look filter: preset=%s → %s; color_prep=%s (trc=%s prim=%s)",
         video_filter,
@@ -1035,8 +1074,17 @@ async def process_moments(request: Request):
                     out_tmp,
                 ]
 
-                logger.info(f"Processing m{m_id} ({m_type}) [{fmt}]: {start:.1f}s → {end:.1f}s")
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                enc_timeout = moment_encode_timeout_seconds(
+                    duration, native_hdr=bool(native_v_args),
+                )
+                logger.info(
+                    f"Processing m{m_id} ({m_type}) [{fmt}]: "
+                    f"{start:.1f}s → {end:.1f}s (timeout {enc_timeout}s, "
+                    f"{'native-hdr' if native_v_args else 'sdr'})"
+                )
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=enc_timeout,
+                )
 
                 if result.returncode != 0:
                     errors.append({"moment_id": m_id, "format": fmt, "error": result.stderr[-500:]})
@@ -1117,8 +1165,15 @@ async def process_moments(request: Request):
                 else:
                     errors.append({"moment_id": m_id, "format": fmt, "error": "NC write failed"})
 
-            except subprocess.TimeoutExpired:
-                errors.append({"moment_id": m_id, "format": fmt, "error": "Timed out"})
+            except subprocess.TimeoutExpired as te:
+                to_s = getattr(te, "timeout", None) or "?"
+                msg = (
+                    f"Timed out after {to_s}s "
+                    f"(clip {duration:.1f}s, "
+                    f"{'native-hdr' if native_v_args else 'sdr'})"
+                )
+                errors.append({"moment_id": m_id, "format": fmt, "error": msg})
+                logger.error(f"m{m_id} [{fmt}] {msg}")
             except Exception as e:
                 errors.append({"moment_id": m_id, "format": fmt, "error": str(e)})
                 logger.error(f"m{m_id} [{fmt}] error: {e}")
@@ -2026,6 +2081,67 @@ async def stream_video(request: Request, filename: str = ""):
 # ── Video pipeline file I/O ───────────────────────────────────────
 # Pipecat-voice owns all video file writes. Cove agents proxy through
 # these endpoints instead of writing directly (they have read-only mounts).
+
+@router.get("/api/video/read-json")
+async def read_json(request: Request, subpath: str = ""):
+    """Read a JSON file from the video tree (scratch / NC mount / WebDAV).
+
+    Query: subpath=transcripts/STEM-transcript.json (relative, no leading slash).
+    Used by cove-core metadata generation so title rename does not fall back to
+    "{stem} — Full Video" when the app's NC read races voice scratch/publish.
+    """
+    sub = (subpath or "").strip().lstrip("/")
+    if not sub or ".." in sub or sub.startswith("/"):
+        return JSONResponse({"error": "Invalid subpath"}, status_code=400)
+
+    nc = NCSession.from_request(request)
+
+    # 1) Voice scratch (often warmer than NC right after STT/publish)
+    if nc is not None:
+        local = os.path.join("/tmp/cove-video", nc.user, sub)
+        if os.path.isfile(local):
+            try:
+                with open(local) as f:
+                    return JSONResponse(json.load(f))
+            except Exception as e:
+                logger.warning("read-json scratch parse failed %s: %s", sub, e)
+
+    # 2) NC data mount
+    if nc is not None:
+        name = os.path.basename(sub)
+        parent = os.path.dirname(sub)
+        on_disk = find_on_nc_data(
+            nc.user, name, subdirs=(parent,) if parent else ("transcripts", "shorts"),
+        )
+        if on_disk and os.path.isfile(on_disk):
+            try:
+                with open(on_disk) as f:
+                    return JSONResponse(json.load(f))
+            except Exception as e:
+                logger.warning("read-json mount parse failed %s: %s", sub, e)
+
+    # 3) WebDAV pull into scratch then parse
+    if nc is not None:
+        local = os.path.join("/tmp/cove-video", nc.user, sub)
+        os.makedirs(os.path.dirname(local) or ".", exist_ok=True)
+        if await nc.pull(sub, local) and os.path.isfile(local):
+            try:
+                with open(local) as f:
+                    return JSONResponse(json.load(f))
+            except Exception as e:
+                logger.warning("read-json pull parse failed %s: %s", sub, e)
+        return JSONResponse({"error": f"Not found: {sub}"}, status_code=404)
+
+    # Local VIDEO_MOUNT (founder / no NC session)
+    path = os.path.join(VIDEO_MOUNT, sub)
+    if not os.path.isfile(path):
+        return JSONResponse({"error": f"Not found: {sub}"}, status_code=404)
+    try:
+        with open(path) as f:
+            return JSONResponse(json.load(f))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @router.post("/api/video/write-json")
 async def write_json(request: Request):

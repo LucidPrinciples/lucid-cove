@@ -223,9 +223,14 @@ async def pipecat_nc_headers(request) -> dict:
 
 async def _read_video_json(request, subpath: str):
     """Read a JSON file from the video tree. Local VIDEO_BASE mount first (founder),
-    then the CURRENT presence's Nextcloud via WebDAV (multi-mode / Clearfield, where
-    there is no mount). `subpath` is relative to AgentSkills/Content/video. Returns
-    a dict or None."""
+    then voice (scratch/mount/WebDAV — source of truth after STT), then the CURRENT
+    presence's Nextcloud via WebDAV. `subpath` is relative to AgentSkills/Content/video.
+    Returns a dict or None.
+
+    Voice-first after local mount avoids the caption-full finalize race where the
+    app metadata pass fell back to "{stem} — Full Video" because NC/WebDAV had not
+    yet seen a transcript voice already held in /tmp/cove-video.
+    """
     # jules 1646 (presence-scope): the local mount is a single-operator vault —
     # in multi mode it would serve ONE operator's video tree to EVERY presence
     # (Stuart's surface showing the operator's pipeline). Multi mode reads the
@@ -238,6 +243,26 @@ async def _read_video_json(request, subpath: str):
                     return json.load(f)
             except Exception:
                 pass
+
+    # Voice owns video I/O — prefer its scratch/mount/WebDAV view.
+    try:
+        _nch = await pipecat_nc_headers(request) if request is not None else {}
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(
+                f"{PIPECAT_URL}/api/video/read-json",
+                params={"subpath": subpath},
+                headers=_nch or {},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, dict) and "error" not in data:
+                    return data
+                # Some proxies wrap; if it looks like transcript payload, accept.
+                if isinstance(data, dict) and ("segments" in data or "moments" in data):
+                    return data
+    except Exception as e:
+        logger.warning(f"voice read-json failed ({subpath}): {e}")
+
     try:
         from src.dashboard.routes.nextcloud import get_nc_creds
         nc_url, nc_user, nc_pass = await get_nc_creds(request)
