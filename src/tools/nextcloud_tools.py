@@ -213,12 +213,11 @@ _HARD_DENY_PREFIXES = (
     "Knowledge Base/",
 )
 
-# #CF-113: operator-only family handoff folder lives at NC root (not under
-# AgentSkills/). Team agents must not treat it as workspace even if a path
-# sneaks outside the AgentSkills scope check.
-_HARD_DENY_ROOT_PREFIXES = (
-    "CoveShared/",
-    "CoveShared",
+# #CF-113: OperatorShared lives at NC root (not under AgentSkills/). No agent —
+# including the steward — may use it as a tool path. Humans only (operator NC).
+_OPERATOR_SHARED_NAMES = (
+    "OperatorShared",
+    "CoveShared",  # legacy name still denied if anything remains
 )
 
 
@@ -377,12 +376,13 @@ def check_nc_path_access(path: str, write: bool = False) -> str | None:
     ro = list(scope.get("ro") or [])
     unrestricted = role == "steward" or "*" in rw
 
-    # #CF-113: CoveShared is operator-human only (not team agent workspace)
-    if not unrestricted:
-        nlow = norm.rstrip("/")
-        if nlow == "CoveShared" or norm.startswith("CoveShared/"):
-            return (f"Access denied: CoveShared is for operators only "
-                    f"(role '{role}' cannot use it as agent workspace).")
+    # #CF-113: OperatorShared is human operators only — ALL agents denied,
+    # including steward (unrestricted * does not apply to this root folder).
+    nlow = norm.rstrip("/")
+    for _os_name in _OPERATOR_SHARED_NAMES:
+        if nlow == _os_name or norm.startswith(_os_name + "/"):
+            return (f"Access denied: {_os_name} is private to Cove operators — "
+                    f"agents (including steward) cannot access it.")
 
     # Hard denials for non-steward (Context/Inbox/KB writes, Team/<other>/)
     if write and not unrestricted:

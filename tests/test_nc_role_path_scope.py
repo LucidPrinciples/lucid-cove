@@ -180,7 +180,7 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             "vera-day",
             ["AgentSkills/Team/vera/review.md"],
             [
-                "CoveShared/x.md",
+                "OperatorShared/x.md",
                 "AgentSkills/Reports/x.md",
                 "AgentSkills/Team/archimedes/x.md",
             ],
@@ -193,7 +193,7 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             "soren-day",
             ["AgentSkills/Team/soren/obs.md"],
             [
-                "CoveShared/x.md",
+                "OperatorShared/x.md",
                 "AgentSkills/Ops/x.md",
                 "AgentSkills/Content/x.md",
             ],
@@ -286,10 +286,10 @@ def test_unknown_role_failsafe_team_only(monkeypatch, _stub_channel_roles):
     )
     # write own team ok
     assert nc.check_nc_path_access("AgentSkills/Team/mystery/x.md", write=True) is None
-    # write Shared stub / CoveShared denied for unknown role
+    # write Shared stub / OperatorShared denied for unknown role
     err = nc.check_nc_path_access("AgentSkills/Shared/x.md", write=True)
     assert err and "Access denied" in err
-    err = nc.check_nc_path_access("CoveShared/x.md", write=True)
+    err = nc.check_nc_path_access("OperatorShared/x.md", write=True)
     assert err and "Access denied" in err
     # read KB ok (fail-safe includes RO Knowledge Base)
     assert nc.check_nc_path_access("AgentSkills/Knowledge Base/x.md", write=False) is None
@@ -348,9 +348,9 @@ async def test_mkdir_tool_returns_denial(_stub_channel_roles):
     _act("soren-day")
     fn = nc.nextcloud_mkdir
     if hasattr(fn, "ainvoke"):
-        result = await fn.ainvoke({"path": "CoveShared/x"})
+        result = await fn.ainvoke({"path": "OperatorShared/x"})
     else:
-        result = await fn.coroutine("CoveShared/x")
+        result = await fn.coroutine("OperatorShared/x")
     assert "Access denied" in result
 
 
@@ -391,9 +391,9 @@ async def test_delete_tool_returns_denial(_stub_channel_roles):
     _act("soren-day")
     fn = nc.nextcloud_delete
     if hasattr(fn, "ainvoke"):
-        result = await fn.ainvoke({"path": "CoveShared/x.md"})
+        result = await fn.ainvoke({"path": "OperatorShared/x.md"})
     else:
-        result = await fn.coroutine("CoveShared/x.md")
+        result = await fn.coroutine("OperatorShared/x.md")
     assert "Access denied" in result
 
 

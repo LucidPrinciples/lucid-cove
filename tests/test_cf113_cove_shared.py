@@ -1,9 +1,10 @@
-"""#CF-113 CoveShared — steward-owned operator-only RW share."""
-from unittest.mock import AsyncMock, MagicMock, patch
+"""#CF-113 OperatorShared — human operators only; agents fully denied."""
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.dashboard.routes import nextcloud as ncr
+from src.dashboard.routes import files as files_mod
 from src.tools import nextcloud_tools as nc
 
 
@@ -13,14 +14,15 @@ def test_operator_gate_excludes_guests():
     assert ncr._is_operator_presence("member", "guest") is False
 
 
-def test_cove_shared_constants():
-    assert ncr.STEWARD_COVE_SHARED_FOLDER == "CoveShared"
-    assert ncr._COVE_SHARED_RW_PERMS == 15  # RW no re-share
+def test_operator_shared_constants():
+    assert ncr.STEWARD_COVE_SHARED_FOLDER == "OperatorShared"
+    assert ncr._LEGACY_COVE_SHARED_FOLDER == "CoveShared"
+    assert ncr._COVE_SHARED_RW_PERMS == 15
+    assert files_mod.OPERATOR_SHARED_PREFIX == "OperatorShared"
 
 
 @pytest.mark.asyncio
-async def test_share_cove_shared_posts_rw_user_share():
-    """Steward OCS share uses path /CoveShared and permissions 15."""
+async def test_share_operator_shared_posts_rw_user_share():
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.text = "<ocs><meta><statuscode>100</statuscode></meta></ocs>"
@@ -48,39 +50,50 @@ async def test_share_cove_shared_posts_rw_user_share():
         ok = await ncr._share_cove_shared_with_operator(
             "jag", "secret", "admin", "adminpass")
     assert ok is True
-    assert FakeClient.last["data"]["path"] == "/CoveShared"
+    assert FakeClient.last["data"]["path"] == "/OperatorShared"
     assert FakeClient.last["data"]["shareWith"] == "jag"
     assert FakeClient.last["data"]["permissions"] == 15
-    assert FakeClient.last["data"]["shareType"] == 0
 
 
 @pytest.mark.asyncio
-async def test_share_skips_when_target_is_steward():
+async def test_share_skips_when_target_is_steward_admin():
     ok = await ncr._share_cove_shared_with_operator(
         "admin", "x", "admin", "y")
     assert ok is True
 
 
-def test_team_agents_denied_cove_shared(monkeypatch):
-    """Non-steward team roles cannot use CoveShared as workspace."""
-    # bind acting channel via ContextVar
-    tok = nc.set_acting_channel("archimedes-day")
-    try:
-        # stub channel→role map if needed via resolve
-        monkeypatch.setattr(
-            nc, "resolve_acting_role", lambda: ("builder", "archimedes"))
-        err = nc.check_nc_path_access("CoveShared/handoff.md", write=True)
-        assert err and ("operators only" in err.lower() or "Access denied" in err)
-        err = nc.check_nc_path_access("CoveShared", write=False)
-        assert err and "Access denied" in err
-    finally:
-        nc.set_acting_channel(None) if False else None
-        try:
-            nc._acting_channel_ctx.reset(tok)
-        except Exception:
-            pass
+@pytest.mark.parametrize("role,agent", [
+    ("builder", "archimedes"),
+    ("steward", "stuart"),
+    ("merchant", "mercer"),
+    ("auditor", "vera"),
+])
+def test_all_agents_denied_operator_shared(monkeypatch, role, agent):
+    monkeypatch.setattr(nc, "resolve_acting_role", lambda: (role, agent))
+    for path in ("OperatorShared", "OperatorShared/finances.xlsx",
+                 "CoveShared/legacy.md"):
+        err = nc.check_nc_path_access(path, write=True)
+        assert err and "Access denied" in err, (role, path, err)
+        err = nc.check_nc_path_access(path, write=False)
+        assert err and "Access denied" in err, (role, path, err)
 
 
-def test_steward_may_use_cove_shared(monkeypatch):
-    monkeypatch.setattr(nc, "resolve_acting_role", lambda: ("steward", "stuart"))
-    assert nc.check_nc_path_access("CoveShared/notes.md", write=True) is None
+def test_path_helpers_files_mod():
+    assert files_mod._is_operator_shared_path("OperatorShared") is True
+    assert files_mod._is_operator_shared_path("OperatorShared/a.md") is True
+    assert files_mod._is_operator_shared_path("CoveShared") is True
+    assert files_mod._is_operator_shared_path("AgentSkills/Inbox") is False
+    assert files_mod._item_is_operator_shared_name("OperatorShared") is True
+    assert files_mod._item_is_operator_shared_name("AgentSkills") is False
+
+
+@pytest.mark.asyncio
+async def test_admin_files_guard_blocks_operator_shared(monkeypatch):
+    monkeypatch.setattr(ncr, "NC_ADMIN_USER", "adminclearfield")
+    msg = await files_mod._operator_shared_agent_guard(
+        None, "OperatorShared/notes.md", "adminclearfield")
+    assert msg and "operators" in msg.lower()
+    # operator NC user is allowed through this guard
+    msg = await files_mod._operator_shared_agent_guard(
+        None, "OperatorShared/notes.md", "jag")
+    assert msg is None
