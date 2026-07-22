@@ -7,13 +7,16 @@ PROC_PY = (ROOT / "src" / "dashboard" / "routes" / "video_processing.py").read_t
 
 
 def test_caption_full_exists_prefers_mount():
-    assert "find_on_nc_data(nc.user, plain" in VIDEO_PY
-    # pull remains last resort, after mount/scratch checks
     exists_fn = VIDEO_PY.split("async def caption_full_exists", 1)[1].split(
         "async def ", 1
     )[0]
-    assert "find_on_nc_data" in exists_fn
-    assert exists_fn.index("find_on_nc_data") < exists_fn.index("await nc.pull")
+    assert "_resolve_captioned_full" in exists_fn
+    helper = VIDEO_PY.split("async def _resolve_captioned_full", 1)[1].split(
+        "@router.get", 1
+    )[0]
+    # mount before pull
+    assert "find_on_nc_data" in helper or "_find_captioned_full_on_mount" in VIDEO_PY
+    assert helper.index("_find_captioned_full_on_mount") < helper.index("await nc.pull")
 
 
 def test_caption_full_skip_returns_duration():
@@ -21,7 +24,7 @@ def test_caption_full_skip_returns_duration():
         "Find source video", 1
     )[0]
     assert "duration_seconds" in guard
-    assert "find_on_nc_data" in guard
+    assert "_resolve_captioned_full" in guard
     assert "ffprobe" in guard
 
 
@@ -40,3 +43,24 @@ def test_queue_full_is_idempotent():
     assert ":update" in PROC_PY
     assert "SELECT id, status FROM social_queue" in PROC_PY
     assert "_finalize_captioned_full_metadata" in PROC_PY
+
+
+def test_caption_full_exists_sees_title_renamed():
+    """After rename-captioned, exists must find STEM-*-captioned.mp4 not only plain."""
+    helper = VIDEO_PY.split("async def _resolve_captioned_full", 1)[1].split(
+        "@router.get", 1
+    )[0]
+    assert "*-captioned.mp4" in helper
+    assert "_find_captioned_full_on_mount" in VIDEO_PY
+    mount_fn = VIDEO_PY.split("def _find_captioned_full_on_mount", 1)[1].split(
+        "async def _resolve_captioned_full", 1
+    )[0]
+    assert "*-captioned.mp4" in mount_fn
+
+
+def test_caption_full_skip_uses_resolve_helper():
+    guard = VIDEO_PY.split("Guard: skip if captioned full", 1)[1].split(
+        "Find source video", 1
+    )[0]
+    assert "_resolve_captioned_full" in guard
+    assert "duration_seconds" in guard
