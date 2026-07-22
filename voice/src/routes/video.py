@@ -107,21 +107,49 @@ def resolve_look_vf(source=None) -> str:
     return eq
 
 
-def hq_scale(w, h) -> str:
+def hq_scale(w, h, *, out_matrix: str | None = "bt709") -> str:
     """High-quality geometric scale — used on every publish path.
 
     Default ffmpeg scale is bilinear and softens fine detail; lanczos + full
     chroma interpolation keeps 4K source texture through crop→output.
-    in_color_matrix=auto reads the source correctly; out is EXPLICIT bt709 —
-    every publish path is bt709 SDR after color_prep, and ffmpeg 7.x rejects
-    out_color_matrix=auto outright ('Value -1.000000 out of range [0 - 17]',
-    the 2026-07-20 '0 clips rendered' failure on the rebuilt voice image).
+    in_color_matrix=auto reads the source correctly.
+
+    out_matrix:
+      - "bt709" (default) — SDR publish paths after color_prep / graded looks.
+      - "bt2020nc" (or source matrix) — Original+HDR native passthrough so we
+        do NOT reshuffle HLG/bt2020 into bt709 on the scale step and then tag
+        the file as bt2020/HLG (sparkle / wrong pop / soft phone look).
+      - None or "" — omit out_color_matrix (preserve; ffmpeg 7.x rejects
+        out_color_matrix=auto).
     """
-    return (
+    base = (
         f"scale={int(w)}:{int(h)}:flags=lanczos+accurate_rnd+full_chroma_int"
-        f":in_color_matrix=auto:out_color_matrix=bt709"
-        f":force_original_aspect_ratio=disable"
+        f":in_color_matrix=auto"
     )
+    om = (out_matrix or "").strip().lower()
+    if om:
+        base += f":out_color_matrix={om}"
+    base += ":force_original_aspect_ratio=disable"
+    return base
+
+
+def scale_out_matrix(color_info: dict | None, *, native_hdr: bool) -> str | None:
+    """Matrix for hq_scale: keep bt2020 on native HDR, bt709 on SDR deliverables."""
+    if not native_hdr:
+        return "bt709"
+    spc = ((color_info or {}).get("color_space") or "").strip().lower()
+    if not spc or spc in {"unknown", "reserved", "gbr"}:
+        return "bt2020nc"
+    # scale filter accepts bt2020nc / bt2020c; normalize common tags.
+    if spc in {"bt2020", "bt2020-ncl", "bt2020ncl"}:
+        return "bt2020nc"
+    if spc in {"bt2020-cl", "bt2020cl"}:
+        return "bt2020c"
+    if "2020" in spc and "cl" in spc:
+        return "bt2020c"
+    if "2020" in spc:
+        return "bt2020nc"
+    return spc
 
 
 def probe_video_fps(video_path: str) -> float | None:
@@ -372,9 +400,9 @@ def native_hdr_encode_args(
     Returns the video-encoder arg list, or None for SDR sources (x264 path).
     Graded looks still go through hdr_to_sdr_vf — a look is an SDR deliverable.
 
-    preset: x265 speed. Caption-full keeps "medium". Short moments use "fast"
-    so a ~2 min 4K HLG clip finishes inside the job budget (600s medium was
-    timing out live on IMG_7159 m2).
+    preset: x265 speed. Default medium (near-transparent with CRF 14).
+    Callers may pass "fast" only when wall-clock forces it; duration-scaled
+    timeouts are the normal budget control, not a softer encode.
     """
     if not is_hdr_color(color_info):
         return None
@@ -387,9 +415,12 @@ def native_hdr_encode_args(
         "medium", "slow", "slower", "veryslow",
     }:
         p = "medium"
+    # CRF 14 matches the SDR near-transparent bar. preset default medium —
+    # "fast" was for a fixed 600s budget that no longer applies (duration-scaled
+    # timeouts). Callers may still pass preset="fast" if they need speed.
     return [
         "-c:v", "libx265", "-tag:v", "hvc1", "-pix_fmt", "yuv420p10le",
-        "-preset", p, "-crf", "18",
+        "-preset", p, "-crf", "14",
         "-x265-params", f"colorprim=bt2020:transfer={trc}:colormatrix={spc}:range=limited",
         "-colorspace", spc, "-color_primaries", "bt2020",
         "-color_trc", trc, "-color_range", "tv",
@@ -868,16 +899,16 @@ async def process_moments(request: Request):
     vf_prep = color_prep_vf(color_info)
     # Original (no grade) + HDR source → native HLG/PQ passthrough: no SDR
     # conversion at all; encoder carries the source color through.
-    # Shorts: fast x265 — same 10-bit HLG tags, finishes inside job budget.
-    # Caption-full keeps medium (longer window, one encode).
+    # medium + CRF 14: same quality bar as SDR publish; matrix kept on scale.
     native_v_args = (
-        native_hdr_encode_args(color_info, preset="fast") if not vf_color else None
+        native_hdr_encode_args(color_info, preset="medium") if not vf_color else None
     )
     if native_v_args:
         vf_prep = ""
         logger.info(
-            "Original+HDR → NATIVE COLOR PASSTHROUGH (10-bit HEVC fast, no tonemap)"
+            "Original+HDR → NATIVE COLOR PASSTHROUGH (10-bit HEVC medium/crf14, no tonemap)"
         )
+    scale_matrix = scale_out_matrix(color_info, native_hdr=bool(native_v_args))
     logger.info(
         "Look filter: preset=%s → %s; color_prep=%s (trc=%s prim=%s)",
         video_filter,
@@ -972,7 +1003,7 @@ async def process_moments(request: Request):
                     vf = join_vf(
                         vf_prep,
                         _square_crop_expr(src_w, src_h, src_x, src_y),
-                        hq_scale(fmt_out_w, video_h),
+                        hq_scale(fmt_out_w, video_h, out_matrix=scale_matrix),
                         f"pad={fmt_out_w}:{fmt_out_h}:0:{fmt_bar_top}:black",
                         vf_color,
                     )
@@ -981,7 +1012,7 @@ async def process_moments(request: Request):
                     vf = join_vf(
                         vf_prep,
                         _rect_crop_expr(src_w, src_h, src_x, src_y),
-                        hq_scale(fmt_out_w, fmt_out_h),
+                        hq_scale(fmt_out_w, fmt_out_h, out_matrix=scale_matrix),
                         vf_color,
                     )
                 elif fmt == "horizontal":
@@ -991,7 +1022,7 @@ async def process_moments(request: Request):
                         vf = join_vf(
                             vf_prep,
                             _square_crop_expr(src_w, src_h, src_x, src_y),
-                            hq_scale(h_square, h_square),
+                            hq_scale(h_square, h_square, out_matrix=scale_matrix),
                             f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black",
                             vf_color,
                         )
@@ -999,7 +1030,7 @@ async def process_moments(request: Request):
                         vf = join_vf(
                             vf_prep,
                             r"crop=min(iw\,ih):min(iw\,ih)",
-                            hq_scale(h_square, h_square),
+                            hq_scale(h_square, h_square, out_matrix=scale_matrix),
                             f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black",
                             vf_color,
                         )
@@ -1008,7 +1039,7 @@ async def process_moments(request: Request):
                     vf = join_vf(
                         vf_prep,
                         _square_crop_expr(src_w, src_h, src_x, src_y),
-                        hq_scale(fmt_out_w, fmt_out_h),
+                        hq_scale(fmt_out_w, fmt_out_h, out_matrix=scale_matrix),
                         vf_color,
                     )
 
@@ -1674,6 +1705,7 @@ async def caption_full_video(request: Request):
     if native_v_args:
         vf_prep = ""
         logger.info("Original+HDR (caption-full) → NATIVE COLOR PASSTHROUGH")
+    scale_matrix = scale_out_matrix(color_info, native_hdr=bool(native_v_args))
     logger.info(
         "Look filter (caption-full): preset=%s → %s; color_prep=%s (trc=%s)",
         video_filter,
@@ -1738,7 +1770,7 @@ async def caption_full_video(request: Request):
             vf = join_vf(
                 vf_prep,
                 _square_crop_expr(src_w, src_h, src_x, src_y),
-                hq_scale(h_square, h_square),
+                hq_scale(h_square, h_square, out_matrix=scale_matrix),
                 f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black",
                 vf_color,
             )
@@ -1753,7 +1785,7 @@ async def caption_full_video(request: Request):
             vf = join_vf(
                 vf_prep,
                 r"crop=min(iw\,ih):min(iw\,ih)",
-                hq_scale(h_square, h_square),
+                hq_scale(h_square, h_square, out_matrix=scale_matrix),
                 f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black",
                 vf_color,
             )

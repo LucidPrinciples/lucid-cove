@@ -96,7 +96,14 @@ def test_hq_scale_and_join_vf():
     end = text.index("def _square_crop_expr")
     ns = {}
     exec(text[start:end], ns)
-    assert "lanczos" in ns["hq_scale"](2160, 1620)
+    sdr = ns["hq_scale"](2160, 1620)
+    assert "lanczos" in sdr
+    assert "out_color_matrix=bt709" in sdr
+    hdr = ns["hq_scale"](1080, 1920, out_matrix=ns["scale_out_matrix"](
+        {"color_space": "bt2020nc"}, native_hdr=True
+    ))
+    assert "out_color_matrix=bt2020nc" in hdr
+    assert "out_color_matrix=bt709" not in hdr
     assert ns["join_vf"]("crop=1", "", None, "eq=x") == "crop=1,eq=x"
     assert ns["join_vf"]("crop=1", "") == "crop=1"
 
