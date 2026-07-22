@@ -1,9 +1,11 @@
 # =============================================================================
 # sites.py — Site management for Presences and Cove
 #
-# Sites live in the Presence's Nextcloud account under AgentSkills/Sites/{domain}/
+# Sites live under AgentSkills/Sites/{domain}/ on the ACTING user's Nextcloud account.
 # Each site has a site.yaml config and the actual site files (HTML, CSS, etc.).
-# Privacy: each Presence's sites are isolated by NC user. No cross-Presence access.
+# Privacy (#TIER1): list/get/deploy use get_nc_creds(request) only — that NC user.
+# No host-wide union, no steward browse of other presences' Sites folders.
+# tier in site.yaml: "cove" (Tier A, admin/steward NC) | "presence" (Tier B).
 #
 # Agents (Archimedes) build site files via this API. The operator approves
 # deploys via the Attention Board. Deploy = sync to git repo → push → Cloudflare Pages.
@@ -45,8 +47,49 @@ def _dlog(msg: str) -> None:
 
 router = APIRouter()
 
-# Sites folder is per-Presence — resolved at call time via config.get_sites_path()
-# (Stuart -> LucidCove/Sites, Atlas -> AgentSkills/Sites; env var SITES_NC_PATH).
+# Sites folder is per acting scope — resolved at call time via config.get_sites_path()
+# (default AgentSkills/Sites on that NC user; env var SITES_NC_PATH / agent.yaml).
+
+
+
+# =============================================================================
+# Tier binding (#TIER1)
+# =============================================================================
+
+def _acting_site_tier(request: Request | None) -> str:
+    """Return 'cove' for steward/admin doors, 'presence' for member presence doors.
+
+    Single-mode / no presence cookie → cove (legacy founder steward surface).
+    """
+    if request is None:
+        return "cove"
+    try:
+        presence = getattr(getattr(request, "state", None), "presence", None)
+        if isinstance(presence, dict):
+            cr = (presence.get("cove_role") or "").strip().lower()
+            if cr in ("admin", "steward"):
+                return "cove"
+            if presence.get("id"):
+                return "presence"
+    except Exception:
+        pass
+    return "cove"
+
+
+def _annotate_site_config(config: dict | None, folder: str, tier: str, presence: dict | None) -> dict:
+    """Ensure list payloads carry tier + owner_presence_id without rewriting NC yet."""
+    if not isinstance(config, dict):
+        config = {"domain": folder, "status": "unknown"}
+    out = dict(config)
+    if not out.get("domain"):
+        out["domain"] = folder
+    # Never trust client-supplied cross-tier claims on read — stamp from acting scope
+    out["tier"] = tier
+    if tier == "presence" and presence and presence.get("id"):
+        out["owner_presence_id"] = str(presence["id"])
+    elif tier == "cove":
+        out.setdefault("owner_presence_id", None)
+    return out
 
 
 # =============================================================================
@@ -132,15 +175,23 @@ async def _nc_propfind(client: httpx.AsyncClient, url: str,
 # =============================================================================
 
 async def _list_sites_internal(request: Request) -> list:
-    """Internal helper — returns list of site config dicts.
+    """Internal helper — returns list of site config dicts for the ACTING NC user only.
 
     Used by action_board.py to check for incomplete wizards without
     making an HTTP request. Returns empty list on any error.
+
+    #TIER1: never unions other presences' folders. Steward list = admin NC
+    Tier A sites only; presence list = that presence NC Tier B only.
     """
     try:
         nc_url, nc_user, nc_pass = await get_nc_creds(request)
         if not nc_user or not nc_pass:
             return []
+
+        tier = _acting_site_tier(request)
+        presence = getattr(getattr(request, "state", None), "presence", None)
+        if not isinstance(presence, dict):
+            presence = None
 
         base = _webdav_base(nc_url, nc_user)
         sites_url = f"{base}/{get_sites_path()}"
@@ -155,14 +206,15 @@ async def _list_sites_internal(request: Request) -> list:
             for folder in folders:
                 config_url = f"{sites_url}/{quote(folder, safe='')}/site.yaml"
                 config_data = await _nc_get(client, config_url, nc_user, nc_pass)
+                config = None
                 if config_data:
                     try:
                         config = yaml.safe_load(config_data)
-                        sites.append(config)
                     except Exception:
-                        sites.append({"domain": folder, "status": "unknown"})
+                        config = {"domain": folder, "status": "unknown"}
                 else:
-                    sites.append({"domain": folder, "status": "unknown"})
+                    config = {"domain": folder, "status": "unknown"}
+                sites.append(_annotate_site_config(config, folder, tier, presence))
 
         return sites
     except Exception:
@@ -171,7 +223,7 @@ async def _list_sites_internal(request: Request) -> list:
 
 @router.get("/api/sites")
 async def list_sites(request: Request):
-    """List all sites for the current Presence."""
+    """List sites for the acting scope only (Tier A on admin NC, Tier B on presence NC)."""
     sites = await _list_sites_internal(request)
     if not sites and sites is not None:
         # Could be NC not configured — check
@@ -231,10 +283,18 @@ async def create_site(request: Request):
         agent_id = get_primary_agent_id()
         operator = get_operator_name()
 
+        tier = _acting_site_tier(request)
+        presence = getattr(getattr(request, "state", None), "presence", None)
+        owner_presence_id = None
+        if isinstance(presence, dict) and presence.get("id") and tier == "presence":
+            owner_presence_id = str(presence["id"])
+
         config = {
             "domain": domain,
             "title": title or domain,
             "site_type": site_type,
+            "tier": tier,  # cove | presence — #TIER1
+            "owner_presence_id": owner_presence_id,
             "status": "setup",  # setup → building → staging → live
             "owner_agent": agent_id,
             "owner_operator": operator,

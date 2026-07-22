@@ -268,12 +268,26 @@ async def start_transcribe(request: Request):
 async def start_analyze(request: Request):
     """Kick off moments analysis as a background job. Same body as /analyze."""
     body = await request.json()
-    if not (body.get("presence_name") or "").strip():
+    # #TIER1: stamp presence from session when available; forbid foreign body names
+    from src.dashboard.routes.video_pipeline import (
+        analyze_transcript,
+        _session_presence_name,
+        _reject_cross_presence_name,
+    )
+    session_name = await _session_presence_name(request)
+    body_name = (body.get("presence_name") or "").strip()
+    if session_name:
+        if body_name:
+            cross = _reject_cross_presence_name(body_name, session_name)
+            if cross:
+                return JSONResponse({"error": cross}, status_code=403)
+        body = dict(body)
+        body["presence_name"] = session_name
+    elif not body_name:
         return JSONResponse(
             {"error": "presence_name required — identifies whose video data to write to"},
             status_code=400,
         )
-    from src.dashboard.routes.video_pipeline import analyze_transcript
     return _spawn(request, body, analyze_transcript, "analyze")
 
 

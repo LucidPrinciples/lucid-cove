@@ -27,8 +27,9 @@ def test_essentials_still_seeded_shared_stub_retired():
 def test_actions_and_shared_dropped_from_steward_shares():
     assert "AgentSkills/Actions" not in STEWARD_SHARED_FOLDERS
     assert "AgentSkills/Shared" not in STEWARD_SHARED_FOLDERS
-    assert "AgentSkills/Content" in STEWARD_SHARED_FOLDERS
-    assert "AgentSkills/Sites" in STEWARD_SHARED_FOLDERS
+    # #TIER1: Content + Sites are presence-private — not ambient steward shares
+    assert "AgentSkills/Content" not in STEWARD_SHARED_FOLDERS
+    assert "AgentSkills/Sites" not in STEWARD_SHARED_FOLDERS
 
 
 def test_cf113_cove_shared_constants():
