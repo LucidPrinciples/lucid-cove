@@ -169,40 +169,40 @@ _AGENT_ROLE = {
 _DEFAULT_NC_PATH_SCOPES = {
     "steward": {"rw": ["*"], "ro": []},
     "merchant": {
-        "rw": ["Team/mercer/", "Reports/", "Shared/"],
+        "rw": ["Team/mercer/", "Reports/"],
         "ro": ["Knowledge Base/", "Content/", "Sites/", "Ops/"],
     },
     "builder": {
-        "rw": ["Team/archimedes/", "Sites/", "Shared/"],
+        "rw": ["Team/archimedes/", "Sites/"],
         "ro": ["Knowledge Base/", "Reports/", "Content/", "Ops/"],
     },
     "analyst": {
-        "rw": ["Team/arthur/", "Shared/"],
+        "rw": ["Team/arthur/"],
         "ro": ["Knowledge Base/", "Reports/", "Content/", "Ops/"],
     },
     "scout": {
-        "rw": ["Team/gabe/", "Shared/"],
+        "rw": ["Team/gabe/"],
         "ro": ["Knowledge Base/", "Content/", "Reports/", "Sites/", "Ops/"],
     },
     "keeper": {
-        "rw": ["Team/ezra/", "Ops/", "Shared/"],
+        "rw": ["Team/ezra/", "Ops/"],
         "ro": ["Knowledge Base/", "Reports/", "Content/", "Sites/"],
     },
     "scribe": {
-        "rw": ["Team/julian/", "Content/", "Shared/"],
+        "rw": ["Team/julian/", "Content/"],
         "ro": ["Knowledge Base/", "Reports/", "Sites/", "Ops/"],
     },
     "advocate": {
-        "rw": ["Team/iris/", "Content/", "Shared/"],
+        "rw": ["Team/iris/", "Content/"],
         "ro": ["Knowledge Base/", "Reports/", "Sites/", "Ops/"],
     },
     "auditor": {
         "rw": ["Team/vera/"],
-        "ro": ["Knowledge Base/", "Reports/", "Content/", "Sites/", "Ops/", "Shared/"],
+        "ro": ["Knowledge Base/", "Reports/", "Content/", "Sites/", "Ops/"],
     },
     "lens": {
         "rw": ["Team/soren/"],
-        "ro": ["Knowledge Base/", "Reports/", "Ops/", "Shared/"],
+        "ro": ["Knowledge Base/", "Reports/", "Ops/"],
     },
 }
 
@@ -211,6 +211,14 @@ _HARD_DENY_PREFIXES = (
     "Context/",
     "Inbox/",
     "Knowledge Base/",
+)
+
+# #CF-113: operator-only family handoff folder lives at NC root (not under
+# AgentSkills/). Team agents must not treat it as workspace even if a path
+# sneaks outside the AgentSkills scope check.
+_HARD_DENY_ROOT_PREFIXES = (
+    "CoveShared/",
+    "CoveShared",
 )
 
 
@@ -368,6 +376,13 @@ def check_nc_path_access(path: str, write: bool = False) -> str | None:
     rw = list(scope.get("rw") or [])
     ro = list(scope.get("ro") or [])
     unrestricted = role == "steward" or "*" in rw
+
+    # #CF-113: CoveShared is operator-human only (not team agent workspace)
+    if not unrestricted:
+        nlow = norm.rstrip("/")
+        if nlow == "CoveShared" or norm.startswith("CoveShared/"):
+            return (f"Access denied: CoveShared is for operators only "
+                    f"(role '{role}' cannot use it as agent workspace).")
 
     # Hard denials for non-steward (Context/Inbox/KB writes, Team/<other>/)
     if write and not unrestricted:

@@ -23,6 +23,10 @@ COVE_MODE = env("COVE_MODE", "single")
 # the CURRENT presence's own space PROPFINDs a folder that doesn't exist there →
 # the "WebDAV error: 404" a non-steward presence hit on the Knowledge Base.
 KB_PREFIX = "AgentSkills/Knowledge Base"
+# #CF-113 — operator-only handoff folder (steward-owned, RW share into each
+# operator's NC root). Not routed through admin creds: each operator sees their
+# own share mount; steward/admin owns the canonical copy.
+COVE_SHARED_PREFIX = "CoveShared"
 
 
 def _clean_webdav_path(path: str):

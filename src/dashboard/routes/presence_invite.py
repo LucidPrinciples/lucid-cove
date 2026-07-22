@@ -420,7 +420,8 @@ async def complete_invite(token: str, request: Request):
             await provision_nc_user(
                 pid, display_name or presence.get("display_name") or agent_name,
                 handle=(new_handle or presence.get("username") or ""),
-                tier=tier, role=("steward" if role == "admin" else "member"))
+                tier=tier, role=("steward" if role == "admin" else "member"),
+                cove_role=role)
         except Exception as e:
             log.error("NC provisioning during member finalize failed for %s: %s", pid, e)
 
