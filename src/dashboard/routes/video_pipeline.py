@@ -421,6 +421,42 @@ def _steward_video_path(presence_name: str, subpath: str = "") -> str:
     return f"{base}/{subpath}" if subpath else base
 
 
+
+async def _session_presence_name(request: Request | None) -> str:
+    """#TIER1 / VID-ISO: video scope comes from the session, never trust body alone.
+
+    Returns the acting presence display/username key used in path namespaces, or
+    empty if single-mode / unbound. Callers must reject cross-presence body names.
+    """
+    if request is None:
+        return ""
+    try:
+        from src.dashboard.routes.presence import get_current_presence
+        p = await get_current_presence(request)
+        if not p:
+            return ""
+        return (
+            (p.get("display_name") or p.get("username") or p.get("agent_name") or "")
+            .strip()
+        )
+    except Exception:
+        return ""
+
+
+def _reject_cross_presence_name(body_name: str, session_name: str) -> str | None:
+    """If body tries to target another presence, return an error message."""
+    b = (body_name or "").strip()
+    s = (session_name or "").strip()
+    if not b:
+        return None  # missing handled by caller
+    if not s:
+        # single-mode / no session — allow body (founder path)
+        return None
+    if b.lower() != s.lower():
+        return "presence_name must match the signed-in presence"
+    return None
+
+
 def _nc_video_write_path(presence_name: str, subpath: str) -> str:
     """Build the correct NC WebDAV path for video pipeline writes.
 
@@ -679,7 +715,13 @@ async def analyze_transcript(request: Request):
     transcript_file = body.get("transcript_file", "").strip()
     stem = body.get("stem", "").strip()
     presence_name = body.get("presence_name", "").strip()
-
+    session_name = await _session_presence_name(request)
+    if session_name:
+        # Multi presence door: bind to session; ignore/forbid foreign body names
+        cross = _reject_cross_presence_name(presence_name, session_name) if presence_name else None
+        if cross:
+            return JSONResponse({"error": cross}, status_code=403)
+        presence_name = session_name
     if not presence_name:
         return JSONResponse(
             {"error": "presence_name required — identifies whose video data to write to"},
@@ -1406,6 +1448,18 @@ async def save_transcript(stem: str, request: Request):
     if not edited_segments:
         return JSONResponse({"error": "No segments provided"}, status_code=400)
 
+    session_name = await _session_presence_name(request)
+    if session_name:
+        cross = _reject_cross_presence_name(presence_name, session_name) if presence_name else None
+        if cross:
+            return JSONResponse({"error": cross}, status_code=403)
+        presence_name = session_name
+    session_name = await _session_presence_name(request)
+    if session_name:
+        cross = _reject_cross_presence_name(presence_name, session_name) if presence_name else None
+        if cross:
+            return JSONResponse({"error": cross}, status_code=403)
+        presence_name = session_name
     if not presence_name:
         return JSONResponse(
             {"error": "presence_name required"},

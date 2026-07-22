@@ -2,9 +2,11 @@
 Site Tools — agent-callable tools for reading and editing Cove websites.
 
 These tools let agents (Atlas, Stuart, Archimedes) interact with sites
-managed through the Site Builder. Read operations are AUTO tier (silent).
-Edit/create operations are APPROVE tier — they create a branch with the
-change and request operator sign-off before merging to main.
+managed through the Site Builder for the ACTING scope only (#TIER1).
+Read operations are AUTO tier (silent). Edit/create operations are APPROVE
+tier — they create a branch with the change and request operator sign-off
+before merging to main. Domain resolution must not discover another
+presence's sites.
 
 The approval flow is:
   1. Agent calls site_edit_file → tool creates branch, commits change
@@ -27,19 +29,42 @@ log = logging.getLogger("site_tools")
 
 
 def _get_site_config(domain: str) -> dict:
-    """Load site.yaml config for a domain from Nextcloud.
+    """Load site.yaml for a domain from the ACTING agent's sites root only.
 
-    Returns the parsed config dict or raises ValueError.
+    #TIER1: do not walk host-wide paths that could resolve another presence's
+    site. Order:
+      1. {get_sites_path()}/ under /vault and /app/data (relative to config)
+      2. legacy /vault/AgentSkills/Sites and /app/data/sites only when they
+         match get_sites_path()
     """
     import os
     import yaml
+    from src.config import get_sites_path
 
-    # Try filesystem first (NC mount at /vault/AgentSkills or container mount)
-    for base in ["/vault/AgentSkills/Sites", "/app/data/sites"]:
-        config_path = os.path.join(base, domain, "site.yaml")
+    domain = (domain or "").strip().lower()
+    if not domain or "/" in domain or "\\" in domain or ".." in domain:
+        raise ValueError("Invalid domain")
+
+    sites_rel = (get_sites_path() or "AgentSkills/Sites").strip().strip("/")
+    candidates = []
+    for root in ("/vault", "/app/data"):
+        candidates.append(os.path.join(root, sites_rel, domain, "site.yaml"))
+    # Only allow legacy flat mounts when they are the configured path
+    if sites_rel in ("AgentSkills/Sites", "Sites"):
+        for base in ("/vault/AgentSkills/Sites", "/app/data/sites"):
+            candidates.append(os.path.join(base, domain, "site.yaml"))
+
+    seen = set()
+    for config_path in candidates:
+        if config_path in seen:
+            continue
+        seen.add(config_path)
         if os.path.exists(config_path):
             with open(config_path) as f:
-                return yaml.safe_load(f)
+                cfg = yaml.safe_load(f) or {}
+            if not isinstance(cfg, dict):
+                raise ValueError(f"Invalid site.yaml for {domain}")
+            return cfg
 
     raise ValueError(f"Site config not found for {domain}. Is the site set up in Site Builder?")
 

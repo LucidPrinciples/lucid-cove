@@ -117,15 +117,14 @@ OPERATOR_FOLDERS = BASE_FOLDERS
 #   Context/      — Agent session history, personal memory
 #   (Flows/ retired batch8 #7b — no longer seeded, zero readers)
 #
-# TEAM-MANAGED (shared with steward for team operations):
-#   Content/      — Video pipeline, images, audio, posts. Team produces.
+# TEAM-MANAGED (shared with steward) — #TIER1 emptied STEWARD_SHARED_FOLDERS:
+#   Content/ + Sites/ are presence-private (Tier B). No ambient steward share.
+#   Shared/ retired stub (#CF-113 → root OperatorShared for operators).
 #   (Actions/ retired batch8 #7b — DB-backed board superseded it)
-#   Sites/        — Archimedes builds and manages sites.
-#   Shared/       — retired stub (#CF-113 → root OperatorShared for operators).
 #
-# The provisioner creates NC shares for team-managed folders when a
-# Presence is provisioned. This is how Stuart writes to Presence data
-# via WebDAV without accessing private folders.
+# Historical: provisioner used to share Content/Sites into Presences/{name}/ on
+# admin NC. New provisions do not. Existing Coves may still have old shares until
+# an operator removes them in NC; list/API isolation must not rely on those shares.
 # ---------------------------------------------------------------------------
 
 # Stock Nextcloud skeleton junk left on the FIRST admin user (created before the
@@ -145,11 +144,15 @@ DEFAULT_NC_JUNK = [
 ]
 
 
+# #TIER1 (two-tier Site Builder + presence privacy): presence Sites and Content/video
+# are PRIVATE to that presence. Do NOT share them to the steward admin NC.
+# Sharing made every member's domains and pipeline visible under
+# Presences/{name}/Sites and Presences/{name}/Content on the steward door —
+# discovery is a privacy bug per Working/Specs/two-tier-site-builder-and-presence-privacy.md.
+# Steward Cove/business sites live on admin NC AgentSkills/Sites (Tier A) only.
+# Team help on a personal site/video is escalation / work on that presence door, not ambient share.
 STEWARD_SHARED_FOLDERS = [
-    "AgentSkills/Content",
-    # batch8 #7b: Actions/ no longer seeded (DB-backed board superseded it), so it's
-    # not a shared folder either.
-    "AgentSkills/Sites",
+    # intentionally empty — Tier B Sites + Content no longer team-shared
     # #CF-113: AgentSkills/Shared removed — operator handoffs use steward-owned
     # root OperatorShared (see STEWARD_COVE_SHARED_FOLDER), not per-presence stubs.
 ]

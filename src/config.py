@@ -180,10 +180,10 @@ def get_format_rules() -> str:
 
 
 def get_sites_path() -> str:
-    """NextCloud-relative path to THIS Presence's sites folder.
+    """NextCloud-relative path to THIS acting scope's sites folder.
 
-    Per-Presence: each Presence manages sites in its own NC space (Stuart ->
-    LucidCove/Sites, Atlas -> AgentSkills/Sites). Resolution order:
+    Same default folder name on admin and presence NC (#TIER1): isolation is
+    which NC user / credentials, not a different path string. Resolution order:
       1. env SITES_NC_PATH       (set per Presence by the provisioner)
       2. agent.yaml  sites.nc_path
       3. default "AgentSkills/Sites"
