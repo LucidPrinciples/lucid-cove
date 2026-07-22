@@ -334,7 +334,11 @@ async function _openStewardThreadReader(threadId, presence, target) {
 // initStewardChat() completely rebuilds the chat area in read-only supervisory mode.
 // =============================================================================
 try {
-    if (_isManagerMC()) {
+    // #PERF-MC1: only enter supervisory mode when Chat is active (lazy tab load /
+    // idle prefetch must not fan out /api/threads on every Home boot).
+    const _chatActive = (typeof activeTab !== 'undefined' && activeTab === 'chat')
+        || !!(document.getElementById('panel-chat') && document.getElementById('panel-chat').classList.contains('active'));
+    if (_isManagerMC() && _chatActive) {
         initStewardChat();
         if (window._mcDebugLog) window._mcDebugLog('[CHAT] Manager MC — supervisory mode');
     }

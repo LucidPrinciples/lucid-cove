@@ -476,23 +476,8 @@ async function boot() {
         _buildDetailPanels();
         _buildBottomNav();
 
-        // Load tab scripts dynamically
-        await loadTabScripts();
-
-        // Action Board scripts
-        try { await loadScript('/static/js/action-board.js'); } catch(e) { console.warn('[core] action-board.js not found'); }
-        if (!MC.isTuner) {
-            // vault.js load removed — session 139b
-        }
-        try { await loadScript('/static/js/quick-list.js'); } catch(e) { console.warn('[core] quick-list.js not found'); }
-
-        // Load on-demand modules (upgrade + onboarding)
-        try { await loadScript('/static/js/upgrade.js'); } catch(e) { console.warn('[core] upgrade.js not found'); }
-        try { await loadScript('/static/js/onboarding.js'); } catch(e) { console.warn('[core] onboarding.js not found'); }
-        // Unified Presence page (#176) — shared by Team + Market (showcase + editor)
-        try { await loadScript('/static/js/presence-profile.js'); } catch(e) { console.warn('[core] presence-profile.js not found'); }
-
-        // Trigger initial tab load — restore last active tab on mobile reload
+        // #PERF-MC1: resolve landing tab BEFORE loading scripts so cold boot only
+        // fetches what the first paint needs (not every panel JS on the roster).
         const savedTab = sessionStorage.getItem('mc_active_tab');
         let firstTab = (savedTab && MC.tabs.some(t => (t.id || t) === savedTab))
             ? savedTab
@@ -511,10 +496,19 @@ async function boot() {
                 firstTab = _wantTab;
             }
         }
+
+        // Shell + first-tab scripts only (parallel). Remaining tabs load on switch
+        // or idle-prefetch after first paint — DERP/hotspot paths die on full fan-out.
+        await loadBootShellScripts(firstTab);
+        await ensureTabScripts(firstTab);
+
         if (_abTabIds.indexOf(firstTab) !== -1 && typeof switchBoard === 'function') {
             switchBoard('action');
         }
-        switchToTab(firstTab);
+        await switchToTab(firstTab);
+
+        // Background: warm the rest once the browser is idle (does not block UI).
+        _scheduleIdleTabPrefetch(firstTab);
 
         // Auto-show onboarding for first-time Tuner users
         if (MC.isTuner && !(MC.features && MC.features.onboarding_seen)) {
@@ -1322,62 +1316,159 @@ function _closeMoreMenu() {
 // =============================================================================
 // Dynamic script loading
 // =============================================================================
+// #PERF-MC1: track loaded script paths so we never double-inject (redeclaration).
+const _loadedScripts = new Set();
+const _scriptInflight = new Map(); // src -> Promise
+
 function loadScript(src) {
-    return new Promise((resolve, reject) => {
+    // Normalize to path without query for the cache key
+    const key = src.split('?')[0];
+    if (_loadedScripts.has(key)) return Promise.resolve();
+    if (_scriptInflight.has(key)) return _scriptInflight.get(key);
+
+    const p = new Promise((resolve, reject) => {
+        // Already in DOM from a prior partial boot?
+        const existing = document.querySelector(`script[data-mc-src="${key}"]`);
+        if (existing) {
+            _loadedScripts.add(key);
+            resolve();
+            return;
+        }
         const s = document.createElement('script');
+        s.dataset.mcSrc = key;
         // Append build version for cache-busting (set from /api/config)
         const v = window._buildVersion || '';
-        s.src = v ? `${src}?v=${v}` : src;
+        s.src = v ? `${key}?v=${v}` : key;
         s.onload = () => {
-            if (window._mcDebugScripts) window._mcDebugScripts[src] = 'loaded';
-            if (window._mcDebugLog) window._mcDebugLog('[SCRIPT OK] ' + src);
+            _loadedScripts.add(key);
+            _scriptInflight.delete(key);
+            if (window._mcDebugScripts) window._mcDebugScripts[key] = 'loaded';
+            if (window._mcDebugLog) window._mcDebugLog('[SCRIPT OK] ' + key);
             resolve();
         };
         s.onerror = (e) => {
-            if (window._mcDebugScripts) window._mcDebugScripts[src] = 'FAILED';
-            if (window._mcDebugLog) window._mcDebugLog('[SCRIPT FAIL] ' + src);
+            _scriptInflight.delete(key);
+            if (window._mcDebugScripts) window._mcDebugScripts[key] = 'FAILED';
+            if (window._mcDebugLog) window._mcDebugLog('[SCRIPT FAIL] ' + key);
             reject(e);
         };
         document.body.appendChild(s);
     });
+    _scriptInflight.set(key, p);
+    return p;
 }
 
-async function loadTabScripts() {
-    // Load scripts for tabs that exist in config
-    // Deduplicate: multiple tabs can reference the same script (e.g. tuning-panel
-    // used by both home and tune tabs). Loading a script twice causes
-    // "redeclaration of let" fatal errors.
-    const loaded = new Set();
-    for (const tab of MC.tabs) {
-        const id = tab.id || tab;
-
-        // Support both single script (tab.script) and array (tab.scripts)
-        let scripts = tab.scripts || [tab.script || id];
-        if (!Array.isArray(scripts)) scripts = [scripts];
-
-        for (const script of scripts) {
-            if (loaded.has(script)) continue;
-            loaded.add(script);
-            try {
-                await loadScript(`/static/js/${script}.js`);
-            } catch {
-                // Script not found — tab works as a static panel
-                console.warn(`[core] No script found: ${script}.js (tab: ${id})`);
-            }
-        }
+/** Parallel load of many /static/js/*.js basenames (no .js). Failures are soft. */
+async function loadScriptBasenames(names) {
+    const list = [];
+    const seen = new Set();
+    for (const n of names || []) {
+        if (!n || seen.has(n)) continue;
+        seen.add(n);
+        list.push(n);
     }
+    await Promise.all(list.map(async (script) => {
+        try {
+            await loadScript(`/static/js/${script}.js`);
+        } catch {
+            console.warn(`[core] No script found: ${script}.js`);
+        }
+    }));
+}
 
+/** Scripts required for first paint on a given landing tab (home is the common case). */
+function _shellScriptBasenames(firstTab) {
+    // Always needed for Attention home + board switch + lists + upgrade CTA.
+    const shell = ['action-board', 'quick-list', 'upgrade', 'onboarding'];
+    // presence-profile is Team/Market only — load with those tabs, not cold boot.
+    const id = firstTab || 'home';
+    if (id === 'team' || id === 'market' || (typeof id === 'string' && id.indexOf('presence') === 0)) {
+        shell.push('presence-profile');
+    }
+    // Action-board virtual tabs still need action-board (already in shell).
+    return shell;
+}
+
+function _tabScriptBasenames(tabId) {
+    if (!tabId) return [];
+    // Action Board virtual tabs (ab-*) live in action-board.js (shell).
+    if (typeof tabId === 'string' && tabId.indexOf('ab-') === 0) return [];
+    const tab = (MC.tabs || []).find(t => (t.id || t) === tabId);
+    if (!tab) {
+        // Fallback: assume /static/js/{id}.js for unknown ids (haven, etc.)
+        return [tabId];
+    }
+    let scripts = tab.scripts || [tab.script || (tab.id || tab)];
+    if (!Array.isArray(scripts)) scripts = [scripts];
+    // Chat tab historically listed chat/voice/manager-chat; messaging.js is the real file.
+    const out = [];
+    for (const s of scripts) {
+        if (!s) continue;
+        if (s === 'chat') out.push('messaging');
+        else out.push(s);
+    }
+    // Connect is injected into chat scripts server-side; ensure mapping stays.
+    return out;
+}
+
+async function loadBootShellScripts(firstTab) {
+    await loadScriptBasenames(_shellScriptBasenames(firstTab));
+}
+
+async function ensureTabScripts(tabId) {
+    const names = _tabScriptBasenames(tabId);
+    // Team/Market also need presence-profile (#176).
+    if (tabId === 'team' || tabId === 'market') names.push('presence-profile');
+    await loadScriptBasenames(names);
+}
+
+/** Legacy name — loads ALL tab scripts (tests / debug). Prefer ensureTabScripts. */
+async function loadTabScripts() {
+    const names = [];
+    for (const tab of (MC.tabs || [])) {
+        names.push.apply(names, _tabScriptBasenames(tab.id || tab));
+    }
+    names.push('presence-profile');
+    await loadScriptBasenames(names);
+}
+
+function _scheduleIdleTabPrefetch(skipTabId) {
+    const run = () => {
+        const rest = (MC.tabs || [])
+            .map(t => t.id || t)
+            .filter(id => id && id !== skipTabId);
+        // One tab at a time so we don't re-flood DERP.
+        (async () => {
+            for (const id of rest) {
+                try { await ensureTabScripts(id); } catch (e) { /* ignore */ }
+            }
+            // presence-profile if never hit
+            try { await loadScriptBasenames(['presence-profile']); } catch (e) { /* ignore */ }
+        })();
+    };
+    if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(run, { timeout: 4000 });
+    } else {
+        setTimeout(run, 1500);
+    }
 }
 
 // =============================================================================
 // Tab switching
 // =============================================================================
 let _lastSwitchTime = 0;
-function switchToTab(tabName) {
+async function switchToTab(tabName) {
     // Debounce: block same-tab re-fire within 200ms (prevents double-tap reload)
     const now = Date.now();
     if (tabName === activeTab && (now - _lastSwitchTime) < 200) return;
     _lastSwitchTime = now;
+
+    // Ensure this tab's JS is present before loaders run (#PERF-MC1 lazy boot).
+    try {
+        await ensureTabScripts(tabName);
+    } catch (e) {
+        console.warn('[core] ensureTabScripts failed for', tabName, e);
+    }
 
     // Opening the agent chat clears the persistent unread dot (the wake/brain-connect
     // message has now been seen).
@@ -1439,6 +1530,12 @@ function switchToTab(tabName) {
                 && !(MC.config && MC.config.has_personal_agent)
                 && !(MC.tier && MC.tier.level >= 20);
             if (_agentless && typeof window.openConnect === 'function') { window.openConnect(); return; }
+            // Manager MC: supervisory mode may have been skipped at script inject
+            // (#PERF-MC1). Enter it now that Chat is active.
+            if (MC.adminView === true && typeof initStewardChat === 'function') {
+                try { initStewardChat(); } catch (e) { console.warn('[core] initStewardChat', e); }
+                return;
+            }
             // Re-load so messages posted after boot (the brain-connect "thanks") appear.
             if (typeof loadChat === 'function') loadChat();
             if (typeof scrollToBottom === 'function') scrollToBottom();
