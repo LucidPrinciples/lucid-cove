@@ -1169,10 +1169,17 @@ function initChat() {
     // chat load entirely so its async loadChat() never clobbers the supervisory render.
     if (MC.adminView === true) return;
 
-    // Load initial data
-    loadChat();
-    loadThreadInfo();
-    loadContextUsage();
+    // #PERF-MC1: only pull history when Chat is the active tab. Idle-prefetch and
+    // cold boot used to fetch /api/chat/history on every messaging.js inject even
+    // when landing on Home — wasteful on DERP/hotspot paths. switchToTab('chat')
+    // still calls loadChat() once the user opens Chat.
+    const _chatActive = (typeof activeTab !== 'undefined' && activeTab === 'chat')
+        || !!(document.getElementById('panel-chat') && document.getElementById('panel-chat').classList.contains('active'));
+    if (_chatActive) {
+        loadChat();
+        loadThreadInfo();
+        loadContextUsage();
+    }
 }
 
 // =============================================================================
