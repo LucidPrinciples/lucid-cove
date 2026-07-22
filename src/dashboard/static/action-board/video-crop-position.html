@@ -1165,8 +1165,23 @@ async function startProcessing() {
         }
         const result = clipJob.result || {};
         const count = (result.processed || []).length;
+        const errs = result.errors || [];
         btn.textContent = `Done — ${count} clips rendered`;
-        status.textContent = 'Clips will appear in Actions when ready.';
+        if (count === 0 && errs.length) {
+            const first = errs[0] || {};
+            const detail = (first.error || first.message || JSON.stringify(first)).toString();
+            status.textContent = `0 clips rendered (${errs.length} error${errs.length>1?'s':''}): ${detail.slice(0, 280)}`;
+            btn.disabled = false;
+            return;
+        } else if (count === 0) {
+            status.textContent = '0 clips rendered — no error detail returned. Check voice logs.';
+            btn.disabled = false;
+            return;
+        } else {
+            status.textContent = errs.length
+                ? `Clips ready (${errs.length} format error${errs.length>1?'s':''} — see status).`
+                : 'Clips will appear in Actions when ready.';
+        }
         try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
 
         // Fire caption-full if checked (background job — same empty-body class of bug)

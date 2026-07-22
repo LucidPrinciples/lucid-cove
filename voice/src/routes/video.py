@@ -114,11 +114,14 @@ def hq_scale(w, h, *, out_matrix: str | None = "bt709") -> str:
     chroma interpolation keeps 4K source texture through crop→output.
     in_color_matrix=auto reads the source correctly.
 
-    out_matrix:
+    out_matrix (ffmpeg *scale* filter names — NOT x265/zscale names):
       - "bt709" (default) — SDR publish paths after color_prep / graded looks.
-      - "bt2020nc" (or source matrix) — Original+HDR native passthrough so we
-        do NOT reshuffle HLG/bt2020 into bt709 on the scale step and then tag
-        the file as bt2020/HLG (sparkle / wrong pop / soft phone look).
+      - "bt2020" — Original+HDR native passthrough. Keep 2020 on the scale step
+        so we do NOT reshuffle HLG/bt2020 into bt709 then tag the file as
+        bt2020/HLG (sparkle / wrong pop / soft phone look).
+        IMPORTANT: scale's enum is `bt2020` only. `bt2020nc` / `bt2020c` are
+        valid for zscale and x265-params, but ffmpeg scale rejects them and
+        every native-HDR moment fails with 0 clips rendered.
       - None or "" — omit out_color_matrix (preserve; ffmpeg 7.x rejects
         out_color_matrix=auto).
     """
@@ -127,6 +130,9 @@ def hq_scale(w, h, *, out_matrix: str | None = "bt709") -> str:
         f":in_color_matrix=auto"
     )
     om = (out_matrix or "").strip().lower()
+    # Normalize accidental zscale/x265 names so a caller cannot re-break encode.
+    if om in {"bt2020nc", "bt2020ncl", "bt2020-ncl", "bt2020c", "bt2020cl", "bt2020-cl"}:
+        om = "bt2020"
     if om:
         base += f":out_color_matrix={om}"
     base += ":force_original_aspect_ratio=disable"
@@ -134,22 +140,18 @@ def hq_scale(w, h, *, out_matrix: str | None = "bt709") -> str:
 
 
 def scale_out_matrix(color_info: dict | None, *, native_hdr: bool) -> str | None:
-    """Matrix for hq_scale: keep bt2020 on native HDR, bt709 on SDR deliverables."""
+    """Matrix for hq_scale: keep bt2020 on native HDR, bt709 on SDR deliverables.
+
+    Returns scale-filter enum names only (`bt709` / `bt2020`). Never `bt2020nc`.
+    """
     if not native_hdr:
         return "bt709"
+    # scale filter: bt2020 covers both NCL and CL; encoder tags carry nc/c.
     spc = ((color_info or {}).get("color_space") or "").strip().lower()
-    if not spc or spc in {"unknown", "reserved", "gbr"}:
-        return "bt2020nc"
-    # scale filter accepts bt2020nc / bt2020c; normalize common tags.
-    if spc in {"bt2020", "bt2020-ncl", "bt2020ncl"}:
-        return "bt2020nc"
-    if spc in {"bt2020-cl", "bt2020cl"}:
-        return "bt2020c"
-    if "2020" in spc and "cl" in spc:
-        return "bt2020c"
-    if "2020" in spc:
-        return "bt2020nc"
-    return spc
+    if not spc or spc in {"unknown", "reserved", "gbr"} or "2020" in spc or spc.startswith("bt2020"):
+        return "bt2020"
+    # Unusual but HDR-tagged space we do not recognize — still avoid bt709 shuffle.
+    return "bt2020"
 
 
 def probe_video_fps(video_path: str) -> float | None:

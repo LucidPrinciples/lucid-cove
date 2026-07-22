@@ -25,19 +25,23 @@ def test_moments_use_quality_native_preset():
 def test_native_hdr_scale_keeps_bt2020_matrix():
     assert "def scale_out_matrix" in VIDEO_PY
     assert "out_matrix=scale_matrix" in VIDEO_PY
-    # Default SDR scale still bt709; native path must be able to request bt2020nc
+    # Default SDR scale still bt709; native path must be able to request bt2020
     start = VIDEO_PY.index("LOOK_PRESETS = {")
     end = VIDEO_PY.index("def _square_crop_expr")
     ns = {}
     exec(VIDEO_PY[start:end], ns)
     sdr = ns["hq_scale"](2160, 1620)
     assert "out_color_matrix=bt709" in sdr
-    hdr = ns["hq_scale"](2160, 1620, out_matrix="bt2020nc")
-    assert "out_color_matrix=bt2020nc" in hdr
+    hdr = ns["hq_scale"](2160, 1620, out_matrix="bt2020")
+    assert "out_color_matrix=bt2020" in hdr
     assert ns["scale_out_matrix"](
         {"color_space": "bt2020nc"}, native_hdr=True
-    ) == "bt2020nc"
+    ) == "bt2020"
     assert ns["scale_out_matrix"]({}, native_hdr=False) == "bt709"
+    # zscale/x265 name must not leak into scale filter
+    leaked = ns["hq_scale"](2160, 1620, out_matrix="bt2020nc")
+    assert "out_color_matrix=bt2020" in leaked
+    assert "bt2020nc" not in leaked
 
 
 def test_moments_timeout_is_dynamic_not_fixed_600():
