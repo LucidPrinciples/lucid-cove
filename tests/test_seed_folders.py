@@ -32,7 +32,7 @@ def test_actions_and_shared_dropped_from_steward_shares():
 
 
 def test_cf113_cove_shared_constants():
-    assert STEWARD_COVE_SHARED_FOLDER == "CoveShared"
+    assert STEWARD_COVE_SHARED_FOLDER == "OperatorShared"
     assert STEWARD_KB_FOLDER == "AgentSkills/Knowledge Base"
     # RW without re-share: 1+2+4+8
     assert _COVE_SHARED_RW_PERMS == 15

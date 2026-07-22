@@ -23,10 +23,11 @@ COVE_MODE = env("COVE_MODE", "single")
 # the CURRENT presence's own space PROPFINDs a folder that doesn't exist there →
 # the "WebDAV error: 404" a non-steward presence hit on the Knowledge Base.
 KB_PREFIX = "AgentSkills/Knowledge Base"
-# #CF-113 — operator-only handoff folder (steward-owned, RW share into each
-# operator's NC root). Not routed through admin creds: each operator sees their
-# own share mount; steward/admin owns the canonical copy.
-COVE_SHARED_PREFIX = "CoveShared"
+# #CF-113 — operator-only handoff folder (canonical on admin for OCS only;
+# each operator sees RW share at their NC root). Agents + steward/manager Files
+# (admin creds) must not list or open it — video line: operators only.
+OPERATOR_SHARED_PREFIX = "OperatorShared"
+_LEGACY_OPERATOR_SHARED_PREFIX = "CoveShared"
 
 
 def _clean_webdav_path(path: str):
@@ -62,6 +63,22 @@ def _is_kb_path(path: str) -> bool:
         # Unclean/escaping path is never treated as KB — never upgrade to admin creds.
         return False
     return p == KB_PREFIX or p.startswith(KB_PREFIX + "/")
+
+
+def _is_operator_shared_path(path: str) -> bool:
+    """True if path is OperatorShared (or legacy CoveShared) after normalize."""
+    p, err = _clean_webdav_path(path)
+    if err is not None or not p:
+        return False
+    for name in (OPERATOR_SHARED_PREFIX, _LEGACY_OPERATOR_SHARED_PREFIX):
+        if p == name or p.startswith(name + "/"):
+            return True
+    return False
+
+
+def _item_is_operator_shared_name(name: str) -> bool:
+    n = (name or "").strip().rstrip("/")
+    return n in (OPERATOR_SHARED_PREFIX, _LEGACY_OPERATOR_SHARED_PREFIX)
 
 
 async def _resolve_webdav(request: Request = None, path: str = ""):
@@ -104,6 +121,29 @@ async def _kb_write_guard(request: Request, path: str):
             "curated by the steward.")
 
 
+async def _operator_shared_agent_guard(request: Request, path: str, webdav_user: str = ""):
+    """#CF-113: block agent/admin access to OperatorShared.
+
+    Operators reach it via their own NC user (share mount). Steward manager Files
+    and team tools use admin NC — deny those so the folder stays operator-private
+    even though the canonical object lives on admin for provision.
+    """
+    if not _is_operator_shared_path(path):
+        return None
+    from src.dashboard.routes.nextcloud import NC_ADMIN_USER
+    user = (webdav_user or "").strip()
+    if not user:
+        try:
+            from src.dashboard.routes.nextcloud import resolve_tab_nc_creds
+            _, user, _ = await resolve_tab_nc_creds(request)
+        except Exception:
+            user = ""
+    if user and user == NC_ADMIN_USER:
+        return ("OperatorShared is private to Cove operators — not available "
+                "to agents or steward Files.")
+    return None
+
+
 @router.get("/api/files/list")
 async def list_files(request: Request, path: str = "/"):
     """List files and folders at a WebDAV path."""
@@ -114,6 +154,10 @@ async def list_files(request: Request, path: str = "/"):
     webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
         return {"items": [], "error": error}
+
+    denied = await _operator_shared_agent_guard(request, clean_path or "", nc_user or "")
+    if denied:
+        return {"items": [], "error": denied}
 
     url = f"{webdav_base}/{clean_path}" if clean_path else webdav_base
 
@@ -174,6 +218,15 @@ async def list_files(request: Request, path: str = "/"):
             content_type = props.findtext("D:getcontenttype", namespaces=ns) or ""
 
             if name:
+                # #CF-113: hide OperatorShared from steward/admin Files listings
+                from src.dashboard.routes.nextcloud import NC_ADMIN_USER
+                if (nc_user == NC_ADMIN_USER
+                        and _item_is_operator_shared_name(name)
+                        and not (clean_path or "").strip("/")):
+                    continue
+                if (nc_user == NC_ADMIN_USER
+                        and _is_operator_shared_path(rel or name)):
+                    continue
                 items.append({
                     "name": name,
                     "path": rel or name,
@@ -201,6 +254,10 @@ async def download_file(request: Request, path: str):
     webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
         return {"error": error}
+
+    denied = await _operator_shared_agent_guard(request, clean_path or "", nc_user or "")
+    if denied:
+        return {"error": denied}
 
     url = f"{webdav_base}/{clean_path}"
 
@@ -235,6 +292,9 @@ async def upload_file(request: Request, path: str, file: UploadFile = File(...))
     webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
         return {"success": False, "error": error}
+    denied = await _operator_shared_agent_guard(request, clean_path or "", nc_user or "")
+    if denied:
+        return {"success": False, "error": denied}
 
     # #SEC4 H3: basename only for the uploaded filename (no path segments)
     filename = Path_name_only(file.filename or "upload")
@@ -283,6 +343,9 @@ async def delete_file(request: Request, path: str):
     webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
         return {"success": False, "error": error}
+    denied = await _operator_shared_agent_guard(request, clean_path or "", nc_user or "")
+    if denied:
+        return {"success": False, "error": denied}
 
     # Don't re-retire something already in To-Delete — then trash is OK.
     already = clean_path == "AgentSkills/To-Delete" or clean_path.startswith(

@@ -68,7 +68,7 @@ PRESENCE_FOLDERS = [
     # batch8 #7b (CF-107): Flows/ + Actions/ (+Archive) are NO LONGER seeded —
     # zero readers, and Actions is superseded by the DB-backed board.
     # #CF-113: per-presence AgentSkills/Shared stubs retired — real share is
-    # steward-owned root CoveShared (operator-only RW). Existing Coves may still
+    # steward-owned root OperatorShared (operator-only RW). Existing Coves may still
     # have an empty Shared/ folder; we stop seeding new ones.
     "AgentSkills/Content",
     "AgentSkills/Content/video",
@@ -121,7 +121,7 @@ OPERATOR_FOLDERS = BASE_FOLDERS
 #   Content/      — Video pipeline, images, audio, posts. Team produces.
 #   (Actions/ retired batch8 #7b — DB-backed board superseded it)
 #   Sites/        — Archimedes builds and manages sites.
-#   Shared/       — retired stub (#CF-113 → root CoveShared for operators).
+#   Shared/       — retired stub (#CF-113 → root OperatorShared for operators).
 #
 # The provisioner creates NC shares for team-managed folders when a
 # Presence is provisioned. This is how Stuart writes to Presence data
@@ -151,7 +151,7 @@ STEWARD_SHARED_FOLDERS = [
     # not a shared folder either.
     "AgentSkills/Sites",
     # #CF-113: AgentSkills/Shared removed — operator handoffs use steward-owned
-    # root CoveShared (see STEWARD_COVE_SHARED_FOLDER), not per-presence stubs.
+    # root OperatorShared (see STEWARD_COVE_SHARED_FOLDER), not per-presence stubs.
 ]
 
 
@@ -370,20 +370,43 @@ async def _share_kb_with_presence(
     return True
 
 
-# #CF-113 — CoveShared: one steward-owned folder per Cove, read-write for human
-# operators only (not guests, not a general agent dump). Lives at the NC root so
-# it shows up next to AgentSkills in Files / desktop sync — featured, not buried.
-# Modelled on the KB share (single source on the steward) with edit permissions.
-STEWARD_COVE_SHARED_FOLDER = "CoveShared"
+# #CF-113 — OperatorShared: one steward-owned folder per Cove, read-write for
+# human operators only (not guests, not any agent — including the steward agent).
+# Lives at the NC root so it shows up next to AgentSkills in Files / desktop sync.
+# Name signals audience. Modelled on the KB share with edit permissions.
+# Canonical object still lives on admin NC for OCS provision only; agent tools and
+# steward/manager Files must not surface or read it (operator comfort / financials).
+STEWARD_COVE_SHARED_FOLDER = "OperatorShared"
+# Pre-rename product name — migrate once if a Cove still has it on admin.
+_LEGACY_COVE_SHARED_FOLDER = "CoveShared"
 # NC OCS permissions: 1 read + 2 update + 4 create + 8 delete = 15 (no re-share).
 _COVE_SHARED_RW_PERMS = 15
 
 
 async def _ensure_steward_cove_shared(steward_nc_user: str, steward_pass: str) -> None:
-    """Make sure the steward's canonical CoveShared folder exists at NC root."""
+    """Make sure the steward's canonical OperatorShared folder exists at NC root.
+
+    If a pre-rename CoveShared folder still exists, MOVE it to OperatorShared so
+    already-deployed Coves keep any operator content under the new name.
+    """
     from urllib.parse import quote
     steward_dav = f"{NC_URL}/remote.php/dav/files/{steward_nc_user}"
     async with httpx.AsyncClient(timeout=30) as client:
+        # Prefer rename of legacy folder when present and new name missing
+        try:
+            legacy = f"{steward_dav}/{quote(_LEGACY_COVE_SHARED_FOLDER, safe='/')}"
+            dest = f"{steward_dav}/{quote(STEWARD_COVE_SHARED_FOLDER, safe='/')}"
+            mv = await client.request(
+                "MOVE", legacy,
+                auth=(steward_nc_user, steward_pass),
+                headers={"Destination": dest, "Overwrite": "F"},
+            )
+            if mv.status_code in (201, 204):
+                log.info("Renamed legacy %s → %s on %s",
+                         _LEGACY_COVE_SHARED_FOLDER, STEWARD_COVE_SHARED_FOLDER,
+                         steward_nc_user)
+        except Exception:
+            pass
         try:
             await client.request(
                 "MKCOL",
@@ -400,11 +423,11 @@ async def _share_cove_shared_with_operator(
     steward_nc_user: str,
     steward_pass: str,
 ) -> bool:
-    """Share steward CoveShared to an operator presence, read-write, at NC root.
+    """Share steward OperatorShared to an operator presence, RW, at NC root.
 
-    Operators see /CoveShared in their own Files (and can selective-sync it).
-    Guests are not callers — ensure_nc_shape skips them. Team agents use the
-    admin NC space with path scopes and do not receive this share.
+    Operators see /OperatorShared in their own Files (and can selective-sync it).
+    Guests are not callers — ensure_nc_shape skips them. Agents (including the
+    steward agent) never receive a tool path into this folder.
     """
     from urllib.parse import quote
     if not presence_nc_username or presence_nc_username == steward_nc_user:
@@ -429,22 +452,22 @@ async def _share_cove_shared_with_operator(
             ocs = _parse_ocs_status(resp.text) if resp.status_code == 200 else -1
             if ocs not in (100, 200, 403):  # 403 = already shared
                 log.warning(
-                    "CoveShared share to %s failed (OCS %s): %s",
+                    "OperatorShared share to %s failed (OCS %s): %s",
                     presence_nc_username, ocs, resp.text[:200],
                 )
                 return False
             log.info(
-                "CoveShared shared RW into %s/%s",
+                "OperatorShared shared RW into %s/%s",
                 presence_nc_username, STEWARD_COVE_SHARED_FOLDER,
             )
         except Exception as e:
-            log.warning("CoveShared share to %s error: %s", presence_nc_username, e)
+            log.warning("OperatorShared share to %s error: %s", presence_nc_username, e)
             return False
     return True
 
 
 def _is_operator_presence(role: str, cove_role: str = "") -> bool:
-    """Human operators get CoveShared; guests do not.
+    """Human operators get OperatorShared; guests do not.
 
     NC users are only provisioned for people (team agents use admin + path scopes).
     cove_role guest = view-only family member — no operator handoff folder.
@@ -733,7 +756,7 @@ async def ensure_admin_nc_clean() -> dict:
         try:
             await _ensure_steward_cove_shared(NC_ADMIN_USER, NC_ADMIN_PASSWORD)
         except Exception as e:
-            log.warning("CoveShared ensure during admin clean: %s", e)
+            log.warning("OperatorShared ensure during admin clean: %s", e)
             failures += 1
         return {"ok": failures == 0, "failures": failures, "user": NC_ADMIN_USER}
     except Exception as e:
@@ -743,15 +766,15 @@ async def ensure_admin_nc_clean() -> dict:
 
 async def ensure_nc_shape(nc_username: str, nc_password: str, display_name: str,
                           tier: str, role: str, cove_role: str = "") -> int:
-    """Ensure this NC user's folders, Context seeds, steward shares, KB, CoveShared.
+    """Ensure this NC user's folders, Context seeds, steward shares, KB, OperatorShared.
 
     Every operation tolerates "already exists" (MKCOL 405, share OCS 403, MOVE 404),
     so this pass is safe to re-run any time — that's the point (audit C3-7): a
     first-boot Apache warm-up 503 used to leave a presence permanently without
     folders/shares because nothing ever re-ran these idempotent ops.
 
-    cove_role: accounts.cove_role (admin|member|guest). Guests skip CoveShared.
-    #CF-113: steward-owned root CoveShared is RW-shared only to operator humans.
+    cove_role: accounts.cove_role (admin|member|guest). Guests skip OperatorShared.
+    #CF-113: steward-owned root OperatorShared is RW-shared only to operator humans.
 
     Returns the number of FAILED operations — 0 means the shape is complete."""
     failures = 0
@@ -825,14 +848,14 @@ async def ensure_nc_shape(nc_username: str, nc_password: str, display_name: str,
             log.warning("KB share failed for %s: %s", nc_username, e)
             failures += 1
 
-    # #CF-113: steward-owned CoveShared at NC root — RW for operators only.
-    # Ensure the canonical folder always exists on the admin/steward space; share
-    # it into this presence when they are an operator (not guest). Steward role
-    # still gets the share on their op-* user so desktop sync sees it too.
+    # #CF-113: steward-owned OperatorShared at NC root — RW for operators only.
+    # Canonical folder on admin NC for OCS; share into each operator's op-* user
+    # so desktop sync / Files on their door sees it. Guests skipped. Agents never
+    # get tool access (even steward agent) — see nextcloud_tools + files filter.
     try:
         await _ensure_steward_cove_shared(NC_ADMIN_USER, NC_ADMIN_PASSWORD)
     except Exception as e:
-        log.warning("CoveShared ensure on steward failed: %s", e)
+        log.warning("OperatorShared ensure on steward failed: %s", e)
         failures += 1
     if _is_operator_presence(role, cove_role) and nc_username != NC_ADMIN_USER:
         try:
@@ -840,7 +863,7 @@ async def ensure_nc_shape(nc_username: str, nc_password: str, display_name: str,
                     nc_username, nc_password, NC_ADMIN_USER, NC_ADMIN_PASSWORD):
                 failures += 1
         except Exception as e:
-            log.warning("CoveShared share failed for %s: %s", nc_username, e)
+            log.warning("OperatorShared share failed for %s: %s", nc_username, e)
             failures += 1
 
     return failures
@@ -1465,9 +1488,9 @@ hard wipe of user content). Offload when notified.
 
 **Ops/** -- Cove ops notes, backlog, runbooks.
 
-**CoveShared/** -- (NC root, not under AgentSkills) Operator-only family handoff
-folder. One per Cove, steward-owned, read-write for every operator. Not an
-agent dump — humans share docs and assets here.
+**OperatorShared/** -- (NC root, not under AgentSkills) Private to Cove operators.
+One per Cove, steward-provisioned, read-write for every operator. Agents cannot
+access it — handoffs, financials staging, anything you build together as humans.
 
 **Knowledge Base/** -- Steward-curated framework mirror (read-only for members).
 """,
