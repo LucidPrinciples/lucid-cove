@@ -403,8 +403,8 @@ function _onboardingCardHtml(item) {
                 <div style="color:var(--text);font-weight:600;margin-bottom:6px;">On a computer</div>
                 <ol style="margin:0;padding-left:1.15rem;color:var(--dim);">
                     <li>Install the <strong style="color:var(--text);">Tailscale</strong> app: <a href="https://tailscale.com/download" target="_blank" rel="noopener" style="color:var(--accent,#7c5cff);">tailscale.com/download</a></li>
-                    <li>Open it, choose <em>Add account</em>, tap the small arrow, pick <em>Add Account Using Alternate Server</em>, enter <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">headscale.lucidcove.org</code>, then <em>Add Account</em>.</li>
-                    <li>A page opens whose web address ends in <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">/register/CODE</code>. Copy that <strong style="color:var(--text);">CODE</strong> and paste it here:</li>
+                    <li>Open it, choose <em>Add account</em>, tap the small <strong style="color:var(--text);">arrow / ▾</strong>, pick <em>Add Account Using Alternate Server</em> (do <strong style="color:var(--text);">not</strong> plain Log in with Apple/Google/Mac password — that fails on Cove). Enter <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">headscale.lucidcove.org</code>, then <em>Add Account</em>.</li>
+                    <li>A page opens whose web address ends in <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">/register/CODE</code>. On a device already signed into this Cove, copy that <strong style="color:var(--text);">CODE</strong> and paste it here:</li>
                 </ol>
                 <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
                     <input id="approve-code-input" type="text" placeholder="paste the code from the page" style="flex:1;min-width:170px;font-size:0.78rem;padding:8px 10px;background:var(--bg-card,#0c0c12);color:var(--text);border:1px solid var(--border);border-radius:6px;">
@@ -628,18 +628,20 @@ function _onboardingCardHtml(item) {
                 <div style="margin-top:6px;"><strong style="color:var(--text);">2. Sign-in link</strong> — signs <em>you</em> into the Cove at your live address (identity). Use <b>Open my Cove</b> on the address step after mark-live, or Settings → Devices.</div>
             </div>
             <div style="margin-top:12px;padding:10px 12px;background:var(--card,#111);border:1px solid var(--border);border-radius:8px;font-size:0.74rem;line-height:1.65;color:var(--dim);">
-                <div style="color:var(--text);font-weight:600;margin-bottom:6px;">On your phone</div>
+                <div style="color:var(--text);font-weight:600;margin-bottom:6px;">On your phone (or Mac)</div>
                 <ol style="margin:0;padding-left:1.15rem;">
-                    <li><strong style="color:var(--text);">Install Tailscale on the phone first</strong> (App Store / Play Store). Log out of any other Tailscale network — this is a separate one. Scanning a QR does <em>not</em> install the app.</li>
-                    <li>On this computer, tap <b>Get a join code</b> below.</li>
-                    <li>With Tailscale installed, scan the QR (opens a short join page with coordinator + code — not the Nextcloud login QR), or open the join link on the phone.</li>
-                    <li>In Tailscale: ⋯ → <em>Use a custom coordination server</em> →
-                        <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code>, then sign in with the join code (or follow the steps on the join page).</li>
-                    <li>Wait until Tailscale shows <strong style="color:var(--text);">Connected</strong>, then open your Cove at your live address and sign in as you (identity).</li>
+                    <li><strong style="color:var(--text);">Stay signed into this Cove</strong> on a device that already works — you mint the join code from here. A blank new device cannot start without that.</li>
+                    <li><strong style="color:var(--text);">Install Tailscale on the new device</strong> (App Store / Play / Mac). Log out of any other Tailscale network. Scanning a QR does <em>not</em> install the app.</li>
+                    <li><strong style="color:var(--text);">Set alternate / custom server before any login</strong> —
+                        <code style="background:var(--bg,#000);padding:1px 5px;border-radius:3px;">https://headscale.lucidcove.org</code>.
+                        Phone: ⋯ → custom coordination server. Mac: <em>Add account → small ▾ → Add Account Using Alternate Server</em> (not plain Log in).
+                        <strong style="color:var(--text);">Do not</strong> use Apple ID, Google, Microsoft, or your Mac password — that IPN screen is the public Tailscale product and will not join the Cove.</li>
+                    <li>On this signed-in Cove, tap <b>Get a join code</b> below. On the new device, open the QR/join page and sign in with the <strong style="color:var(--text);">join code only</strong>.</li>
+                    <li>When Connected, open your Cove at your live address and sign in as you (identity).</li>
                     <li><strong style="color:var(--text);">iPhone:</strong> in Tailscale turn on <strong style="color:var(--text);">VPN On Demand</strong> so iOS keeps the mesh up in the background. If Mission Control suddenly will not load, open Tailscale first — an offline phone looks like every Cove is down.</li>
-                    <li>Add <strong style="color:var(--text);">jules</strong> to your home screen.</li>
+                    <li>Add <strong style="color:var(--text);">jules</strong> to your home screen (phone).</li>
                 </ol>
-                <div style="margin-top:8px;font-size:0.68rem;">Already on another Tailscale network? Log out of that one first — this is a separate tailnet.</div>
+                <div style="margin-top:8px;font-size:0.68rem;">Stuck on Apple/Google/IPN? Alternate server was skipped — log out of Tailscale and redo step 3.</div>
             </div>
             <div id="mesh-key-out" style="display:none;margin-top:12px;font-size:0.74rem;"></div>
             <div class="approval-actions" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border);align-items:center;">

@@ -586,9 +586,9 @@ async function loadSettingsDevices() {
     // join code = device on mesh; sign-in link = person into the Cove. ──
     const layersHtml = showMeshJoin ? `
         <div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid var(--border);font-size:0.7rem;color:var(--dim);line-height:1.55;">
-            <strong style="color:var(--text);">Two layers, in order:</strong>
-            a <strong style="color:var(--text);">join code</strong> (or Approve) puts a <em>device</em> on your Cove's private network (the mesh) so it can reach your personal space; a
-            <strong style="color:var(--text);">sign-in link</strong> signs a <em>person</em> into the Cove (their identity, files, agent). A phone needs both — network first, then identity.${hasDomain ? ' The public Cove door can open without the mesh; your personal Mission Control still needs it.' : ''}
+            <strong style="color:var(--text);">Order matters:</strong>
+            mint the join code from a device <em>already signed into this Cove</em>, put the <em>new</em> device on the mesh (Tailscale + alternate server + join code — never Apple/Google/Mac password), then open a
+            <strong style="color:var(--text);">sign-in link</strong> so the person is signed into the Cove. Network first, then identity.${hasDomain ? ' The public Cove door can open without the mesh; your personal Mission Control still needs it.' : ''}
         </div>` : '';
 
     // ── Mesh connect — ALWAYS for Presence (including domained Coves). #MESH2 QR lives
@@ -600,18 +600,20 @@ async function loadSettingsDevices() {
             <label class="settings-label">Connect a device to your private network (mesh)</label>
             <div style="font-size:0.7rem;color:var(--dim);margin:2px 0 6px;">Put a new phone or computer on the mesh so it can open your personal space (<code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">{handle}.…</code> is mesh-only even when the Cove has a public address).</div>
 
-            <div style="font-size:0.72rem;font-weight:600;color:var(--text);margin:8px 0 4px;">Phone — QR / join code</div>
-            <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.45;"><strong>1.</strong> On the phone, install the free <strong>Tailscale</strong> app (App Store / Play Store). Log out of any other Tailscale network first — this is a separate one.<br>
-            <strong>2.</strong> On this computer, tap <strong>Get join code</strong> below.<br>
-            <strong>3.</strong> With Tailscale already installed, scan the QR (opens a short join page — not Nextcloud's login QR) <em>or</em> open the join link on the phone.<br>
-            <strong>4.</strong> In Tailscale: <strong>⋯ → “Use a custom coordination server”</strong> → <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code> → sign in with the join code. Scanning alone does not install the app.<br>
-            <strong>5.</strong> Wait until Tailscale shows <strong style="color:var(--text);">Connected</strong>, then open your Cove and sign in.<br>
-            <strong>6.</strong> <strong style="color:var(--text);">iPhone:</strong> enable <strong style="color:var(--text);">VPN On Demand</strong> in Tailscale so the mesh stays up in the background. If Mission Control will not load, open Tailscale first — offline phone ≠ Cove down.</div>
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text);margin:8px 0 4px;">Phone or computer — join code / QR</div>
+            <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.5;">
+            <strong>0.</strong> Stay on a device <strong>already signed into this Cove</strong> for Get join code (this page). A stranger on a blank Mac cannot mint the code — someone already in the family does that first.<br>
+            <strong>1.</strong> On the <em>new</em> device, install free <strong>Tailscale</strong> (App Store / Play / <a href="https://tailscale.com/download/mac" target="_blank" rel="noopener" style="color:var(--accent);">Mac</a>). Log out of any other Tailscale network first — Cove is a separate one.<br>
+            <strong>2.</strong> On the new device, set the <strong>alternate / custom coordination server</strong> <em>before</em> any Log in. Mac: <strong>Add account → small ▾ arrow → Add Account Using Alternate Server</strong> (not plain Log in). Phone: ⋯ → custom / alternate server. Enter <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code>. <strong>Do not</strong> use Apple ID, Google, Microsoft, or your Mac password — that is the public Tailscale product and will fail here (IPN login screen). Scanning does not install the app or set the server.<br>
+            <strong>3.</strong> Back here (signed-in Cove), tap <strong>Get join code</strong>. On the new device, open the join page (scan QR or open the link) and sign in with the <strong>join code only</strong>.<br>
+            <strong>4.</strong> When Tailscale shows <strong style="color:var(--text);">Connected</strong>, open your Cove sign-in link on that device (identity — separate from mesh).<br>
+            <strong>5.</strong> <strong style="color:var(--text);">iPhone:</strong> enable <strong style="color:var(--text);">VPN On Demand</strong> in Tailscale so the mesh stays up in the background. If Mission Control will not load, open Tailscale first — offline phone ≠ Cove down.
+            </div>
             <button class="btn-sm" onclick="getDevicesMeshKey(this)">Get join code</button>
             <div id="devices-mesh-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>
 
-            <div style="font-size:0.72rem;font-weight:600;color:var(--text);margin:14px 0 4px;">Or approve from a Tailscale sign-in page</div>
-            <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.45;">Install Tailscale, point it at <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code>, sign in, and a page opens whose address ends in <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">/register/CODE</code>. Paste that CODE here:</div>
+            <div style="font-size:0.72rem;font-weight:600;color:var(--text);margin:14px 0 4px;">Or approve from a Tailscale register page</div>
+            <div style="font-size:0.68rem;color:var(--dim);margin:0 0 6px;line-height:1.45;">Same rule: install Tailscale on the new device, set alternate server <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code> first, then continue until a browser page ends in <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">/register/CODE</code>. Paste that CODE here (still from a signed-in Cove session):</div>
             <div style="display:flex;gap:6px;align-items:center;">
                 <input type="text" id="settings-approve-input" placeholder="paste the code from the Tailscale page" autocapitalize="off" autocorrect="off" spellcheck="false" style="flex:1;min-width:0;font-size:0.72rem;padding:5px 7px;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:5px;">
                 <button class="btn-sm" style="white-space:nowrap;" onclick="approveDeviceSettings(this)">Approve this device</button>
@@ -619,7 +621,7 @@ async function loadSettingsDevices() {
             <div id="settings-approve-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
             <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">On <strong>Linux</strong>, or if you'd rather use a one-time terminal command, <a href="#" onclick="getSettingsConnectCmd(this);return false;" style="color:var(--accent);">show the terminal command</a>.</div>
             <div id="settings-connect-cmd-out" style="display:none;margin-top:8px;font-size:0.72rem;"></div>
-            <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">If Tailscale is already signed in to another network, log out first (this is a separate tailnet).</div>
+            <div style="font-size:0.62rem;color:var(--dim);margin-top:8px;line-height:1.5;">Stuck on Apple/Google/IPN? You skipped the alternate server. Log out of Tailscale and start again at step 2.</div>
         </div>` : '';
 
     // ── Sign-in link — the ONE way in on any device. Consolidated 2026-07-17 (was two
@@ -824,7 +826,7 @@ async function getDevicesMeshKey(btn) {
                 let html = '';
                 if (d.qr_svg) {
                     html += '<div style="margin:6px 0 10px;text-align:center;">'
-                        + '<div style="color:var(--dim);font-size:0.68rem;margin-bottom:6px;line-height:1.45;"><strong>Install Tailscale on the phone first</strong>, then scan — opens the join page (coordinator + code). Scan alone does not install the app.</div>'
+                        + '<div style="color:var(--dim);font-size:0.68rem;margin-bottom:6px;line-height:1.45;"><strong>On the new device:</strong> install Tailscale, set alternate server <code style="background:var(--bg-card);padding:1px 4px;border-radius:3px;">https://headscale.lucidcove.org</code> first (Mac: Add account → ▾ → Alternate Server — not Apple/Mac login), then open this QR. Scan alone does not install or log in.</div>'
                         + '<div style="display:inline-block;padding:8px;background:#fff;border-radius:10px;line-height:0;max-width:200px;">'
                         + d.qr_svg + '</div></div>';
                 }

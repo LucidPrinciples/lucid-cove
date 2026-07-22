@@ -26,11 +26,23 @@ def test_settings_devices_keeps_approve_and_qr_together():
 
 
 def test_settings_and_home_say_install_tailscale_before_scan():
-    """Fresh phone: copy must not lead with bare scan."""
+    """Fresh device: mint from signed-in Cove; alternate server before Apple/Google."""
     settings = (ROOT / "src/dashboard/static/js/settings-account.js").read_text()
     home = (ROOT / "src/dashboard/static/js/home.js").read_text()
     join = (ROOT / "src/dashboard/static/mesh-join.html").read_text()
-    assert "Install Tailscale on the phone first" in settings
-    assert "Install Tailscale on the phone first" in home
-    assert "Install Tailscale first" in join
-    assert "Scanning alone does not install" in settings or "Scan alone does not install" in settings
+    assert "already signed into this Cove" in settings
+    assert "Alternate Server" in settings or "alternate server" in settings
+    assert "already signed into this Cove" in home or "Stay signed into this Cove" in home
+    assert "Add Account Using Alternate Server" in home
+    assert "already signed into your Cove" in join
+    assert "Mac or iCloud password will not work" in join or "Mac password" in join
+    assert "Add Account Using Alternate Server" in join
+    assert "Scan alone does not install" in settings or "does not install or log in" in settings
+
+
+def test_mesh_join_mac_path_not_apple_login():
+    """Mac/iPhone stranger trap: IPN Apple login must be called out."""
+    join = (ROOT / "src/dashboard/static/mesh-join.html").read_text()
+    settings = (ROOT / "src/dashboard/static/js/settings-account.js").read_text()
+    assert "Apple" in join and "join code" in join.lower()
+    assert "IPN" in settings or "Apple ID" in settings

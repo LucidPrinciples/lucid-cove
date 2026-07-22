@@ -1142,7 +1142,7 @@ async def mesh_join_page(request: Request):
     if key:
         key_block = (
             '<div class="label">Join code</div>'
-            f'<code id="join-key">{key_d}</code>'
+            f'<code class="block" id="join-key">{key_d}</code>'
             '<button class="ghost" type="button" onclick="copyKey()">Copy join code</button>'
         )
     else:
