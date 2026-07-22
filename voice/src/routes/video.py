@@ -390,21 +390,20 @@ def native_hdr_encode_args(
     *,
     preset: str = "medium",
 ) -> list | None:
-    """ORIGINAL look + HDR source → NATIVE COLOR PASSTHROUGH (2026-07-21).
+    """Reserved helper: true HLG/PQ HEVC re-encode args (NOT used on publish).
 
-    No SDR conversion can match how Apple/players render an HLG original
-    (EDR brightness, 10-bit gradients): even a mathematically correct tonemap
-    reads dimmer/warmer/banded side-by-side with the camera file. 'Original'
-    must mean original. So when NO grade is applied and the source is HDR,
-    keep the video in its native color: 10-bit HEVC, source transfer/
-    primaries/matrix carried through (tags + bitstream VUI), captions burned
-    on top. Platforms ingest HLG HEVC natively — it is what iPhones upload.
-    Returns the video-encoder arg list, or None for SDR sources (x264 path).
-    Graded looks still go through hdr_to_sdr_vf — a look is an SDR deliverable.
+    2026-07-22 QA (JAG side-by-side on P620): crop → scale → ASS burn → libx265
+    while tagging HLG/bt2020 produced red/magenta cast + sparkle/pixelation next
+    to the camera file. Burned captions force a full decode/filter graph; that
+    is not an identity mux, and desktop VLC/QuickTime do not match Apple EDR
+    the way Safari does on a remuxed HLG file.
 
-    preset: x265 speed. Default medium (near-transparent with CRF 14).
-    Callers may pass "fast" only when wall-clock forces it; duration-scaled
-    timeouts are the normal budget control, not a softer encode.
+    Publish paths (process-moments, caption-full) therefore use display-referred
+    SDR via hdr_to_sdr_vf (gamut-map BEFORE tonemap) + high-quality x264, even
+    for Original look. This helper stays for experiments / future true-passthrough
+    work that does not burn filters; callers must not clear vf_prep when using it.
+
+    Returns the video-encoder arg list when source is HDR, else None.
     """
     if not is_hdr_color(color_info):
         return None
@@ -417,9 +416,6 @@ def native_hdr_encode_args(
         "medium", "slow", "slower", "veryslow",
     }:
         p = "medium"
-    # CRF 14 matches the SDR near-transparent bar. preset default medium —
-    # "fast" was for a fixed 600s budget that no longer applies (duration-scaled
-    # timeouts). Callers may still pass preset="fast" if they need speed.
     return [
         "-c:v", "libx265", "-tag:v", "hvc1", "-pix_fmt", "yuv420p10le",
         "-preset", p, "-crf", "14",
@@ -898,19 +894,19 @@ async def process_moments(request: Request):
     # Look preset + optional B/C/S slider overrides (from crop template)
     vf_color = resolve_look_vf(crop)
     color_info = probe_video_color(video_path)
+    # Always display-referred publish when source is HDR: gamut-map → tonemap →
+    # bt709, then geometry + captions + x264. Do NOT take the "native HLG
+    # passthrough" branch here — burned ASS/crop/scale is already a full
+    # re-encode, and tagging that graph as HLG/bt2020 reads red/sparkly next
+    # to the camera file on desktop players (2026-07-22 P620 QA).
     vf_prep = color_prep_vf(color_info)
-    # Original (no grade) + HDR source → native HLG/PQ passthrough: no SDR
-    # conversion at all; encoder carries the source color through.
-    # medium + CRF 14: same quality bar as SDR publish; matrix kept on scale.
-    native_v_args = (
-        native_hdr_encode_args(color_info, preset="medium") if not vf_color else None
-    )
-    if native_v_args:
-        vf_prep = ""
+    native_v_args = None
+    scale_matrix = scale_out_matrix(color_info, native_hdr=False)
+    if is_hdr_color(color_info) and not vf_color:
         logger.info(
-            "Original+HDR → NATIVE COLOR PASSTHROUGH (10-bit HEVC medium/crf14, no tonemap)"
+            "Original+HDR → DISPLAY SDR (hable tonemap + gamut-map, x264 crf14; "
+            "no native HLG re-tag)"
         )
-    scale_matrix = scale_out_matrix(color_info, native_hdr=bool(native_v_args))
     logger.info(
         "Look filter: preset=%s → %s; color_prep=%s (trc=%s prim=%s)",
         video_filter,
@@ -1701,13 +1697,15 @@ async def caption_full_video(request: Request):
             look_src[k] = body.get(k)
     vf_color = resolve_look_vf(look_src)
     color_info = probe_video_color(video_path)
+    # Same as process-moments: HDR publish is display SDR, never native re-tag.
     vf_prep = color_prep_vf(color_info)
-    # Original (no grade) + HDR source → native passthrough (see moments path).
-    native_v_args = native_hdr_encode_args(color_info) if not vf_color else None
-    if native_v_args:
-        vf_prep = ""
-        logger.info("Original+HDR (caption-full) → NATIVE COLOR PASSTHROUGH")
-    scale_matrix = scale_out_matrix(color_info, native_hdr=bool(native_v_args))
+    native_v_args = None
+    scale_matrix = scale_out_matrix(color_info, native_hdr=False)
+    if is_hdr_color(color_info) and not vf_color:
+        logger.info(
+            "Original+HDR (caption-full) → DISPLAY SDR "
+            "(hable tonemap + gamut-map, x264; no native HLG re-tag)"
+        )
     logger.info(
         "Look filter (caption-full): preset=%s → %s; color_prep=%s (trc=%s)",
         video_filter,

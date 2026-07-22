@@ -11,37 +11,53 @@ def test_moment_encode_timeout_helper_present():
     assert "native_hdr" in VIDEO_PY.split("def moment_encode_timeout_seconds", 1)[1][:400]
 
 
-def test_moments_use_quality_native_preset():
-    # Shorts path: medium + CRF 14 (not fast/18). Duration-scaled timeout owns wall clock.
-    assert 'native_hdr_encode_args(color_info, preset="medium")' in VIDEO_PY
-    assert "NATIVE COLOR PASSTHROUGH (10-bit HEVC medium/crf14" in VIDEO_PY
-    native_fn = VIDEO_PY.split("def native_hdr_encode_args", 1)[1].split(
-        "def moment_encode_timeout_seconds", 1
+def test_moments_original_hdr_uses_display_sdr_not_native_retag():
+    """Publish must tonemap HDR→SDR; never clear vf_prep for a native HLG re-tag.
+
+    2026-07-22 P620 QA: crop/scale/ASS + libx265 tagged HLG read red/sparkly
+    next to the camera file. Original look still means no eq grade — color_prep
+    (gamut-map before tonemap) stays on.
+    """
+    proc = VIDEO_PY.split("async def process_moments", 1)[1].split(
+        "async def heal_inbox_processing", 1
     )[0]
-    assert '"-crf", "14"' in native_fn
-    assert '"-crf", "18"' not in native_fn
+    assert "native_v_args = None" in proc
+    assert "DISPLAY SDR" in proc
+    assert "NATIVE COLOR PASSTHROUGH" not in proc
+    # Must not disable color_prep on the moments path anymore
+    assert 'vf_prep = ""' not in proc
+    assert "color_prep_vf(color_info)" in proc
+    # SDR publish quality bar still CRF 14
+    assert '"-crf", "14"' in proc
+    assert "colorprim=bt709" in proc
+    # moments + caption-full both force the display-SDR path
+    assert VIDEO_PY.count("native_v_args = None") >= 2
+    assert VIDEO_PY.count("DISPLAY SDR") >= 2
+    assert "no native HLG re-tag" in VIDEO_PY
 
 
-def test_native_hdr_scale_keeps_bt2020_matrix():
+def test_publish_scale_matrix_is_bt709():
+    """After display-SDR switch, publish scale must not request bt2020 matrix."""
     assert "def scale_out_matrix" in VIDEO_PY
     assert "out_matrix=scale_matrix" in VIDEO_PY
-    # Default SDR scale still bt709; native path must be able to request bt2020
     start = VIDEO_PY.index("LOOK_PRESETS = {")
     end = VIDEO_PY.index("def _square_crop_expr")
     ns = {}
     exec(VIDEO_PY[start:end], ns)
     sdr = ns["hq_scale"](2160, 1620)
     assert "out_color_matrix=bt709" in sdr
+    assert ns["scale_out_matrix"](
+        {"color_space": "bt2020nc"}, native_hdr=False
+    ) == "bt709"
+    # Helper still knows how to ask for bt2020 if a future path needs it,
+    # but zscale/x265 names must never leak into the scale filter.
     hdr = ns["hq_scale"](2160, 1620, out_matrix="bt2020")
     assert "out_color_matrix=bt2020" in hdr
-    assert ns["scale_out_matrix"](
-        {"color_space": "bt2020nc"}, native_hdr=True
-    ) == "bt2020"
-    assert ns["scale_out_matrix"]({}, native_hdr=False) == "bt709"
-    # zscale/x265 name must not leak into scale filter
     leaked = ns["hq_scale"](2160, 1620, out_matrix="bt2020nc")
     assert "out_color_matrix=bt2020" in leaked
     assert "bt2020nc" not in leaked
+    # moments + caption-full force native_hdr=False on scale_out_matrix
+    assert "scale_out_matrix(color_info, native_hdr=False)" in VIDEO_PY
 
 
 def test_moments_timeout_is_dynamic_not_fixed_600():
