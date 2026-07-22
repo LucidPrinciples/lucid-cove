@@ -93,3 +93,14 @@ def test_compose_db_on_data_root_moves_postgres():
     # only redis remains named
     assert "postgres_data:" not in vol_block
     assert "redis_data:" in vol_block
+
+
+def test_voice_nc_mount_is_read_write_for_multi_gb_publish():
+    """Caption-full publishes via NC data copy; :ro forced WebDAV and failed ~1GB+."""
+    cove = dict(_COVE)
+    out = build_compose(cove, deploy={}, voice_local=True)
+    assert "NC_HTML_ROOT: /var/www/html" in out
+    # Must NOT be read-only — publish_video_output needs shutil.copy2 onto the volume.
+    assert "- nextcloud_data:/var/www/html:ro" not in out
+    assert "- nextcloud_data:/var/www/html" in out
+
