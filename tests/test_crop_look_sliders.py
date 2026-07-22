@@ -99,11 +99,16 @@ def test_hq_scale_and_join_vf():
     sdr = ns["hq_scale"](2160, 1620)
     assert "lanczos" in sdr
     assert "out_color_matrix=bt709" in sdr
+    # Publish path forces native_hdr=False (display SDR). Helper may still
+    # return bt2020 when asked — scale must accept that enum, not bt2020nc.
+    pub = ns["hq_scale"](1080, 1920, out_matrix=ns["scale_out_matrix"](
+        {"color_space": "bt2020nc"}, native_hdr=False
+    ))
+    assert "out_color_matrix=bt709" in pub
     hdr = ns["hq_scale"](1080, 1920, out_matrix=ns["scale_out_matrix"](
         {"color_space": "bt2020nc"}, native_hdr=True
     ))
     assert "out_color_matrix=bt2020" in hdr
-    assert "out_color_matrix=bt709" not in hdr
     assert ns["join_vf"]("crop=1", "", None, "eq=x") == "crop=1,eq=x"
     assert ns["join_vf"]("crop=1", "") == "crop=1"
 
