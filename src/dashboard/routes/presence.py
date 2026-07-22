@@ -1020,6 +1020,7 @@ async def _create_presence_record(
         nc_result = await provision_nc_user(
             str(presence_id), display_name, handle=handle,
             tier=tier, role="steward" if cove_role == "admin" else "member",
+            cove_role=cove_role,
         )
     except Exception as e:
         log.error("NC provisioning EXCEPTION for %s (presence %s): %s",
@@ -1488,6 +1489,7 @@ async def finalize_setup(request: Request):
                 pid, _disp or presence.get("display_name") or agent_name,
                 handle=(new_handle or presence.get("username") or ""),
                 tier=presence.get("tier") or "cove", role="steward",
+                cove_role="admin",
             )
         except Exception as e:
             log.error("NC provisioning during finalize failed for %s: %s", pid, e)

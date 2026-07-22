@@ -66,8 +66,10 @@ PRESENCE_FOLDERS = [
     "AgentSkills/Inbox",
     "AgentSkills/Inbox/Archive",
     # batch8 #7b (CF-107): Flows/ + Actions/ (+Archive) are NO LONGER seeded —
-    # zero readers, and Actions is superseded by the DB-backed board. Shared/ stays
-    # (a future cross-Presence share, CF-113). Existing Coves keep whatever they have.
+    # zero readers, and Actions is superseded by the DB-backed board.
+    # #CF-113: per-presence AgentSkills/Shared stubs retired — real share is
+    # steward-owned root CoveShared (operator-only RW). Existing Coves may still
+    # have an empty Shared/ folder; we stop seeding new ones.
     "AgentSkills/Content",
     "AgentSkills/Content/video",
     # #1524 — seed ONLY the folders the pipeline actually uses (inbox -> processing -> raw,
@@ -89,7 +91,6 @@ PRESENCE_FOLDERS = [
     "AgentSkills/Context",
     "AgentSkills/Context/sessions",
     "AgentSkills/Ops",
-    "AgentSkills/Shared",
 ]
 
 # Steward (Stuart-type) — same as Presence plus Knowledge Base
@@ -120,7 +121,7 @@ OPERATOR_FOLDERS = BASE_FOLDERS
 #   Content/      — Video pipeline, images, audio, posts. Team produces.
 #   (Actions/ retired batch8 #7b — DB-backed board superseded it)
 #   Sites/        — Archimedes builds and manages sites.
-#   Shared/       — Explicitly shared team workspace.
+#   Shared/       — retired stub (#CF-113 → root CoveShared for operators).
 #
 # The provisioner creates NC shares for team-managed folders when a
 # Presence is provisioned. This is how Stuart writes to Presence data
@@ -149,7 +150,8 @@ STEWARD_SHARED_FOLDERS = [
     # batch8 #7b: Actions/ no longer seeded (DB-backed board superseded it), so it's
     # not a shared folder either.
     "AgentSkills/Sites",
-    "AgentSkills/Shared",
+    # #CF-113: AgentSkills/Shared removed — operator handoffs use steward-owned
+    # root CoveShared (see STEWARD_COVE_SHARED_FOLDER), not per-presence stubs.
 ]
 
 
@@ -368,6 +370,93 @@ async def _share_kb_with_presence(
     return True
 
 
+# #CF-113 — CoveShared: one steward-owned folder per Cove, read-write for human
+# operators only (not guests, not a general agent dump). Lives at the NC root so
+# it shows up next to AgentSkills in Files / desktop sync — featured, not buried.
+# Modelled on the KB share (single source on the steward) with edit permissions.
+STEWARD_COVE_SHARED_FOLDER = "CoveShared"
+# NC OCS permissions: 1 read + 2 update + 4 create + 8 delete = 15 (no re-share).
+_COVE_SHARED_RW_PERMS = 15
+
+
+async def _ensure_steward_cove_shared(steward_nc_user: str, steward_pass: str) -> None:
+    """Make sure the steward's canonical CoveShared folder exists at NC root."""
+    from urllib.parse import quote
+    steward_dav = f"{NC_URL}/remote.php/dav/files/{steward_nc_user}"
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            await client.request(
+                "MKCOL",
+                f"{steward_dav}/{quote(STEWARD_COVE_SHARED_FOLDER, safe='/')}",
+                auth=(steward_nc_user, steward_pass),
+            )
+        except Exception:
+            pass
+
+
+async def _share_cove_shared_with_operator(
+    presence_nc_username: str,
+    presence_password: str,
+    steward_nc_user: str,
+    steward_pass: str,
+) -> bool:
+    """Share steward CoveShared to an operator presence, read-write, at NC root.
+
+    Operators see /CoveShared in their own Files (and can selective-sync it).
+    Guests are not callers — ensure_nc_shape skips them. Team agents use the
+    admin NC space with path scopes and do not receive this share.
+    """
+    from urllib.parse import quote
+    if not presence_nc_username or presence_nc_username == steward_nc_user:
+        return True
+
+    await _ensure_steward_cove_shared(steward_nc_user, steward_pass)
+
+    share_url = f"{NC_URL}/ocs/v2.php/apps/files_sharing/api/v1/shares"
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            resp = await client.post(
+                share_url,
+                auth=(steward_nc_user, steward_pass),
+                headers={"OCS-APIRequest": "true"},
+                data={
+                    "path": f"/{STEWARD_COVE_SHARED_FOLDER}",
+                    "shareType": 0,  # user share
+                    "shareWith": presence_nc_username,
+                    "permissions": _COVE_SHARED_RW_PERMS,
+                },
+            )
+            ocs = _parse_ocs_status(resp.text) if resp.status_code == 200 else -1
+            if ocs not in (100, 200, 403):  # 403 = already shared
+                log.warning(
+                    "CoveShared share to %s failed (OCS %s): %s",
+                    presence_nc_username, ocs, resp.text[:200],
+                )
+                return False
+            log.info(
+                "CoveShared shared RW into %s/%s",
+                presence_nc_username, STEWARD_COVE_SHARED_FOLDER,
+            )
+        except Exception as e:
+            log.warning("CoveShared share to %s error: %s", presence_nc_username, e)
+            return False
+    return True
+
+
+def _is_operator_presence(role: str, cove_role: str = "") -> bool:
+    """Human operators get CoveShared; guests do not.
+
+    NC users are only provisioned for people (team agents use admin + path scopes).
+    cove_role guest = view-only family member — no operator handoff folder.
+    """
+    cr = (cove_role or "").strip().lower()
+    if cr == "guest":
+        return False
+    r = (role or "").strip().lower()
+    # steward / member / empty role (legacy) count as operator when not guest
+    return r in ("steward", "member", "admin", "")
+
+
 async def share_presence_folders_with_steward(
     presence_id: str,
     steward_nc_user: str = "",
@@ -454,7 +543,8 @@ async def get_nc_creds(request: Request = None):
                                     presence.get("display_name")
                                     or presence.get("username") or "Operator",
                                     presence.get("tier") or "cove",
-                                    "steward" if _cr in ("admin", "steward") else "member"))
+                                    "steward" if _cr in ("admin", "steward") else "member",
+                                    cove_role=_cr))
                         except Exception:
                             pass
                         _NC_CREDS_CACHE[_pid] = (nc_url, row["nc_username"], row["nc_password"], _nc_time.monotonic() + _NC_CREDS_TTL)
@@ -475,7 +565,8 @@ async def get_nc_creds(request: Request = None):
                         presence.get("display_name") or presence.get("username") or "Operator",
                         tier=(presence.get("tier") or "cove"),
                         role=("steward" if _cr in ("admin", "steward") else "member"),
-                        handle=(presence.get("username") or ""))
+                        handle=(presence.get("username") or ""),
+                        cove_role=_cr)
                     if res.get("ok"):
                         async with get_db() as conn:
                             r2 = await conn.execute(
@@ -638,6 +729,12 @@ async def ensure_admin_nc_clean() -> dict:
         async with httpx.AsyncClient(timeout=30) as dav_client:
             failures = await _remove_nc_default_files(
                 dav_client, webdav_base, NC_ADMIN_USER, NC_ADMIN_PASSWORD)
+        # #CF-113: canonical operator handoff folder lives on admin/steward space
+        try:
+            await _ensure_steward_cove_shared(NC_ADMIN_USER, NC_ADMIN_PASSWORD)
+        except Exception as e:
+            log.warning("CoveShared ensure during admin clean: %s", e)
+            failures += 1
         return {"ok": failures == 0, "failures": failures, "user": NC_ADMIN_USER}
     except Exception as e:
         log.warning("ensure_admin_nc_clean failed: %s", e)
@@ -645,13 +742,16 @@ async def ensure_admin_nc_clean() -> dict:
 
 
 async def ensure_nc_shape(nc_username: str, nc_password: str, display_name: str,
-                          tier: str, role: str) -> int:
-    """Ensure this NC user's folders, Context seeds, steward shares, and KB share.
+                          tier: str, role: str, cove_role: str = "") -> int:
+    """Ensure this NC user's folders, Context seeds, steward shares, KB, CoveShared.
 
     Every operation tolerates "already exists" (MKCOL 405, share OCS 403, MOVE 404),
     so this pass is safe to re-run any time — that's the point (audit C3-7): a
     first-boot Apache warm-up 503 used to leave a presence permanently without
     folders/shares because nothing ever re-ran these idempotent ops.
+
+    cove_role: accounts.cove_role (admin|member|guest). Guests skip CoveShared.
+    #CF-113: steward-owned root CoveShared is RW-shared only to operator humans.
 
     Returns the number of FAILED operations — 0 means the shape is complete."""
     failures = 0
@@ -725,6 +825,24 @@ async def ensure_nc_shape(nc_username: str, nc_password: str, display_name: str,
             log.warning("KB share failed for %s: %s", nc_username, e)
             failures += 1
 
+    # #CF-113: steward-owned CoveShared at NC root — RW for operators only.
+    # Ensure the canonical folder always exists on the admin/steward space; share
+    # it into this presence when they are an operator (not guest). Steward role
+    # still gets the share on their op-* user so desktop sync sees it too.
+    try:
+        await _ensure_steward_cove_shared(NC_ADMIN_USER, NC_ADMIN_PASSWORD)
+    except Exception as e:
+        log.warning("CoveShared ensure on steward failed: %s", e)
+        failures += 1
+    if _is_operator_presence(role, cove_role) and nc_username != NC_ADMIN_USER:
+        try:
+            if not await _share_cove_shared_with_operator(
+                    nc_username, nc_password, NC_ADMIN_USER, NC_ADMIN_PASSWORD):
+                failures += 1
+        except Exception as e:
+            log.warning("CoveShared share failed for %s: %s", nc_username, e)
+            failures += 1
+
     return failures
 
 
@@ -732,7 +850,8 @@ _SHAPE_INFLIGHT: set = set()
 
 
 async def reconcile_nc_shape(presence_id: str, nc_username: str, nc_password: str,
-                             display_name: str, tier: str, role: str) -> None:
+                             display_name: str, tier: str, role: str,
+                             cove_role: str = "") -> None:
     """Background re-run of the idempotent shape pass for a presence whose last
     provision recorded incomplete shape (C3-7). Clears the pending flag on a
     clean pass; never raises."""
@@ -741,7 +860,8 @@ async def reconcile_nc_shape(presence_id: str, nc_username: str, nc_password: st
         return
     _SHAPE_INFLIGHT.add(pid)
     try:
-        failures = await ensure_nc_shape(nc_username, nc_password, display_name, tier, role)
+        failures = await ensure_nc_shape(
+            nc_username, nc_password, display_name, tier, role, cove_role=cove_role)
         from src.utils.settings import update_setting
         await update_setting(f"nc_shape_pending_{pid}", "1" if failures else "")
         log.info("NC shape reconcile for %s: %s",
@@ -759,6 +879,7 @@ async def provision_nc_user(
     tier: str = "operator",
     role: str = "member",
     handle: str = "",
+    cove_role: str = "",
 ) -> dict:
     """Create a Nextcloud user account and seed folder structure by tier/role.
 
@@ -843,7 +964,8 @@ async def provision_nc_user(
         import asyncio
         await asyncio.sleep(2)
         shape_failures = await ensure_nc_shape(
-            nc_username, nc_password, display_name, tier, role)
+            nc_username, nc_password, display_name, tier, role,
+            cove_role=cove_role)
 
         # Steward provision: also clean the image admin user (what Stuart Files uses).
         if role == "steward":
@@ -1343,7 +1465,9 @@ hard wipe of user content). Offload when notified.
 
 **Ops/** -- Cove ops notes, backlog, runbooks.
 
-**Shared/** -- Cove-level resources the steward puts here for everyone.
+**CoveShared/** -- (NC root, not under AgentSkills) Operator-only family handoff
+folder. One per Cove, steward-owned, read-write for every operator. Not an
+agent dump — humans share docs and assets here.
 
 **Knowledge Base/** -- Steward-curated framework mirror (read-only for members).
 """,
@@ -1432,8 +1556,11 @@ async def api_provision_nc_user(presence_id: str, request: Request):
 
     display_name = account.get("display_name") or account.get("username") or "User"
     tier = account.get("tier", "operator")
-    role = account.get("cove_role", "member")
-    result = await provision_nc_user(presence_id, display_name, tier=tier, role=role)
+    cove_role = (account.get("cove_role") or "member").strip().lower()
+    role = "steward" if cove_role in ("admin", "steward") else "member"
+    result = await provision_nc_user(
+        presence_id, display_name, tier=tier, role=role, cove_role=cove_role,
+        handle=(account.get("username") or ""))
     return result
 
 

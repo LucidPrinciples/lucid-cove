@@ -125,7 +125,6 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             [
                 "AgentSkills/Team/archimedes/scratch.md",
                 "AgentSkills/Sites/landing.html",
-                "AgentSkills/Shared/handoff.md",
             ],
             [
                 "AgentSkills/Reports/rev.md",
@@ -147,7 +146,6 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             [
                 "AgentSkills/Team/mercer/notes.md",
                 "AgentSkills/Reports/sales.md",
-                "AgentSkills/Shared/x.md",
             ],
             [
                 "AgentSkills/Sites/x.html",
@@ -166,7 +164,6 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             "gabe-day",
             [
                 "AgentSkills/Team/gabe/research.md",
-                "AgentSkills/Shared/intake.md",
             ],
             [
                 "AgentSkills/Content/dump.md",  # strict scout: Content is RO
@@ -183,13 +180,12 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             "vera-day",
             ["AgentSkills/Team/vera/review.md"],
             [
-                "AgentSkills/Shared/x.md",
+                "CoveShared/x.md",
                 "AgentSkills/Reports/x.md",
                 "AgentSkills/Team/archimedes/x.md",
             ],
             [
                 "AgentSkills/Reports/x.md",
-                "AgentSkills/Shared/x.md",
                 "AgentSkills/Knowledge Base/x.md",
             ],
         ),
@@ -197,7 +193,7 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             "soren-day",
             ["AgentSkills/Team/soren/obs.md"],
             [
-                "AgentSkills/Shared/x.md",
+                "CoveShared/x.md",
                 "AgentSkills/Ops/x.md",
                 "AgentSkills/Content/x.md",
             ],
@@ -211,7 +207,6 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             [
                 "AgentSkills/Team/julian/draft.md",
                 "AgentSkills/Content/post.md",
-                "AgentSkills/Shared/x.md",
             ],
             [
                 "AgentSkills/Reports/x.md",  # Reports RO for scribe
@@ -225,7 +220,6 @@ def test_steward_write_anywhere_under_admin(_stub_channel_roles):
             [
                 "AgentSkills/Team/ezra/x.md",
                 "AgentSkills/Ops/runbook.md",
-                "AgentSkills/Shared/x.md",
             ],
             [
                 "AgentSkills/Reports/x.md",
@@ -292,8 +286,10 @@ def test_unknown_role_failsafe_team_only(monkeypatch, _stub_channel_roles):
     )
     # write own team ok
     assert nc.check_nc_path_access("AgentSkills/Team/mystery/x.md", write=True) is None
-    # write Shared denied
+    # write Shared stub / CoveShared denied for unknown role
     err = nc.check_nc_path_access("AgentSkills/Shared/x.md", write=True)
+    assert err and "Access denied" in err
+    err = nc.check_nc_path_access("CoveShared/x.md", write=True)
     assert err and "Access denied" in err
     # read KB ok (fail-safe includes RO Knowledge Base)
     assert nc.check_nc_path_access("AgentSkills/Knowledge Base/x.md", write=False) is None
@@ -352,9 +348,9 @@ async def test_mkdir_tool_returns_denial(_stub_channel_roles):
     _act("soren-day")
     fn = nc.nextcloud_mkdir
     if hasattr(fn, "ainvoke"):
-        result = await fn.ainvoke({"path": "AgentSkills/Shared/x"})
+        result = await fn.ainvoke({"path": "CoveShared/x"})
     else:
-        result = await fn.coroutine("AgentSkills/Shared/x")
+        result = await fn.coroutine("CoveShared/x")
     assert "Access denied" in result
 
 
@@ -395,9 +391,9 @@ async def test_delete_tool_returns_denial(_stub_channel_roles):
     _act("soren-day")
     fn = nc.nextcloud_delete
     if hasattr(fn, "ainvoke"):
-        result = await fn.ainvoke({"path": "AgentSkills/Shared/x.md"})
+        result = await fn.ainvoke({"path": "CoveShared/x.md"})
     else:
-        result = await fn.coroutine("AgentSkills/Shared/x.md")
+        result = await fn.coroutine("CoveShared/x.md")
     assert "Access denied" in result
 
 
