@@ -1,4 +1,4 @@
-"""process-moments: duration-scaled timeout + fast native preset for shorts."""
+"""process-moments: duration-scaled timeout + native HDR quality bar."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,10 +11,33 @@ def test_moment_encode_timeout_helper_present():
     assert "native_hdr" in VIDEO_PY.split("def moment_encode_timeout_seconds", 1)[1][:400]
 
 
-def test_moments_use_fast_native_preset():
-    # Shorts path must request fast; caption-full keeps default medium
-    assert 'native_hdr_encode_args(color_info, preset="fast")' in VIDEO_PY
-    assert "NATIVE COLOR PASSTHROUGH (10-bit HEVC fast" in VIDEO_PY
+def test_moments_use_quality_native_preset():
+    # Shorts path: medium + CRF 14 (not fast/18). Duration-scaled timeout owns wall clock.
+    assert 'native_hdr_encode_args(color_info, preset="medium")' in VIDEO_PY
+    assert "NATIVE COLOR PASSTHROUGH (10-bit HEVC medium/crf14" in VIDEO_PY
+    native_fn = VIDEO_PY.split("def native_hdr_encode_args", 1)[1].split(
+        "def moment_encode_timeout_seconds", 1
+    )[0]
+    assert '"-crf", "14"' in native_fn
+    assert '"-crf", "18"' not in native_fn
+
+
+def test_native_hdr_scale_keeps_bt2020_matrix():
+    assert "def scale_out_matrix" in VIDEO_PY
+    assert "out_matrix=scale_matrix" in VIDEO_PY
+    # Default SDR scale still bt709; native path must be able to request bt2020nc
+    start = VIDEO_PY.index("LOOK_PRESETS = {")
+    end = VIDEO_PY.index("def _square_crop_expr")
+    ns = {}
+    exec(VIDEO_PY[start:end], ns)
+    sdr = ns["hq_scale"](2160, 1620)
+    assert "out_color_matrix=bt709" in sdr
+    hdr = ns["hq_scale"](2160, 1620, out_matrix="bt2020nc")
+    assert "out_color_matrix=bt2020nc" in hdr
+    assert ns["scale_out_matrix"](
+        {"color_space": "bt2020nc"}, native_hdr=True
+    ) == "bt2020nc"
+    assert ns["scale_out_matrix"]({}, native_hdr=False) == "bt709"
 
 
 def test_moments_timeout_is_dynamic_not_fixed_600():
