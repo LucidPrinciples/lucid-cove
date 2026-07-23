@@ -20,6 +20,61 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def assert_video_master_readable(path: str, *, label: str = "video") -> None:
+    """Refuse to run the pipeline against a truncated/ghost master.
+
+    Family originals must keep a readable container (moov present). A 0-byte
+    NC ghost or partial WebDAV object fails here BEFORE inbox->processing MOVE
+    or ASR, so we never promote junk into processing/ for other Coves.
+    Raises RuntimeError on failure.
+    """
+    import subprocess
+
+    if not path or not os.path.isfile(path):
+        raise RuntimeError(f"{label}: missing file {path!r}")
+    size = os.path.getsize(path)
+    if size < 1024:
+        raise RuntimeError(
+            f"{label}: file too small to be a real master ({size} bytes): {path}"
+        )
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration,format_name,size",
+                "-of", "default=noprint_wrappers=1",
+                path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(f"{label}: ffprobe not available in voice image") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"{label}: ffprobe timed out on {path}") from e
+    err = (proc.stderr or "").strip()
+    out = (proc.stdout or "").strip()
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"{label}: container unreadable (ffprobe rc={proc.returncode}): "
+            f"{err or out or 'no ffprobe output'} [{path}]"
+        )
+    low = (err + "\n" + out).lower()
+    if "moov atom not found" in low or "invalid data found when processing input" in low:
+        raise RuntimeError(
+            f"{label}: corrupt/incomplete media (moov/invalid): {err or out} [{path}]"
+        )
+    for line in out.splitlines():
+        if line.startswith("duration="):
+            val = line.split("=", 1)[-1].strip()
+            if val.upper() in ("N/A", "NAN", ""):
+                raise RuntimeError(
+                    f"{label}: no duration from ffprobe (likely truncated): {path}"
+                )
+            break
+
+
 async def _gpu_auth_ok(request: Request) -> bool:
     """Authorize an incoming GPU transcription job (cross-Cove GPU share).
 
@@ -114,10 +169,27 @@ async def transcribe_video(request: Request):
         processing_path = await resolve_video_source(video_name, nc)
         if not processing_path:
             return JSONResponse({"error": f"File not found: {video_name}"}, status_code=404)
+        # Gate BEFORE any MOVE/copy: never promote a ghost/truncated master.
+        try:
+            assert_video_master_readable(processing_path, label=f"source {video_name}")
+        except RuntimeError as bad:
+            logger.error("master integrity failed pre-MOVE: %s", bad)
+            return JSONResponse(
+                {
+                    "error": (
+                        f"Master failed integrity check — refusing to move or "
+                        f"transcribe (re-seed a complete file): {bad}"
+                    )
+                },
+                status_code=422,
+            )
         # Step 1: Prefer a true WebDAV MOVE inbox→processing (one object, no copy+delete).
         # Fall back to copy only when MOVE can't run (source already outside inbox/, or
         # MOVE rejected). Never DELETE the inbox original after a successful copy —
         # operator policy 2026-07-20: move or leave; dual copies are cleaned by lifecycle.
+        # HARD RULE: if MOVE/copy does not leave a verified local path, ABORT. Never
+        # continue ASR against a missing/partial processing object (IMG_7159 2026-07-22:
+        # moov-less processing ghost + "Continuing with transcription").
         try:
             moved = False
             src_norm = processing_path.replace(os.sep, "/")
@@ -179,10 +251,27 @@ async def transcribe_video(request: Request):
                                     f"After moving {video_name} to processing/, "
                                     f"local path is missing for ffmpeg "
                                     f"(mount/scratch). Check NC_HTML_ROOT and "
-                                    f"that processing/{video_name} exists."
+                                    f"that processing/{video_name} exists. "
+                                    f"Inbox may already be empty — restore master "
+                                    f"before retry."
                                 )
                             },
                             status_code=500,
+                        )
+                    try:
+                        assert_video_master_readable(
+                            processing_path, label=f"processing {video_name}"
+                        )
+                    except RuntimeError as bad:
+                        logger.error("master integrity failed post-MOVE: %s", bad)
+                        return JSONResponse(
+                            {
+                                "error": (
+                                    f"processing/{video_name} failed integrity "
+                                    f"after MOVE — not transcribing: {bad}"
+                                )
+                            },
+                            status_code=422,
                         )
             if not moved:
                 # Copy up (large PUT). Keep inbox original — no delete.
@@ -192,12 +281,46 @@ async def transcribe_video(request: Request):
                     logger.info(
                         f"Copied {video_name} to processing/ (inbox original kept — no delete)"
                     )
+                    # Prefer reading the landed processing object when mount sees it.
+                    remounted = find_on_nc_data(
+                        nc.user, video_name,
+                        subdirs=("processing", "inbox", "raw"),
+                    )
+                    if remounted:
+                        processing_path = remounted
+                    try:
+                        assert_video_master_readable(
+                            processing_path, label=f"processing-copy {video_name}"
+                        )
+                    except RuntimeError as bad:
+                        logger.error("master integrity failed post-copy: %s", bad)
+                        return JSONResponse(
+                            {
+                                "error": (
+                                    f"processing/{video_name} copy failed integrity "
+                                    f"— inbox original kept, not transcribing: {bad}"
+                                )
+                            },
+                            status_code=422,
+                        )
                 else:
                     processing_copy_ok = False
                     logger.error(
                         f"processing/ copy of {video_name} did NOT land "
-                        f"(publish_video_output returned False — the PUT likely timed out). "
-                        f"Continuing with transcription; keeping the inbox original.")
+                        f"(publish_video_output returned False — PUT timeout or "
+                        f"missing source). ABORTING transcription; inbox original kept."
+                    )
+                    return JSONResponse(
+                        {
+                            "error": (
+                                f"Failed to place {video_name} in processing/ "
+                                f"(MOVE unavailable and copy did not land). "
+                                f"Inbox original left untouched — fix mount/WebDAV "
+                                f"and retry; not starting ASR."
+                            )
+                        },
+                        status_code=500,
+                    )
             else:
                 processing_copy_ok = True
         except Exception as move_err:
@@ -217,6 +340,20 @@ async def transcribe_video(request: Request):
         video_name = os.path.basename(file_path)
         stem = os.path.splitext(video_name)[0]
 
+        try:
+            assert_video_master_readable(file_path, label=f"source {video_name}")
+        except RuntimeError as bad:
+            logger.error("master integrity failed pre-MOVE (local): %s", bad)
+            return JSONResponse(
+                {
+                    "error": (
+                        f"Master failed integrity check — refusing to move or "
+                        f"transcribe (re-seed a complete file): {bad}"
+                    )
+                },
+                status_code=422,
+            )
+
         # Step 1: Move to processing/ via filesystem (direct mount)
         import shutil
         processing_dir = os.path.join(VIDEO_MOUNT, "processing")
@@ -226,6 +363,27 @@ async def transcribe_video(request: Request):
             shutil.move(file_path, processing_path)
             _nc_scan("AgentSkills/Content/video")
             logger.info(f"Moved {video_name} to processing/")
+            assert_video_master_readable(
+                processing_path, label=f"processing {video_name}"
+            )
+        except RuntimeError as bad:
+            # Move landed but file is bad — try restore to inbox, then fail hard.
+            logger.error("master integrity failed post-MOVE (local): %s", bad)
+            try:
+                if os.path.isfile(processing_path) and not os.path.isfile(file_path):
+                    shutil.move(processing_path, file_path)
+                    _nc_scan("AgentSkills/Content/video")
+            except Exception:
+                pass
+            return JSONResponse(
+                {
+                    "error": (
+                        f"processing/{video_name} failed integrity after MOVE — "
+                        f"restored inbox when possible: {bad}"
+                    )
+                },
+                status_code=422,
+            )
         except Exception as move_err:
             return JSONResponse(
                 {"error": f"Failed to move {video_name} to processing/: {move_err}"},
