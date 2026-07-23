@@ -531,6 +531,7 @@ async function sendMessage() {
     scrollToBottom();
 
     let finalData = null;  // outside try so post-send TTS can read it after Stop clears
+    let detached = false;  // stream died; server turn may still be running
     try {
         const res = await fetch('/api/chat/send', {
             method: 'POST',
@@ -546,52 +547,85 @@ async function sendMessage() {
         // like "nothing happened." Surface it instead.
         if (!res.ok) {
             let detail = '';
-            try { const j = await res.json(); detail = j.error || j.detail || ''; } catch (e) {}
-            throw new Error(`server ${res.status}${detail ? ': ' + detail : ''}`);
+            let code = '';
+            try {
+                const j = await res.json();
+                detail = j.detail || j.error || '';
+                code = j.error || '';
+            } catch (e) {}
+            // 409 = turn already running (e.g. after lock detach). Attach to status.
+            if (res.status === 409 || code === 'already_processing') {
+                detached = true;
+                updateTypingStatus('Still working on your last message…');
+            } else {
+                throw new Error(`server ${res.status}${detail ? ': ' + detail : ''}`);
+            }
+        } else {
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                let chunk;
+                try {
+                    chunk = await reader.read();
+                } catch (readErr) {
+                    // Phone lock / tab freeze kills the SSE body. Do not paint a fake
+                    // assistant "Connection error" — server turn keeps running.
+                    console.warn('[chat] SSE read failed; detaching to status poll', readErr);
+                    detached = true;
+                    break;
+                }
+                const { done, value } = chunk;
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const event = JSON.parse(line.slice(6));
+
+                        if (event.type === 'status') {
+                            updateTypingStatus(event.text);
+                        } else if (event.type === 'tool_call') {
+                            updateTypingStatus(`▸ ${event.tool}(${(event.args || '').substring(0, 80)})`);
+                            addActivityStep(`Tool: ${event.tool}(${event.args || ''})`);
+                            scrollToBottom();
+                        } else if (event.type === 'tool_result') {
+                            const preview = event.preview || '(done)';
+                            addActivityStep(`Result: ${preview}`);
+                            updateTypingStatus(`▸ Result: ${preview.substring(0, 80)}`);
+                            scrollToBottom();
+                        } else if (event.type === 'heartbeat') {
+                            const secs = Math.round(event.elapsed || 0);
+                            updateTypingStatus(`${event.step || 'Working...'} (${secs}s)`);
+                        } else if (event.type === 'rotation') {
+                            handleThreadRotation(event.data);
+                        } else if (event.type === 'cancelled') {
+                            addSystemMessage('Generation stopped.');
+                        } else if (event.type === 'error') {
+                            addMessage('assistant', `Error: ${event.message}`, new Date());
+                        } else if (event.type === 'done') {
+                            finalData = event.data;
+                        }
+                    } catch (e) { /* skip malformed SSE lines */ }
+                }
+            }
         }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
-
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                try {
-                    const event = JSON.parse(line.slice(6));
-
-                    if (event.type === 'status') {
-                        updateTypingStatus(event.text);
-                    } else if (event.type === 'tool_call') {
-                        updateTypingStatus(`▸ ${event.tool}(${(event.args || '').substring(0, 80)})`);
-                        addActivityStep(`Tool: ${event.tool}(${event.args || ''})`);
-                        scrollToBottom();
-                    } else if (event.type === 'tool_result') {
-                        const preview = event.preview || '(done)';
-                        addActivityStep(`Result: ${preview}`);
-                        updateTypingStatus(`▸ Result: ${preview.substring(0, 80)}`);
-                        scrollToBottom();
-                    } else if (event.type === 'heartbeat') {
-                        const secs = Math.round(event.elapsed || 0);
-                        updateTypingStatus(`${event.step || 'Working...'} (${secs}s)`);
-                    } else if (event.type === 'rotation') {
-                        handleThreadRotation(event.data);
-                    } else if (event.type === 'cancelled') {
-                        addSystemMessage('Generation stopped.');
-                    } else if (event.type === 'error') {
-                        addMessage('assistant', `Error: ${event.message}`, new Date());
-                    } else if (event.type === 'done') {
-                        finalData = event.data;
-                    }
-                } catch (e) { /* skip malformed SSE lines */ }
+        if (detached) {
+            // Hand off to status poller — unlock/tab-back will show progress + final reply.
+            updateTypingStatus('Still working… (you can lock the phone)');
+            sending = false;
+            if (!_statusPoller) {
+                _statusPoller = setInterval(pollChatStatus, 3000);
             }
+            // Keep Stop visible so explicit cancel still works while detached.
+            pollChatStatus();
+            return;
         }
 
         setTyping(false);
@@ -605,10 +639,36 @@ async function sendMessage() {
             } else {
                 addMessage('assistant', finalData.response || '(no response)', new Date(), finalData.model || '', finalData.thinking || null);
             }
+        } else {
+            // Stream ended with no done event — recover from server history/status
+            // instead of inventing a connection error bubble.
+            await checkChatProcessing();
+            if (!_statusPoller) {
+                const box = document.getElementById('chat-messages');
+                if (box) box.innerHTML = '';
+                await loadChat();
+            }
         }
 
         loadContextUsage();
     } catch (e) {
+        // Hard failures before/without a running turn. If status says processing,
+        // detach rather than lie about connection.
+        console.warn('[chat] send failed', e);
+        try {
+            const res = await fetch(`/api/chat/status?channel=${activeChannel}`);
+            const data = await res.json();
+            if (data.processing) {
+                detached = true;
+                updateTypingStatus('Still working… (you can lock the phone)');
+                sending = false;
+                if (!_statusPoller) {
+                    _statusPoller = setInterval(pollChatStatus, 3000);
+                }
+                pollChatStatus();
+                return;
+            }
+        } catch (statusErr) { /* fall through */ }
         setTyping(false);
         clearActivitySteps();
         addMessage('assistant', `Connection error: ${e.message}`, new Date());
@@ -766,10 +826,13 @@ async function loadChat() {
 }
 
 // =============================================================================
-// Cross-device processing awareness
+// Cross-device + lock-resume processing awareness
+// Server owns the turn. SSE is a live window; status poll is the durable attach.
+// Phone lock / tab hide must detach the window, not invent a connection error.
 // =============================================================================
 let _statusPoller = null;
 let _renderedStepCount = 0;
+let _chatVisibilityBound = false;
 
 function renderPolledSteps(steps) {
     if (!steps || !steps.length) return;
@@ -780,8 +843,30 @@ function renderPolledSteps(steps) {
     _renderedStepCount = steps.length;
 }
 
+function _restoreChatChromeAfterTurn() {
+    const sendBtn = document.getElementById('chat-send');
+    const stopBtn = document.getElementById('chat-stop');
+    const input = document.getElementById('chat-input');
+    if (stopBtn) {
+        stopBtn.style.display = 'none';
+        stopBtn.disabled = false;
+        stopBtn.classList.remove('btn-busy');
+        stopBtn.title = '';
+    }
+    if (typeof chatMode !== 'undefined' && chatMode === 'type') {
+        if (sendBtn) sendBtn.style.display = '';
+        if (input) input.focus();
+    } else {
+        const micBtn2 = (typeof getMicBtn === 'function') ? getMicBtn() : document.getElementById('chat-mic');
+        if (micBtn2) micBtn2.style.display = '';
+    }
+}
+
 async function checkChatProcessing() {
-    if (sending) return;
+    // Even while sending=true after a detach handoff we want status; only skip when
+    // this tab still owns a live SSE stream (sending and no poller yet is fine —
+    // sendMessage starts the poller on detach).
+    if (sending && !_statusPoller) return;
     try {
         const res = await fetch(`/api/chat/status?channel=${activeChannel}`);
         const data = await res.json();
@@ -790,6 +875,13 @@ async function checkChatProcessing() {
             setTyping(true);
             updateTypingStatus(`${data.step || 'Working...'} (${secs}s)`);
             renderPolledSteps(data.steps);
+            const stopBtn = document.getElementById('chat-stop');
+            const sendBtn = document.getElementById('chat-send');
+            if (stopBtn) {
+                stopBtn.style.display = '';
+                stopBtn.disabled = false;
+            }
+            if (sendBtn) sendBtn.style.display = 'none';
             if (!_statusPoller) {
                 _statusPoller = setInterval(pollChatStatus, 3000);
             }
@@ -800,7 +892,8 @@ async function checkChatProcessing() {
 }
 
 async function pollChatStatus() {
-    if (sending) { stopStatusPoller(); return; }
+    // Live SSE owner drives UI from the stream; poller is for detach/cross-device.
+    if (sending && !_statusPoller) { return; }
     try {
         const res = await fetch(`/api/chat/status?channel=${activeChannel}`);
         const data = await res.json();
@@ -809,15 +902,22 @@ async function pollChatStatus() {
             setTyping(true);
             updateTypingStatus(`${data.step || 'Working...'} (${secs}s)`);
             renderPolledSteps(data.steps);
+            const stopBtn = document.getElementById('chat-stop');
+            if (stopBtn) stopBtn.style.display = '';
         } else {
             setTyping(false);
             clearActivitySteps();
             stopStatusPoller();
-            document.getElementById('chat-messages').innerHTML = '';
-            loadChat();
+            sending = false;
+            const box = document.getElementById('chat-messages');
+            if (box) box.innerHTML = '';
+            await loadChat();
+            _restoreChatChromeAfterTurn();
+            loadContextUsage();
         }
     } catch (e) {
-        stopStatusPoller();
+        // Transient network (mesh sleep) — keep poller; visibility resume retries.
+        console.warn('[chat] status poll failed; will retry', e);
     }
 }
 
@@ -825,9 +925,26 @@ function stopStatusPoller() {
     if (_statusPoller) {
         clearInterval(_statusPoller);
         _statusPoller = null;
-        setTyping(false);
-        _renderedStepCount = 0;
     }
+    _renderedStepCount = 0;
+}
+
+function _onChatVisibilityResume() {
+    if (document.hidden) return;
+    // Unlock / tab back: re-attach to server truth. Do not require a full refresh.
+    checkChatProcessing();
+    if (!_statusPoller && !sending) {
+        // Idle return — cheap history refresh so a finished turn while locked appears.
+        loadChat();
+    }
+}
+
+function bindChatVisibilityResume() {
+    if (_chatVisibilityBound) return;
+    _chatVisibilityBound = true;
+    document.addEventListener('visibilitychange', _onChatVisibilityResume);
+    window.addEventListener('pageshow', _onChatVisibilityResume);
+    window.addEventListener('focus', _onChatVisibilityResume);
 }
 
 // =============================================================================
@@ -1168,6 +1285,10 @@ function initChat() {
     // initStewardChat, which auto-runs right after this script). Skip the interactive
     // chat load entirely so its async loadChat() never clobbers the supervisory render.
     if (MC.adminView === true) return;
+
+    // Lock/unlock + tab back: re-attach to /api/chat/status so a finished turn
+    // while the phone slept shows up without a full refresh.
+    bindChatVisibilityResume();
 
     // #PERF-MC1: only pull history when Chat is the active tab. Idle-prefetch and
     // cold boot used to fetch /api/chat/history on every messaging.js inject even
