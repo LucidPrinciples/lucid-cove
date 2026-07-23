@@ -172,7 +172,8 @@ if (window.location.search.includes('embedded=1'))
 <script>
 const params = new URLSearchParams(window.location.search);
 const stem = params.get('stem') || '';
-const presenceName = params.get('presence') || 'operator';
+// Prefer ?presence= ; else signed-in presence from /api/presence/me (never hardcode operator).
+let presenceName = (params.get('presence') || '').trim();
 
 // -- State --
 let originalSegments = [];  // pristine copy from server
@@ -479,10 +480,27 @@ function resetAll() {
 
 
 // -- Save --
+async function resolvePresenceName() {
+    if (presenceName) return presenceName;
+    try {
+        const meRes = await fetch('/api/presence/me');
+        if (meRes.ok) {
+            const me = await meRes.json();
+            const p = me.presence || me || {};
+            presenceName = (
+                p.display_name || p.username || p.agent_name || p.nc_username || ''
+            ).trim();
+        }
+    } catch (e) { /* leave empty — server binds session */ }
+    return presenceName;
+}
+
 async function saveTranscript(andAnalyze) {
     const status = document.getElementById('save-status');
     status.textContent = 'Saving...';
     status.className = 'save-status saving';
+
+    await resolvePresenceName();
 
     // Build edited segments array — only non-deleted, preserving timestamps
     const editedSegments = segments

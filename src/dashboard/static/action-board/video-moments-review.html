@@ -606,8 +606,18 @@ async function reAnalyze() {
     container.innerHTML = '<div class="loading">Re-analyzing transcript... this may take a minute.</div>';
     document.getElementById('action-bar').style.display = 'none';
 
-    // Get presence from URL or default
-    const presence = params.get('presence') || 'operator';
+    // Prefer ?presence= ; else signed-in presence (never hardcode operator).
+    let presence = (params.get('presence') || '').trim();
+    if (!presence) {
+        try {
+            const meRes = await fetch('/api/presence/me');
+            if (meRes.ok) {
+                const me = await meRes.json();
+                const pr = me.presence || me || {};
+                presence = (pr.display_name || pr.username || pr.agent_name || pr.nc_username || '').trim();
+            }
+        } catch (e) { /* server binds session */ }
+    }
 
     try {
         const resp = await fetch('/api/video/analyze', {
