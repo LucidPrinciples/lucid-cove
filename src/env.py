@@ -255,6 +255,44 @@ REGISTRY: list[EnvVar] = [
         "Security",
         desc="Sliding window length in seconds for RATE_LIMIT_* budgets (default 60).",
     ),
+
+    # ── Umami analytics (compose sibling + Haven Traffic proxy) ──
+    EnvVar(
+        "UMAMI_ENABLED",
+        "0",
+        "bool",
+        "Analytics",
+        desc="1 when this Cove runs the umami compose service (or points at one).",
+    ),
+    EnvVar(
+        "UMAMI_INTERNAL_URL",
+        "",
+        "str",
+        "Analytics",
+        desc="In-network Umami base (e.g. http://{cid}-umami:3000). Server-side only.",
+    ),
+    EnvVar(
+        "UMAMI_PUBLIC_URL",
+        "",
+        "str",
+        "Analytics",
+        desc="Browser-facing collect URL (https://analytics.{domain}) for script.js snippets.",
+    ),
+    EnvVar(
+        "UMAMI_API_KEY",
+        "",
+        "str",
+        "Analytics",
+        secret=True,
+        desc="Umami API key for Haven/MC stats proxy. Created in Umami Settings → API.",
+    ),
+    EnvVar(
+        "HAVEN_STATS_SITES",
+        "",
+        "str",
+        "Analytics",
+        desc="JSON array of {name,domain,umami_website_id} for hard-coded Traffic cards.",
+    ),
 ]
 
 _BY_NAME: dict[str, EnvVar] = {v.name: v for v in REGISTRY}
@@ -263,7 +301,7 @@ _BY_NAME: dict[str, EnvVar] = {v.name: v for v in REGISTRY}
 _GROUP_ORDER = [
     "Runtime", "Paths", "Database", "Secrets", "Registry", "Models", "Nextcloud",
     "Matrix", "Voice", "Email", "Commerce", "LTP", "KB", "Hosting", "Social",
-    "Security", "Infra",
+    "Analytics", "Security", "Infra",
 ]
 
 _TRUE = {"1", "true", "yes", "on", "y", "t"}

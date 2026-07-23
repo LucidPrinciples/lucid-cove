@@ -73,6 +73,25 @@ services:
     volumes:
       - redis_data:/data
 
+  # ── Umami — privacy-first web analytics (Site Builder / Haven Traffic) ───
+  # Optional product service. Needs role+db `umami` in Postgres (see
+  # docker/init-umami-db.sql on fresh install, or umami-bootstrap.sql on an
+  # existing volume). Public collect URL is analytics.{domain} via Caddy.
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: cove-umami
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD}@postgres:5432/umami
+      DATABASE_TYPE: postgresql
+      APP_SECRET: ${UMAMI_APP_SECRET}
+      DISABLE_TELEMETRY: "1"
+    ports:
+      - "127.0.0.1:${UMAMI_PORT:-3000}:3000"
+
   # ── cove-core app — Mission Control + agents + scheduler ─────────────────
   app:
     build:
