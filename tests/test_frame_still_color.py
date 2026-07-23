@@ -56,7 +56,10 @@ def test_frame_still_vf_hdr_uses_tonemap_not_range_only():
     assert "pin=bt2020" in s
     assert "min=bt2020nc" in s
     assert "rin=tv" in s
-    assert "eq=" not in s
+    # Baseline E-GAMMA lives in hdr_to_sdr_vf (not a look preset)
+    assert "gamma_r=0.90" in s
+    assert "gamma_b=1.06" in s
+    assert "saturation=0.95" in s
     assert "curves=" not in s
 
 
@@ -84,6 +87,7 @@ def test_color_prep_vf_hdr_on_publish_sdr_empty():
     assert ":r=tv" in prep
     assert "tin=arib-std-b67" in prep
     assert "pin=bt2020" in prep
+    assert "gamma_r=0.90" in prep
     assert ns["color_prep_vf"]({"color_transfer": "bt709"}) == ""
     assert ns["color_prep_vf"](None) == ""
 
@@ -96,10 +100,10 @@ def test_frame_still_ffmpeg_cmd_hdr_path():
     assert "-ss" in cmd and "12.5" in cmd
     vf = cmd[cmd.index("-vf") + 1]
     assert "tonemap=" in vf
+    assert "gamma_r=0.90" in vf
     assert "-color_range" in cmd and "pc" in cmd
     assert "-colorspace" in cmd and "bt709" in cmd
     assert cmd[-1] == "pipe:1"
-    assert "eq=" not in " ".join(cmd)
 
 
 def test_frame_still_ffmpeg_cmd_probes_when_no_color_info():
