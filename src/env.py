@@ -223,6 +223,38 @@ REGISTRY: list[EnvVar] = [
     EnvVar("BACKUP_GIT_NAME", "MC Backup", "str", "Infra", desc="Backup commit author name."),
     EnvVar("BACKUP_GIT_EMAIL", "backup@mc.internal", "str", "Infra", desc="Backup commit author email."),
     EnvVar("SEARXNG_URL", "http://localhost:8888", "str", "Infra", desc="Optional self-hosted search."),
+
+    # ── HTTP rate limit (#RATE1 / landscape-scan action 2) ──
+    EnvVar(
+        "RATE_LIMIT_ENABLED",
+        "1",
+        "bool",
+        "Security",
+        desc="Global /api/* sliding-window throttle at middleware. 0 disables (soak tests).",
+    ),
+    EnvVar(
+        "RATE_LIMIT_PER_MINUTE",
+        "120",
+        "int",
+        "Security",
+        desc="Max /api/* requests per client IP per window (default 120). Auth POSTs use "
+             "RATE_LIMIT_AUTH_PER_MINUTE instead.",
+    ),
+    EnvVar(
+        "RATE_LIMIT_AUTH_PER_MINUTE",
+        "30",
+        "int",
+        "Security",
+        desc="Tighter cap for unauthenticated auth-surface POSTs (signin, magic-link, "
+             "account create, contact). Default 30/window.",
+    ),
+    EnvVar(
+        "RATE_LIMIT_WINDOW_SECONDS",
+        "60",
+        "int",
+        "Security",
+        desc="Sliding window length in seconds for RATE_LIMIT_* budgets (default 60).",
+    ),
 ]
 
 _BY_NAME: dict[str, EnvVar] = {v.name: v for v in REGISTRY}
@@ -230,7 +262,8 @@ _BY_NAME: dict[str, EnvVar] = {v.name: v for v in REGISTRY}
 # Group display order for .env.example
 _GROUP_ORDER = [
     "Runtime", "Paths", "Database", "Secrets", "Registry", "Models", "Nextcloud",
-    "Matrix", "Voice", "Email", "Commerce", "LTP", "KB", "Hosting", "Social", "Infra",
+    "Matrix", "Voice", "Email", "Commerce", "LTP", "KB", "Hosting", "Social",
+    "Security", "Infra",
 ]
 
 _TRUE = {"1", "true", "yes", "on", "y", "t"}

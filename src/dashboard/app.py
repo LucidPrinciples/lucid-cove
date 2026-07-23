@@ -41,6 +41,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.config import get_instance, get_routes, load_cove_config
+from src.dashboard.rate_limit import RateLimitMiddleware
 
 
 class StaticCacheMiddleware(BaseHTTPMiddleware):
@@ -591,6 +592,12 @@ def create_app() -> FastAPI:
 
     # Cache middleware for static assets (must be added before mount)
     app_instance.add_middleware(StaticCacheMiddleware)
+
+    # #RATE1 / landscape-scan action 2: global /api/* throttle. Starlette runs
+    # middleware in reverse add order — register rate-limit AFTER auth/cache so
+    # it sits outside them (counts and 429s before heavier work). GZip stays
+    # outermost so error bodies still compress when large enough.
+    app_instance.add_middleware(RateLimitMiddleware)
 
     # #PERF-MC1: compress JS/CSS/JSON on the wire. Starlette adds middleware in
     # reverse order of add_middleware — GZip last here runs outermost so bodies
