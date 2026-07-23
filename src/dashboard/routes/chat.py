@@ -39,6 +39,11 @@ CHAT_RECURSION_LIMIT = 200
 # Track running send tasks for cancellation — keyed by channel
 _running_tasks: dict[str, asyncio.Event] = {}
 
+# Background chat turns — survive client disconnect (phone lock / tab freeze).
+# The SSE generator only *observes* the queue; canceling the stream must not
+# cancel the turn. Explicit Stop still sets the cancel event.
+_channel_run_tasks: dict[str, asyncio.Task] = {}
+
 # Channel processing status (visible to all clients) — keyed by channel
 _channel_status: dict[str, dict] = {}
 
@@ -661,6 +666,20 @@ async def send_message(request: Request):
     if not user_message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
 
+    # One turn per channel. A second send while the prior is still running (including
+    # after the phone detached from SSE) would race the checkpointer. Client should
+    # attach to /api/chat/status instead.
+    _existing_run = _channel_run_tasks.get(ch)
+    if _existing_run is not None and not _existing_run.done():
+        return JSONResponse(
+            {
+                "error": "already_processing",
+                "detail": "A response is already in progress on this channel.",
+                "channel": ch,
+            },
+            status_code=409,
+        )
+
     # Diagnostic: what model context is this send resolving? (empty-chat / no-reply triage)
     print(f"[chat] send ch={ch} agent_id={agent_id} mode={env('COVE_MODE','single')} "
           f"byok_provider={_byok_provider or '(none)'} byok_model={_byok_model or '(none)'} "
@@ -735,25 +754,40 @@ async def send_message(request: Request):
 
         _HEARTBEAT_INTERVAL = 10
 
-        async def _event_stream():
-            # Route DB ops to steward DB if steward channel
+        # ------------------------------------------------------------------
+        # Detached turn runner + SSE observer
+        #
+        # Phone lock / iOS tab suspend kills the browser fetch. Starlette then
+        # cancels the StreamingResponse generator. Historically the graph ran
+        # *inside* that generator, so lock == cancelled turn and no assistant
+        # message ever landed in history — exactly the "I came back and you
+        # never replied" bug.
+        #
+        # Fix: run the graph in a background task that owns cancel + status +
+        # checkpointer writes. SSE only tails an event queue. Generator cleanup
+        # on disconnect does NOT cancel the background task. Explicit Stop
+        # still sets _running_tasks[ch]. Cross-device clients poll /api/chat/status
+        # and reload history when processing goes false.
+        # ------------------------------------------------------------------
+        event_queue: asyncio.Queue = asyncio.Queue(maxsize=256)
+        _cancel_event = asyncio.Event()
+        _running_tasks[ch] = _cancel_event
+
+        async def _chat_turn_runner():
             _stream_scope = enter_channel_db_scope(ch)
-            _cancel_event = asyncio.Event()
-            _running_tasks[ch] = _cancel_event
-            _update_channel_status(ch, processing=True, started_at=_time.time(),
-                                   step="Starting...", step_count=0)
-            # #121 — use this operator's own model creds for the duration of the run
-            # (server-side; falls back to the Cove default when unset).
+            _update_channel_status(
+                ch,
+                processing=True,
+                started_at=_time.time(),
+                step="Starting...",
+                step_count=0,
+            )
             _byok_tok = None
             try:
                 from src.models.provider import set_request_byok
                 _byok_tok = set_request_byok(_byok_provider, _byok_key, model=_byok_model)
             except Exception:
                 _byok_tok = None
-            # CF-57 — bind THIS presence's Nextcloud creds for the run so the agent's
-            # calendar/file tools act as the requesting presence (multi-Cove), resolved
-            # the same way the Files/Calendar UI does (get_nc_creds). Unset → tools fall
-            # back to the env globals (single-user unchanged).
             _nc_tok = None
             _ch_tok = None
             try:
@@ -762,13 +796,7 @@ async def send_message(request: Request):
                 )
                 from src.graphs.channels import _is_manager_channel, _team_agent_key
                 if _is_manager_channel(ch) or _team_agent_key(ch) is not None:
-                    # Managers (Stuart/Mercer) AND build-team agents share the cove ADMIN NC
-                    # space -- they have NO NC user of their own. Without this, a team agent
-                    # invoked from an operator's chat authenticates AS that operator and writes
-                    # into their folder (e.g. Mercer reports landing in JAG), also defeating the
-                    # narrow Inbox share. Presences (else branch) keep their own NC user.
                     _nc_tok = set_team_nc_creds()
-                    # Phase 2: bind acting channel so NC path scopes resolve by role.
                     _ch_tok = set_acting_channel(ch)
                 else:
                     from src.dashboard.routes.nextcloud import get_nc_creds
@@ -778,8 +806,6 @@ async def send_message(request: Request):
             except Exception:
                 _nc_tok = None
                 _ch_tok = None
-            # CF-59 — bind the acting presence so the agent's Links-board tool writes
-            # THIS operator's board (multi-Cove); unset → single-mode file fallback.
             _links_tok = None
             _ql_tok = None
             _prj_tok = None
@@ -789,19 +815,13 @@ async def send_message(request: Request):
                 _lp = await _gcp(request)
                 if _lp and _lp.get("id"):
                     _links_tok = set_request_links_presence(str(_lp["id"]))
-                    # JF4 — quicklist tool shares the acting-presence scope so agent-
-                    # created lists land on THIS presence's Attention home, not NULL/global.
                     try:
                         from src.tools.quick_list_tools import set_request_quick_list_presence
                         _ql_tok = set_request_quick_list_presence(str(_lp["id"]))
                     except Exception:
                         _ql_tok = None
-                    # #PRJ1 — project/task tools same class as JF4: scope to acting
-                    # presence so personal projects never land on the Cove board.
                     try:
                         from src.tools.project_tools import set_request_project_presence
-                        # Prefer the personal agent id already resolved for this turn
-                        # (agent_id is in scope from send_message); fall back to presence id.
                         _prj_agent = ""
                         try:
                             _prj_agent = str(agent_id or "")
@@ -812,9 +832,6 @@ async def send_message(request: Request):
                         _prj_tok = None
             except Exception:
                 _links_tok = None
-            # #ISO1 — memory tools must use this turn's agent_id, not primary/steward.
-            # Managers already share steward memory by design (graph path); bind the
-            # same agent_id the graph uses so tool save_memory doesn't cross pools.
             _mem_tok = None
             try:
                 from src.tools.memory_tools import set_request_memory_agent
@@ -833,9 +850,28 @@ async def send_message(request: Request):
             except Exception:
                 _mem_tok = None
 
+            async def _emit(data: dict):
+                # After phone lock the SSE observer is gone — never block the turn
+                # on a full queue. Drop oldest live events; always keep trying to
+                # deliver done/error/cancelled.
+                for _attempt in range(3):
+                    try:
+                        event_queue.put_nowait(data)
+                        return
+                    except asyncio.QueueFull:
+                        try:
+                            event_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                try:
+                    event_queue.put_nowait(data)
+                except asyncio.QueueFull:
+                    if data.get("type") in ("done", "error", "cancelled"):
+                        print(f"[chat] event queue full; dropped terminal event type={data.get('type')} ch={ch}")
+
             try:
                 if rotation_info:
-                    yield _sse({"type": "rotation", "data": {
+                    await _emit({"type": "rotation", "data": {
                         "occurred": True,
                         "old_thread_id": rotation_info["old_thread_id"],
                         "new_thread_id": rotation_info["new_thread_id"],
@@ -844,16 +880,13 @@ async def send_message(request: Request):
                         "old_message_count": rotation_info["old_message_count"],
                     }})
 
-                yield _sse({"type": "status", "text": "Thinking..."})
+                await _emit({"type": "status", "text": "Thinking..."})
                 _update_channel_status(ch, step="Thinking...")
 
                 async with get_checkpointer() as checkpointer:
                     graph = await get_channel_graph(ch, checkpointer)
                     cfg = {"configurable": {"thread_id": thread_id},
-                           "recursion_limit": CHAT_RECURSION_LIMIT}  # #D26
-                    # Include input_mode in the message metadata so the agent knows
-                    # whether the operator is typing, dictating, or in voice mode.
-                    # Voice/dictate → agent should respond more concisely (spoken output).
+                           "recursion_limit": CHAT_RECURSION_LIMIT}
                     msg_kwargs = {"created_at": now_iso, "input_mode": input_mode}
                     graph_input = {
                         "messages": [HumanMessage(content=user_message, additional_kwargs=msg_kwargs)],
@@ -867,7 +900,6 @@ async def send_message(request: Request):
                     thinking_text = None
                     step_count = 0
                     last_heartbeat = _time.time()
-
                     _SENTINEL = object()
 
                     async def _next_event(ai):
@@ -883,8 +915,8 @@ async def send_message(request: Request):
                         if _cancel_event.is_set():
                             if pending_task and not pending_task.done():
                                 pending_task.cancel()
-                            yield _sse({"type": "cancelled"})
-                            yield _sse({"type": "done", "data": {"response": "Stopped.", "cancelled": True}})
+                            await _emit({"type": "cancelled"})
+                            await _emit({"type": "done", "data": {"response": "Stopped.", "cancelled": True}})
                             return
 
                         if pending_task is None:
@@ -897,8 +929,8 @@ async def send_message(request: Request):
                         if not done:
                             started = _channel_status.get(ch, {}).get("started_at", _time.time())
                             elapsed = round(_time.time() - started, 1)
-                            yield _sse({"type": "heartbeat", "elapsed": elapsed,
-                                        "step": _channel_status.get(ch, {}).get("step", "Working...")})
+                            await _emit({"type": "heartbeat", "elapsed": elapsed,
+                                         "step": _channel_status.get(ch, {}).get("step", "Working...")})
                             last_heartbeat = _time.time()
                             continue
 
@@ -927,7 +959,7 @@ async def send_message(request: Request):
                                             args_preview = ", ".join(
                                                 f"{k}={repr(v)[:60]}" for k, v in tc.get("args", {}).items()
                                             )
-                                            yield _sse({"type": "tool_call", "tool": tc["name"], "args": args_preview})
+                                            await _emit({"type": "tool_call", "tool": tc["name"], "args": args_preview})
                                             _update_channel_status(ch, step=f"Calling {tc['name']}...",
                                                                    step_count=step_count)
                                             _add_activity_step(ch, f"Tool: {tc['name']}({args_preview})")
@@ -950,19 +982,19 @@ async def send_message(request: Request):
                                 for msg in msgs:
                                     content = getattr(msg, "content", "")
                                     preview = content[:120] + "..." if len(content) > 120 else content
-                                    yield _sse({"type": "tool_result", "preview": preview})
+                                    await _emit({"type": "tool_result", "preview": preview})
                                     _add_activity_step(ch, f"Result: {preview}")
-                                yield _sse({"type": "status", "text": "Processing results..."})
+                                await _emit({"type": "status", "text": "Processing results..."})
                                 _update_channel_status(ch, step="Processing results...",
                                                        step_count=step_count)
 
                         if _time.time() - last_heartbeat >= _HEARTBEAT_INTERVAL:
                             elapsed = round(_time.time() - _channel_status.get(ch, {}).get("started_at", _time.time()), 1)
-                            yield _sse({"type": "heartbeat", "elapsed": elapsed,
-                                        "step": _channel_status.get(ch, {}).get("step", "Working...")})
+                            await _emit({"type": "heartbeat", "elapsed": elapsed,
+                                         "step": _channel_status.get(ch, {}).get("step", "Working...")})
                             last_heartbeat = _time.time()
 
-                yield _sse({"type": "done", "data": {
+                await _emit({"type": "done", "data": {
                     "thread_id": thread_id,
                     "response": response_text,
                     "model": model_name,
@@ -971,20 +1003,24 @@ async def send_message(request: Request):
                 }})
 
             except asyncio.CancelledError:
-                yield _sse({"type": "done", "data": {"response": "Stopped.", "cancelled": True}})
+                # Explicit task cancel only — not client SSE disconnect.
+                await _emit({"type": "done", "data": {"response": "Stopped.", "cancelled": True}})
             except GraphRecursionError:
-                # #D26: the turn genuinely hit the step ceiling — say so clearly instead
-                # of a generic error (which used to get misread as a model failure).
                 msg = ("This turn hit its step ceiling (too many tool rounds in one go). "
                        "Continue, or split the ask into smaller steps.")
-                yield _sse({"type": "error", "message": msg, "code": "recursion_limit"})
-                yield _sse({"type": "done", "data": {"response": msg, "error": msg,
-                                                     "recursion_limit": True}})
+                await _emit({"type": "error", "message": msg, "code": "recursion_limit"})
+                await _emit({"type": "done", "data": {"response": msg, "error": msg,
+                                                      "recursion_limit": True}})
             except Exception as e:
-                yield _sse({"type": "error", "message": str(e)})
-                yield _sse({"type": "done", "data": {"response": f"Error: {e}", "error": str(e)}})
+                await _emit({"type": "error", "message": str(e)})
+                await _emit({"type": "done", "data": {"response": f"Error: {e}", "error": str(e)}})
             finally:
+                try:
+                    await event_queue.put(None)  # SSE observer sentinel
+                except Exception:
+                    pass
                 _running_tasks.pop(ch, None)
+                _channel_run_tasks.pop(ch, None)
                 await _persist_activity_steps(ch, thread_id=thread_id)
                 _clear_channel_status(ch)
                 try:
@@ -1031,7 +1067,24 @@ async def send_message(request: Request):
                 except Exception:
                     pass
 
-        return StreamingResponse(            _event_stream(),
+        _turn_task = asyncio.create_task(_chat_turn_runner(), name=f"chat-turn-{ch}")
+        _channel_run_tasks[ch] = _turn_task
+
+        async def _event_stream():
+            """Tail the turn queue. Client disconnect ends *this* generator only."""
+            try:
+                while True:
+                    item = await event_queue.get()
+                    if item is None:
+                        break
+                    yield _sse(item)
+            except asyncio.CancelledError:
+                # Browser gone (lock/background). Turn keeps running in _turn_task.
+                print(f"[chat] SSE observer detached ch={ch} (client disconnect); turn continues")
+                return
+
+        return StreamingResponse(
+            _event_stream(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
