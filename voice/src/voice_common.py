@@ -333,7 +333,14 @@ class NCSession:
 
     async def push(self, subpath: str, local_path: str,
                    content_type: str = "application/octet-stream") -> bool:
-        """Push a local file up to <video-tree>/<subpath> in NC."""
+        """Push a local file up to <video-tree>/<subpath> in NC.
+
+        Small files: single streamed PUT (historical path).
+        Large files (≥ NC_PUSH_CHUNK_THRESHOLD_BYTES, default 1 GiB): Nextcloud
+        chunked upload (MKCOL + PUT parts + MOVE .file) so we clear the ~2 GB
+        single-request WebDAV/proxy wall that killed captioned-full publish
+        (video-publish-2gb-webdav-wall, 2026-07-23). Chunk size default 100 MiB.
+        """
         import httpx
         from urllib.parse import quote
         # Ensure the parent collection exists first — WebDAV PUT 404s into a missing dir.
@@ -342,36 +349,203 @@ class NCSession:
             await self.ensure_dir(parent)
         dav = f"{self.url}/remote.php/dav/files/{self.user}/{quote(self._rel(subpath), safe='/')}"
         try:
-            # STREAM the upload from disk with a batch-size timeout (2026-07-03): the
-            # old read-whole-file + 300s cap held phone videos in RAM and timed out on
-            # every big cross-mesh push (rented-GPU transcribes never landed their
-            # processing/ copy — the lifecycle stalled in inbox). 4-5GB is the NORMAL
-            # case. Connect timeout stays short; the transfer gets an hour.
             _size = os.path.getsize(local_path)
+            # Threshold / chunk size overridable for tests and constrained proxies.
+            try:
+                threshold = int(
+                    os.environ.get("NC_PUSH_CHUNK_THRESHOLD_BYTES", str(1024 ** 3))
+                )
+            except ValueError:
+                threshold = 1024 ** 3
+            try:
+                chunk_size = int(
+                    os.environ.get("NC_PUSH_CHUNK_SIZE_BYTES", str(100 * 1024 * 1024))
+                )
+            except ValueError:
+                chunk_size = 100 * 1024 * 1024
+            chunk_size = max(1, chunk_size)
 
-            async def _body():
-                with open(local_path, "rb") as f:
-                    while True:
-                        chunk = f.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        yield chunk
+            if _size >= threshold:
+                ok = await self._push_chunked(
+                    subpath, local_path, dav, _size, chunk_size, content_type
+                )
+                if ok:
+                    return True
+                logger.warning(
+                    f"NC push chunked failed for {subpath} ({_size} B); "
+                    f"trying single PUT fallback"
+                )
 
-            _timeout = httpx.Timeout(3600.0, connect=30.0)
-            async with httpx.AsyncClient(timeout=_timeout) as client:
-                resp = await client.put(dav, auth=(self.user, self.password),
-                                        content=_body(),
-                                        headers={"Content-Type": content_type,
-                                                 "Content-Length": str(_size)})
-                ok = resp.status_code in (200, 201, 204)
-                if not ok:
-                    logger.error(f"NC push failed ({resp.status_code}) {subpath}: {resp.text[:200]}")
-                return ok
+            return await self._push_single(dav, local_path, _size, content_type, subpath)
         except Exception as e:
             logger.error(
                 f"NC push error ({subpath}): {type(e).__name__}: {e!r}"
             )
             return False
+
+    async def _push_single(
+        self,
+        dav: str,
+        local_path: str,
+        size: int,
+        content_type: str,
+        subpath: str,
+    ) -> bool:
+        """Single streamed PUT — fine under ~2 GB; hits proxy/PHP body limits above."""
+        import httpx
+
+        async def _body():
+            with open(local_path, "rb") as f:
+                while True:
+                    chunk = f.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        # STREAM the upload from disk with a batch-size timeout (2026-07-03): the
+        # old read-whole-file + 300s cap held phone videos in RAM and timed out on
+        # every big cross-mesh push. Connect timeout stays short; transfer gets an hour.
+        _timeout = httpx.Timeout(3600.0, connect=30.0)
+        async with httpx.AsyncClient(timeout=_timeout) as client:
+            resp = await client.put(
+                dav,
+                auth=(self.user, self.password),
+                content=_body(),
+                headers={
+                    "Content-Type": content_type,
+                    "Content-Length": str(size),
+                },
+            )
+            ok = resp.status_code in (200, 201, 204)
+            if not ok:
+                logger.error(
+                    f"NC push failed ({resp.status_code}) {subpath}: {resp.text[:200]}"
+                )
+            return ok
+
+    async def _push_chunked(
+        self,
+        subpath: str,
+        local_path: str,
+        dest_dav: str,
+        size: int,
+        chunk_size: int,
+        content_type: str,
+    ) -> bool:
+        """Nextcloud chunked upload past the single-PUT ~2 GB wall.
+
+        Protocol (NC WebDAV uploads endpoint):
+          MKCOL  /remote.php/dav/uploads/{user}/{transfer_id}
+          PUT    .../uploads/{user}/{transfer_id}/{start:016d}-{end:016d}  (end inclusive)
+          MOVE   .../uploads/{user}/{transfer_id}/.file  →  dest files path
+        """
+        import httpx
+        import uuid
+        from urllib.parse import quote
+
+        transfer_id = uuid.uuid4().hex
+        user_q = quote(str(self.user).strip("/"), safe="")
+        base = (
+            f"{self.url.rstrip('/')}/remote.php/dav/uploads/{user_q}/"
+            f"{transfer_id}"
+        )
+        auth = (self.user, self.password)
+        # Large captioned-full can take a long time over mesh; keep generous.
+        _timeout = httpx.Timeout(7200.0, connect=30.0)
+
+        async with httpx.AsyncClient(timeout=_timeout) as client:
+            try:
+                mk = await client.request("MKCOL", base, auth=auth)
+                if mk.status_code not in (201, 405, 301, 200):
+                    # 405 = already exists (retry); anything else is fatal for chunked.
+                    logger.error(
+                        f"NC chunked MKCOL failed ({mk.status_code}) {subpath}: "
+                        f"{mk.text[:200]}"
+                    )
+                    return False
+
+                offset = 0
+                part = 0
+                with open(local_path, "rb") as f:
+                    while offset < size:
+                        data = f.read(chunk_size)
+                        if not data:
+                            break
+                        start = offset
+                        end = offset + len(data) - 1  # inclusive end byte
+                        # NC expects 16-digit zero-padded decimal ranges.
+                        chunk_name = f"{start:016d}-{end:016d}"
+                        chunk_url = f"{base}/{chunk_name}"
+                        resp = await client.put(
+                            chunk_url,
+                            auth=auth,
+                            content=data,
+                            headers={
+                                "Content-Type": "application/octet-stream",
+                                "Content-Length": str(len(data)),
+                                "OC-Total-Length": str(size),
+                            },
+                        )
+                        if resp.status_code not in (200, 201, 204):
+                            logger.error(
+                                f"NC chunked PUT part {part} failed "
+                                f"({resp.status_code}) {subpath}: {resp.text[:200]}"
+                            )
+                            await self._chunked_cleanup(client, base, auth)
+                            return False
+                        offset = end + 1
+                        part += 1
+
+                if offset != size:
+                    logger.error(
+                        f"NC chunked size mismatch {subpath}: wrote {offset} of {size}"
+                    )
+                    await self._chunked_cleanup(client, base, auth)
+                    return False
+
+                # Assemble: MOVE the virtual .file to the final destination.
+                src = f"{base}/.file"
+                move = await client.request(
+                    "MOVE",
+                    src,
+                    auth=auth,
+                    headers={
+                        "Destination": dest_dav,
+                        "Overwrite": "T",
+                        "OC-Total-Length": str(size),
+                        # Some NC versions also honor Content-Type on assemble.
+                        "Content-Type": content_type,
+                    },
+                )
+                ok = move.status_code in (200, 201, 204)
+                if not ok:
+                    logger.error(
+                        f"NC chunked MOVE failed ({move.status_code}) {subpath}: "
+                        f"{move.text[:200]}"
+                    )
+                    await self._chunked_cleanup(client, base, auth)
+                    return False
+                logger.info(
+                    f"NC push chunked OK {subpath} ({size} B, {part} parts, "
+                    f"chunk={chunk_size})"
+                )
+                return True
+            except Exception as e:
+                logger.error(
+                    f"NC chunked error ({subpath}): {type(e).__name__}: {e!r}"
+                )
+                try:
+                    await self._chunked_cleanup(client, base, auth)
+                except Exception:
+                    pass
+                return False
+
+    async def _chunked_cleanup(self, client, base: str, auth) -> None:
+        """Best-effort DELETE of an abandoned transfer directory."""
+        try:
+            await client.delete(base, auth=auth)
+        except Exception as e:
+            logger.warning(f"NC chunked cleanup failed for {base}: {e}")
 
     async def exists(self, subpath: str) -> bool:
         """True if <video-tree>/<subpath> is a file on NC (PROPFIND Depth 0)."""
