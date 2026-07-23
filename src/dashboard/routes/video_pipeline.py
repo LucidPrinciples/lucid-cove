@@ -444,11 +444,16 @@ async def _session_presence_name(request: Request | None) -> str:
 
 
 def _reject_cross_presence_name(body_name: str, session_name: str) -> str | None:
-    """If body tries to target another presence, return an error message."""
+    """If body tries to target another presence, return an error message.
+
+    Legacy video UI defaulted presence_name to ``operator`` when the URL had no
+    ``?presence=`` param. That is not a real presence target — treat it like
+    missing so the session name binds. Only a *different real* name is cross-presence.
+    """
     b = (body_name or "").strip()
     s = (session_name or "").strip()
-    if not b:
-        return None  # missing handled by caller
+    if not b or b.lower() in ("operator", "default", "unknown"):
+        return None  # missing / legacy default — caller uses session
     if not s:
         # single-mode / no session — allow body (founder path)
         return None
@@ -1450,13 +1455,8 @@ async def save_transcript(stem: str, request: Request):
 
     session_name = await _session_presence_name(request)
     if session_name:
-        cross = _reject_cross_presence_name(presence_name, session_name) if presence_name else None
-        if cross:
-            return JSONResponse({"error": cross}, status_code=403)
-        presence_name = session_name
-    session_name = await _session_presence_name(request)
-    if session_name:
-        cross = _reject_cross_presence_name(presence_name, session_name) if presence_name else None
+        # Legacy UI sent presence_name=operator; bind to signed-in presence instead.
+        cross = _reject_cross_presence_name(presence_name, session_name)
         if cross:
             return JSONResponse({"error": cross}, status_code=403)
         presence_name = session_name
