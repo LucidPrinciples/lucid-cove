@@ -37,6 +37,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.config import get_instance, get_routes, load_cove_config
@@ -590,6 +591,12 @@ def create_app() -> FastAPI:
 
     # Cache middleware for static assets (must be added before mount)
     app_instance.add_middleware(StaticCacheMiddleware)
+
+    # #PERF-MC1: compress JS/CSS/JSON on the wire. Starlette adds middleware in
+    # reverse order of add_middleware — GZip last here runs outermost so bodies
+    # are compressed after cache headers are set. Huge win on DERP/hotspot where
+    # multi-hundred-KB panel scripts still serialize over a slow path.
+    app_instance.add_middleware(GZipMiddleware, minimum_size=500)
 
     static_dir = Path(__file__).parent / "static"
     static_dir.mkdir(exist_ok=True)
