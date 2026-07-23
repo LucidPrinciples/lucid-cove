@@ -355,14 +355,19 @@ def _hdr_input_zscale_params(color_info: dict | None) -> str:
 
 
 def hdr_to_sdr_vf(color_info: dict | None = None, *, for_still: bool = False) -> str:
-    """HLG/PQ → display-referred bt709 SDR (zscale + hable tonemap).
+    """HLG/PQ → display-referred bt709 SDR (zscale + hable + light E-GAMMA).
 
     Used on crop stills and publish encodes. Without this, iPhone HDR is
     written as if it were already SDR and mids go flat next to <video>.
 
     Input transfer/primaries/matrix/range are taken from probed stream tags
-    (see _hdr_input_zscale_params). Peak 100 + hable is a display-referred
-    map close to what mobile Safari/Chrome do for HLG preview — not a grade.
+    (see _hdr_input_zscale_params). Peak 100 + hable is the display-referred
+    map; a light channel gamma after re-encode pulls residual orange/warm that
+    bare hable left on iPhone HLG next to QuickTime source (2026-07-22 P620
+    grade4 A/B: E-GAMMA won 7172 + 7168; COOL/temp/colorbalance rejected).
+
+    This is the crop-page Original baseline — not a look preset. Natural/Rich/
+    Cinematic still stack on top via look eq when the operator asks.
     """
     rng = "pc" if for_still else "tv"
     pix = "yuvj420p" if for_still else "yuv420p"
@@ -375,13 +380,19 @@ def hdr_to_sdr_vf(color_info: dict | None = None, *, for_still: bool = False) ->
     # the old chain; 235 — correct — through this one). This is the canonical
     # ffmpeg HDR→SDR recipe: linearize → convert primaries → tonemap → re-encode
     # transfer/matrix. The final zscale carries t/m/r only; p is done here.
+    #
+    # ★ E-GAMMA baseline (2026-07-22). After bt709 tags: pull red gamma, lift
+    # blue slightly, mild sat. Host A/B pass-grade4 vs QT source on IMG_7172
+    # (crisp light) + IMG_7168; bare A-DISPLAY stayed warm; temp/COOL went red
+    # on 7159 window. Crop sliders remain for the last few percent.
     return (
         f"zscale={inp}:t=linear:npl=100,"
         "format=gbrpf32le,"
         "zscale=p=bt709,"
         "tonemap=tonemap=hable:desat=0:peak=100,"
         f"zscale=t=bt709:m=bt709:r={rng},"
-        f"format={pix}"
+        f"format={pix},"
+        "eq=gamma_r=0.90:gamma_g=1.0:gamma_b=1.06:saturation=0.95"
     )
 
 
@@ -904,7 +915,7 @@ async def process_moments(request: Request):
     scale_matrix = scale_out_matrix(color_info, native_hdr=False)
     if is_hdr_color(color_info) and not vf_color:
         logger.info(
-            "Original+HDR → DISPLAY SDR (hable tonemap + gamut-map, x264 crf14; "
+            "Original+HDR → DISPLAY SDR (hable + E-GAMMA baseline, x264 crf14; "
             "no native HLG re-tag)"
         )
     logger.info(
@@ -1704,7 +1715,7 @@ async def caption_full_video(request: Request):
     if is_hdr_color(color_info) and not vf_color:
         logger.info(
             "Original+HDR (caption-full) → DISPLAY SDR "
-            "(hable tonemap + gamut-map, x264; no native HLG re-tag)"
+            "(hable + E-GAMMA baseline, x264; no native HLG re-tag)"
         )
     logger.info(
         "Look filter (caption-full): preset=%s → %s; color_prep=%s (trc=%s)",
