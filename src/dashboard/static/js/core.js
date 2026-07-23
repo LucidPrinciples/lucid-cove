@@ -691,7 +691,7 @@ function _helpHubHtml() {
         <p class="help-page-lead">${lead}</p>
         <ul class="help-toc">
           <li>
-            <button type="button" class="help-toc-btn" onclick="closeHelp(); if (typeof _startOnboarding==='function') _startOnboarding();">
+            <button type="button" class="help-toc-btn" onclick="closeHelp(); (async function(){ try { await loadScriptBasenames(['onboarding','upgrade']); } catch(e){} if (typeof _startOnboarding==='function') _startOnboarding(); })();">
               Getting Started
               <span class="help-toc-sub">Short tour of the basics</span>
             </button>
@@ -1000,12 +1000,21 @@ async function submitContactForm(e) {
 // =============================================================================
 // Board switching — Attention ↔ Action
 // =============================================================================
-function switchBoard(board) {
+async function switchBoard(board) {
     if (MC.coveAdminView) return;  // no Action Board in the Cove-admin surface (jules 1243)
     const target = board || (activeBoard === 'attention' ? 'action' : 'attention');
 
     // Don't close flow overlays — board switch only swaps tab bars now.
     // The overlay stays until user clicks Back or a specific tab.
+
+    // #PERF-MC1: action-board.js is no longer on cold shell — pull it when Action opens.
+    if (target === 'action') {
+        try {
+            await loadScriptBasenames(['action-board']);
+        } catch (e) {
+            console.warn('[core] action-board load failed', e);
+        }
+    }
 
     activeBoard = target;
 
@@ -1378,14 +1387,21 @@ async function loadScriptBasenames(names) {
 
 /** Scripts required for first paint on a given landing tab (home is the common case). */
 function _shellScriptBasenames(firstTab) {
-    // Always needed for Attention home + board switch + lists + upgrade CTA.
-    const shell = ['action-board', 'quick-list', 'upgrade', 'onboarding'];
-    // presence-profile is Team/Market only — load with those tabs, not cold boot.
+    // #PERF-MC1 cold shell: only what Attention home needs for first paint.
+    // action-board (~127KB) loads when the operator opens Action board (or lands
+    // on an ab-* tab). onboarding/upgrade load with Tuners or on first use.
+    const shell = ['quick-list'];
     const id = firstTab || 'home';
+    if (typeof id === 'string' && id.indexOf('ab-') === 0) {
+        shell.push('action-board');
+    }
+    if (MC.isTuner) {
+        shell.push('upgrade', 'onboarding');
+    }
+    // presence-profile is Team/Market only — load with those tabs, not cold boot.
     if (id === 'team' || id === 'market' || (typeof id === 'string' && id.indexOf('presence') === 0)) {
         shell.push('presence-profile');
     }
-    // Action-board virtual tabs still need action-board (already in shell).
     return shell;
 }
 
@@ -1419,6 +1435,8 @@ async function ensureTabScripts(tabId) {
     const names = _tabScriptBasenames(tabId);
     // Team/Market also need presence-profile (#176).
     if (tabId === 'team' || tabId === 'market') names.push('presence-profile');
+    // Action Board virtual tabs need action-board.js (no longer cold-shell).
+    if (typeof tabId === 'string' && tabId.indexOf('ab-') === 0) names.push('action-board');
     await loadScriptBasenames(names);
 }
 
@@ -1433,24 +1451,22 @@ async function loadTabScripts() {
 }
 
 function _scheduleIdleTabPrefetch(skipTabId) {
-    const run = () => {
-        const rest = (MC.tabs || [])
-            .map(t => t.id || t)
-            .filter(id => id && id !== skipTabId);
-        // One tab at a time so we don't re-flood DERP.
+    // #PERF-MC1: do NOT prefetch the full tab roster on constrained links.
+    // Idle-prefetch of every panel JS re-flooded DERP right after first paint
+    // and felt like a multi-minute hang. Warm only Chat (next most common tab)
+    // after a long delay; everything else loads on switch via ensureTabScripts.
+    const warm = () => {
         (async () => {
-            for (const id of rest) {
+            const rest = (MC.tabs || []).map(t => t.id || t).filter(Boolean);
+            const want = [];
+            if (rest.indexOf('chat') !== -1 && skipTabId !== 'chat') want.push('chat');
+            for (const id of want) {
                 try { await ensureTabScripts(id); } catch (e) { /* ignore */ }
             }
-            // presence-profile if never hit
-            try { await loadScriptBasenames(['presence-profile']); } catch (e) { /* ignore */ }
         })();
     };
-    if (typeof requestIdleCallback === 'function') {
-        requestIdleCallback(run, { timeout: 4000 });
-    } else {
-        setTimeout(run, 1500);
-    }
+    // Long delay so first-paint APIs (approvals, lists) finish without competition.
+    setTimeout(warm, 12000);
 }
 
 // =============================================================================
