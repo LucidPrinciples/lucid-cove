@@ -696,6 +696,25 @@ def build_dendrite_db_sql(dendrite_db_pw: str) -> str:
     )
 
 
+def build_umami_db_sql(umami_db_pw: str) -> str:
+    """Create the Umami role + database in THIS Cove's Postgres.
+
+    Same multi-db pattern as Nextcloud/Dendrite. Umami owns its schema via Prisma
+    migrate on first boot — we only provision role + empty database.
+    """
+    return (
+        "-- Create the Umami (web analytics) role + database in this Cove's Postgres.\n"
+        "-- Runs after 00-base.sql in docker-entrypoint-initdb.d.\n"
+        "-- Spec: umami-analytics-and-haven-stats (compose-in-repo product path).\n"
+        "DO $$\nBEGIN\n"
+        "    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'umami') THEN\n"
+        f"        CREATE ROLE umami WITH LOGIN PASSWORD '{umami_db_pw}';\n"
+        "    END IF;\nEND\n$$;\n\n"
+        "SELECT 'CREATE DATABASE umami OWNER umami'\n"
+        "WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'umami')\\gexec\n"
+    )
+
+
 def build_dendrite_config(*, server_name: str, db_password: str,
                           registration_shared_secret: str, bot_user_ids=None) -> str:
     """Generate dendrite.yaml for this Cove's homeserver. Backed by the Cove's
@@ -817,7 +836,8 @@ logging:
 
 def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str = "",
                   voice_local: bool = True, bundle_caddy: bool = False,
-                  shared_net: bool = False, voice_gpu: bool = False) -> str:
+                  shared_net: bool = False, voice_gpu: bool = False,
+                  umami_on: bool = True) -> str:
     """Single-stack compose. Standalone target = default bridge + published ports.
     matrix_on adds this Cove's own Dendrite homeserver (Connect), backed by the
     Cove's Postgres; a one-shot dendrite-init generates the signing key on first boot.
@@ -864,6 +884,31 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     dendrite_db_mount = (
         "\n      - ./docker/init-dendrite-db.sql:/docker-entrypoint-initdb.d/03-dendrite.sql:ro"
         if matrix_on else "")
+    # Umami analytics DB init (04 — after dendrite). Fresh installs only; existing
+    # Postgres volumes need a one-shot CREATE ROLE/DATABASE (see docker/umami-bootstrap.sql).
+    umami_db_mount = (
+        "\n      - ./docker/init-umami-db.sql:/docker-entrypoint-initdb.d/04-umami.sql:ro"
+        if umami_on else "")
+    umami_port = deploy.get("umami_port", 3000)
+    # Official Umami image — pin major.minor; app runs Prisma migrate on boot.
+    # postgresql:// must use the compose service hostname `postgres`.
+    umami_services = (f"""
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: {cid}-umami
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://umami:${{UMAMI_DB_PASSWORD}}@postgres:5432/umami
+      DATABASE_TYPE: postgresql
+      APP_SECRET: ${{UMAMI_APP_SECRET}}
+      # Disable telemetry noise on family boxes
+      DISABLE_TELEMETRY: "1"
+    ports:
+      - "{bind}{umami_port}:3000"{svc_nets}
+""" if umami_on else "")
     dendrite_services = (f"""
   dendrite-init:
     image: matrixdotorg/dendrite-monolith@sha256:7dafe6edfc8cfab758a68a4cf20414df1ade4a36b45b1852554d81fb70b1272c   # pinned by DIGEST (Dendrite 0.15.2, immutable) — supply-chain safe, avoids latest-drift
@@ -970,6 +1015,11 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     # browser uses to build the same-host voice URL when the Cove has no domain.
     voice_env = (f"\n      VOICE_INTERNAL_URL: http://{cid}-voice:8300"
                  f"\n      VOICE_PORT: \"{voice_port}\"") if voice_local else ""
+    # App-side Umami wiring for Haven Traffic proxy + Site Builder snippet inject.
+    umami_app_env = (f"\n      UMAMI_ENABLED: \"1\""
+                     f"\n      UMAMI_INTERNAL_URL: http://{cid}-umami:3000"
+                     f"\n      UMAMI_PUBLIC_URL: ${{UMAMI_PUBLIC_URL}}"
+                     f"\n      UMAMI_API_KEY: ${{UMAMI_API_KEY:-}}") if umami_on else ""
     # Bundled Caddy (self-host with a domain): the Cove ships its own HTTPS terminator
     # so a self-hoster gets automatic Let's Encrypt without running/configuring Caddy
     # or holding our Cloudflare token. It routes to the compose service names and gets
@@ -1078,7 +1128,7 @@ services:
       - {_stg_src["postgres_data"]}:/var/lib/postgresql/data
       - {core}/docker/init-base.sql:/docker-entrypoint-initdb.d/00-base.sql:ro
       - ./docker/init-nextcloud-db.sql:/docker-entrypoint-initdb.d/01-nextcloud.sql:ro
-      - ./docker/operator-seed.sql:/docker-entrypoint-initdb.d/02-operator-seed.sql:ro{dendrite_db_mount}
+      - ./docker/operator-seed.sql:/docker-entrypoint-initdb.d/02-operator-seed.sql:ro{dendrite_db_mount}{umami_db_mount}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${{POSTGRES_USER}} -d ${{POSTGRES_DB}}"]
       interval: 10s
@@ -1143,14 +1193,14 @@ services:
       NEXTCLOUD_ADMIN_PASSWORD: ${{NC_ADMIN_PASSWORD}}
       OLLAMA_BASE_URL: ${{OLLAMA_BASE_URL:-http://host.docker.internal:11434}}
       LP_CADDY_ADMIN_TOKEN: ${{LP_CADDY_ADMIN_TOKEN:-}}
-      PORT: {app_port}{voice_env}{ltp_env}{caddy_app_env}{shared_app_env}
+      PORT: {app_port}{voice_env}{ltp_env}{caddy_app_env}{shared_app_env}{umami_app_env}
     volumes:
       - {core}:/cove-core:ro
       - ./config:/app/config   # rw: runtime settings (domain, compute) persist to cove.yaml
       - {_stg_src["app_data"]}:/app/data{sites_mount}{ltp_mount}{caddy_app_vol}{shared_app_vol}
     ports:
       - "{bind}{app_port}:{app_port}"{svc_nets}
-{voice_services}{dendrite_services}{caddy_services}
+{voice_services}{umami_services}{dendrite_services}{caddy_services}
 volumes:{_stg_named_decl}
   redis_data:{voice_volume}{dendrite_volume}{caddy_volume}
 networks:
@@ -1298,6 +1348,29 @@ def build_env(cove: dict, op: dict, providers: list, ltp: dict, mx: dict, deploy
             f"MATRIX_PUBLIC_URL={mx['public_url']}",
             f"MATRIX_REG_SECRET={mx['reg_secret']}",
         ]
+    # Umami (web analytics) — compose sibling; DB role created via init-umami-db.sql.
+    # App proxies stats with UMAMI_API_KEY (created in Umami admin after first login).
+    # Public collect host is analytics.{domain} (Caddy) or localhost:{UMAMI_PORT}.
+    domain = (cove.get("domain") or "").strip()
+    umami_port = deploy.get("umami_port", 3000)
+    umami_public = (
+        f"https://analytics.{domain}" if domain else f"http://localhost:{umami_port}"
+    )
+    lines += [
+        "",
+        "# ── Umami analytics (Site Builder / Haven Traffic) ──",
+        "# Spec: umami-analytics-and-haven-stats — Cove product path, not hub snowflake.",
+        "UMAMI_ENABLED=1",
+        f"UMAMI_DB_PASSWORD={deploy.get('_umami_db_pw') or gen_secret()}",
+        f"UMAMI_APP_SECRET={gen_secret(32)}",
+        f"UMAMI_PORT={umami_port}",
+        f"UMAMI_INTERNAL_URL=http://{cove['id']}-umami:3000",
+        f"UMAMI_PUBLIC_URL={umami_public}",
+        # Filled after first Umami login (Settings → API) — server-side stats proxy only.
+        "UMAMI_API_KEY=",
+        # JSON list of {name,domain,umami_website_id} for Haven/MC Traffic cards (v1 hard-code).
+        "HAVEN_STATS_SITES=",
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -1613,6 +1686,10 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
 
     nc_db_pw = gen_secret()
     dendrite_db_pw = gen_secret()
+    umami_db_pw = gen_secret()
+    # Stash so build_env emits the same password init-umami-db.sql creates.
+    deploy = dict(deploy)
+    deploy["_umami_db_pw"] = umami_db_pw
     matrix_reg_secret = gen_secret(32)
     # Connect/Matrix runtime: own homeserver (default), an external one (advanced),
     # or none. mx feeds the .env split-horizon URLs; dendrite files are written below.
@@ -1653,6 +1730,8 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
     (root / "config" / "agent.yaml").write_text(build_agent_yaml(cove, op, team_on))
     (root / "config" / "cove.yaml").write_text(build_cove_yaml(cove, op, compute, matrix_on=matrix_on))
     (root / "docker" / "init-nextcloud-db.sql").write_text(build_nc_db_sql(nc_db_pw))
+    # Umami always on for product path (disable later via compute.analytics if needed).
+    (root / "docker" / "init-umami-db.sql").write_text(build_umami_db_sql(umami_db_pw))
     if matrix_on:
         # This Cove's own homeserver: dendrite.yaml + its Postgres db init. Caddy
         # snippet only when a real domain is set (federation/HTTPS); a domainless
@@ -1810,7 +1889,7 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
         _snippet = netconfig.build_haven_cove_snippet(
             cove_id=cove["id"], domain=_domain, app_port=deploy["app_port"],
             matrix_server_name=(mx["server_name"] if mx else ""), matrix_on=bool(matrix_on),
-            voice_on=voice_local, acmedns=_acme,
+            voice_on=voice_local, umami_on=True, acmedns=_acme,
             own_dns_provider=(_dns.get("provider") or "").strip(),
             own_dns_token=(_dns.get("token") or "").strip())
         # Keep a copy in the Cove folder (reference / portability) and install into the
@@ -1826,6 +1905,7 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
             app_port=deploy["app_port"], nextcloud_port=deploy["nextcloud_port"],
             matrix_port=deploy["matrix_port"],
             voice_port=(deploy.get("voice_port", 0) if voice_local else 0),
+            umami_port=int(deploy.get("umami_port") or 3000),
             matrix_server_name=(mx["server_name"] if mx else ""),
             matrix_on=bool(matrix_on))
         (root / "docker" / "cove.caddy").write_text(_snippet)
