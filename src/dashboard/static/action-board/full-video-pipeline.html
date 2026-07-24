@@ -428,12 +428,10 @@ async function init() {
         const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;
         const t = transcriptMap[stem];
         seen.add(stem);
-        // #SKIP-MOM1: finished stems (shorts already cut) leave the active list
-        // even if the master is still mid-graduation in processing/.
-        if (t && t.has_processed) {
-            seen.add(stem);
-            continue;
-        }
+        // #SKIP-MOM1 follow-up: masters still in processing/ always stay on the
+        // active list. has_processed only means "some shorts exist" — partial
+        // stems (7129/7169/etc.) must remain visible. Hide-by-shorts applies
+        // only to transcript-only rows after the file left processing/inbox.
         videos.push({
             stem,
             filename: f.filename,
@@ -442,6 +440,7 @@ async function init() {
             status: t ? (t.has_moments ? 'moments' : 'transcribed') : 'processing',
             has_moments: t?.has_moments || false,
             has_edits: t?.has_edits || false,
+            has_processed: !!(t && t.has_processed),
         });
     }
 
@@ -451,10 +450,8 @@ async function init() {
         const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;
         if (seen.has(stem)) continue;
         const t = transcriptMap[stem];
-        if (t && t.has_processed) {
-            seen.add(stem);
-            continue;
-        }
+        // Same rule as processing: physical inbox master always listed.
+        // (e.g. 7168 re-dropped after a stuck upload; transcript may be cleared.)
         seen.add(stem);
         videos.push({
             stem,
@@ -464,6 +461,7 @@ async function init() {
             status: t ? (t.has_moments ? 'moments' : 'transcribed') : 'new',
             has_moments: t?.has_moments || false,
             has_edits: t?.has_edits || false,
+            has_processed: !!(t && t.has_processed),
         });
     }
 

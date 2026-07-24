@@ -30,9 +30,44 @@ def test_whole_mode_graduates_not_caption_full():
     assert idx_g < idx_cf
 
 
-def test_pipeline_hides_has_processed():
-    assert "has_processed" in PIPELINE
-    assert "t.has_processed" in PIPELINE
+def _section_between(src: str, start: str, end: str) -> str:
+    i = src.index(start)
+    j = src.index(end, i + len(start))
+    return src[i:j]
+
+
+def test_pipeline_keeps_processing_masters_with_shorts():
+    """Partial stems must stay listed while master is still in processing/."""
+    proc = _section_between(
+        PIPELINE,
+        "for (const f of processingFiles) {\n        const ext = f.filename.lastIndexOf('.');\n        const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;\n        const t = transcriptMap[stem];",
+        "// Inbox only if not already",
+    )
+    # Must not skip the row because shorts already exist
+    assert "if (t && t.has_processed)" not in proc
+    assert "continue;" not in proc or "has_processed" not in proc.split("continue;")[0][-80:]
+    assert "folder: 'processing'" in proc
+    assert "videos.push" in proc
+
+
+def test_pipeline_keeps_inbox_masters_with_shorts():
+    inbox = _section_between(
+        PIPELINE,
+        "// Inbox only if not already",
+        "// Transcript-only",
+    )
+    assert "if (t && t.has_processed)" not in inbox
+    assert "folder: 'inbox'" in inbox
+
+
+def test_pipeline_hides_has_processed_transcript_only():
+    """Finished stems with no file in inbox/processing still drop off."""
+    only = _section_between(
+        PIPELINE,
+        "// Transcript-only",
+        "const bannerHtml",
+    )
+    assert "if (t.has_processed) continue" in only
 
 
 def test_transcripts_api_exposes_has_processed():
