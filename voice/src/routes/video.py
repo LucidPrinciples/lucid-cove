@@ -1236,6 +1236,21 @@ async def process_moments(request: Request):
     # triggers the NC scan on the mount path.
     await publish_video_output(manifest_local, f"shorts/{manifest_name}", nc, "application/json")
 
+    # #SKIP-MOM1 — skip-moments / whole_video single full clip: graduate master
+    # processing → raw once at least one clip published (same end-state as caption-full).
+    try:
+        whole_done = any(
+            (m.get("whole_video") is True) or (m.get("clip_label") == "Full video" and m.get("start_seconds") == 0)
+            for m in (moments or [])
+            if isinstance(m, dict)
+        )
+        if whole_done and processed:
+            from src.video_lifecycle import graduate_processing_to_raw
+            await graduate_processing_to_raw(stem, nc)
+            logger.info("[lifecycle] graduated after whole_video process-moments for %s", stem)
+    except Exception as _ge:
+        logger.warning("[lifecycle] whole_video graduate skipped: %s", _ge)
+
     logger.info(
         f"Moments processing complete: {len(processed)} done, {len(errors)} errors"
     )
@@ -1256,6 +1271,31 @@ async def process_moments(request: Request):
         "manifest_file": manifest_name,
     })
 
+
+
+@router.post("/api/video/graduate-stem")
+async def graduate_stem_api(request: Request):
+    """#SKIP-MOM1 — processing/ → raw/ for a finished stem (skip-moments path).
+
+    Body: { "stem": "IMG_7168" }
+    Same best-effort graduate_processing_to_raw as caption-full success.
+    """
+    body = await request.json()
+    stem = (body.get("stem") or "").strip()
+    if not stem:
+        return JSONResponse({"ok": False, "error": "stem required"}, status_code=400)
+    nc = NCSession.from_request(request, body)
+    try:
+        from src.video_lifecycle import graduate_processing_to_raw
+        ok = await graduate_processing_to_raw(stem, nc)
+        return JSONResponse({
+            "ok": bool(ok),
+            "stem": stem,
+            "reason": None if ok else "no processing original found (already raw or missing)",
+        })
+    except Exception as e:
+        logger.warning("[lifecycle] graduate-stem failed for %s: %s", stem, e)
+        return JSONResponse({"ok": False, "stem": stem, "error": str(e)}, status_code=500)
 
 
 @router.post("/api/video/heal-inbox-processing")

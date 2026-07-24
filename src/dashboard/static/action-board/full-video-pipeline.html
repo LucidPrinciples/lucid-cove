@@ -428,6 +428,12 @@ async function init() {
         const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;
         const t = transcriptMap[stem];
         seen.add(stem);
+        // #SKIP-MOM1: finished stems (shorts already cut) leave the active list
+        // even if the master is still mid-graduation in processing/.
+        if (t && t.has_processed) {
+            seen.add(stem);
+            continue;
+        }
         videos.push({
             stem,
             filename: f.filename,
@@ -445,6 +451,10 @@ async function init() {
         const stem = ext > 0 ? f.filename.substring(0, ext) : f.filename;
         if (seen.has(stem)) continue;
         const t = transcriptMap[stem];
+        if (t && t.has_processed) {
+            seen.add(stem);
+            continue;
+        }
         seen.add(stem);
         videos.push({
             stem,
@@ -457,9 +467,10 @@ async function init() {
         });
     }
 
-    // Transcript-only (file already left both lists / raw)
+    // Transcript-only (file already left both lists / raw) — still hide if processed
     for (const t of transcripts) {
         if (seen.has(t.stem)) continue;
+        if (t.has_processed) continue;
         videos.push({
             stem: t.stem,
             filename: t.stem,
