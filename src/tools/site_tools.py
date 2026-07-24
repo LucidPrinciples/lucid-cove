@@ -28,6 +28,18 @@ from src.tools.approval import auto, notify
 log = logging.getLogger("site_tools")
 
 
+def _acting_nc_creds() -> tuple[str, str, str]:
+    """(url, user, password) for the chat-bound presence NC.
+
+    Chat/flow bind set_request_nc_creds at the same chokepoint as nextcloud_tools.
+    site_deploy used to call get_nc_creds() with no Request → always empty in multi
+    mode, so Atlas saw "no Nextcloud account configured" even with a healthy NC user.
+    """
+    from src.tools.nextcloud_tools import _current_creds
+
+    return _current_creds()
+
+
 def _get_site_config(domain: str) -> dict:
     """Load site.yaml for a domain from the ACTING agent's sites root only.
 
@@ -36,6 +48,8 @@ def _get_site_config(domain: str) -> dict:
       1. {get_sites_path()}/ under /vault and /app/data (relative to config)
       2. legacy /vault/AgentSkills/Sites and /app/data/sites only when they
          match get_sites_path()
+      3. WebDAV on the acting presence NC (Tier B personal sites live here —
+         vault is usually only the steward mount, so Atlas must hit NC)
     """
     import os
     import yaml
@@ -66,7 +80,42 @@ def _get_site_config(domain: str) -> dict:
                 raise ValueError(f"Invalid site.yaml for {domain}")
             return cfg
 
+    # Presence Tier B: site.yaml is on that user's NC, not the steward vault.
+    cfg = _load_site_config_from_nc(domain, sites_rel)
+    if cfg is not None:
+        return cfg
+
     raise ValueError(f"Site config not found for {domain}. Is the site set up in Site Builder?")
+
+
+def _load_site_config_from_nc(domain: str, sites_rel: str) -> dict | None:
+    """Fetch AgentSkills/Sites/{domain}/site.yaml via acting NC WebDAV."""
+    import yaml
+    from urllib.parse import quote
+
+    import httpx
+
+    nc_url, nc_user, nc_pass = _acting_nc_creds()
+    if not nc_url or not nc_user or not nc_pass:
+        return None
+    config_url = (
+        f"{nc_url.rstrip('/')}/remote.php/dav/files/{quote(nc_user, safe='')}/"
+        f"{sites_rel.strip('/')}/{quote(domain, safe='')}/site.yaml"
+    )
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.get(config_url, auth=(nc_user, nc_pass))
+        if resp.status_code != 200 or not resp.content:
+            return None
+        cfg = yaml.safe_load(resp.text) or {}
+        if not isinstance(cfg, dict):
+            raise ValueError(f"Invalid site.yaml for {domain}")
+        return cfg
+    except ValueError:
+        raise
+    except Exception as e:
+        log.debug("NC site.yaml fetch failed for %s: %s", domain, e)
+        return None
 
 
 def _get_pat() -> str:
@@ -473,15 +522,16 @@ async def site_deploy(domain: str, description: str = "Full site deploy") -> str
     try:
         import asyncio
         import logging
-        from src.dashboard.routes.nextcloud import get_nc_creds
         from src.dashboard.routes.sites import _deploy_site_core
         from src.config import get_primary_agent_id
 
-        nc_url, nc_user, nc_pass = await get_nc_creds()
+        # Must use request-scoped NC (set in chat), not get_nc_creds() without Request.
+        nc_url, nc_user, nc_pass = _acting_nc_creds()
         if not nc_user or not nc_pass:
             return (
-                "Cannot deploy: no Nextcloud account is configured for this agent. "
-                "Deploy from the site owner's Presence, or use the Deploy button in Site Builder."
+                "Cannot deploy: no Nextcloud account is bound for this chat turn. "
+                "On multi-presence Coves the personal agent needs the operator's NC "
+                "user (Files working is the smoke test). Or use Site Builder → Deploy."
             )
 
         agent_id = get_primary_agent_id()

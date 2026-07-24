@@ -198,3 +198,37 @@ def test_site_tools_config_scoped_to_sites_path(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError):
         st._get_site_config("../etc/passwd")
+
+
+def test_site_tools_acting_nc_creds_uses_request_ctx(monkeypatch):
+    """site_deploy must not call get_nc_creds() bare — chat binds ContextVar."""
+    from src.tools import nextcloud_tools as nct
+    from src.tools import site_tools as st
+
+    tok = nct.set_request_nc_creds("http://nc.test", "atlas-user", "secret")
+    try:
+        url, user, pw = st._acting_nc_creds()
+        assert url == "http://nc.test"
+        assert user == "atlas-user"
+        assert pw == "secret"
+    finally:
+        nct.clear_request_nc_creds(tok)
+
+
+def test_get_site_config_falls_back_to_acting_nc(monkeypatch):
+    """Tier B site.yaml lives on presence NC when vault has no copy."""
+    from src.tools import site_tools as st
+
+    monkeypatch.setattr(
+        "src.config.get_sites_path", lambda: "AgentSkills/Sites",
+    )
+    monkeypatch.setattr(st, "_load_site_config_from_nc", lambda domain, sites_rel: {
+        "domain": domain,
+        "github": {"repo": "org/x", "branch": "main"},
+        "tier": "presence",
+    })
+    # Ensure local candidates miss
+    monkeypatch.setattr("os.path.exists", lambda p: False)
+    cfg = st._get_site_config("jasongarriotte.com")
+    assert cfg["domain"] == "jasongarriotte.com"
+    assert cfg["github"]["repo"] == "org/x"
