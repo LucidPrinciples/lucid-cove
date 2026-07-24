@@ -556,6 +556,7 @@ def build_agent_yaml(cove: dict, op: dict, team: bool) -> str:
                 "tools.memory_tools", "tools.research_tools",
                 "tools.project_tools",  # #PRJ1 — presence personal projects/tasks
                 "tools.links_tools",    # #LNK2 — Action Board Links for personal agents
+                "tools.site_tools",     # Tier B sites — deploy/edit own NC Sites (#TIER1)
             ],
             "approval_tiers": {
                 "auto": ["read_*", "search_*", "list_*", "get_*", "check_*", "monitor_*"],
