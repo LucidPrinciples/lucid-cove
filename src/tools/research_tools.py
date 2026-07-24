@@ -4,11 +4,14 @@ Research Tools — web search, webpage extraction, documentation lookup.
 All AUTO tier (read-only operations).
 
 Environment variables:
-  SEARXNG_URL — SearXNG instance URL (default: http://localhost:8888)
+  SEARXNG_URL — SearXNG instance URL.
+    Compose default: http://{cove-id}-searxng:8080
+    Legacy default: http://localhost:8888 (fails inside app unless searx is on host net)
 """
 
 import asyncio
 import json
+import logging
 import os
 from src.env import env
 from typing import Optional
@@ -18,7 +21,9 @@ from langchain_core.tools import tool
 
 from src.tools.approval import auto
 
-SEARXNG_URL = env("SEARXNG_URL", "http://localhost:8888")
+log = logging.getLogger("research_tools")
+
+SEARXNG_URL = env("SEARXNG_URL", "http://localhost:8888").rstrip("/")
 
 
 # =============================================================================
@@ -102,7 +107,7 @@ async def _http_get(url: str, timeout: int = 15) -> tuple[bool, str]:
 @auto
 @tool
 async def web_search(query: str, num_results: int = 10, engines: str = "") -> str:
-    """Search the web using SearXNG (or Bing fallback).
+    """Search the web using the Cove SearXNG service.
 
     Args:
         query: Search query
@@ -110,14 +115,31 @@ async def web_search(query: str, num_results: int = 10, engines: str = "") -> st
         engines: Comma-separated engine list (default: auto)
     """
     try:
-        # Try SearXNG first
+        # Primary: Cove SearXNG (compose sibling). No second provider is wired yet —
+        # when this fails, say so clearly; do not invent results.
         url = f"{SEARXNG_URL}/search?q={quote_plus(query)}&format=json"
         if engines:
             url += f"&engines={engines}"
 
         ok, result = await _http_get(url)
         if not ok:
-            return f"Search unavailable: {result}\nQuery was: {query}"
+            log.warning("web_search unavailable via %s: %s", SEARXNG_URL, result)
+            return (
+                f"Search unavailable: {result}\n"
+                f"Backend: {SEARXNG_URL}\n"
+                f"Query was: {query}\n"
+                "No API fallback is configured. If SearXNG is not running on this Cove, "
+                "stand it up (compose service searxng) or set SEARXNG_URL."
+            )
+
+        # HTML instead of JSON usually means formats.json is off in settings.yml.
+        stripped = (result or "").lstrip()
+        if stripped.startswith("<!") or stripped.lower().startswith("<html"):
+            return (
+                f"Search returned HTML instead of JSON from {SEARXNG_URL}. "
+                "Enable json under search.formats in docker/searxng/settings.yml. "
+                f"Query: {query}"
+            )
 
         data = json.loads(result)
         results = data.get("results", [])[:num_results]
@@ -128,17 +150,17 @@ async def web_search(query: str, num_results: int = 10, engines: str = "") -> st
         lines = [f"SEARCH: {query}\n"]
         for i, r in enumerate(results, 1):
             title = r.get("title", "")
-            url = r.get("url", "")
+            link = r.get("url", "")
             snippet = r.get("content", "")[:200]
             lines.append(f"{i}. {title}")
-            lines.append(f"   {url}")
+            lines.append(f"   {link}")
             if snippet:
                 lines.append(f"   {snippet}")
             lines.append("")
 
         return "\n".join(lines)
     except json.JSONDecodeError:
-        return f"Search returned invalid response. Query: {query}"
+        return f"Search returned invalid JSON from {SEARXNG_URL}. Query: {query}"
     except Exception as e:
         return f"Search error: {e}"
 

@@ -222,7 +222,28 @@ REGISTRY: list[EnvVar] = [
     EnvVar("BACKUP_REPO_DIR", "/backup/agent", "path", "Infra", desc="Backup git repo dir."),
     EnvVar("BACKUP_GIT_NAME", "MC Backup", "str", "Infra", desc="Backup commit author name."),
     EnvVar("BACKUP_GIT_EMAIL", "backup@mc.internal", "str", "Infra", desc="Backup commit author email."),
-    EnvVar("SEARXNG_URL", "http://localhost:8888", "str", "Infra", desc="Optional self-hosted search."),
+    EnvVar(
+        "SEARXNG_URL",
+        "http://localhost:8888",
+        "str",
+        "Infra",
+        desc="SearXNG base URL for agent web_search. Compose default: http://{cove-id}-searxng:8080.",
+    ),
+    EnvVar(
+        "SEARXNG_SECRET",
+        "",
+        "str",
+        "Infra",
+        secret=True,
+        desc="SearXNG server secret_key (compose). Empty on hosts without searx service.",
+    ),
+    EnvVar(
+        "SEARXNG_PORT",
+        "8888",
+        "str",
+        "Infra",
+        desc="Host loopback publish port for SearXNG (debug). Agents use SEARXNG_URL.",
+    ),
 
     # ── HTTP rate limit (#RATE1 / landscape-scan action 2) ──
     EnvVar(

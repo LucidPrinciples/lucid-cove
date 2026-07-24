@@ -92,6 +92,32 @@ services:
     ports:
       - "127.0.0.1:${UMAMI_PORT:-3000}:3000"
 
+
+  # ── SearXNG — private metasearch for agent web_search / Gabs ─────────────
+  # Product service (same class as Umami). JSON format enabled via
+  # docker/searxng/settings.yml. App reaches it on the compose network as
+  # http://searxng:8080 — never rely on localhost:8888 from inside app.
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: cove-searxng
+    restart: unless-stopped
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-changeme-searx-secret}
+      # Optional public base if you ever expose UI; agents use internal URL.
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://localhost:8888/}
+    ports:
+      # Host debug only — agents use service DNS, not this bind.
+      - "127.0.0.1:${SEARXNG_PORT:-8888}:8080"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+
   # ── cove-core app — Mission Control + agents + scheduler ─────────────────
   app:
     build:
@@ -115,6 +141,8 @@ services:
       NEXTCLOUD_URL: http://nextcloud:80
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       PORT: ${PORT:-8200}
+      # Agent web_search — compose service DNS (not localhost)
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
       # #SEC3: COVE_MODE=single makes OperatorAuthMiddleware pass ALL /api/* with
       # no auth. That is fine ONLY because the app port below is bound to
       # 127.0.0.1 and reached through the reverse proxy. If you publish this port

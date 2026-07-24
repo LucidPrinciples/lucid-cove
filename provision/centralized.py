@@ -838,7 +838,7 @@ logging:
 def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str = "",
                   voice_local: bool = True, bundle_caddy: bool = False,
                   shared_net: bool = False, voice_gpu: bool = False,
-                  umami_on: bool = True) -> str:
+                  umami_on: bool = True, searx_on: bool = True) -> str:
     """Single-stack compose. Standalone target = default bridge + published ports.
     matrix_on adds this Cove's own Dendrite homeserver (Connect), backed by the
     Cove's Postgres; a one-shot dendrite-init generates the signing key on first boot.
@@ -910,6 +910,30 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     ports:
       - "{bind}{umami_port}:3000"{svc_nets}
 """ if umami_on else "")
+    searx_port = deploy.get("searxng_port", 8888)
+    # SearXNG — private metasearch for agent web_search / Gabs. No DB.
+    # settings.yml enables JSON format (required by research_tools).
+    # App uses compose DNS http://{cid}-searxng:8080 — not localhost.
+    searx_services = (f"""
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: {cid}-searxng
+    restart: unless-stopped
+    volumes:
+      - ./docker/searxng:/etc/searxng:rw
+    environment:
+      SEARXNG_BASE_URL: http://localhost:{searx_port}/
+      SEARXNG_SECRET: ${{SEARXNG_SECRET}}
+    ports:
+      - "{bind}{searx_port}:8080"{svc_nets}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+""" if searx_on else "")
     dendrite_services = (f"""
   dendrite-init:
     image: matrixdotorg/dendrite-monolith@sha256:7dafe6edfc8cfab758a68a4cf20414df1ade4a36b45b1852554d81fb70b1272c   # pinned by DIGEST (Dendrite 0.15.2, immutable) — supply-chain safe, avoids latest-drift
@@ -1021,6 +1045,7 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
                      f"\n      UMAMI_INTERNAL_URL: http://{cid}-umami:3000"
                      f"\n      UMAMI_PUBLIC_URL: ${{UMAMI_PUBLIC_URL}}"
                      f"\n      UMAMI_API_KEY: ${{UMAMI_API_KEY:-}}") if umami_on else ""
+    searx_app_env = (f"\n      SEARXNG_URL: http://{cid}-searxng:8080") if searx_on else ""
     # Bundled Caddy (self-host with a domain): the Cove ships its own HTTPS terminator
     # so a self-hoster gets automatic Let's Encrypt without running/configuring Caddy
     # or holding our Cloudflare token. It routes to the compose service names and gets
@@ -1194,14 +1219,14 @@ services:
       NEXTCLOUD_ADMIN_PASSWORD: ${{NC_ADMIN_PASSWORD}}
       OLLAMA_BASE_URL: ${{OLLAMA_BASE_URL:-http://host.docker.internal:11434}}
       LP_CADDY_ADMIN_TOKEN: ${{LP_CADDY_ADMIN_TOKEN:-}}
-      PORT: {app_port}{voice_env}{ltp_env}{caddy_app_env}{shared_app_env}{umami_app_env}
+      PORT: {app_port}{voice_env}{ltp_env}{caddy_app_env}{shared_app_env}{umami_app_env}{searx_app_env}
     volumes:
       - {core}:/cove-core:ro
       - ./config:/app/config   # rw: runtime settings (domain, compute) persist to cove.yaml
       - {_stg_src["app_data"]}:/app/data{sites_mount}{ltp_mount}{caddy_app_vol}{shared_app_vol}
     ports:
       - "{bind}{app_port}:{app_port}"{svc_nets}
-{voice_services}{umami_services}{dendrite_services}{caddy_services}
+{voice_services}{umami_services}{searx_services}{dendrite_services}{caddy_services}
 volumes:{_stg_named_decl}
   redis_data:{voice_volume}{dendrite_volume}{caddy_volume}
 networks:
@@ -1371,6 +1396,16 @@ def build_env(cove: dict, op: dict, providers: list, ltp: dict, mx: dict, deploy
         "UMAMI_API_KEY=",
         # JSON list of {name,domain,umami_website_id} for Haven/MC Traffic cards (v1 hard-code).
         "HAVEN_STATS_SITES=",
+    ]
+    # SearXNG — agent web_search / Gabs. Compose service; JSON via docker/searxng/settings.yml.
+    searx_port = deploy.get("searxng_port", 8888)
+    lines += [
+        "",
+        "# ── SearXNG (agent web_search) ──",
+        "# Product path: compose sibling. Apps use SEARXNG_URL on the compose network.",
+        f"SEARXNG_SECRET={gen_secret(32)}",
+        f"SEARXNG_PORT={searx_port}",
+        f"SEARXNG_URL=http://{cove['id']}-searxng:8080",
     ]
     return "\n".join(lines) + "\n"
 
@@ -1733,6 +1768,12 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
     (root / "docker" / "init-nextcloud-db.sql").write_text(build_nc_db_sql(nc_db_pw))
     # Umami always on for product path (disable later via compute.analytics if needed).
     (root / "docker" / "init-umami-db.sql").write_text(build_umami_db_sql(umami_db_pw))
+    # SearXNG settings (JSON format on) — copy product template into the overlay.
+    _searx_src = Path(__file__).resolve().parent.parent / "docker" / "searxng" / "settings.yml"
+    _searx_dst = root / "docker" / "searxng"
+    _searx_dst.mkdir(parents=True, exist_ok=True)
+    if _searx_src.is_file():
+        (_searx_dst / "settings.yml").write_text(_searx_src.read_text(encoding="utf-8"), encoding="utf-8")
     if matrix_on:
         # This Cove's own homeserver: dendrite.yaml + its Postgres db init. Caddy
         # snippet only when a real domain is set (federation/HTTPS); a domainless
