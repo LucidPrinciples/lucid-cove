@@ -158,6 +158,63 @@
   margin-left: 0.3rem; vertical-align: middle;
 }
 
+/* #VP-SESS1 — session groups (one master stem = full + moments) */
+.ab-session-group {
+    grid-column: 1 / -1;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card2, var(--card));
+    margin: 4px 0 10px;
+    overflow: hidden;
+}
+.ab-session-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+}
+.ab-session-header:hover { background: rgba(255,255,255,0.03); }
+.ab-session-chevron {
+    color: var(--dim);
+    font-size: 12px;
+    transition: transform 0.15s ease;
+}
+.ab-session-group.collapsed .ab-session-chevron { transform: rotate(-90deg); }
+.ab-session-group.collapsed .ab-session-body { display: none; }
+.ab-session-title {
+    font-weight: 600;
+    font-size: 13px;
+}
+.ab-session-counts {
+    margin-left: auto;
+    color: var(--dim);
+    font-size: 11px;
+}
+.ab-session-body {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 8px;
+    padding: 0 10px 10px;
+}
+.ab-session-badge {
+    opacity: 0.85;
+}
+.ab-meta-chip.ab-meta-full {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.ab-meta-chip.ab-meta-moment {
+    border-color: var(--dim);
+    color: var(--dim);
+}
+
 .ab-action-card {
   display: flex; align-items: flex-start; gap: 0.6rem;
   background: var(--card2); border: 1px solid var(--border);

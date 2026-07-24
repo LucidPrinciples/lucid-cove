@@ -409,7 +409,7 @@ async def get_actions(request: Request):
             result = await conn.execute(
                 f"""SELECT id, title, description, tags, hashtags, file_path,
                           series, card_id, upload_date, publish_date, status,
-                          related_video, created_at, is_short
+                          related_video, created_at, is_short, source_stem
                    FROM youtube_queue
                    WHERE status = 'draft'{scope_sql}
                    ORDER BY publish_date ASC""",
@@ -420,6 +420,10 @@ async def get_actions(request: Request):
             for row in rows:
                 series_labels = {"ras": "RAS", "hltb": "How LT Was Built", "hltagb": "How LT Got Built"}
                 is_short = bool(row["is_short"]) if row["is_short"] is not None else True
+                stem = _session_stem_from_row(
+                    row.get("source_stem"), row.get("series"), row.get("file_path")
+                )
+                role = _session_role(is_short=is_short)
                 actions.append({
                     "id": f"yt-short-{row['id']}",
                     "queue_id": row["id"],
@@ -436,6 +440,8 @@ async def get_actions(request: Request):
                     "post_mode": "api",
                     "length_class": "short" if is_short else "long",
                     "is_short": is_short,
+                    "source_stem": stem,
+                    "session_role": role,
                 })
 
             # CF-1: strict self-scope
@@ -516,6 +522,14 @@ async def get_actions(request: Request):
                     is_x_long or fmt == "horizontal" or dur > 140
                 ) else "short"
 
+                stem = _session_stem_from_row(
+                    row.get("source_stem"), row.get("series"), row.get("file_path")
+                )
+                role = _session_role(
+                    clip_type=clip_type,
+                    format_=fmt,
+                    duration_seconds=dur,
+                )
                 actions.append({
                     "id": f"sq-{plat}-{row['id']}",
                     "queue_id": row["id"],
@@ -533,6 +547,8 @@ async def get_actions(request: Request):
                     "length_class": length_class,
                     "duration_seconds": dur,
                     "clip_type": clip_type,
+                    "source_stem": stem,
+                    "session_role": role,
                 })
     except _SkipPublic:
         pass
@@ -654,7 +670,8 @@ async def get_scheduled(request: Request):
         async with get_db() as conn:
             result = await conn.execute(
                 f"""SELECT id, title, series, status, upload_date, publish_date,
-                          youtube_video_id, youtube_url, uploaded_at, is_short
+                          youtube_video_id, youtube_url, uploaded_at, is_short,
+                          source_stem, file_path, related_video
                    FROM youtube_queue
                    WHERE status IN ('queued', 'uploading', 'uploaded'){scope_sql}
                    ORDER BY upload_date ASC""",
@@ -679,6 +696,10 @@ async def get_scheduled(request: Request):
 
                 # YT API path is always auto-upload; length from is_short.
                 is_short = bool(row["is_short"]) if row["is_short"] is not None else True
+                stem = _session_stem_from_row(
+                    row.get("source_stem"), row.get("series"), row.get("file_path")
+                )
+                role = _session_role(is_short=is_short)
                 scheduled.append({
                     "id": row["id"],
                     "title": row["title"],
@@ -694,13 +715,17 @@ async def get_scheduled(request: Request):
                     "post_mode": "api",
                     "length_class": "short" if is_short else "long",
                     "is_short": is_short,
+                    "source_stem": stem,
+                    "session_role": role,
+                    "related_video": row.get("related_video"),
                 })
 
             # X (and future API auto platforms) live in social_queue — not youtube_queue.
             # Without this, Schedule on an X card goes green with nowhere to watch it.
             result = await conn.execute(
                 f"""SELECT id, title, series, status, platform, upload_date, publish_date,
-                          published_at, error_message, clip_type, duration_seconds
+                          published_at, error_message, clip_type, duration_seconds,
+                          source_stem, file_path, format
                    FROM social_queue
                    WHERE platform = 'x'
                      AND status IN ('queued', 'uploading')
@@ -718,6 +743,14 @@ async def get_scheduled(request: Request):
                     subtitle = "𝕏 uploading now..."
                 # This query only lists API-eligible X shorts (not full / long paste).
                 dur = row.get("duration_seconds") or 0
+                stem = _session_stem_from_row(
+                    row.get("source_stem"), row.get("series"), row.get("file_path")
+                )
+                role = _session_role(
+                    clip_type=row.get("clip_type"),
+                    format_=row.get("format"),
+                    duration_seconds=dur,
+                )
                 scheduled.append({
                     "id": row["id"],
                     "title": row["title"],
@@ -735,6 +768,8 @@ async def get_scheduled(request: Request):
                     "length_class": "short",
                     "duration_seconds": dur,
                     "clip_type": row.get("clip_type") or "",
+                    "source_stem": stem,
+                    "session_role": role,
                 })
 
     except Exception:
@@ -791,7 +826,7 @@ async def get_history(request: Request, limit: int = 50, offset: int = 0):
                 f"""SELECT id, title, series, status, is_short,
                           youtube_video_id, youtube_url,
                           upload_date, publish_date, uploaded_at, published_at,
-                          related_video, updated_at
+                          related_video, updated_at, source_stem, file_path
                    FROM youtube_queue
                    WHERE (
                         status = 'published'
@@ -812,8 +847,8 @@ async def get_history(request: Request, limit: int = 50, offset: int = 0):
             result = await conn.execute(
                 f"""SELECT id, title, series, status, platform, platform_data,
                           clip_type, duration_seconds, format, source_stem,
-                          upload_date, publish_date, uploaded_at, published_at,
-                          updated_at
+                          file_path, upload_date, publish_date, uploaded_at,
+                          published_at, updated_at
                    FROM social_queue
                    WHERE platform = 'x'
                      AND status = 'published'
@@ -849,6 +884,10 @@ async def get_history(request: Request, limit: int = 50, offset: int = 0):
             subtitle = f"Live {when}".strip() if when else "Published"
             if row["status"] == "uploaded":
                 subtitle = f"Public since {when}".strip() if when else "Public on YouTube"
+            stem = _session_stem_from_row(
+                row.get("source_stem"), row.get("series"), row.get("file_path")
+            )
+            role = _session_role(is_short=is_short)
             merged.append({
                 "id": row["id"],
                 "title": row["title"],
@@ -865,7 +904,8 @@ async def get_history(request: Request, limit: int = 50, offset: int = 0):
                 "post_mode": "api",
                 "length_class": length,
                 "is_short": is_short,
-                "source_stem": None,
+                "source_stem": stem,
+                "session_role": role,
                 "related_video": row["related_video"],
                 "published_at": row["published_at"].isoformat() if row["published_at"] else None,
                 "uploaded_at": row["uploaded_at"].isoformat() if row["uploaded_at"] else None,
@@ -899,6 +939,14 @@ async def get_history(request: Request, limit: int = 50, offset: int = 0):
             )
             when = _fmt_date(sort_dt) if sort_dt else ""
             subtitle = f"𝕏 live {when}".strip() if when else "Published on 𝕏"
+            stem = _session_stem_from_row(
+                row.get("source_stem"), row.get("series"), row.get("file_path")
+            )
+            role = _session_role(
+                clip_type=row.get("clip_type"),
+                format_=row.get("format"),
+                duration_seconds=dur,
+            )
             merged.append({
                 "id": row["id"],
                 "title": row["title"],
@@ -918,7 +966,8 @@ async def get_history(request: Request, limit: int = 50, offset: int = 0):
                 "is_short": not is_long,
                 "duration_seconds": dur,
                 "clip_type": row.get("clip_type") or "",
-                "source_stem": row.get("source_stem"),
+                "source_stem": stem,
+                "session_role": role,
                 "related_video": None,
                 "published_at": row["published_at"].isoformat() if row["published_at"] else None,
                 "uploaded_at": row["uploaded_at"].isoformat() if row["uploaded_at"] else None,
@@ -1125,6 +1174,48 @@ async def update_social_item(item_id: int, request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+def _session_stem_from_row(source_stem=None, series=None, file_path=None) -> str | None:
+    """#VP-SESS1 — resolve master stem for session grouping.
+
+    Prefer explicit source_stem; else series ``moments-{stem}``; else IMG_* in path.
+    """
+    stem = (source_stem or "").strip()
+    if stem:
+        return stem
+    ser = (series or "").strip()
+    if ser.startswith("moments-") and len(ser) > len("moments-"):
+        return ser[len("moments-"):]
+    import re
+    fp = file_path or ""
+    base = fp.rsplit("/", 1)[-1] if fp else ""
+    m = re.search(r"(IMG_\d+)", base, re.I)
+    if m:
+        return m.group(1).upper() if m.group(1).upper().startswith("IMG_") else m.group(1)
+    m = re.search(r"(IMG_\d+)", fp, re.I)
+    if m:
+        return m.group(1).upper()
+    return None
+
+
+def _session_role(clip_type=None, is_short=None, format_=None, duration_seconds=None) -> str:
+    """full | moment — session card role for grouping UI."""
+    ct = (clip_type or "").strip().lower()
+    if ct == "full":
+        return "full"
+    if is_short is False:
+        return "full"
+    fmt = (format_ or "").strip().lower()
+    try:
+        dur = float(duration_seconds or 0)
+    except (TypeError, ValueError):
+        dur = 0.0
+    if fmt == "horizontal" and dur > 140:
+        return "full"
+    if ct in ("", "short", "quote", "thought", "story", "moment") or is_short is True:
+        return "moment" if ct != "full" else "full"
+    return "moment"
+
+
 async def _promote_youtube_post(conn, item_id: int, presence_id: str | None = None):
     """If a social_queue item is a YouTube post now queued with both dates,
     mirror it into youtube_queue + create the calendar event. Returns the
@@ -1137,7 +1228,7 @@ async def _promote_youtube_post(conn, item_id: int, presence_id: str | None = No
     res = await conn.execute(
         """SELECT platform, title, description, tags, hashtags, file_path,
                   is_vertical, format, thumbnail_path, series, upload_date,
-                  publish_date, status, platform_data
+                  publish_date, status, platform_data, source_stem, clip_type
            FROM social_queue WHERE id = %s""",
         (item_id,),
     )
@@ -1152,6 +1243,7 @@ async def _promote_youtube_post(conn, item_id: int, presence_id: str | None = No
     yq_id = pdata.get("youtube_queue_id")
     tags_val = s["tags"] if isinstance(s["tags"], str) else json.dumps(s["tags"] or [])
     is_short = (s["format"] == "vertical") or bool(s["is_vertical"])
+    stem = _session_stem_from_row(s.get("source_stem"), s.get("series"), s.get("file_path"))
 
     # The uploader's CONTENT_ROOT is /content (the Content folder itself), but
     # social_queue stores vault-relative paths ("AgentSkills/Content/..."). Strip
@@ -1168,26 +1260,29 @@ async def _promote_youtube_post(conn, item_id: int, presence_id: str | None = No
             """UPDATE youtube_queue
                SET title=%s, description=%s, tags=%s::jsonb, hashtags=%s,
                    file_path=%s, is_short=%s, thumbnail_path=%s,
-                   upload_date=%s, publish_date=%s, series=%s, status='queued'
+                   upload_date=%s, publish_date=%s, series=%s, status='queued',
+                   source_stem=COALESCE(NULLIF(%s, ''), source_stem)
                WHERE id=%s""",
             (s["title"], s["description"], tags_val, s["hashtags"], fpath,
              is_short, s["thumbnail_path"], s["upload_date"], s["publish_date"],
-             s["series"], yq_id),
+             s["series"], stem or "", yq_id),
         )
     else:
         res2 = await conn.execute(
             """INSERT INTO youtube_queue
                   (title, description, tags, hashtags, file_path, category_id,
                    made_for_kids, is_short, thumbnail_path, upload_date,
-                   publish_date, series, status, presence_id)
-               VALUES (%s,%s,%s::jsonb,%s,%s,'22',false,%s,%s,%s,%s,%s,'queued',%s)
+                   publish_date, series, status, presence_id, source_stem)
+               VALUES (%s,%s,%s::jsonb,%s,%s,'22',false,%s,%s,%s,%s,%s,'queued',%s,%s)
                RETURNING id""",
             (s["title"], s["description"], tags_val, s["hashtags"], fpath,
              is_short, s["thumbnail_path"], s["upload_date"], s["publish_date"],
-             s["series"], presence_id or None),
+             s["series"], presence_id or None, stem),
         )
         yq_id = (await res2.fetchone())["id"]
         pdata["youtube_queue_id"] = yq_id
+        if stem:
+            pdata["source_stem"] = stem
         await conn.execute(
             "UPDATE social_queue SET platform_data=%s WHERE id=%s",
             (json.dumps(pdata), item_id),
