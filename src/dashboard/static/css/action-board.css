@@ -158,6 +158,90 @@
   margin-left: 0.3rem; vertical-align: middle;
 }
 
+/* #VP-SESS-MAP1 — moments map nested under session (work lanes) */
+.ab-session-map {
+    grid-column: 1 / -1;
+    margin: 0 0 8px 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.12);
+}
+.ab-session-map-summary {
+    font-size: 11px;
+    color: var(--dim);
+    margin-bottom: 6px;
+}
+.ab-session-map-loading,
+.ab-session-map-empty {
+    font-size: 11px;
+    color: var(--dim);
+    font-style: italic;
+}
+.ab-map-moment {
+    border-top: 1px solid var(--border);
+    padding-top: 4px;
+    margin-top: 4px;
+}
+.ab-map-moment-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    background: transparent;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+    padding: 4px 0;
+}
+.ab-map-moment-title {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 600;
+}
+.ab-map-moment-counts {
+    font-size: 11px;
+    color: var(--dim);
+}
+.ab-map-moment.collapsed .ab-map-moment-body {
+    display: none;
+}
+.ab-map-moment.collapsed .ab-session-chevron {
+    transform: rotate(-90deg);
+}
+.ab-map-moment-body {
+    padding: 2px 0 6px 18px;
+}
+.ab-map-clip {
+    display: grid;
+    grid-template-columns: 64px 56px 1fr auto;
+    gap: 6px;
+    align-items: baseline;
+    font-size: 11px;
+    padding: 2px 0;
+}
+.ab-map-clip-state {
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-weight: 600;
+    font-size: 10px;
+}
+.ab-map-clip-processed .ab-map-clip-state { color: var(--green, #3c9); }
+.ab-map-clip-left .ab-map-clip-state { color: var(--accent, #5ce1e6); }
+.ab-map-clip-skipped .ab-map-clip-state { color: var(--dim); }
+.ab-map-clip-type { color: var(--dim); }
+.ab-map-clip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ab-map-clip-time { color: var(--dim); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+    .ab-map-clip {
+        grid-template-columns: 56px 1fr;
+        grid-template-rows: auto auto;
+    }
+    .ab-map-clip-time { grid-column: 2; }
+}
+
 /* #VP-TEST1 — testing lane toolbar */
 .ab-testing-bar {
     grid-column: 1 / -1;

@@ -310,6 +310,10 @@ function _socialBoardLegendHtml() {
     </div>`;
 }
 
+// #VP-SESS-MAP1 — moments.json summaries keyed by stem (lazy-loaded)
+const _sessionMapCache = {};
+let _sessionMapInflight = null;
+
 /** #VP-SESS1 — group cards by source_stem (session).
  *  opts.sort: 'work' (default) = full first, then title
  *             'history' = newest → oldest within session (then full before moment on tie)
@@ -371,6 +375,72 @@ function _groupItemsBySession(items, opts) {
     return { order, map };
 }
 
+function _fmtClipTime(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+function _sessionMapBits(stem) {
+    const m = _sessionMapCache[stem];
+    if (!m) return '';
+    if (!m.has_map) return ' · no moments map';
+    const bits = [];
+    bits.push(`${m.clip_count} clip${m.clip_count === 1 ? '' : 's'}`);
+    if (m.processed_count) bits.push(`${m.processed_count} done`);
+    if (m.left_count) bits.push(`${m.left_count} left`);
+    if (m.skipped_count) bits.push(`${m.skipped_count} skip`);
+    return bits.length ? ` · map ${bits.join(' · ')}` : '';
+}
+
+function _sessionMapPanelHtml(stem) {
+    const m = _sessionMapCache[stem];
+    if (!m) {
+        return `<div class="ab-session-map ab-session-map-loading" data-map-stem="${esc(stem)}">Loading moments map…</div>`;
+    }
+    if (!m.has_map) {
+        return `<div class="ab-session-map ab-session-map-empty" data-map-stem="${esc(stem)}">No moments map yet (transcripts/${esc(stem)}-moments.json).</div>`;
+    }
+    let rows = '';
+    for (const mom of (m.moments || [])) {
+        const mid = mom.id != null ? String(mom.id) : '?';
+        const theme = mom.theme_tag || mom.topic || `Moment ${mid}`;
+        const mBits = [];
+        if (mom.processed_count) mBits.push(`${mom.processed_count} done`);
+        if (mom.left_count) mBits.push(`${mom.left_count} left`);
+        if (mom.skipped_count) mBits.push(`${mom.skipped_count} skip`);
+        let clips = '';
+        for (const c of (mom.clips || [])) {
+            const st = c.state || 'left';
+            const label = c.label || c.type || 'clip';
+            const t0 = _fmtClipTime(c.start_seconds);
+            const t1 = _fmtClipTime(c.end_seconds);
+            clips += `<div class="ab-map-clip ab-map-clip-${esc(st)}">
+                <span class="ab-map-clip-state">${esc(st)}</span>
+                <span class="ab-map-clip-type">${esc(c.type || '')}</span>
+                <span class="ab-map-clip-label">${esc(label)}</span>
+                <span class="ab-map-clip-time">${esc(t0)}–${esc(t1)}</span>
+            </div>`;
+        }
+        rows += `<div class="ab-map-moment collapsed" data-moment-id="${esc(mid)}">
+            <button type="button" class="ab-map-moment-header" aria-expanded="false"
+                onclick="event.stopPropagation(); this.parentElement.classList.toggle('collapsed'); this.setAttribute('aria-expanded', this.parentElement.classList.contains('collapsed') ? 'false' : 'true')">
+                <span class="ab-session-chevron">▾</span>
+                <span class="ab-map-moment-title">M${esc(mid)} · ${esc(theme)}</span>
+                <span class="ab-map-moment-counts">${esc(mBits.join(' · ') || `${mom.clip_count || 0} clips`)}</span>
+            </button>
+            <div class="ab-map-moment-body">${clips || '<div class="ab-map-clip-empty">No clips</div>'}</div>
+        </div>`;
+    }
+    const summary = `Plan: ${m.moment_count} moment${m.moment_count === 1 ? '' : 's'} · ${m.clip_count} clips · ${m.processed_count} done · ${m.left_count} left` +
+        (m.skipped_count ? ` · ${m.skipped_count} skipped` : '');
+    return `<div class="ab-session-map" data-map-stem="${esc(stem)}">
+        <div class="ab-session-map-summary">${esc(summary)}</div>
+        ${rows}
+    </div>`;
+}
+
 function _sessionHeaderHtml(stem, items, opts) {
     if (!stem || String(stem).startsWith('__')) return '';
     const collapseDefault = !!(opts && opts.collapseDefault);
@@ -383,25 +453,78 @@ function _sessionHeaderHtml(stem, items, opts) {
     }
     const bits = [];
     if (fulls) bits.push(`${fulls} full`);
-    if (moments) bits.push(`${moments} moment${moments === 1 ? '' : 's'}`);
+    if (moments) bits.push(`${moments} card${moments === 1 ? '' : 's'}`);
     if (!bits.length) bits.push(`${n} card${n === 1 ? '' : 's'}`);
+    const mapBits = _sessionMapBits(stem);
     const safeStem = esc(stem);
     const id = `ab-sess-${safeStem.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     const collapsedCls = collapseDefault ? ' collapsed' : '';
     const expanded = collapseDefault ? 'false' : 'true';
+    // Nested map rows only on work lanes (drafts/scheduled/testing), not History clutter
+    const showMap = !(opts && opts.collapseDefault);
+    const mapHtml = showMap ? _sessionMapPanelHtml(stem) : '';
     return `<div class="ab-session-group${collapsedCls}" data-stem="${safeStem}">
         <button type="button" class="ab-session-header" aria-expanded="${expanded}"
             onclick="this.parentElement.classList.toggle('collapsed'); this.setAttribute('aria-expanded', this.parentElement.classList.contains('collapsed') ? 'false' : 'true')">
             <span class="ab-session-chevron">▾</span>
             <span class="ab-session-title">Session ${safeStem}</span>
-            <span class="ab-session-counts">${esc(bits.join(' · '))}</span>
+            <span class="ab-session-counts">${esc(bits.join(' · '))}${esc(mapBits)}</span>
         </button>
-        <div class="ab-session-body" id="${id}">`;
+        <div class="ab-session-body" id="${id}">
+            ${mapHtml}`;
 }
 
 function _sessionFooterHtml(stem) {
     if (!stem || String(stem).startsWith('__')) return '';
     return `</div></div>`;
+}
+
+function _collectSessionStems(items) {
+    const stems = [];
+    const seen = {};
+    for (const it of (items || [])) {
+        const s = it && it.source_stem ? String(it.source_stem) : '';
+        if (s && !seen[s] && !s.startsWith('__')) {
+            seen[s] = true;
+            stems.push(s);
+        }
+    }
+    return stems;
+}
+
+async function ensureSessionMaps(stems) {
+    const need = (stems || []).filter(s => s && _sessionMapCache[s] === undefined);
+    if (!need.length) return;
+    // Coalesce parallel callers (drafts + scheduled render)
+    const key = need.slice().sort().join(',');
+    if (_sessionMapInflight && _sessionMapInflight.key === key) {
+        await _sessionMapInflight.p;
+        return;
+    }
+    const p = (async () => {
+        try {
+            const q = encodeURIComponent(need.join(','));
+            const r = await fetch(`/api/action-board/session-map?stems=${q}`);
+            const data = await r.json().catch(() => ({}));
+            const maps = (data && data.maps) || {};
+            for (const s of need) {
+                _sessionMapCache[s] = maps[s] || { stem: s, has_map: false, moments: [] };
+            }
+        } catch (e) {
+            console.error('session-map load failed', e);
+            for (const s of need) {
+                if (_sessionMapCache[s] === undefined) {
+                    _sessionMapCache[s] = { stem: s, has_map: false, moments: [] };
+                }
+            }
+        }
+    })();
+    _sessionMapInflight = { key, p };
+    try {
+        await p;
+    } finally {
+        if (_sessionMapInflight && _sessionMapInflight.key === key) _sessionMapInflight = null;
+    }
 }
 
 function _renderGrouped(items, cardFn, opts) {
@@ -413,6 +536,20 @@ function _renderGrouped(items, cardFn, opts) {
         html += _sessionHeaderHtml(stem, group, opts);
         html += group.map(cardFn).join('');
         html += _sessionFooterHtml(stem);
+    }
+    // Kick lazy map fetch for work lanes; repaint once when maps first land
+    if (!(opts && opts.collapseDefault)) {
+        const stems = _collectSessionStems(items);
+        const pending = stems.filter(s => _sessionMapCache[s] === undefined);
+        if (pending.length) {
+            ensureSessionMaps(pending).then(() => {
+                try {
+                    if (document.querySelector('.ab-session-group[data-stem]') && typeof refreshActions === 'function') {
+                        refreshActions();
+                    }
+                } catch (_) { /* ignore */ }
+            });
+        }
     }
     return html;
 }
