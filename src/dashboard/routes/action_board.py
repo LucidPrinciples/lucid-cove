@@ -1006,6 +1006,132 @@ async def get_history(request: Request, limit: int = 50, offset: int = 0):
     }
 
 
+def _summarize_moments_map(moments_data: dict | None, stem: str) -> dict:
+    """Flatten transcripts/{stem}-moments.json into session-header + nested rows.
+
+    Each clip may carry processed / skipped from the pipeline after render.
+    Cards on the board are separate; this map is the source-of-truth plan.
+    """
+    empty = {
+        "stem": stem,
+        "has_map": False,
+        "moment_count": 0,
+        "clip_count": 0,
+        "processed_count": 0,
+        "skipped_count": 0,
+        "left_count": 0,
+        "moments": [],
+    }
+    if not isinstance(moments_data, dict):
+        return empty
+    moments_out = []
+    clip_count = processed_count = skipped_count = left_count = 0
+    for moment in moments_data.get("moments") or []:
+        if not isinstance(moment, dict):
+            continue
+        mid = moment.get("id")
+        clips_out = []
+        m_proc = m_skip = m_left = 0
+        for clip in moment.get("clips") or []:
+            if not isinstance(clip, dict):
+                continue
+            clip_count += 1
+            processed = bool(clip.get("processed"))
+            skipped = bool(clip.get("skipped"))
+            if skipped:
+                skipped_count += 1
+                m_skip += 1
+                state = "skipped"
+            elif processed:
+                processed_count += 1
+                m_proc += 1
+                state = "processed"
+            else:
+                left_count += 1
+                m_left += 1
+                state = "left"
+            try:
+                start = float(clip.get("start_seconds") or 0)
+                end = float(clip.get("end_seconds") or 0)
+            except (TypeError, ValueError):
+                start, end = 0.0, 0.0
+            try:
+                dur = float(clip.get("duration_seconds") or (end - start) or 0)
+            except (TypeError, ValueError):
+                dur = 0.0
+            clips_out.append({
+                "type": clip.get("type") or "",
+                "label": clip.get("label") or clip.get("hook_line") or "",
+                "start_seconds": start,
+                "end_seconds": end,
+                "duration_seconds": dur,
+                "state": state,
+                "virality_score": clip.get("virality_score"),
+            })
+        moments_out.append({
+            "id": mid,
+            "theme_tag": moment.get("theme_tag") or "",
+            "topic": moment.get("topic") or "",
+            "hook": moment.get("hook") or "",
+            "start_seconds": moment.get("start_seconds"),
+            "end_seconds": moment.get("end_seconds"),
+            "clip_count": len(clips_out),
+            "processed_count": m_proc,
+            "skipped_count": m_skip,
+            "left_count": m_left,
+            "clips": clips_out,
+        })
+    return {
+        "stem": stem,
+        "has_map": True,
+        "moment_count": len(moments_out),
+        "clip_count": clip_count,
+        "processed_count": processed_count,
+        "skipped_count": skipped_count,
+        "left_count": left_count,
+        "moments": moments_out,
+    }
+
+
+@router.get("/api/action-board/session-map")
+async def get_session_maps(request: Request, stems: str = ""):
+    """#VP-SESS-MAP1 — moments.json plan + processed/left for session headers.
+
+    Query: stems=IMG_7168,IMG_7159 (comma-separated, max 24).
+    Reads transcripts/{{stem}}-moments.json via the same video I/O as the pipeline.
+    """
+    if _is_public_app():
+        return JSONResponse({"error": "unavailable"}, status_code=404)
+    pid = await _acting_presence_id(request)
+    if pid == "":
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    raw = [s.strip() for s in (stems or "").split(",") if s.strip()]
+    # sanitize stems — alnum underscore hyphen only
+    clean = []
+    for s in raw[:24]:
+        if all(c.isalnum() or c in ("_", "-") for c in s) and len(s) < 80:
+            clean.append(s)
+    if not clean:
+        return {"maps": {}, "stems": []}
+
+    try:
+        from src.dashboard.routes.video_pipeline import _read_video_json
+    except Exception as e:
+        logger.warning(f"session-map import failed: {e}")
+        return {"maps": {s: _summarize_moments_map(None, s) for s in clean}, "stems": clean}
+
+    maps: dict = {}
+    for stem in clean:
+        try:
+            data = await _read_video_json(request, f"transcripts/{stem}-moments.json")
+        except Exception as e:
+            logger.warning(f"session-map read {stem}: {e}")
+            data = None
+        maps[stem] = _summarize_moments_map(data, stem)
+    return {"maps": maps, "stems": clean}
+
+
 @router.get("/api/action-board/actions/{queue_id}")
 async def get_action_detail(queue_id: int, request: Request):
     """Get full detail for a single youtube_queue item (for the action overlay)."""
