@@ -1595,6 +1595,9 @@ async def list_transcripts(request: Request):
     """List available transcripts and their analysis status (founder mount or NC)."""
     files = await _list_video_dir(request, "transcripts")
     names = {f["filename"] for f in files}
+    # #SKIP-MOM1 — shorts products mark a stem as finished for active-pipeline hide
+    short_files = await _list_video_dir(request, "shorts")
+    short_names = {f["filename"] for f in short_files}
     transcripts = []
     for f in sorted(names):
         if f.endswith("-transcript.json") and not f.endswith("-edited.json"):
@@ -1603,12 +1606,20 @@ async def list_transcripts(request: Request):
             edited_file = f"{stem}-transcript-edited.json"
             has_moments = moments_file in names
             has_edits = edited_file in names
+            has_processed = (
+                f"{stem}-moments-processed.json" in short_names
+                or any(
+                    n.startswith(f"{stem}-") and n.endswith(".mp4") and "-preview" not in n
+                    for n in short_names
+                )
+            )
             transcripts.append({
                 "stem": stem,
                 "transcript_file": f,
                 "has_moments": has_moments,
                 "moments_file": moments_file if has_moments else None,
                 "has_edits": has_edits,
+                "has_processed": has_processed,
             })
     return {"transcripts": transcripts}
 
@@ -1620,6 +1631,46 @@ async def get_moments(stem: str, request: Request):
     if data is None:
         return JSONResponse({"error": f"No moments file for {stem}"}, status_code=404)
     return JSONResponse(data)
+
+
+@router.post("/graduate-stem")
+async def graduate_stem(request: Request):
+    """#SKIP-MOM1 — move finished original processing/ → raw/ so skip-moments
+    stems leave the active Video Pipeline list (same graduation as caption-full).
+
+    Body: { "stem": "IMG_7168" }
+    Best-effort; never fails a successful render path hard — returns ok + detail.
+    """
+    body = await request.json()
+    stem = (body.get("stem") or "").strip()
+    if not stem:
+        return JSONResponse({"ok": False, "error": "stem required"}, status_code=400)
+    # Presence-scoped NC session (multi-mode); None = founder mount via voice proxy path.
+    _nch = await pipecat_nc_headers(request)
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{PIPECAT_URL}/api/video/graduate-stem",
+                json={"stem": stem},
+                headers=_nch,
+            )
+            raw = (resp.text or "").strip()
+            if not raw:
+                return JSONResponse(
+                    {"ok": False, "error": f"empty voice response HTTP {resp.status_code}"},
+                    status_code=502,
+                )
+            try:
+                data = resp.json()
+            except Exception:
+                return JSONResponse(
+                    {"ok": False, "error": f"non-JSON voice HTTP {resp.status_code}: {raw[:200]}"},
+                    status_code=502,
+                )
+            return JSONResponse(data, status_code=resp.status_code)
+    except Exception as e:
+        logger.error("graduate-stem proxy error: %s", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
 @router.post("/moments/mark-skipped")
