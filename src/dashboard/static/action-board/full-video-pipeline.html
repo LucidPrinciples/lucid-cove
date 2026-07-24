@@ -105,11 +105,15 @@ if (window.location.search.includes('embedded=1')) {
             <input type="password" id="pa-x-access-token" placeholder="Access Token" autocomplete="off" style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
             <input type="password" id="pa-x-access-token-secret" placeholder="Access Token Secret" autocomplete="off" style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">
         </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11px;color:#aaa;cursor:pointer;">
+            <input type="checkbox" id="pa-x-long-posts" style="accent-color:#5ce1e6;">
+            Premium long posts (up to 25,000 chars — no mid-word cut at 280)
+        </label>
         <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
             <button onclick="saveXAccount()" style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 14px;font-size:11px;cursor:pointer;">Save X Keys</button>
             <span id="pa-x-save" style="font-size:11px;"></span>
         </div>
-        <div style="font-size:10px;color:#666;margin-top:4px;">From the X developer portal (OAuth 1.0a user tokens). All four required.</div>
+        <div style="font-size:10px;color:#666;margin-top:4px;">From the X developer portal (OAuth 1.0a user tokens). All four required. Long-post flag saves even without re-entering keys.</div>
         <hr style="border:none;border-top:1px solid #1c1f29;margin:14px 0;">
         <div style="font-weight:600;font-size:12px;color:#ccc;margin-bottom:6px;">▶ YouTube <span id="pa-yt-state" style="font-weight:normal;font-size:10px;margin-left:6px;"></span></div>
         <div id="pa-yt-app" style="display:none;margin-bottom:8px;">
@@ -299,7 +303,13 @@ async function loadPostingAccounts() {
         const d = r.ok ? await r.json() : {};
         const xConfigured = !!(d.x && d.x.configured);
         const xs = document.getElementById('pa-x-state');
-        if (xs) { xs.textContent = xConfigured ? '✓ connected' : 'not set'; xs.style.color = xConfigured ? '#2ecc71' : '#e67e22'; }
+        if (xs) {
+            const longNote = (d.x && d.x.long_posts) ? ` · long posts (${d.x.max_chars || 25000})` : ' · 280 cap';
+            xs.textContent = (xConfigured ? '✓ connected' : 'not set') + longNote;
+            xs.style.color = xConfigured ? '#2ecc71' : '#e67e22';
+        }
+        const longCb = document.getElementById('pa-x-long-posts');
+        if (longCb && d.x) longCb.checked = !!d.x.long_posts;
 
         const yt = d.youtube || {};
         const yts = document.getElementById('pa-yt-state');
@@ -353,6 +363,7 @@ async function saveXAccount() {
         api_secret: document.getElementById('pa-x-api-secret').value.trim(),
         access_token: document.getElementById('pa-x-access-token').value.trim(),
         access_token_secret: document.getElementById('pa-x-access-token-secret').value.trim(),
+        long_posts: !!(document.getElementById('pa-x-long-posts') || {}).checked,
     };
     const s = document.getElementById('pa-x-save');
     s.textContent = 'Saving…'; s.style.color = '#5ce1e6';
@@ -363,7 +374,8 @@ async function saveXAccount() {
         });
         const d = await r.json();
         if (r.ok && d.ok) {
-            s.textContent = d.configured ? '✓ saved — X ready' : '✓ saved (need all four keys)';
+            const longBit = d.max_chars ? ` · max ${d.max_chars}` : '';
+            s.textContent = (d.configured ? '✓ saved — X ready' : '✓ saved (need all four keys)') + longBit;
             s.style.color = d.configured ? '#2ecc71' : '#e67e22';
             ['pa-x-api-key', 'pa-x-api-secret', 'pa-x-access-token', 'pa-x-access-token-secret']
                 .forEach(id => { document.getElementById(id).value = ''; });

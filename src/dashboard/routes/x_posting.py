@@ -16,8 +16,14 @@ Cost notes (pay-per-use, April 2026 pricing):
 
 Media upload uses X API v2 chunked upload (initialize/append/finalize),
 falling back to command-style endpoints if the deployed API differs.
-Unicode normalization and 280-char handling ported from LT's x_posting
-tool on Socrates (the single source for that behavior on VPS).
+Unicode normalization ported from LT's x_posting tool on Socrates.
+
+Text limits:
+    - Free / default: 280 effective chars (URLs count as 23).
+    - Premium long-post: up to 25_000 when enabled per-presence
+      (preferences.posting.x.long_posts) or Cove-wide (X_LONG_POSTS=true).
+    - Fitting is word-safe — never mid-word + "..." (the old caption[:277]
+      path mangled Premium captions on schedule).
 
 X_DRY_RUN=true (default if unset: false) skips all live API calls.
 """
@@ -50,6 +56,12 @@ VERIFY_V11 = "https://api.twitter.com/1.1/account/verify_credentials.json"
 CHUNK_SIZE = 4 * 1024 * 1024  # 4MB — under the 5MB per-append limit
 PROCESSING_TIMEOUT = 300       # max seconds to wait for X video processing
 
+# Effective character ceilings (X counts URLs as 23; see x_length).
+X_FREE_MAX_CHARS = 280
+X_PREMIUM_MAX_CHARS = 25_000
+# Leave room for a trailing "..." when we must fit under a ceiling.
+_ELLIPSIS = "..."
+
 MEDIA_TYPES = {
     ".mp4": "video/mp4",
     ".mov": "video/quicktime",
@@ -62,7 +74,7 @@ MEDIA_TYPES = {
 
 
 # =========================================================================
-# Text handling (ported from LT's x_posting.py — keep behavior identical)
+# Text handling
 # =========================================================================
 
 def normalize_unicode(text: str) -> str:
@@ -97,23 +109,175 @@ def contains_url(text: str) -> bool:
     return bool(re.search(r'https?://\S+', text or ""))
 
 
-def build_caption(title: str, hashtags: str = "", description: str = "") -> str:
-    """Build a post caption, fit to 280, never a URL.
+def _truthy(val) -> bool:
+    if isinstance(val, bool):
+        return val
+    if val is None:
+        return False
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def resolve_x_max_chars(
+    *,
+    prefs: dict | None = None,
+    owner_id: str | None = None,
+) -> int:
+    """Ceiling for one post body.
+
+    Order:
+      1. preferences.posting.x.max_chars (explicit int, clamped)
+      2. preferences.posting.x.long_posts truthy → premium default
+      3. env X_MAX_CHARS (int)
+      4. env X_LONG_POSTS truthy → premium default
+      5. free tier 280
+
+    `prefs` may be a full accounts.preferences dict or the posting.x section.
+    owner_id is accepted for call-site clarity; load prefs before calling when
+    you already have async context (see resolve_x_max_chars_for).
+    """
+    del owner_id  # documented for callers; prefs carry the value
+    x_section: dict = {}
+    if isinstance(prefs, dict):
+        if "long_posts" in prefs or "max_chars" in prefs or "api_key" in prefs:
+            x_section = prefs
+        else:
+            x_section = ((prefs.get("posting") or {}).get("x") or {})
+
+    raw_max = x_section.get("max_chars") if x_section else None
+    if raw_max is None or raw_max == "":
+        raw_max = env("X_MAX_CHARS") or None
+    if raw_max is not None and str(raw_max).strip() != "":
+        try:
+            n = int(raw_max)
+            if n >= X_FREE_MAX_CHARS:
+                return min(n, X_PREMIUM_MAX_CHARS)
+        except (TypeError, ValueError):
+            pass
+
+    long_posts = False
+    if x_section:
+        long_posts = _truthy(x_section.get("long_posts"))
+    if not long_posts:
+        long_posts = env_bool("X_LONG_POSTS", "false")
+    return X_PREMIUM_MAX_CHARS if long_posts else X_FREE_MAX_CHARS
+
+
+async def resolve_x_max_chars_for(
+    *,
+    request=None,
+    owner_id: str | None = None,
+) -> int:
+    """Async helper: load presence prefs then resolve_x_max_chars."""
+    prefs = None
+    try:
+        from src.dashboard.routes.posting_identity import (
+            _account_prefs,
+            owner_id_from_request,
+        )
+        oid = owner_id or (
+            await owner_id_from_request(request) if request is not None else None
+        )
+        if oid:
+            prefs = await _account_prefs(oid)
+    except Exception:
+        prefs = None
+    return resolve_x_max_chars(prefs=prefs, owner_id=owner_id)
+
+
+def fit_x_text(text: str, max_chars: int = X_FREE_MAX_CHARS) -> str:
+    """Fit text under max_chars (X effective length). Never cuts mid-word.
+
+    Strategy when over ceiling:
+      1. Prefer last whitespace break that still fits with trailing ellipsis.
+      2. Prefer last sentence-end (. ! ?) before that.
+      3. Only if a single token is longer than the ceiling, hard-slice + ellipsis.
+    """
+    text = text or ""
+    if max_chars < 1:
+        return ""
+    if x_length(text) <= max_chars:
+        return text
+
+    # Budget for body so body + "..." stays under max (URL-aware via trial).
+    # Start from a generous byte budget then walk back.
+    ell = _ELLIPSIS
+    # Hard upper bound on python slice before measuring x_length.
+    # URLs inflate effective length, so slice longer than max when URLs present.
+    probe_cap = max(max_chars * 2, max_chars + 64)
+    candidate = text[:probe_cap]
+
+    def _fits(s: str) -> bool:
+        return x_length(s) <= max_chars
+
+    # Binary-ish shrink: drop chars until body+ellipsis fits, then snap to word.
+    lo, hi = 0, len(candidate)
+    best = ""
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        body = candidate[:mid].rstrip()
+        trial = body + ell if body else ell[:max_chars]
+        if _fits(trial):
+            best = trial
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    if not best:
+        # Pathological: even ellipsis alone — return truncated ellipsis.
+        return ell[:max_chars]
+
+    body = best[: -len(ell)] if best.endswith(ell) else best
+    # Prefer sentence boundary in the kept body.
+    sentence_break = max(body.rfind(". "), body.rfind("! "), body.rfind("? "))
+    if sentence_break >= max(20, len(body) // 4):
+        sentenced = body[: sentence_break + 1].rstrip()
+        trial = sentenced + ell
+        if _fits(trial) and sentenced:
+            return trial
+
+    # Prefer last whitespace (word boundary).
+    ws = max(body.rfind(" "), body.rfind("\n"), body.rfind("\t"))
+    if ws >= 1:
+        worded = body[:ws].rstrip()
+        trial = worded + ell
+        if _fits(trial) and worded:
+            return trial
+
+    # Single overlong token — hard cut is the only option.
+    return best
+
+
+def build_caption(
+    title: str,
+    hashtags: str = "",
+    description: str = "",
+    max_chars: int | None = None,
+) -> str:
+    """Build a post caption under max_chars, never a URL, never mid-word.
 
     For X, the AI template writes the actual post text into `description` —
     prefer it over the title when present. URLs cost 13x per post on
     pay-per-use — strip them defensively.
+
+    max_chars defaults to free-tier 280. Pass resolve_x_max_chars(...) for
+    Premium long-post accounts.
     """
+    ceiling = X_FREE_MAX_CHARS if max_chars is None else int(max_chars)
+    if ceiling < X_FREE_MAX_CHARS:
+        ceiling = X_FREE_MAX_CHARS
+    if ceiling > X_PREMIUM_MAX_CHARS:
+        ceiling = X_PREMIUM_MAX_CHARS
+
     base = (description or "").strip() or (title or "").strip()
     base = re.sub(r'https?://\S+', '', base).strip()
     hashtags = re.sub(r'https?://\S+', '', hashtags or "").strip()
     caption = f"{base}\n\n{hashtags}" if (hashtags and hashtags not in base) else base
     caption = normalize_unicode(caption)
-    if x_length(caption) > 280:
-        # Drop hashtags first, then truncate
+    if x_length(caption) > ceiling:
+        # Drop hashtags first — keep the real post body.
         caption = normalize_unicode(base)
-        if x_length(caption) > 280:
-            caption = caption[:277] + "..."
+        if x_length(caption) > ceiling:
+            caption = fit_x_text(caption, ceiling)
     return caption
 
 
@@ -339,21 +503,30 @@ async def x_status(request: Request):
 
 
 class PostRequest(BaseModel):
-    text: str = Field(..., description="Post text (max 280 effective chars)")
+    text: str = Field(
+        ...,
+        description="Post text (max 280 free / 25000 Premium long-post effective chars)",
+    )
 
 
 @router.post("/api/x/post")
 async def x_post(req: PostRequest, request: Request):
     """Text-only post. URLs are flagged (13x cost) but not blocked here."""
     text = normalize_unicode(req.text)
+    max_chars = await resolve_x_max_chars_for(request=request)
     length = x_length(text)
-    if length > 280:
+    if length > max_chars:
         return JSONResponse(status_code=400, content={
-            "error": f"Post too long: {length} chars (max 280). {length - 280} over."})
+            "error": (
+                f"Post too long: {length} chars (max {max_chars}). "
+                f"{length - max_chars} over."
+            ),
+            "max_chars": max_chars,
+        })
 
     if _dry_run():
         return {"status": "dry_run", "would_post": text, "length": length,
-                "url_warning": contains_url(text)}
+                "max_chars": max_chars, "url_warning": contains_url(text)}
 
     creds, error = await resolve_x_creds(request=request)
     if not creds:
@@ -362,7 +535,8 @@ async def x_post(req: PostRequest, request: Request):
         result = await asyncio.to_thread(_create_post_sync, creds, text, None)
     except RuntimeError as e:
         return JSONResponse(status_code=502, content={"error": str(e)})
-    return {"status": "ok", **result, "url_cost_applied": contains_url(text)}
+    return {"status": "ok", **result, "url_cost_applied": contains_url(text),
+            "max_chars": max_chars}
 
 
 class UploadRequest(BaseModel):
@@ -385,11 +559,25 @@ async def x_upload(req: UploadRequest, request: Request):
         return JSONResponse(status_code=404, content={
             "error": f"Media file not found under /content: {req.file_path}"})
 
-    text = normalize_unicode(req.text) if req.text else build_caption(req.title, req.hashtags)
+    max_chars = await resolve_x_max_chars_for(request=request)
+    text = (
+        normalize_unicode(req.text)
+        if req.text
+        else build_caption(req.title, req.hashtags, max_chars=max_chars)
+    )
     length = x_length(text)
-    if length > 280:
-        return JSONResponse(status_code=400, content={
-            "error": f"Caption too long: {length} chars (max 280)."})
+    if length > max_chars:
+        # Manual caption path: fit word-safe rather than hard-fail when the
+        # body came from title/hashtags build; explicit text still 400s so the
+        # operator can edit (matches prior free-tier contract, raised ceiling).
+        if not req.text:
+            text = fit_x_text(text, max_chars)
+            length = x_length(text)
+        if length > max_chars:
+            return JSONResponse(status_code=400, content={
+                "error": f"Caption too long: {length} chars (max {max_chars}).",
+                "max_chars": max_chars,
+            })
 
     if req.media_category:
         media_category = req.media_category
@@ -402,7 +590,7 @@ async def x_upload(req: UploadRequest, request: Request):
     if _dry_run():
         return {"status": "dry_run", "would_post": text,
                 "file": str(video_path), "size_mb": size_mb,
-                "media_category": media_category}
+                "media_category": media_category, "max_chars": max_chars}
 
     creds, error = await resolve_x_creds(request=request)
     if not creds:
@@ -413,7 +601,7 @@ async def x_upload(req: UploadRequest, request: Request):
         return JSONResponse(status_code=502, content={"error": str(e)})
 
     return {"status": "ok", **result, "file": str(video_path),
-            "size_mb": size_mb, "caption": text}
+            "size_mb": size_mb, "caption": text, "max_chars": max_chars}
 
 
 async def process_queued_x_posts() -> dict:
@@ -449,10 +637,10 @@ async def process_queued_x_posts() -> dict:
         return {"status": "ok", "message": "No X posts ready.", "ready": 0}
 
     creds_cache: dict = {}  # owner_id -> creds (resolve once per presence)
+    max_chars_cache: dict = {}  # owner_id -> caption ceiling
     results = []
     for row in ready:
         qid = row["id"]
-        caption = build_caption(row["title"], row["hashtags"], row.get("description", ""))
 
         # Resolve THIS row's presence credentials FIRST (env fallback for legacy
         # NULL rows) — never download a multi-GB clip for a row that will fail
@@ -460,7 +648,17 @@ async def process_queued_x_posts() -> dict:
         owner_id = row.get("agent_id")
         if owner_id not in creds_cache:
             creds_cache[owner_id], _ = await resolve_x_creds(owner_id=owner_id)
+            max_chars_cache[owner_id] = await resolve_x_max_chars_for(
+                owner_id=owner_id
+            )
         row_creds = creds_cache[owner_id]
+        max_chars = max_chars_cache[owner_id]
+        caption = build_caption(
+            row["title"],
+            row["hashtags"],
+            row.get("description", ""),
+            max_chars=max_chars,
+        )
         if not row_creds:
             async with get_db() as conn:
                 await conn.execute(
