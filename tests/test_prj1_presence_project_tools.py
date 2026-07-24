@@ -266,3 +266,11 @@ def test_provision_and_upgrade_include_links_tools():
     assert "tools.links_tools" in text
     from src import config as cfg
     assert "tools.links_tools" in cfg._PRESENCE_DEFAULT_MODULES
+
+
+def test_provision_and_upgrade_include_site_tools():
+    """Personal agents keep site_deploy after restart (approval-gated Tier B)."""
+    text = Path("provision/centralized.py").read_text()
+    assert "tools.site_tools" in text
+    from src import config as cfg
+    assert "tools.site_tools" in cfg._PRESENCE_DEFAULT_MODULES
