@@ -1,0 +1,25 @@
+# Lucid Cove SearXNG - agent web_search backend.
+# JSON format must be enabled or research_tools web_search gets HTML.
+use_default_settings: true
+
+general:
+  instance_name: "Lucid Cove Search"
+  enable_metrics: false
+
+server:
+  bind_address: "0.0.0.0"
+  base_url: false
+  limiter: false
+  image_proxy: false
+  secret_key: "cove-searxng-change-me"
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json
+
+ui:
+  static_use_hash: true
