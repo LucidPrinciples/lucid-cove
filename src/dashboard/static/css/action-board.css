@@ -158,6 +158,29 @@
   margin-left: 0.3rem; vertical-align: middle;
 }
 
+/* #VP-TEST1 — testing lane toolbar */
+.ab-testing-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: rgba(92, 225, 230, 0.06);
+}
+.ab-testing-hint {
+    flex: 1;
+    font-size: 12px;
+    color: var(--dim);
+}
+.ab-btn-danger {
+    border-color: var(--red, #c44);
+    color: var(--red, #c44);
+}
+
 /* #VP-SESS1 — session groups (one master stem = full + moments) */
 .ab-session-group {
     grid-column: 1 / -1;
