@@ -292,11 +292,91 @@ function _socialBoardLegendHtml() {
     </div>`;
 }
 
+/** #VP-SESS1 — group cards by source_stem (session). Full role first inside group. */
+function _groupItemsBySession(items) {
+    const list = items || [];
+    const order = [];
+    const map = {};
+    for (const it of list) {
+        const stem = (it && it.source_stem) ? String(it.source_stem) : '';
+        if (stem) {
+            if (!map[stem]) {
+                map[stem] = [];
+                order.push(stem);
+            }
+            map[stem].push(it);
+        } else {
+            // Ungrouped singles each get a unique key so we don't fake a session
+            const ukey = `__one_${order.length}`;
+            map[ukey] = [it];
+            order.push(ukey);
+        }
+    }
+    // Sort within session: full first, then moments; stable title
+    for (const k of order) {
+        map[k].sort((a, b) => {
+            const ra = (a.session_role === 'full' || a.clip_type === 'full' || a.is_short === false) ? 0 : 1;
+            const rb = (b.session_role === 'full' || b.clip_type === 'full' || b.is_short === false) ? 0 : 1;
+            if (ra !== rb) return ra - rb;
+            return String(a.title || '').localeCompare(String(b.title || ''));
+        });
+    }
+    return { order, map };
+}
+
+function _sessionHeaderHtml(stem, items) {
+    if (!stem || String(stem).startsWith('__')) return '';
+    const n = items.length;
+    let fulls = 0;
+    let moments = 0;
+    for (const it of items) {
+        const isFull = it.session_role === 'full' || it.clip_type === 'full' || it.is_short === false;
+        if (isFull) fulls += 1;
+        else moments += 1;
+    }
+    const bits = [];
+    if (fulls) bits.push(`${fulls} full`);
+    if (moments) bits.push(`${moments} moment${moments === 1 ? '' : 's'}`);
+    if (!bits.length) bits.push(`${n} card${n === 1 ? '' : 's'}`);
+    const safeStem = esc(stem);
+    const id = `ab-sess-${safeStem.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    return `<div class="ab-session-group" data-stem="${safeStem}">
+        <button type="button" class="ab-session-header" aria-expanded="true"
+            onclick="this.parentElement.classList.toggle('collapsed'); this.setAttribute('aria-expanded', this.parentElement.classList.contains('collapsed') ? 'false' : 'true')">
+            <span class="ab-session-chevron">▾</span>
+            <span class="ab-session-title">Session ${safeStem}</span>
+            <span class="ab-session-counts">${esc(bits.join(' · '))}</span>
+        </button>
+        <div class="ab-session-body" id="${id}">`;
+}
+
+function _sessionFooterHtml(stem) {
+    if (!stem || String(stem).startsWith('__')) return '';
+    return `</div></div>`;
+}
+
+function _renderGrouped(items, cardFn) {
+    const { order, map } = _groupItemsBySession(items);
+    let html = '';
+    for (const k of order) {
+        const group = map[k];
+        const stem = String(k).startsWith('__') ? '' : k;
+        html += _sessionHeaderHtml(stem, group);
+        html += group.map(cardFn).join('');
+        html += _sessionFooterHtml(stem);
+    }
+    return html;
+}
+
 function _renderActionCards(items) {
-    return items.map(a => {
+    return _renderGrouped(items, (a) => {
         const urgencyColors = { high: 'var(--red)', normal: 'var(--accent)', low: 'var(--green)' };
         const color = urgencyColors[a.urgency] || 'var(--dim)';
         const series = a.series ? `<span class="ab-action-series">${esc(a.series)}</span>` : '';
+        const stemBadge = a.source_stem ? `<span class="ab-action-series ab-session-badge">${esc(a.source_stem)}</span>` : '';
+        const roleBadge = a.session_role === 'full'
+            ? '<span class="ab-meta-chip ab-meta-full" title="Full-length from session">Full</span>'
+            : (a.session_role === 'moment' ? '<span class="ab-meta-chip ab-meta-moment" title="Moment from session">Moment</span>' : '');
         const postCls = _cardPostClass(a);
         const metaChips = _postMetaChips(postCls);
 
@@ -355,22 +435,26 @@ function _renderActionCards(items) {
         }
 
         return `
-        <div class="ab-action-card ${postCls.classes}" data-id="${esc(a.id)}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" ${clickAttr}>
+        <div class="ab-action-card ${postCls.classes}" data-id="${esc(a.id)}" data-stem="${esc(a.source_stem || '')}" data-session-role="${esc(a.session_role || '')}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${esc(a.title)} ${metaChips}</div>
-                <div class="ab-action-desc">${esc(a.description || '')} ${series}</div>
+                <div class="ab-action-title">${esc(a.title)} ${roleBadge} ${metaChips}</div>
+                <div class="ab-action-desc">${esc(a.description || '')} ${stemBadge} ${series}</div>
             </div>
             <span class="ab-action-status-badge ab-status-${esc(a.status || 'draft')}">${esc(a.status || '')}</span>
         </div>`;
-    }).join('');
+    });
 }
 
 function _renderScheduledCards(items) {
-    return items.map(s => {
+    return _renderGrouped(items, (s) => {
         const statusColors = { queued: 'var(--yellow)', uploading: 'var(--accent)', uploaded: 'var(--green)', published: 'var(--green)' };
         const color = statusColors[s.status] || 'var(--dim)';
         const series = s.series ? `<span class="ab-action-series">${esc(s.series)}</span>` : '';
+        const stemBadge = s.source_stem ? `<span class="ab-action-series ab-session-badge">${esc(s.source_stem)}</span>` : '';
+        const roleBadge = s.session_role === 'full'
+            ? '<span class="ab-meta-chip ab-meta-full" title="Full-length from session">Full</span>'
+            : (s.session_role === 'moment' ? '<span class="ab-meta-chip ab-meta-moment" title="Moment from session">Moment</span>' : '');
         const plat = s.platform || 'youtube';
         const platTag = plat === 'x' ? '<span class="ab-action-series">𝕏</span> '
             : (plat === 'youtube' ? '<span class="ab-action-series">YT</span> ' : '');
@@ -399,15 +483,15 @@ function _renderScheduledCards(items) {
         const err = s.error_message ? ` · ${esc(s.error_message).slice(0, 80)}` : '';
 
         return `
-        <div class="ab-action-card ab-scheduled-card ${postCls.classes}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" ${clickAttr}>
+        <div class="ab-action-card ab-scheduled-card ${postCls.classes}" data-stem="${esc(s.source_stem || '')}" data-session-role="${esc(s.session_role || '')}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${platTag}${esc(s.title)}${ytLink} ${metaChips}</div>
-                <div class="ab-action-desc">${esc(s.subtitle)} ${series}${err}</div>
+                <div class="ab-action-title">${platTag}${esc(s.title)}${ytLink} ${roleBadge} ${metaChips}</div>
+                <div class="ab-action-desc">${esc(s.subtitle)} ${stemBadge} ${series}${err}</div>
             </div>
             <span class="ab-action-status-badge ab-status-${esc(s.status)}">${esc(s.status)}</span>
         </div>`;
-    }).join('');
+    });
 }
 
 async function cancelScheduled(queueId) {
@@ -470,13 +554,17 @@ function _historyMoreHtml() {
 }
 
 function _renderHistoryCards(items) {
-    return (items || []).map(h => {
+    return _renderGrouped(items, (h) => {
         const plat = h.platform || 'youtube';
         const platTag = plat === 'x'
             ? '<span class="ab-action-series">𝕏</span> '
             : (plat === 'youtube' ? '<span class="ab-action-series">YT</span> ' : '');
         const postCls = _cardPostClass(h);
         const metaChips = _postMetaChips(postCls);
+        const stemBadge = h.source_stem ? `<span class="ab-action-series ab-session-badge">${esc(h.source_stem)}</span>` : '';
+        const roleBadge = h.session_role === 'full'
+            ? '<span class="ab-meta-chip ab-meta-full" title="Full-length from session">Full</span>'
+            : (h.session_role === 'moment' ? '<span class="ab-meta-chip ab-meta-moment" title="Moment from session">Moment</span>' : '');
         const watch = h.watch_url || h.youtube_url || '';
         const studio = h.studio_url || (
             h.youtube_video_id
@@ -504,18 +592,19 @@ function _renderHistoryCards(items) {
 
         return `
         <div class="ab-action-card ab-history-card ${postCls.classes}"
+             data-stem="${esc(h.source_stem || '')}" data-session-role="${esc(h.session_role || '')}"
              data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}"
              data-history-id="${esc(String(h.id))}" data-platform="${esc(plat)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:var(--green)"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${platTag}${esc(h.title || '')}${links} ${metaChips}</div>
-                <div class="ab-action-desc">${esc(h.subtitle || '')} ${
+                <div class="ab-action-title">${platTag}${esc(h.title || '')}${links} ${roleBadge} ${metaChips}</div>
+                <div class="ab-action-desc">${esc(h.subtitle || '')} ${stemBadge} ${
                     h.series ? `<span class="ab-action-series">${esc(h.series)}</span>` : ''
                 }</div>
             </div>
             <span class="ab-action-status-badge ab-status-published">${esc(h.status || 'published')}</span>
         </div>`;
-    }).join('');
+    });
 }
 
 function _paintHistoryPanel() {

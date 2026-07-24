@@ -820,6 +820,7 @@ CREATE TABLE IF NOT EXISTS youtube_queue (
     youtube_url     TEXT,
     series          TEXT,
     card_id         TEXT,
+    source_stem     TEXT,                -- #VP-SESS1 session key (master stem)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     uploaded_at     TIMESTAMPTZ,
@@ -829,6 +830,9 @@ CREATE INDEX IF NOT EXISTS idx_ytq_upload_ready
     ON youtube_queue (upload_date) WHERE status = 'queued';
 CREATE INDEX IF NOT EXISTS idx_ytq_publish_date
     ON youtube_queue (publish_date) WHERE status IN ('queued', 'uploading', 'uploaded');
+CREATE INDEX IF NOT EXISTS idx_ytq_source_stem
+    ON youtube_queue (source_stem)
+    WHERE source_stem IS NOT NULL AND source_stem <> '';
 
 -- ── social_queue (004_social_queue + 005 format column) ──
 CREATE TABLE IF NOT EXISTS social_queue (
