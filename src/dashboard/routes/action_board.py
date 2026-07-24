@@ -424,6 +424,7 @@ async def get_actions(request: Request):
                     row.get("source_stem"), row.get("series"), row.get("file_path")
                 )
                 role = _session_role(is_short=is_short)
+                testing = _is_testing_row(row.get("series"), None)
                 actions.append({
                     "id": f"yt-short-{row['id']}",
                     "queue_id": row["id"],
@@ -431,8 +432,8 @@ async def get_actions(request: Request):
                     "description": f"Draft — {_fmt_date(row['publish_date'])}",
                     "urgency": "normal",
                     "source": "youtube",
-                    "category": "youtube-short",
-                    "icon": "📺",
+                    "category": "testing" if testing else "youtube-short",
+                    "icon": "🧪" if testing else "📺",
                     "series": series_labels.get(row["series"], row["series"] or ""),
                     "status": row["status"],
                     "type": "youtube-short",
@@ -442,6 +443,7 @@ async def get_actions(request: Request):
                     "is_short": is_short,
                     "source_stem": stem,
                     "session_role": role,
+                    "is_testing": testing,
                 })
 
             # CF-1: strict self-scope
@@ -485,7 +487,8 @@ async def get_actions(request: Request):
             result = await conn.execute(
                 f"""SELECT id, platform, title, description, file_path, preview_path,
                           source_stem, moment_id, clip_type, clip_label,
-                          duration_seconds, is_vertical, format, series, status, created_at
+                          duration_seconds, is_vertical, format, series, status,
+                          created_at, platform_data
                    FROM social_queue
                    WHERE status IN ('draft', 'failed'){scope_sql}
                    ORDER BY created_at ASC""",
@@ -530,6 +533,7 @@ async def get_actions(request: Request):
                     format_=fmt,
                     duration_seconds=dur,
                 )
+                testing = _is_testing_row(row.get("series"), row.get("platform_data"))
                 actions.append({
                     "id": f"sq-{plat}-{row['id']}",
                     "queue_id": row["id"],
@@ -537,8 +541,8 @@ async def get_actions(request: Request):
                     "description": f"{clip_type.capitalize()} · {dur_label} · {fmt_label}" if not is_failed else "Failed",
                     "urgency": "high" if is_failed else "normal",
                     "source": f"social-{plat}",
-                    "category": meta["category"],
-                    "icon": meta["icon"],
+                    "category": "testing" if testing else meta["category"],
+                    "icon": "🧪" if testing else meta["icon"],
                     "status": row["status"],
                     "type": "social",
                     "format": fmt,
@@ -549,6 +553,7 @@ async def get_actions(request: Request):
                     "clip_type": clip_type,
                     "source_stem": stem,
                     "session_role": role,
+                    "is_testing": testing,
                 })
     except _SkipPublic:
         pass
@@ -686,6 +691,9 @@ async def get_scheduled(request: Request):
             }
 
             for row in rows:
+                # #VP-TEST1 — keep test rows off the real Scheduled rail
+                if _is_testing_row(row.get("series"), None):
+                    continue
                 subtitle = ""
                 if row["status"] == "queued":
                     subtitle = f"Uploads {_fmt_date(row['upload_date'])}"
@@ -725,7 +733,7 @@ async def get_scheduled(request: Request):
             result = await conn.execute(
                 f"""SELECT id, title, series, status, platform, upload_date, publish_date,
                           published_at, error_message, clip_type, duration_seconds,
-                          source_stem, file_path, format
+                          source_stem, file_path, format, platform_data
                    FROM social_queue
                    WHERE platform = 'x'
                      AND status IN ('queued', 'uploading')
@@ -736,6 +744,8 @@ async def get_scheduled(request: Request):
                 scope_args,
             )
             for row in await result.fetchall():
+                if _is_testing_row(row.get("series"), row.get("platform_data")):
+                    continue
                 if row["status"] == "queued":
                     when = _fmt_date(row["upload_date"]) if row["upload_date"] else "when due"
                     subtitle = f"𝕏 posts {when}"
@@ -1216,6 +1226,33 @@ def _session_role(clip_type=None, is_short=None, format_=None, duration_seconds=
     return "moment"
 
 
+def _parse_platform_data(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def _is_testing_row(series=None, platform_data=None) -> bool:
+    """#VP-TEST1 — testing cards are isolated from real Social drafts/scheduled.
+
+    True when platform_data.testing is truthy, or series starts with test- / testing.
+    """
+    pdata = _parse_platform_data(platform_data)
+    if pdata.get("testing") is True or str(pdata.get("testing") or "").lower() in (
+        "1", "true", "yes",
+    ):
+        return True
+    ser = (series or "").strip().lower()
+    if ser.startswith("test-") or ser.startswith("testing") or ser == "test":
+        return True
+    return False
+
+
 async def _promote_youtube_post(conn, item_id: int, presence_id: str | None = None):
     """If a social_queue item is a YouTube post now queued with both dates,
     mirror it into youtube_queue + create the calendar event. Returns the
@@ -1327,6 +1364,137 @@ async def delete_social_item(item_id: int, request: Request):
                 return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
         return {"ok": True}
     except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/action-board/testing/mark")
+async def mark_testing_items(request: Request):
+    """#VP-TEST1 — stamp social_queue rows as testing (platform_data.testing + series).
+
+    Body: { ids?: int[], stems?: str[], testing?: bool }
+    Only draft/failed/queued (not published). CF-1 self-scope.
+    """
+    if _is_public_app():
+        return JSONResponse({"ok": False, "error": "unavailable"}, status_code=404)
+    pid = await _acting_presence_id(request)
+    if pid == "":
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+    body = await request.json()
+    ids = body.get("ids") or []
+    stems = body.get("stems") or []
+    want = body.get("testing", True)
+    if not ids and not stems:
+        return JSONResponse({"error": "ids or stems required"}, status_code=400)
+    scope_sql, scope_args = _scope_clause(pid)
+    try:
+        from src.memory.database import get_db
+        marked = 0
+        async with get_db() as conn:
+            clauses = ["status IN ('draft', 'failed', 'queued')"]
+            args: list = []
+            if ids:
+                clauses.append("id = ANY(%s)")
+                args.append(list(int(i) for i in ids))
+            if stems:
+                clauses.append("source_stem = ANY(%s)")
+                args.append(list(str(s) for s in stems))
+            where = " AND ".join(clauses)
+            res = await conn.execute(
+                f"""SELECT id, series, platform_data FROM social_queue
+                    WHERE {where}{scope_sql}""",
+                tuple(args) + scope_args,
+            )
+            rows = await res.fetchall()
+            for row in rows:
+                pdata = _parse_platform_data(row.get("platform_data"))
+                if want:
+                    pdata["testing"] = True
+                    ser = (row.get("series") or "").strip()
+                    if not ser.lower().startswith("test"):
+                        ser = f"test-{ser}" if ser else "test-batch"
+                else:
+                    pdata.pop("testing", None)
+                    ser = (row.get("series") or "").strip()
+                    if ser.lower().startswith("test-"):
+                        ser = ser[5:]
+                    elif ser.lower() in ("test", "testing"):
+                        ser = ""
+                await conn.execute(
+                    """UPDATE social_queue
+                       SET platform_data = %s::jsonb, series = %s
+                       WHERE id = %s""",
+                    (json.dumps(pdata), ser or None, row["id"]),
+                )
+                marked += 1
+        return {"ok": True, "marked": marked, "testing": bool(want)}
+    except Exception as e:
+        logger.warning(f"testing/mark failed: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/action-board/testing/clear")
+async def clear_testing_items(request: Request):
+    """#VP-TEST1 — cancel all testing draft/failed/queued cards for this presence.
+
+    Never touches published/uploaded. Optional body: { stems?: str[] }.
+    """
+    if _is_public_app():
+        return JSONResponse({"ok": False, "error": "unavailable"}, status_code=404)
+    pid = await _acting_presence_id(request)
+    if pid == "":
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    stems = body.get("stems") or []
+    scope_sql, scope_args = _scope_clause(pid)
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            # Social testing rows
+            stem_sql = ""
+            stem_args: list = []
+            if stems:
+                stem_sql = " AND source_stem = ANY(%s)"
+                stem_args.append(list(str(s) for s in stems))
+            res = await conn.execute(
+                f"""UPDATE social_queue
+                    SET status = 'cancelled'
+                    WHERE status IN ('draft', 'failed', 'queued')
+                      AND (
+                        COALESCE(platform_data->>'testing','') IN ('true','1','yes')
+                        OR lower(COALESCE(series,'')) LIKE 'test%%'
+                      )
+                      {stem_sql}{scope_sql}
+                    RETURNING id""",
+                tuple(stem_args) + scope_args,
+            )
+            social_ids = [r["id"] for r in await res.fetchall()]
+            # YouTube queue drafts with test- series (no platform_data column)
+            yt_stem_sql = ""
+            yt_stem_args: list = []
+            if stems:
+                yt_stem_sql = " AND source_stem = ANY(%s)"
+                yt_stem_args.append(list(str(s) for s in stems))
+            res2 = await conn.execute(
+                f"""UPDATE youtube_queue
+                    SET status = 'cancelled'
+                    WHERE status IN ('draft', 'failed', 'queued')
+                      AND lower(COALESCE(series,'')) LIKE 'test%%'
+                      {yt_stem_sql}{scope_sql}
+                    RETURNING id""",
+                tuple(yt_stem_args) + scope_args,
+            )
+            yt_ids = [r["id"] for r in await res2.fetchall()]
+        return {
+            "ok": True,
+            "cancelled_social": social_ids,
+            "cancelled_youtube": yt_ids,
+            "count": len(social_ids) + len(yt_ids),
+        }
+    except Exception as e:
+        logger.warning(f"testing/clear failed: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 

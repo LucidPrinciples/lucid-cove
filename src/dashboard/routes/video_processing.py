@@ -139,6 +139,8 @@ async def process_moments(request: Request):
     body = await request.json()
     platforms = body.get("platforms", ["youtube"])
     stem = body.get("stem", "")
+    # #VP-TEST1 — optional testing batch flag → series + platform_data for Testing lane
+    _testing_batch = bool(body.get("testing") or body.get("is_testing"))
 
     # C3 #5 — the PLATFORM selection drives the formats (was: always both). Render
     # only the formats the chosen platforms actually need — deduped, order-stable.
@@ -355,14 +357,18 @@ async def process_moments(request: Request):
                         tags_json = json.dumps(meta.get("tags", []))
 
                         clip_format = clip.get("format", "vertical")
+                        _series = (
+                            f"test-moments-{stem}" if _testing_batch else f"moments-{stem}"
+                        )
+                        _pdata = json.dumps({"testing": True}) if _testing_batch else "{}"
                         await conn.execute(
                             """INSERT INTO social_queue
                                (platform, title, description, hashtags, tags,
                                 file_path, preview_path,
                                 source_stem, moment_id, clip_type, clip_label,
                                 duration_seconds, is_vertical, format, series, agent_id,
-                                presence_id, status)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft')""",
+                                presence_id, status, platform_data)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s::jsonb)""",
                             (
                                 platform,
                                 meta.get("title", clip.get("label", "Untitled")),
@@ -378,9 +384,10 @@ async def process_moments(request: Request):
                                 clip.get("duration_seconds", 0),
                                 clip_format == "vertical",
                                 clip_format,
-                                f"moments-{stem}",
+                                _series,
                                 owner_id,
                                 _cf1_pid if _cf1_pid else None,
+                                _pdata,
                             ),
                         )
                         queued_count += 1
@@ -477,7 +484,8 @@ async def caption_full_video(request: Request):
 
             if resp.status_code == 200 and stem:
                 result = await _finalize_captioned_full_metadata(
-                    stem, request, result, client, _nch
+                    stem, request, result, client, _nch,
+                    testing=bool(body.get("testing") or body.get("is_testing")),
                 )
 
             return JSONResponse(result, status_code=resp.status_code)
@@ -567,12 +575,14 @@ async def _finalize_captioned_full_metadata(
     result: dict,
     client: httpx.AsyncClient,
     nch: dict,
+    testing: bool = False,
 ) -> dict:
     """Shared post-render path: metadata → rename → social_queue youtube+x.
 
     Used by caption-full after encode/skip and by finalize-captioned-full when
     the file already exists and the crop checkbox is hidden.
     Mutates and returns result.
+    #VP-TEST1: testing=True → test-moments series + platform_data.testing.
     """
     metadata = await _generate_video_metadata(stem, request)
     result["metadata"] = metadata
@@ -672,14 +682,16 @@ async def _finalize_captioned_full_metadata(
                     )
                     queued_platforms.append(f"{full_platform}:update")
                 else:
+                    _series = f"test-moments-{stem}" if testing else f"moments-{stem}"
+                    _pdata = json.dumps({"testing": True}) if testing else "{}"
                     await conn.execute(
                         """INSERT INTO social_queue
                            (platform, title, description, hashtags, tags,
                             file_path, preview_path,
                             source_stem, clip_type, clip_label,
                             duration_seconds, is_vertical, format, series, agent_id,
-                            presence_id, status)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft')""",
+                            presence_id, status, platform_data)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s::jsonb)""",
                         (
                             full_platform,
                             p_title,
@@ -694,9 +706,10 @@ async def _finalize_captioned_full_metadata(
                             result.get("duration_seconds", 0),
                             False,
                             "horizontal",
-                            f"moments-{stem}",
+                            _series,
                             owner_id,
                             _cf1_pid if _cf1_pid else None,
+                            _pdata,
                         ),
                     )
                     queued_platforms.append(f"{full_platform}:insert")
@@ -769,7 +782,8 @@ async def finalize_captioned_full(request: Request):
                     logger.warning(f"finalize duration probe failed: {e}")
 
             result = await _finalize_captioned_full_metadata(
-                stem, request, result, client, _nch
+                stem, request, result, client, _nch,
+                testing=bool(body.get("testing") or body.get("is_testing")),
             )
             return JSONResponse(result)
     except Exception as e:

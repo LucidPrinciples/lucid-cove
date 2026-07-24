@@ -97,6 +97,8 @@ function renderActions(container, actions, scheduled) {
 
     // Social Posts — parent tab with sub-tabs
     // History is always present (lazy-filled). Other subtabs only when non-empty.
+    // #VP-TEST1: testing cards leave platform subtabs and land in Testing.
+    const testingItems = actions.filter(a => a.category === 'testing' || a.is_testing);
     const socialCats = {
         'scheduled': { label: '📅 Scheduled', items: scheduled },
         'youtube-short': { label: '📺 YouTube', items: actions.filter(a => a.category === 'youtube-short') },
@@ -109,6 +111,16 @@ function renderActions(container, actions, scheduled) {
     const socialSubs = Object.entries(socialCats)
         .filter(([_, v]) => v.items.length > 0)
         .map(([id, v]) => ({ id, label: v.label, count: v.items.length, items: v.items }));
+    // Testing lane — only when seeded (steward batch / P620)
+    if (testingItems.length) {
+        socialSubs.push({
+            id: 'testing',
+            label: '🧪 Testing',
+            count: testingItems.length,
+            items: testingItems,
+            testing: true,
+        });
+    }
     // Always append History (count unknown until lazy load)
     const histCount = _historyLoaded ? _historyItems.length : null;
     socialSubs.push({
@@ -128,7 +140,7 @@ function renderActions(container, actions, scheduled) {
     });
 
     // Other categories (tasks, internal, etc.)
-    const handled = new Set(['wizard', 'youtube-short', 'youtube-studio', 'x-post', 'instagram', 'facebook', 'tiktok']);
+    const handled = new Set(['wizard', 'youtube-short', 'youtube-studio', 'x-post', 'instagram', 'facebook', 'tiktok', 'testing']);
     const otherItems = actions.filter(a => !handled.has(a.category));
     if (otherItems.length) {
         tabs.push({ id: 'other', label: '📋 Other', count: otherItems.length, items: otherItems });
@@ -160,7 +172,13 @@ function renderActions(container, actions, scheduled) {
             tab.subtabs.forEach((sub, j) => {
                 const subDisplay = j === 0 ? '' : 'display:none;';
                 html += `<div class="ab-act-subpanel" id="ab-act-sub-${tab.id}-${sub.id}" style="${subDisplay}">`;
-                if (sub.id === 'scheduled') {
+                if (sub.id === 'testing') {
+                    html += `<div class="ab-testing-bar">
+                        <span class="ab-testing-hint">Steward-seeded batch cards — wipe after P620 A/B. Does not touch History/published.</span>
+                        <button type="button" class="ab-btn ab-btn-danger" onclick="clearTestingLane()">Clear testing</button>
+                    </div>`;
+                    html += _renderActionCards(sub.items);
+                } else if (sub.id === 'scheduled') {
                     html += _renderScheduledCards(sub.items);
                 } else if (sub.id === 'history') {
                     html += _renderHistoryShell(sub.items);
@@ -653,6 +671,28 @@ function _paintHistoryPanel() {
     // Update History subtab count badge if present
     const btn = document.querySelector('.ab-act-subtab[data-subtab="history"] .ab-act-tab-count');
     if (btn && _historyLoaded) btn.textContent = String(_historyItems.length);
+}
+
+async function clearTestingLane() {
+    if (!confirm('Cancel all Testing-lane draft/queued cards for this presence? Published History is not touched.')) {
+        return;
+    }
+    try {
+        const r = await fetch('/api/action-board/testing/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            alert(data.error || 'Clear testing failed');
+            return;
+        }
+        refreshActions();
+    } catch (e) {
+        console.error('clearTestingLane', e);
+        alert('Clear testing failed');
+    }
 }
 
 async function loadHistorySubtab(opts) {
