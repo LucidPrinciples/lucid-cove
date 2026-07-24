@@ -42,7 +42,15 @@ def test_js_groups_by_session():
     assert JS.count("return _renderGrouped") >= 3
 
 
+def test_history_sessions_collapsed_newest_first():
+    assert "collapseDefault: true" in JS
+    assert "sort: 'history'" in JS
+    assert "sortMode === 'history'" in JS
+    assert "_itemTimeMs" in JS
+
+
 def test_css_session_group():
     assert ".ab-session-group" in CSS
     assert ".ab-session-header" in CSS
     assert ".ab-meta-full" in CSS
+    assert ".ab-session-group.collapsed" in CSS

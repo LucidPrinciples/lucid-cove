@@ -292,8 +292,29 @@ function _socialBoardLegendHtml() {
     </div>`;
 }
 
-/** #VP-SESS1 — group cards by source_stem (session). Full role first inside group. */
-function _groupItemsBySession(items) {
+/** #VP-SESS1 — group cards by source_stem (session).
+ *  opts.sort: 'work' (default) = full first, then title
+ *             'history' = newest → oldest within session (then full before moment on tie)
+ *  opts.collapseDefault: true → session bodies start collapsed (History only)
+ */
+function _itemTimeMs(it) {
+    if (!it) return 0;
+    const keys = ['published_at', 'uploaded_at', 'publish_date', 'upload_date', 'created_at', 'updated_at'];
+    for (const k of keys) {
+        const v = it[k];
+        if (!v) continue;
+        const t = Date.parse(v);
+        if (!Number.isNaN(t)) return t;
+    }
+    return 0;
+}
+
+function _isSessionFull(it) {
+    return !!(it && (it.session_role === 'full' || it.clip_type === 'full' || it.is_short === false));
+}
+
+function _groupItemsBySession(items, opts) {
+    const sortMode = (opts && opts.sort) || 'work';
     const list = items || [];
     const order = [];
     const map = {};
@@ -312,11 +333,19 @@ function _groupItemsBySession(items) {
             order.push(ukey);
         }
     }
-    // Sort within session: full first, then moments; stable title
     for (const k of order) {
         map[k].sort((a, b) => {
-            const ra = (a.session_role === 'full' || a.clip_type === 'full' || a.is_short === false) ? 0 : 1;
-            const rb = (b.session_role === 'full' || b.clip_type === 'full' || b.is_short === false) ? 0 : 1;
+            if (sortMode === 'history') {
+                const tb = _itemTimeMs(b) - _itemTimeMs(a);
+                if (tb !== 0) return tb;
+                const ra = _isSessionFull(a) ? 0 : 1;
+                const rb = _isSessionFull(b) ? 0 : 1;
+                if (ra !== rb) return ra - rb;
+                return String(a.title || '').localeCompare(String(b.title || ''));
+            }
+            // work: full first, then title (drafts / scheduled)
+            const ra = _isSessionFull(a) ? 0 : 1;
+            const rb = _isSessionFull(b) ? 0 : 1;
             if (ra !== rb) return ra - rb;
             return String(a.title || '').localeCompare(String(b.title || ''));
         });
@@ -324,14 +353,14 @@ function _groupItemsBySession(items) {
     return { order, map };
 }
 
-function _sessionHeaderHtml(stem, items) {
+function _sessionHeaderHtml(stem, items, opts) {
     if (!stem || String(stem).startsWith('__')) return '';
+    const collapseDefault = !!(opts && opts.collapseDefault);
     const n = items.length;
     let fulls = 0;
     let moments = 0;
     for (const it of items) {
-        const isFull = it.session_role === 'full' || it.clip_type === 'full' || it.is_short === false;
-        if (isFull) fulls += 1;
+        if (_isSessionFull(it)) fulls += 1;
         else moments += 1;
     }
     const bits = [];
@@ -340,8 +369,10 @@ function _sessionHeaderHtml(stem, items) {
     if (!bits.length) bits.push(`${n} card${n === 1 ? '' : 's'}`);
     const safeStem = esc(stem);
     const id = `ab-sess-${safeStem.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    return `<div class="ab-session-group" data-stem="${safeStem}">
-        <button type="button" class="ab-session-header" aria-expanded="true"
+    const collapsedCls = collapseDefault ? ' collapsed' : '';
+    const expanded = collapseDefault ? 'false' : 'true';
+    return `<div class="ab-session-group${collapsedCls}" data-stem="${safeStem}">
+        <button type="button" class="ab-session-header" aria-expanded="${expanded}"
             onclick="this.parentElement.classList.toggle('collapsed'); this.setAttribute('aria-expanded', this.parentElement.classList.contains('collapsed') ? 'false' : 'true')">
             <span class="ab-session-chevron">▾</span>
             <span class="ab-session-title">Session ${safeStem}</span>
@@ -355,13 +386,13 @@ function _sessionFooterHtml(stem) {
     return `</div></div>`;
 }
 
-function _renderGrouped(items, cardFn) {
-    const { order, map } = _groupItemsBySession(items);
+function _renderGrouped(items, cardFn, opts) {
+    const { order, map } = _groupItemsBySession(items, opts);
     let html = '';
     for (const k of order) {
         const group = map[k];
         const stem = String(k).startsWith('__') ? '' : k;
-        html += _sessionHeaderHtml(stem, group);
+        html += _sessionHeaderHtml(stem, group, opts);
         html += group.map(cardFn).join('');
         html += _sessionFooterHtml(stem);
     }
@@ -554,6 +585,7 @@ function _historyMoreHtml() {
 }
 
 function _renderHistoryCards(items) {
+    // History: sessions collapsed by default; newest → oldest inside each session
     return _renderGrouped(items, (h) => {
         const plat = h.platform || 'youtube';
         const platTag = plat === 'x'
@@ -604,7 +636,7 @@ function _renderHistoryCards(items) {
             </div>
             <span class="ab-action-status-badge ab-status-published">${esc(h.status || 'published')}</span>
         </div>`;
-    });
+    }, { sort: 'history', collapseDefault: true });
 }
 
 function _paintHistoryPanel() {
