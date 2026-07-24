@@ -743,6 +743,210 @@ async def get_scheduled(request: Request):
     return {"scheduled": scheduled, "count": len(scheduled)}
 
 
+@router.get("/api/action-board/history")
+async def get_history(request: Request, limit: int = 50, offset: int = 0):
+    """#VP-HIST1 — published / terminal posts newest→oldest for Actions History.
+
+    YouTube: youtube_queue status ``published`` (and ``uploaded`` past publish_date
+    so in-flight public windows still surface with a watch link).
+    X: social_queue platform=x status ``published`` (url from platform_data).
+
+    Lazy-loaded by the Action board History subtab — do not call from cold shell.
+    CF-1 self-scoped. PERF-aware: default limit 50, max 100, offset pagination.
+    """
+    if _is_public_app():
+        return {"history": [], "count": 0, "limit": 0, "offset": 0, "has_more": False}
+
+    pid = await _acting_presence_id(request)
+    if pid == "":
+        return {"history": [], "count": 0, "limit": 0, "offset": 0, "has_more": False}
+    scope_sql, scope_args = _scope_clause(pid)
+
+    try:
+        limit = max(1, min(int(limit or 50), 100))
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        offset = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        offset = 0
+
+    series_labels = {
+        "ras": "RAS",
+        "hltb": "How LT Was Built",
+        "hltagb": "How LT Got Built",
+    }
+    history = []
+
+    try:
+        from src.memory.database import get_db
+
+        # Fetch enough from each source to fill offset+limit after merge
+        # (no SQL OFFSET — offset applied after YT+X interleave).
+        fetch_n = limit + offset + 1
+
+        async with get_db() as conn:
+            # YouTube published (+ uploaded past publish time with a video id)
+            result = await conn.execute(
+                f"""SELECT id, title, series, status, is_short,
+                          youtube_video_id, youtube_url,
+                          upload_date, publish_date, uploaded_at, published_at,
+                          related_video, updated_at
+                   FROM youtube_queue
+                   WHERE (
+                        status = 'published'
+                        OR (
+                            status = 'uploaded'
+                            AND youtube_video_id IS NOT NULL
+                            AND youtube_video_id <> ''
+                            AND publish_date IS NOT NULL
+                            AND publish_date <= NOW()
+                        )
+                   ){scope_sql}
+                   ORDER BY COALESCE(published_at, uploaded_at, publish_date, updated_at) DESC NULLS LAST
+                   LIMIT %s""",
+                scope_args + (fetch_n,),
+            )
+            yt_rows = await result.fetchall()
+
+            result = await conn.execute(
+                f"""SELECT id, title, series, status, platform, platform_data,
+                          clip_type, duration_seconds, format, source_stem,
+                          upload_date, publish_date, uploaded_at, published_at,
+                          updated_at
+                   FROM social_queue
+                   WHERE platform = 'x'
+                     AND status = 'published'
+                     {scope_sql}
+                   ORDER BY COALESCE(published_at, uploaded_at, publish_date, updated_at) DESC NULLS LAST
+                   LIMIT %s""",
+                scope_args + (fetch_n,),
+            )
+            x_rows = await result.fetchall()
+
+        def _sort_key(item):
+            return item.get("_sort") or ""
+
+        merged = []
+
+        for row in yt_rows:
+            vid = row["youtube_video_id"] or ""
+            watch = row["youtube_url"] or (
+                f"https://www.youtube.com/watch?v={vid}" if vid else None
+            )
+            studio = (
+                f"https://studio.youtube.com/video/{vid}/edit" if vid else None
+            )
+            is_short = bool(row["is_short"]) if row["is_short"] is not None else True
+            sort_dt = (
+                row["published_at"]
+                or row["uploaded_at"]
+                or row["publish_date"]
+                or row["updated_at"]
+            )
+            when = _fmt_date(sort_dt) if sort_dt else ""
+            length = "short" if is_short else "long"
+            subtitle = f"Live {when}".strip() if when else "Published"
+            if row["status"] == "uploaded":
+                subtitle = f"Public since {when}".strip() if when else "Public on YouTube"
+            merged.append({
+                "id": row["id"],
+                "title": row["title"],
+                "series": series_labels.get(row["series"], row["series"] or ""),
+                "status": "published" if row["status"] == "published" else row["status"],
+                "subtitle": subtitle,
+                "platform": "youtube",
+                "source": "youtube_queue",
+                "watch_url": watch,
+                "studio_url": studio,
+                "youtube_url": watch,
+                "youtube_video_id": vid or None,
+                "external_id": vid or None,
+                "post_mode": "api",
+                "length_class": length,
+                "is_short": is_short,
+                "source_stem": None,
+                "related_video": row["related_video"],
+                "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+                "uploaded_at": row["uploaded_at"].isoformat() if row["uploaded_at"] else None,
+                "publish_date": row["publish_date"].isoformat() if row["publish_date"] else None,
+                "_sort": sort_dt.isoformat() if sort_dt else "",
+            })
+
+        for row in x_rows:
+            pdata = row["platform_data"]
+            if isinstance(pdata, str):
+                try:
+                    pdata = json.loads(pdata or "{}")
+                except Exception:
+                    pdata = {}
+            if not isinstance(pdata, dict):
+                pdata = {}
+            watch = pdata.get("url") or pdata.get("tweet_url")
+            tweet_id = pdata.get("tweet_id") or pdata.get("id")
+            if not watch and tweet_id:
+                watch = f"https://x.com/i/web/status/{tweet_id}"
+            dur = row.get("duration_seconds") or 0
+            clip = (row.get("clip_type") or "").lower()
+            fmt = (row.get("format") or "").lower()
+            is_long = clip == "full" or fmt == "horizontal" or float(dur or 0) > 140
+            length = "long" if is_long else "short"
+            sort_dt = (
+                row["published_at"]
+                or row["uploaded_at"]
+                or row["publish_date"]
+                or row["updated_at"]
+            )
+            when = _fmt_date(sort_dt) if sort_dt else ""
+            subtitle = f"𝕏 live {when}".strip() if when else "Published on 𝕏"
+            merged.append({
+                "id": row["id"],
+                "title": row["title"],
+                "series": series_labels.get(row["series"], row["series"] or "")
+                    or (row.get("clip_type") or ""),
+                "status": "published",
+                "subtitle": subtitle,
+                "platform": "x",
+                "source": "social_queue",
+                "watch_url": watch,
+                "studio_url": None,
+                "youtube_url": None,
+                "youtube_video_id": None,
+                "external_id": str(tweet_id) if tweet_id else None,
+                "post_mode": "paste" if is_long else "api",
+                "length_class": length,
+                "is_short": not is_long,
+                "duration_seconds": dur,
+                "clip_type": row.get("clip_type") or "",
+                "source_stem": row.get("source_stem"),
+                "related_video": None,
+                "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+                "uploaded_at": row["uploaded_at"].isoformat() if row["uploaded_at"] else None,
+                "publish_date": row["publish_date"].isoformat() if row["publish_date"] else None,
+                "_sort": sort_dt.isoformat() if sort_dt else "",
+            })
+
+        merged.sort(key=_sort_key, reverse=True)
+        # Apply offset/limit after merge so YT+X interleave correctly
+        window = merged[offset: offset + limit + 1]
+        has_more = len(window) > limit
+        history = window[:limit]
+        for item in history:
+            item.pop("_sort", None)
+
+    except Exception as e:
+        logger.warning(f"action-board history read failed: {e}")
+        return {"history": [], "count": 0, "limit": limit, "offset": offset, "has_more": False}
+
+    return {
+        "history": history,
+        "count": len(history),
+        "limit": limit,
+        "offset": offset,
+        "has_more": has_more,
+    }
+
+
 @router.get("/api/action-board/actions/{queue_id}")
 async def get_action_detail(queue_id: int, request: Request):
     """Get full detail for a single youtube_queue item (for the action overlay)."""

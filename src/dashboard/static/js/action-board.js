@@ -11,6 +11,14 @@ let _abFlowsLoaded = false;
 let _abToolsLoaded = false;
 const _taskCache = {};
 const _scheduledCache = {};
+const _historyCache = {};
+// #VP-HIST1: history is on-demand (not cold-shell). Cache rows after first open.
+let _historyLoaded = false;
+let _historyLoading = false;
+let _historyItems = [];
+let _historyHasMore = false;
+let _historyOffset = 0;
+const _HISTORY_PAGE = 50;
 
 // =============================================================================
 // Actions tab — individual items from the queue
@@ -22,6 +30,8 @@ async function loadABActions() {
     if (!container) return;
 
     try {
+        // #VP-HIST1 / #PERF-MC1: drafts + scheduled only on first paint.
+        // History loads when the History subtab is opened (or restored).
         const [actRes, schedRes] = await Promise.all([
             fetch('/api/action-board/actions'),
             fetch('/api/action-board/scheduled'),
@@ -29,6 +39,10 @@ async function loadABActions() {
         const actData = actRes.ok ? await actRes.json() : { actions: [] };
         const schedData = schedRes.ok ? await schedRes.json() : { scheduled: [] };
         renderActions(container, actData.actions || [], schedData.scheduled || []);
+        // If operator was already on History this session, rehydrate after paint.
+        if (_actActiveSubtab.social === 'history') {
+            loadHistorySubtab({ reset: true });
+        }
     } catch (e) {
         container.innerHTML = '<div class="ab-empty">Could not load actions.</div>';
     }
@@ -55,17 +69,24 @@ window.addEventListener('message', (e) => {
 
 function refreshActions() {
     _abActionsLoaded = false;
+    // Keep history cache unless operator force-refreshes while on History
+    // (loadHistorySubtab reset happens when History subtab is re-opened after refresh).
+    if (_actActiveSubtab.social === 'history') {
+        _historyLoaded = false;
+        _historyItems = [];
+        _historyOffset = 0;
+    }
     loadABActions();
 }
 
 function renderActions(container, actions, scheduled) {
-    if (actions.length === 0 && (!scheduled || scheduled.length === 0)) {
-        container.innerHTML = '<div class="ab-empty">No pending actions. All clear.</div>';
-        return;
-    }
+    actions = actions || [];
+    scheduled = scheduled || [];
 
     // ── Build tabs from all items ──────────────────────
     // Tab definitions: id, label, items, subtabs (optional)
+    // #VP-HIST1: Social Posts always present so History is one click away
+    // even on a published-only day (no drafts/scheduled).
     const tabs = [];
 
     // Wizard/Continue Setup items
@@ -75,8 +96,9 @@ function renderActions(container, actions, scheduled) {
     }
 
     // Social Posts — parent tab with sub-tabs
+    // History is always present (lazy-filled). Other subtabs only when non-empty.
     const socialCats = {
-        'scheduled': { label: '📅 Scheduled', items: scheduled || [] },
+        'scheduled': { label: '📅 Scheduled', items: scheduled },
         'youtube-short': { label: '📺 YouTube', items: actions.filter(a => a.category === 'youtube-short') },
         'tiktok': { label: '🎵 TikTok', items: actions.filter(a => a.category === 'tiktok') },
         'youtube-studio': { label: '🎬 Studio', items: actions.filter(a => a.category === 'youtube-studio') },
@@ -87,16 +109,23 @@ function renderActions(container, actions, scheduled) {
     const socialSubs = Object.entries(socialCats)
         .filter(([_, v]) => v.items.length > 0)
         .map(([id, v]) => ({ id, label: v.label, count: v.items.length, items: v.items }));
-    const socialTotal = socialSubs.reduce((n, s) => n + s.count, 0);
-    if (socialTotal > 0) {
-        tabs.push({
-            id: 'social',
-            label: '📡 Social Posts',
-            count: socialTotal,
-            subtabs: socialSubs,
-            showLegend: true,
-        });
-    }
+    // Always append History (count unknown until lazy load)
+    const histCount = _historyLoaded ? _historyItems.length : null;
+    socialSubs.push({
+        id: 'history',
+        label: '🗂 History',
+        count: histCount == null ? '…' : histCount,
+        items: _historyItems || [],
+        lazy: true,
+    });
+    const socialTotal = socialSubs.reduce((n, s) => n + (typeof s.count === 'number' ? s.count : 0), 0);
+    tabs.push({
+        id: 'social',
+        label: '📡 Social Posts',
+        count: socialTotal > 0 ? socialTotal : (histCount || 0),
+        subtabs: socialSubs,
+        showLegend: true,
+    });
 
     // Other categories (tasks, internal, etc.)
     const handled = new Set(['wizard', 'youtube-short', 'youtube-studio', 'x-post', 'instagram', 'facebook', 'tiktok']);
@@ -133,6 +162,8 @@ function renderActions(container, actions, scheduled) {
                 html += `<div class="ab-act-subpanel" id="ab-act-sub-${tab.id}-${sub.id}" style="${subDisplay}">`;
                 if (sub.id === 'scheduled') {
                     html += _renderScheduledCards(sub.items);
+                } else if (sub.id === 'history') {
+                    html += _renderHistoryShell(sub.items);
                 } else {
                     html += _renderActionCards(sub.items);
                 }
@@ -149,6 +180,13 @@ function renderActions(container, actions, scheduled) {
 
     // Restore previously active tab/subtab after re-render
     _restoreActTabs();
+
+    // #VP-HIST1: if History is the visible default subtab (e.g. no drafts today),
+    // kick the lazy fetch once so the operator is not stuck on a placeholder.
+    const histPanel = document.getElementById('ab-act-sub-social-history');
+    if (histPanel && histPanel.style.display !== 'none' && !_historyLoaded && !_historyLoading) {
+        loadHistorySubtab({ reset: true });
+    }
 }
 
 // Track active tab/subtab so they survive refreshes and overlay close
@@ -167,6 +205,10 @@ function _switchActSubtab(parentId, subId) {
     if (!panel) return;
     panel.querySelectorAll('.ab-act-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === subId));
     panel.querySelectorAll('.ab-act-subpanel').forEach(p => p.style.display = p.id === `ab-act-sub-${parentId}-${subId}` ? '' : 'none');
+    // #VP-HIST1: fetch published list only when History is opened
+    if (parentId === 'social' && subId === 'history') {
+        loadHistorySubtab({ reset: !_historyLoaded });
+    }
 }
 
 function _restoreActTabs() {
@@ -392,6 +434,147 @@ async function cancelScheduled(queueId) {
     } catch (e) {
         console.error('Cancel failed:', e);
     }
+}
+
+// =============================================================================
+// #VP-HIST1 — Published history (lazy subtab)
+// =============================================================================
+
+function _renderHistoryShell(items) {
+    const list = items || [];
+    if (!_historyLoaded && !_historyLoading && list.length === 0) {
+        return `<div class="ab-empty ab-history-empty" id="ab-history-body">
+            Open History to load published posts (newest first).
+            <div style="margin-top:8px;">
+                <button type="button" class="ab-btn" onclick="loadHistorySubtab({reset:true})">Load history</button>
+            </div>
+        </div>`;
+    }
+    if (_historyLoading && list.length === 0) {
+        return `<div class="ab-empty" id="ab-history-body">Loading published posts…</div>`;
+    }
+    if (_historyLoaded && list.length === 0) {
+        return `<div class="ab-empty" id="ab-history-body">No published posts yet.</div>`;
+    }
+    return `<div id="ab-history-body">${_renderHistoryCards(list)}${_historyMoreHtml()}</div>`;
+}
+
+function _historyMoreHtml() {
+    if (!_historyHasMore) return '';
+    return `<div class="ab-history-more" style="padding:12px;text-align:center;">
+        <button type="button" class="ab-btn" onclick="loadHistorySubtab({reset:false})"
+            ${_historyLoading ? 'disabled' : ''}>
+            ${_historyLoading ? 'Loading…' : 'Load more'}
+        </button>
+    </div>`;
+}
+
+function _renderHistoryCards(items) {
+    return (items || []).map(h => {
+        const plat = h.platform || 'youtube';
+        const platTag = plat === 'x'
+            ? '<span class="ab-action-series">𝕏</span> '
+            : (plat === 'youtube' ? '<span class="ab-action-series">YT</span> ' : '');
+        const postCls = _cardPostClass(h);
+        const metaChips = _postMetaChips(postCls);
+        const watch = h.watch_url || h.youtube_url || '';
+        const studio = h.studio_url || (
+            h.youtube_video_id
+                ? `https://studio.youtube.com/video/${h.youtube_video_id}/edit`
+                : ''
+        );
+        let links = '';
+        if (watch) {
+            links += `<a href="${esc(watch)}" target="_blank" rel="noopener"
+                style="color:var(--accent);font-size:11px;margin-left:8px;"
+                onclick="event.stopPropagation()">Watch ↗</a>`;
+        }
+        if (studio) {
+            links += `<a href="${esc(studio)}" target="_blank" rel="noopener"
+                style="color:var(--accent);font-size:11px;margin-left:8px;"
+                onclick="event.stopPropagation()">Studio ↗</a>`;
+        }
+        const key = `${plat}:${h.id}`;
+        _historyCache[key] = h;
+        _historyCache[h.id] = h;
+
+        const clickAttr = watch
+            ? `onclick="window.open('${esc(watch)}', '_blank')" style="cursor:pointer;"`
+            : '';
+
+        return `
+        <div class="ab-action-card ab-history-card ${postCls.classes}"
+             data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}"
+             data-history-id="${esc(String(h.id))}" data-platform="${esc(plat)}" ${clickAttr}>
+            <div class="ab-action-urgency" style="background:var(--green)"></div>
+            <div class="ab-action-info">
+                <div class="ab-action-title">${platTag}${esc(h.title || '')}${links} ${metaChips}</div>
+                <div class="ab-action-desc">${esc(h.subtitle || '')} ${
+                    h.series ? `<span class="ab-action-series">${esc(h.series)}</span>` : ''
+                }</div>
+            </div>
+            <span class="ab-action-status-badge ab-status-published">${esc(h.status || 'published')}</span>
+        </div>`;
+    }).join('');
+}
+
+function _paintHistoryPanel() {
+    const body = document.getElementById('ab-history-body');
+    if (body) {
+        if (!_historyItems.length) {
+            body.className = 'ab-empty';
+            body.innerHTML = _historyLoaded ? 'No published posts yet.' : 'Loading published posts…';
+        } else {
+            body.className = '';
+            body.innerHTML = _renderHistoryCards(_historyItems) + _historyMoreHtml();
+        }
+    }
+    // Update History subtab count badge if present
+    const btn = document.querySelector('.ab-act-subtab[data-subtab="history"] .ab-act-tab-count');
+    if (btn && _historyLoaded) btn.textContent = String(_historyItems.length);
+}
+
+async function loadHistorySubtab(opts) {
+    const reset = !opts || opts.reset !== false;
+    if (_historyLoading) return;
+    if (!reset && !_historyHasMore) return;
+
+    if (reset) {
+        _historyOffset = 0;
+        _historyItems = [];
+        _historyHasMore = false;
+        _historyLoaded = false;
+    }
+
+    _historyLoading = true;
+    _paintHistoryPanel();
+
+    try {
+        const res = await fetch(
+            `/api/action-board/history?limit=${_HISTORY_PAGE}&offset=${_historyOffset}`
+        );
+        const data = res.ok ? await res.json() : { history: [], has_more: false };
+        const batch = data.history || [];
+        if (reset) _historyItems = batch;
+        else _historyItems = _historyItems.concat(batch);
+        _historyHasMore = !!data.has_more;
+        _historyOffset = _historyItems.length;
+        _historyLoaded = true;
+    } catch (e) {
+        console.error('History load failed:', e);
+        _historyLoaded = true;
+        if (!_historyItems.length) {
+            const body = document.getElementById('ab-history-body');
+            if (body) {
+                body.className = 'ab-empty';
+                body.innerHTML = 'Could not load history.';
+            }
+            _historyLoading = false;
+            return;
+        }
+    }
+    _historyLoading = false;
+    _paintHistoryPanel();
 }
 
 // =============================================================================
