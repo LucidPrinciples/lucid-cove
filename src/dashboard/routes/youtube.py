@@ -433,10 +433,14 @@ async def youtube_process_queue(request: Request):
         for post_row in ready:
             # Fetch full post data
             async with get_db() as conn:
+                # Must match scheduler._process_youtube_queue columns — especially
+                # presence_id. Omitting it made Publish Now call
+                # yt_service_key(None) → legacy "youtube" while tokens live at
+                # youtube:{presence} (#YT-PUBNOW1, 2026-07-24).
                 result = await conn.execute(
                     """SELECT id, title, description, tags, hashtags, file_path,
                               category_id, made_for_kids, is_short, related_video,
-                              playlist_id, publish_date, series
+                              playlist_id, upload_date, publish_date, series, presence_id
                        FROM youtube_queue WHERE id = %s""",
                     (post_row["id"],),
                 )
