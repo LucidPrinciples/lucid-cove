@@ -54,6 +54,7 @@ button:active{background:#252540}
 .list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 0 24px}
 .item{padding:12px 18px;border-bottom:1px solid #1a1a2e}
 .item .t{font-weight:600;font-size:0.9rem;color:#fff;margin-bottom:4px}
+.item .gab-num{color:#7eb8da;font-weight:700;letter-spacing:.02em;margin-right:6px}
 .item .u{font-size:0.72rem;color:#666;word-break:break-all;margin-bottom:6px}
 .item .bl{font-size:0.82rem;color:#bbb;margin-bottom:8px}
 .meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:0.72rem}
@@ -173,7 +174,7 @@ function showReport(item) {
   if (!item || !item.report_html) return;
   $('mainWrap').classList.add('hide');
   $('reportView').classList.add('show');
-  $('reportTitle').textContent = item.title || 'Gab';
+  $('reportTitle').textContent = (item.id != null ? ('Gab ' + item.id + ' · ') : '') + (item.title || 'Gab');
   const doc = $('reportFrame').contentDocument;
   if (doc) {
     doc.open();
@@ -223,7 +224,7 @@ function render() {
       actions = `<div class="row-actions"><span style="font-size:0.72rem;color:#f39c12">Working…</span></div>`;
     }
     return `<div class="item" data-id="${i.id}">
-      <div class="t">${esc(i.title || i.url || 'Gab')}</div>
+      <div class="t"><span class="gab-num">Gab ${esc(i.id)}</span>${esc(i.title || i.url || '')}</div>
       <div class="u">${esc(i.url)}</div>
       ${i.bottom_line ? `<div class="bl">${esc(i.bottom_line)}</div>` : ''}
       ${i.error ? `<div class="bl" style="color:#e74c3c">${esc(i.error)}</div>` : ''}
