@@ -653,6 +653,8 @@ const VM_FIELDS = [
     {k:'brand_name', label:'Brand / channel name', ph:'e.g. Ridge Hardware', help:'How the writer should name you. Empty = do not invent a brand.'},
     {k:'brand_topics', label:'Topics you cover', ph:'e.g. tools, DIY, local store tips', help:'Themes the metadata writer should recognize.'},
     {k:'theme_mix', label:'Moment theme mix (mining)', ph:'practical how-to; personal story; bold opinion; product peek; quiet insight', help:'Spread moments across themes in one long video. Empty = balanced organic mix.'},
+    {k:'moment_mine_brief', label:'Moment mine brief (niche + discovery)', ph:'Primary spine: our craft. Discovery: plain-language search entry points.', help:'How mining balances primary niche subject matter with searchable discovery. Empty = product default (niche spine + SEO spread).'},
+    {k:'description_skeleton', label:'Description format (skeleton)', ph:'Leave empty for built-in: hook → lead-in → topics after lead-in → prompt → closing', help:'Structure multi-paragraph descriptions must follow. Empty = product default so topic lists never lead without a lead-in. Override for your channel.'},
     {k:'attribute_handle', label:'Attribute / handle line', ph:'e.g. @jasonbroadcast on X', help:'Soft creator credit near the end (not hard CTA). Leave empty to skip.'},
     {k:'short_cta_url', label:'Short-form CTA URL', ph:'https://... (used if no closing block below)', help:'Composes a "More at …" line for Shorts / Facebook when no full block is set.'},
     {k:'short_cta_line', label:'Short-form closing block (optional)', ph:'More at example.com\\n@handle on X', help:'Exact multi-line closing for shorts. Overrides URL-only. Prefer plain lines, not "Creator is…".'},
@@ -677,8 +679,11 @@ function _vmInputHtml(prefix, data) {
         const id = prefix + '-' + f.k;
         const val = (data[f.k] || '').replace(/"/g, '&quot;');
         const help = f.help ? `<div style="font-size:10px;color:#555;margin:2px 0 4px;line-height:1.35;">${f.help}</div>` : '';
-        const isLong = f.k === 'description_extra' || f.k === 'voice_notes' || f.k === 'theme_mix' || f.k === 'brand_topics' || f.k.endsWith('_line');
-        const rows = (f.k === 'voice_notes') ? 4 : (f.k === 'theme_mix' || f.k === 'description_extra' ? 3 : 2);
+        const isLong = f.k === 'description_extra' || f.k === 'voice_notes' || f.k === 'theme_mix'
+            || f.k === 'brand_topics' || f.k === 'moment_mine_brief' || f.k === 'description_skeleton'
+            || f.k.endsWith('_line');
+        const rows = (f.k === 'voice_notes' || f.k === 'description_skeleton') ? 4
+            : (f.k === 'theme_mix' || f.k === 'description_extra' || f.k === 'moment_mine_brief' ? 3 : 2);
         if (isLong) {
             return `<div><label style="font-size:10px;color:#777;display:block;margin-bottom:3px;">${f.label}</label>${help}`
                 + `<textarea id="${id}" rows="${rows}" placeholder="${f.ph}" style="width:100%;background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;resize:vertical;">${(data[f.k]||'').replace(/</g,'&lt;')}</textarea></div>`;
