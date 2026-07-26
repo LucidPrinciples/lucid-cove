@@ -12,11 +12,15 @@ let _abToolsLoaded = false;
 const _taskCache = {};
 const _scheduledCache = {};
 
-// ── Sticky UI state (tabs + session expand/collapse) — survives refresh ──
-const _AB_UI_KEY = 'lp.ab.actions.ui.v1';
+// ── Sticky UI state (tabs + session expand/collapse + filters) — survives hard refresh ──
+// v2: raw stem keys (not HTML-escaped) so expand prefs match after reload.
+const _AB_UI_KEY = 'lp.ab.actions.ui.v2';
+const _AB_UI_KEY_LEGACY = 'lp.ab.actions.ui.v1';
 function _abLoadUi() {
-    try { return JSON.parse(localStorage.getItem(_AB_UI_KEY) || '{}') || {}; }
-    catch { return {}; }
+    try {
+        const raw = localStorage.getItem(_AB_UI_KEY) || localStorage.getItem(_AB_UI_KEY_LEGACY) || '{}';
+        return JSON.parse(raw) || {};
+    } catch { return {}; }
 }
 function _abSaveUi(patch) {
     try {
@@ -25,23 +29,206 @@ function _abSaveUi(patch) {
         localStorage.setItem(_AB_UI_KEY, JSON.stringify(next));
     } catch { /* private mode / quota — non-fatal */ }
 }
+/** Normalize stem for localStorage keys (never HTML-escape). */
+function _abStemKey(stem) {
+    return String(stem || '').trim();
+}
 function _abSessionCollapsed(stem, collapseDefault) {
-    if (!stem || String(stem).startsWith('__')) return !!collapseDefault;
+    const key = _abStemKey(stem);
+    if (!key || key.startsWith('__')) return !!collapseDefault;
     const ui = _abLoadUi();
     const map = ui.sessionCollapsed || {};
-    if (Object.prototype.hasOwnProperty.call(map, stem)) return !!map[stem];
+    // Prefer raw key; fall back to legacy HTML-escaped key from v1 if present.
+    if (Object.prototype.hasOwnProperty.call(map, key)) return !!map[key];
+    try {
+        const escKey = (typeof esc === 'function') ? esc(key) : key;
+        if (escKey !== key && Object.prototype.hasOwnProperty.call(map, escKey)) return !!map[escKey];
+    } catch (_) { /* ignore */ }
     return !!collapseDefault;
 }
 function _abToggleSessionCollapsed(stem, el) {
-    if (!stem || !el) return;
+    const key = _abStemKey(stem);
+    if (!key || !el) return;
     el.classList.toggle('collapsed');
     const collapsed = el.classList.contains('collapsed');
     const btn = el.querySelector(':scope > .ab-session-header');
     if (btn) btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     const ui = _abLoadUi();
     const map = Object.assign({}, ui.sessionCollapsed || {});
-    map[stem] = collapsed;
+    map[key] = collapsed;
+    // Drop legacy escaped duplicate if any
+    try {
+        const escKey = (typeof esc === 'function') ? esc(key) : key;
+        if (escKey !== key && Object.prototype.hasOwnProperty.call(map, escKey)) delete map[escKey];
+    } catch (_) { /* ignore */ }
     _abSaveUi({ sessionCollapsed: map });
+}
+
+// ── Multi-level filter chips (platform × length) on lifecycle + History ──
+// Shared across Scheduled / Uploaded / History so a YT-only glance sticks.
+const _AB_FILTER_DEFAULT = { platform: 'all', length: 'all' };
+function _abGetFilters() {
+    const ui = _abLoadUi();
+    const f = ui.filters || {};
+    return {
+        platform: f.platform || _AB_FILTER_DEFAULT.platform,
+        length: f.length || _AB_FILTER_DEFAULT.length,
+    };
+}
+function _abSetFilter(dim, value) {
+    const cur = _abGetFilters();
+    if (dim === 'platform') cur.platform = value || 'all';
+    if (dim === 'length') cur.length = value || 'all';
+    _abSaveUi({ filters: cur });
+    _abApplyFiltersToDom();
+}
+function _abItemPlatform(it) {
+    if (!it) return 'other';
+    let p = String(it.platform || it.source || it.category || '').toLowerCase();
+    if (!p && it.type) p = String(it.type).toLowerCase();
+    if (p.includes('youtube') || p === 'yt' || p === 'youtube-short' || p === 'youtube-studio') return 'youtube';
+    if (p === 'x' || p.includes('x-post') || p === 'twitter') return 'x';
+    if (p.includes('tiktok')) return 'tiktok';
+    if (p.includes('instagram') || p === 'insta') return 'instagram';
+    if (p.includes('facebook') || p === 'fb') return 'facebook';
+    if (p) return p;
+    return 'other';
+}
+function _abItemLength(it) {
+    const cls = _cardPostClass(it);
+    if (cls.length === 'short' || cls.length === 'long') return cls.length;
+    if (it && it.session_role === 'full') return 'long';
+    if (it && it.session_role === 'moment') return 'short';
+    return '';
+}
+function _abFilterItems(items) {
+    const f = _abGetFilters();
+    return (items || []).filter((it) => {
+        if (f.platform && f.platform !== 'all') {
+            if (_abItemPlatform(it) !== f.platform) return false;
+        }
+        if (f.length && f.length !== 'all') {
+            const len = _abItemLength(it);
+            // Unknown length stays visible unless a length chip is on and item is classified opposite
+            if (len && len !== f.length) return false;
+            if (!len) return true;
+        }
+        return true;
+    });
+}
+function _abPlatformChipDefs(items) {
+    const present = {};
+    for (const it of (items || [])) {
+        present[_abItemPlatform(it)] = true;
+    }
+    const order = [
+        { id: 'youtube', label: 'YT' },
+        { id: 'x', label: '𝕏' },
+        { id: 'tiktok', label: 'TikTok' },
+        { id: 'instagram', label: 'Insta' },
+        { id: 'facebook', label: 'FB' },
+    ];
+    const chips = [{ id: 'all', label: 'All' }];
+    for (const c of order) {
+        if (present[c.id]) chips.push(c);
+    }
+    // Any unexpected platform keys
+    for (const k of Object.keys(present)) {
+        if (k === 'other') continue;
+        if (!chips.some((c) => c.id === k)) chips.push({ id: k, label: k });
+    }
+    if (present.other) chips.push({ id: 'other', label: 'Other' });
+    return chips;
+}
+function _abFilterBarHtml(items, lane) {
+    const f = _abGetFilters();
+    const plats = _abPlatformChipDefs(items);
+    // Only show platform row when more than All would appear, OR always show All+length
+    // Always show both rows on lifecycle/history — empty second options still ok.
+    const platHtml = plats.map((c) => {
+        const on = f.platform === c.id ? ' on' : '';
+        return `<button type="button" class="ab-filter-chip${on}" data-filter-dim="platform" data-filter-val="${esc(c.id)}"
+            onclick="event.stopPropagation(); _abSetFilter('platform', '${esc(c.id)}')">${esc(c.label)}</button>`;
+    }).join('');
+    const lengths = [
+        { id: 'all', label: 'All lengths' },
+        { id: 'short', label: 'Short' },
+        { id: 'long', label: 'Long' },
+    ];
+    const lenHtml = lengths.map((c) => {
+        const on = f.length === c.id ? ' on' : '';
+        return `<button type="button" class="ab-filter-chip${on}" data-filter-dim="length" data-filter-val="${esc(c.id)}"
+            onclick="event.stopPropagation(); _abSetFilter('length', '${esc(c.id)}')">${esc(c.label)}</button>`;
+    }).join('');
+    const filtered = _abFilterItems(items);
+    const total = (items || []).length;
+    const shown = filtered.length;
+    const countBit = (f.platform !== 'all' || f.length !== 'all')
+        ? `<span class="ab-filter-count">${shown} / ${total}</span>`
+        : '';
+    return `<div class="ab-filter-bar" data-filter-lane="${esc(lane || '')}" role="toolbar" aria-label="Filter posts">
+        <div class="ab-filter-row">
+            <span class="ab-filter-label">Platform</span>
+            ${platHtml}
+            ${countBit}
+        </div>
+        <div class="ab-filter-row">
+            <span class="ab-filter-label">Length</span>
+            ${lenHtml}
+        </div>
+    </div>`;
+}
+function _abApplyFiltersToDom() {
+    // Re-render active lifecycle/history panel bodies in place without full board reload.
+    const social = document.getElementById('ab-act-panel-social');
+    if (!social) return;
+    const f = _abGetFilters();
+    // Update chip on-state everywhere
+    social.querySelectorAll('.ab-filter-chip').forEach((btn) => {
+        const dim = btn.getAttribute('data-filter-dim');
+        const val = btn.getAttribute('data-filter-val');
+        const on = (dim === 'platform' && f.platform === val) || (dim === 'length' && f.length === val);
+        btn.classList.toggle('on', !!on);
+    });
+    // Scheduled
+    const schedPanel = document.getElementById('ab-act-sub-social-scheduled');
+    if (schedPanel && schedPanel._abSourceItems) {
+        const lane = 'scheduled';
+        schedPanel.innerHTML = _renderScheduledCards(schedPanel._abSourceItems, lane);
+    }
+    const upPanel = document.getElementById('ab-act-sub-social-uploaded');
+    if (upPanel && upPanel._abSourceItems) {
+        upPanel.innerHTML = _renderScheduledCards(upPanel._abSourceItems, 'uploaded');
+    }
+    // History keeps its own paint path
+    const histBody = document.getElementById('ab-history-body');
+    if (histBody && _historyLoaded) {
+        _paintHistoryPanel();
+    }
+    // Refresh counts on filter bars after re-render
+    social.querySelectorAll('.ab-filter-bar').forEach((bar) => {
+        const lane = bar.getAttribute('data-filter-lane');
+        let items = null;
+        if (lane === 'scheduled' && schedPanel) items = schedPanel._abSourceItems;
+        if (lane === 'uploaded' && upPanel) items = upPanel._abSourceItems;
+        if (lane === 'history') items = _historyItems;
+        if (!items) return;
+        const filtered = _abFilterItems(items);
+        const total = items.length;
+        const shown = filtered.length;
+        let countEl = bar.querySelector('.ab-filter-count');
+        if (f.platform !== 'all' || f.length !== 'all') {
+            if (!countEl) {
+                countEl = document.createElement('span');
+                countEl.className = 'ab-filter-count';
+                const row = bar.querySelector('.ab-filter-row');
+                if (row) row.appendChild(countEl);
+            }
+            countEl.textContent = `${shown} / ${total}`;
+        } else if (countEl) {
+            countEl.remove();
+        }
+    });
 }
 
 const _historyCache = {};
@@ -115,6 +302,7 @@ function refreshActions() {
 function renderActions(container, actions, scheduled) {
     actions = actions || [];
     scheduled = scheduled || [];
+    window._abLastScheduledItems = scheduled;
 
     // ── Build tabs from all items ──────────────────────
     // Tab definitions: id, label, items, subtabs (optional)
@@ -224,7 +412,9 @@ function renderActions(container, actions, scheduled) {
                     </div>`;
                     html += _renderActionCards(sub.items);
                 } else if (sub.id === 'scheduled' || sub.id === 'uploaded') {
-                    html += _renderScheduledCards(sub.items, sub.id === 'uploaded' ? 'uploaded' : 'scheduled');
+                    const lane = sub.id === 'uploaded' ? 'uploaded' : 'scheduled';
+                    // Source list stashed after paint via data attribute hook below.
+                    html += _renderScheduledCards(sub.items, lane);
                 } else if (sub.id === 'history') {
                     html += _renderHistoryShell(sub.items);
                 } else {
@@ -240,6 +430,19 @@ function renderActions(container, actions, scheduled) {
     });
 
     container.innerHTML = html;
+
+    // Stash unfiltered lists on lifecycle panels so chip toggles re-filter in place.
+    try {
+        const schedEl = document.getElementById('ab-act-sub-social-scheduled');
+        const upEl = document.getElementById('ab-act-sub-social-uploaded');
+        const allSched = window._abLastScheduledItems || [];
+        if (schedEl) {
+            schedEl._abSourceItems = allSched.filter(s => s.status === 'queued' || s.status === 'uploading');
+        }
+        if (upEl) {
+            upEl._abSourceItems = allSched.filter(s => s.status === 'uploaded');
+        }
+    } catch (_) { /* ignore */ }
 
     // Restore previously active tab/subtab after re-render
     _restoreActTabs();
@@ -509,16 +712,19 @@ function _sessionHeaderHtml(stem, items, opts) {
     if (moments) bits.push(`${moments} card${moments === 1 ? '' : 's'}`);
     if (!bits.length) bits.push(`${n} card${n === 1 ? '' : 's'}`);
     const mapBits = _sessionMapBits(stem);
-    const safeStem = esc(stem);
+    const stemKey = _abStemKey(stem);
+    const safeStem = esc(stemKey);
+    // data-stem must stay RAW (attr-escaped only) so localStorage keys round-trip on hard refresh
+    const stemAttr = esc(stemKey).replace(/"/g, '&quot;');
     const id = `ab-sess-${safeStem.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
     // Sticky expand/collapse: remembered preference wins over lane default
-    const collapsed = _abSessionCollapsed(stem, collapseDefault);
+    const collapsed = _abSessionCollapsed(stemKey, collapseDefault);
     const collapsedCls = collapsed ? ' collapsed' : '';
     const expanded = collapsed ? 'false' : 'true';
     // Nested map rows only on work lanes (drafts/scheduled/testing), not History clutter
     const showMap = !(opts && opts.collapseDefault);
-    const mapHtml = showMap ? _sessionMapPanelHtml(stem) : '';
-    return `<div class="ab-session-group${collapsedCls}" data-stem="${safeStem}">
+    const mapHtml = showMap ? _sessionMapPanelHtml(stemKey) : '';
+    return `<div class="ab-session-group${collapsedCls}" data-stem="${stemAttr}">
         <button type="button" class="ab-session-header" aria-expanded="${expanded}"
             onclick="event.stopPropagation(); _abToggleSessionCollapsed(this.parentElement.getAttribute('data-stem'), this.parentElement)">
             <span class="ab-session-chevron">▾</span>
@@ -689,6 +895,7 @@ function _renderActionCards(items) {
 
 function _renderScheduledCards(items, lane) {
     items = items || [];
+    const filterBar = items.length ? _abFilterBarHtml(items, lane || 'scheduled') : '';
     if (!items.length) {
         if (lane === 'uploaded') {
             return `<div class="ab-empty">No uploaded posts waiting on Mark Published.
@@ -699,7 +906,13 @@ function _renderScheduledCards(items, lane) {
             <div style="margin-top:6px;font-size:0.78rem;color:var(--dim)">Queued and uploading posts show here. Uploaded-but-not-marked-public are under <strong>Uploaded</strong>.</div>
         </div>`;
     }
-    return _renderGrouped(items, (s) => {
+    const view = _abFilterItems(items);
+    if (!view.length) {
+        return `${filterBar}<div class="ab-empty">No posts match these filters.
+            <div style="margin-top:6px;font-size:0.78rem;color:var(--dim)">Clear a chip (All / All lengths) to see everything in this tab.</div>
+        </div>`;
+    }
+    return filterBar + _renderGrouped(view, (s) => {
         const statusColors = { queued: 'var(--yellow)', uploading: 'var(--accent)', uploaded: 'var(--green)', published: 'var(--green)' };
         const color = statusColors[s.status] || 'var(--dim)';
         const series = s.series ? `<span class="ab-action-series">${esc(s.series)}</span>` : '';
@@ -735,7 +948,7 @@ function _renderScheduledCards(items, lane) {
         const err = s.error_message ? ` · ${esc(s.error_message).slice(0, 80)}` : '';
 
         return `
-        <div class="ab-action-card ab-scheduled-card ${postCls.classes}" data-stem="${esc(s.source_stem || '')}" data-session-role="${esc(s.session_role || '')}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" ${clickAttr}>
+        <div class="ab-action-card ab-scheduled-card ${postCls.classes}" data-stem="${esc(s.source_stem || '')}" data-session-role="${esc(s.session_role || '')}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" data-platform="${esc(plat)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
                 <div class="ab-action-title">${platTag}${esc(s.title)}${ytLink} ${roleBadge} ${metaChips}</div>
@@ -807,7 +1020,13 @@ function _historyMoreHtml() {
 
 function _renderHistoryCards(items) {
     // History: sessions collapsed by default; newest → oldest inside each session
-    return _renderGrouped(items, (h) => {
+    items = items || [];
+    const filterBar = items.length ? _abFilterBarHtml(items, 'history') : '';
+    const view = _abFilterItems(items);
+    if (items.length && !view.length) {
+        return `${filterBar}<div class="ab-empty">No published posts match these filters.</div>`;
+    }
+    return filterBar + _renderGrouped(view, (h) => {
         const plat = h.platform || 'youtube';
         const platTag = plat === 'x'
             ? '<span class="ab-action-series">𝕏</span> '
