@@ -209,3 +209,78 @@ def test_process_moments_passes_moment_context():
     assert "_moment_context_for" in src
     social = (ROOT / "src/dashboard/routes/social_templates.py").read_text()
     assert "moment_context" in social
+
+
+def test_description_skeleton_and_mine_brief_fields():
+    from src.dashboard.routes.video_meta import (
+        empty_video_meta,
+        VIDEO_META_FIELDS,
+        VIDEO_META_FIELD_META,
+        merge_video_meta,
+        effective_description_skeleton,
+        effective_moment_mine_brief,
+        DEFAULT_DESCRIPTION_SKELETON,
+        DEFAULT_MOMENT_MINE_BRIEF,
+    )
+    assert "description_skeleton" in VIDEO_META_FIELDS
+    assert "moment_mine_brief" in VIDEO_META_FIELDS
+    assert "description_skeleton" in VIDEO_META_FIELD_META
+    assert "moment_mine_brief" in VIDEO_META_FIELD_META
+    e = empty_video_meta()
+    assert e["description_skeleton"] == ""
+    assert e["moment_mine_brief"] == ""
+    # Empty profile still resolves to product defaults for writers/miners
+    assert effective_description_skeleton(e) == DEFAULT_DESCRIPTION_SKELETON
+    assert effective_moment_mine_brief(e) == DEFAULT_MOMENT_MINE_BRIEF
+    assert "LEAD-IN" in DEFAULT_DESCRIPTION_SKELETON
+    assert "bare topic list" in DEFAULT_DESCRIPTION_SKELETON.lower() or "Never open" in DEFAULT_DESCRIPTION_SKELETON
+    assert "PRIMARY NICHE" in DEFAULT_MOMENT_MINE_BRIEF or "niche" in DEFAULT_MOMENT_MINE_BRIEF.lower()
+    p = empty_video_meta()
+    p["description_skeleton"] = "Custom: A then B"
+    p["moment_mine_brief"] = "Only product demos"
+    assert effective_description_skeleton(p) == "Custom: A then B"
+    assert effective_moment_mine_brief(p) == "Only product demos"
+    c = empty_video_meta()
+    c["description_skeleton"] = "Cove skel"
+    m = merge_video_meta(p, c)
+    assert m["description_skeleton"] == "Custom: A then B"
+    m2 = merge_video_meta(empty_video_meta(), c)
+    assert m2["description_skeleton"] == "Cove skel"
+
+
+def test_prompts_include_description_format_and_forbid_bare_topic_lead():
+    from src.dashboard.routes.video_meta import (
+        empty_video_meta,
+        build_platform_system_prompt,
+        build_full_video_system_prompt,
+    )
+    empty = empty_video_meta()
+    yt = build_platform_system_prompt("youtube", empty, "thought", "45s")
+    assert "DESCRIPTION FORMAT" in yt
+    assert "LEAD-IN" in yt or "lead-in" in yt.lower()
+    assert "bare" in yt.lower() or "Never open" in yt or "never lead" in yt.lower()
+    # Short single-post platforms skip multi-section skeleton
+    x = build_platform_system_prompt("x", empty, "quote", "20s")
+    assert "multi-section description skeleton" in x.lower() or "DESCRIPTION FORMAT" not in x
+    full = build_full_video_system_prompt(empty)
+    assert "DESCRIPTION FORMAT" in full
+    assert "lead-in" in full.lower()
+    # Custom skeleton flows through
+    m = empty_video_meta()
+    m["description_skeleton"] = "ONLY SECTION: zinger then CTA"
+    yt2 = build_platform_system_prompt("youtube", m, "story", "90s")
+    assert "ONLY SECTION: zinger then CTA" in yt2
+
+
+def test_identify_moments_prompt_includes_mine_brief():
+    src = (ROOT / "src/dashboard/routes/video_pipeline.py").read_text()
+    assert "MOMENT MINE BRIEF" in src
+    assert "effective_moment_mine_brief" in src
+    assert "mine_brief_guidance" in src
+
+
+def test_ui_surfaces_new_video_meta_fields():
+    ui = (ROOT / "src/dashboard/static/action-board/full-video-pipeline.html").read_text()
+    assert "moment_mine_brief" in ui
+    assert "description_skeleton" in ui
+

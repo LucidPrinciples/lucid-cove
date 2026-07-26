@@ -22,6 +22,8 @@ VIDEO_META_FIELDS = (
     "brand_name",          # e.g. "Ridge Hardware" - voice line for the LLM
     "brand_topics",        # e.g. "home improvement, tools, local store tips"
     "theme_mix",           # optional moment-mining mix; empty = balanced default
+    "moment_mine_brief",   # new: guidance for moment selection (niche/SEO mix)
+    "description_skeleton",# new: enforced structure for titles/descriptions
     "attribute_handle",    # e.g. "@jasonbroadcast on X" — soft creator credit line
     "short_cta_url",       # final-line URL for Shorts / Facebook (optional)
     "short_cta_line",       # full final block for shorts; if empty + url -> composed
@@ -53,6 +55,31 @@ VIDEO_META_FIELD_META = {
         "placeholder": (
             "e.g. practical how-to; personal story; bold opinion; product peek; "
             "quiet insight - spread across the talk"
+        ),
+    },
+    "moment_mine_brief": {
+        "label": "Moment mine brief (niche + discovery)",
+        "help": (
+            "How the analyzer should balance primary niche subject matter with "
+            "searchable / discovery entry points across one talk. Empty = product "
+            "default: niche spine first, then SEO spread, no forced topics."
+        ),
+        "placeholder": (
+            "e.g. Primary spine: our craft and how we teach it. "
+            "Discovery: plain-language entry points a new viewer would search. "
+            "Do not force topics absent from the talk."
+        ),
+    },
+    "description_skeleton": {
+        "label": "Description format (skeleton)",
+        "help": (
+            "Structure the metadata writer must follow for multi-paragraph "
+            "descriptions (YouTube Shorts/full, IG, Facebook). Empty = product "
+            "default: hook → lead-in → topics only after lead-in → optional "
+            "response prompt → closing block. Override to match your channel."
+        ),
+        "placeholder": (
+            "Leave empty for the built-in format, or paste your own section order."
         ),
     },
     "attribute_handle": {
@@ -232,6 +259,55 @@ def _final_line(line: str, url: str) -> str:
     return _compose_closing_block(line, url, "")
 
 
+# Product default description shape when description_skeleton is empty.
+# Creators may override the whole structure via the profile field — never brand-specific.
+DEFAULT_DESCRIPTION_SKELETON = (
+    "1) HOOK — one opening line that earns the click (also works as the search snippet).\n"
+    "2) LEAD-IN — one or two sentences that frame what this piece is about and why it matters. "
+    "Never open the body with a bare topic list.\n"
+    "3) TOPICS — only after the lead-in: short bullets (→ arrows, not dashes) for the key ideas "
+    "in this clip/talk. Each bullet is a phrase, not a new essay.\n"
+    "4) RESPONSE PROMPT — when natural, one real question the viewer can answer (not bait).\n"
+    "5) CLOSING BLOCK — only if the platform rules below require an exact closing block; "
+    "otherwise stop after the prompt."
+)
+
+# Product default for moment mining when moment_mine_brief is empty.
+DEFAULT_MOMENT_MINE_BRIEF = (
+    "Balance two aims across the talk: (A) PRIMARY NICHE SPINE — moments that carry the "
+    "creator's real subject matter and teaching voice; (B) DISCOVERY / SEO SPREAD — moments "
+    "phrased so a new viewer could find them by searching a plain question or problem. "
+    "Prefer a set that covers both when the transcript supports it. Do not invent niche or "
+    "search topics that are absent from the talk. Reject near-duplicates of the same claim."
+)
+
+
+def effective_description_skeleton(meta: dict[str, str] | None) -> str:
+    """Operator override or product default skeleton (always non-empty for writers)."""
+    raw = ((meta or {}).get("description_skeleton") or "").strip()
+    return raw or DEFAULT_DESCRIPTION_SKELETON
+
+
+def effective_moment_mine_brief(meta: dict[str, str] | None) -> str:
+    """Operator override or product default mine brief."""
+    raw = ((meta or {}).get("moment_mine_brief") or "").strip()
+    return raw or DEFAULT_MOMENT_MINE_BRIEF
+
+
+def _description_format_block(meta: dict[str, str] | None, *, multi_paragraph: bool) -> str:
+    """Injected into multi-paragraph platform / full prompts."""
+    if not multi_paragraph:
+        return ""
+    sk = effective_description_skeleton(meta)
+    return (
+        "DESCRIPTION FORMAT (required structure — follow in order; blank line between sections):\n"
+        f"{sk}\n"
+        "Hard format rules: never lead with a bare list of topics; the lead-in comes first. "
+        "Topic bullets only after the lead-in. Do not skip the hook. "
+        "Separate every paragraph / section with a blank line (\\n\\n in the JSON string)."
+    )
+
+
 def build_platform_system_prompt(
     platform: str,
     meta: dict[str, str],
@@ -306,6 +382,7 @@ def build_platform_system_prompt(
 
     hash_brand = seed_line or "Hashtags from the clip topics only — no forced brand tags."
     attr_rule = f"- {attr_note}" if attr_note else ""
+    desc_fmt = _description_format_block(meta, multi_paragraph=True)
 
     # Fill after we inject clip_type — use format carefully
     base = {
@@ -317,9 +394,11 @@ Write metadata for a YouTube Short clip.
 {extra_line}
 {moment_line}
 
+{desc_fmt}
+
 Rules:
 - Title: 50-70 chars. Hook-first. No clickbait but must grab attention. Include a key concept from the clip.
-- Description: 3-5 short paragraphs, blank line between each. First line is the hook (shows in search). Include key concepts as bullet points (→ arrows, not dashes). Prefer easy response prompts when natural (a real question the viewer can answer), not forced engagement bait. {yt_link_rule}
+- Description: Follow DESCRIPTION FORMAT above (3-5 short sections). First line is the hook (shows in search). Topic bullets use → arrows, not dashes. Prefer easy response prompts when natural (a real question the viewer can answer), not forced engagement bait. {yt_link_rule}
 {attr_rule}
 - Hashtags: 8-12 relevant hashtags, mix of broad and niche. {hash_brand}
 - Tags: 10-15 comma-separated search terms for YouTube's tag system.
@@ -339,7 +418,7 @@ Write a post to accompany a video clip.
 
 Rules:
 - Title: Not used on X. Set to the clip label.
-- Description: This IS the post text. Max 240 chars including hashtags (the video doesn't count). Punchy, conversational. NEVER include a URL or link.
+- Description: This IS the post text. Max 240 chars including hashtags (the video doesn't count). Punchy, conversational. NEVER include a URL or link. Single short post — do not use the multi-section description skeleton.
 - A soft handle credit is OK only if it fits the char limit and feels natural (e.g. a trailing handle), never "Creator is …".
 - Prefer a light response prompt when it fits (a real question), not forced bait.
 - Hashtags: Default to NONE. At most 1 if it genuinely aids discovery. Usually return "".
@@ -360,7 +439,7 @@ Write a caption for a TikTok video.
 
 Rules:
 - Title: Short hook (shown in search).
-- Description: Caption 150-300 chars. Hook in first line. No URLs.
+- Description: Caption 150-300 chars. Hook in first line, then one tight thought — not a multi-section skeleton. No URLs.
 - Prefer an easy response prompt when natural. Soft handle mention OK if brief.
 - Hashtags: 4-6 searchable topic tags. {hash_brand} Skip spam tags like #fyp.
 - Tags: Empty array.
@@ -377,9 +456,11 @@ Return ONLY valid JSON:
 {extra_line}
 {moment_line}
 
+{desc_fmt}
+
 Rules:
 - Title: Short hook for the cover (40 chars max).
-- Description: 2-4 paragraphs, blank line between each. Prefer an easy response prompt when natural. No URLs (not clickable). If a site pointer is needed, say "link in bio" — never invent a URL.
+- Description: Follow DESCRIPTION FORMAT above (2-4 sections). Prefer an easy response prompt when natural. No URLs (not clickable). If a site pointer is needed, say "link in bio" — never invent a URL.
 {attr_rule}
 - Hashtags: 8-12 focused hashtags at the end. {hash_brand}
 - Tags: Empty array.
@@ -396,9 +477,11 @@ Return ONLY valid JSON:
 {extra_line}
 {moment_line}
 
+{desc_fmt}
+
 Rules:
 - Title: Not used. Set to the clip label.
-- Description: 2-3 paragraphs, blank line between each, conversational. Prefer an easy response prompt when natural. {fb_link_rule}
+- Description: Follow DESCRIPTION FORMAT above (2-3 sections), conversational. Prefer an easy response prompt when natural. {fb_link_rule}
 {attr_rule}
 - Hashtags: 0-3 max.
 - Tags: Empty array.
@@ -444,6 +527,7 @@ def build_full_video_system_prompt(meta: dict[str, str]) -> str:
         f"Operator note to honor when relevant: {extra}"
         if extra else ""
     )
+    desc_fmt = _description_format_block(meta, multi_paragraph=True)
     if full_final:
         shown = full_final.replace("\n", "\\n")
         link_rules = (
@@ -469,13 +553,16 @@ def build_full_video_system_prompt(meta: dict[str, str]) -> str:
 {voice_line}
 {extra_line}
 
-Generate metadata for a full-length YouTube video. Title should be compelling and searchable. Description should summarize the content and key topics.
+Generate metadata for a full-length YouTube video. Title should be compelling and searchable.
+
+{desc_fmt}
 
 Hard rules:
 - Write finished, postable copy only. NEVER use placeholder text (no "[links here]", no "[...]", no TODO).
 - Separate every paragraph with a blank line (\\n\\n in the JSON string).
 - No em dashes. Use periods or commas instead.
 - Prefer an easy response prompt when natural (a real question), not forced engagement bait.
+- Never open the description with a bare topic list — lead-in first, topics only after.
 - Provide 8 to 12 tags. Each tag is 1 to 3 words, no tag longer than 25 characters, and the whole tag set stays under 400 characters total.
 - {link_rules}
 - {tag_hint}
@@ -483,7 +570,7 @@ Hard rules:
 Return ONLY valid JSON:
 {{
   "title": "Compelling YouTube title (50-70 chars ideal, max 100)",
-  "description": "YouTube description (2-3 paragraphs, ~150-300 words, blank line between paragraphs). First line is the hook. Include timestamps if obvious sections exist. {desc_final}",
+  "description": "YouTube description following DESCRIPTION FORMAT (~150-300 words). First line is the hook. Include timestamps if obvious sections exist. {desc_final}",
   "hashtags": "#hashtag1 #hashtag2 #hashtag3 (3-5 relevant hashtags)",
   "tags": ["tag1", "tag2", "tag3", "..."]
 }}"""

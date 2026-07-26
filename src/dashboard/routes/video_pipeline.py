@@ -1084,6 +1084,14 @@ Always propose all three when the moment window is >= 2 minutes. Quote lives ins
     _vm = video_meta or {}
     _theme_mix = (_vm.get("theme_mix") or "").strip()
     _brand_topics = (_vm.get("brand_topics") or "").strip()
+    try:
+        from src.dashboard.routes.video_meta import effective_moment_mine_brief
+        _mine_brief = effective_moment_mine_brief(_vm)
+    except Exception:
+        _mine_brief = (
+            "Balance primary niche subject matter with searchable discovery entry points. "
+            "Do not invent topics absent from the talk."
+        )
     if _theme_mix:
         diversity_guidance = (
             "THEME MIX (creator-configured — honor this as a mining target, not a hard quota):\n"
@@ -1102,6 +1110,10 @@ Always propose all three when the moment window is >= 2 minutes. Quote lives ins
             "Spread across the timeline (early / middle / late) when quality allows. "
             "If the talk is narrow, fewer high-quality diverse moments beat padded duplicates."
         )
+    mine_brief_guidance = (
+        "MOMENT MINE BRIEF (niche spine + discovery/SEO — honor as selection guidance, not a hard quota):\n"
+        f"{_mine_brief}"
+    )
     topics_line = (
         f"Creator topics to recognize when they appear (do not force if absent): {_brand_topics}"
         if _brand_topics else
@@ -1117,6 +1129,7 @@ A MOMENT is a region of the video where something worth sharing happens — a cl
 IMPORTANT:
 - {length_guidance}
 - {topics_line}
+- {mine_brief_guidance}
 - {diversity_guidance}
 - Timestamps must be exact - use the [M:SS] markers in the transcript.
 - Each clip needs a hook - what makes someone stop scrolling?
