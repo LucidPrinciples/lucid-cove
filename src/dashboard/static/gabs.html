@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gabs">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="icon" type="image/png" href="/static/icon-192.png">
+<title>Gabs by Gabe</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e0;
+  min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+header{padding:16px 18px 12px;border-bottom:1px solid #1a1a2e;flex-shrink:0}
+.brand{font-size:0.78rem;color:#666;letter-spacing:.04em}
+.brand em{font-style:normal;color:#7eb8da}
+h1{font-size:1.15rem;font-weight:600;margin-top:4px;color:#fff}
+.sub{font-size:0.75rem;color:#666;margin-top:4px}
+.capture{padding:14px 18px;border-bottom:1px solid #1a1a2e;flex-shrink:0}
+label{display:block;font-size:0.7rem;color:#7eb8da;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+input[type=url],textarea{
+  width:100%;background:#111118;border:1px solid #2a2a3e;border-radius:8px;
+  color:#e0e0e0;padding:10px 12px;font-size:0.9rem;margin-bottom:10px}
+textarea{min-height:64px;resize:vertical;font-family:inherit}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+button{
+  border:1px solid #333;background:#1a1a2e;color:#ccc;border-radius:8px;
+  padding:10px 14px;font-size:0.85rem;cursor:pointer;flex:1;min-width:120px}
+button.primary{border-color:#7eb8da;color:#7eb8da;font-weight:600}
+button:disabled{opacity:.45;pointer-events:none}
+button:active{background:#252540}
+.status{font-size:0.75rem;color:#888;min-height:18px;margin-top:8px;text-align:center}
+.tabs{display:flex;gap:0;border-bottom:1px solid #1a1a2e;flex-shrink:0}
+.tab{flex:1;text-align:center;padding:12px;font-size:0.82rem;color:#666;cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{color:#7eb8da;border-bottom-color:#7eb8da;font-weight:600}
+.list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 0 24px}
+.item{padding:12px 18px;border-bottom:1px solid #1a1a2e}
+.item .t{font-weight:600;font-size:0.9rem;color:#fff;margin-bottom:4px}
+.item .u{font-size:0.72rem;color:#666;word-break:break-all;margin-bottom:6px}
+.item .bl{font-size:0.82rem;color:#bbb;margin-bottom:8px}
+.meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:0.72rem}
+.chip{padding:2px 8px;border-radius:999px;border:1px solid #333;color:#888}
+.chip.matters{border-color:#2ecc71;color:#2ecc71}
+.chip.adjacent{border-color:#f39c12;color:#f39c12}
+.chip.noise{border-color:#555;color:#888}
+.chip.running{border-color:#f39c12;color:#f39c12}
+.chip.queued{border-color:#7eb8da;color:#7eb8da}
+.chip.failed{border-color:#e74c3c;color:#e74c3c}
+.chip.done{border-color:#2ecc71;color:#2ecc71}
+.row-actions{display:flex;gap:6px;margin-top:8px}
+.row-actions button{flex:0 0 auto;padding:6px 10px;font-size:0.75rem;min-width:0}
+.empty{color:#444;text-align:center;padding:36px 16px;font-size:0.85rem;font-style:italic}
+.report-view{display:none;flex:1;flex-direction:column;min-height:0}
+.report-view.show{display:flex}
+.report-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #1a1a2e;flex-shrink:0}
+.report-bar button{flex:0;min-width:0;padding:6px 12px}
+.report-frame{flex:1;border:0;width:100%;background:#0a0a0f;min-height:0}
+.main-wrap{display:flex;flex-direction:column;flex:1;min-height:0}
+.main-wrap.hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Gabs by <em>Gabe</em></div>
+  <h1>Link → assessment</h1>
+  <div class="sub">Quick path · paste a URL · Run now or Later</div>
+</header>
+
+<div class="main-wrap" id="mainWrap">
+  <div class="capture">
+    <label for="url">URL</label>
+    <input id="url" type="url" inputmode="url" autocomplete="url" placeholder="https://…" />
+    <label for="ctx">Context (optional)</label>
+    <textarea id="ctx" placeholder="What should this Gab focus on?"></textarea>
+    <div class="actions">
+      <button class="primary" id="btnRun" type="button">Run now</button>
+      <button id="btnLater" type="button">Later</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab on" data-tab="process" id="tabProcess">To process</div>
+    <div class="tab" data-tab="history" id="tabHistory">History</div>
+  </div>
+  <div class="list" id="list"></div>
+</div>
+
+<div class="report-view" id="reportView">
+  <div class="report-bar">
+    <button type="button" id="btnBack">← Back</button>
+    <span id="reportTitle" style="font-size:0.85rem;color:#ccc;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  </div>
+  <iframe class="report-frame" id="reportFrame" title="Gab report" sandbox="allow-same-origin"></iframe>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let tab = 'process';
+let items = [];
+let pollTimer = null;
+
+function setStatus(msg, isErr) {
+  const el = $('status');
+  el.textContent = msg || '';
+  el.style.color = isErr ? '#e74c3c' : '#888';
+}
+
+function esc(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, {
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...(opts && opts.headers || {}) },
+    ...opts,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText || 'request failed');
+  return data;
+}
+
+function showReport(item) {
+  if (!item || !item.report_html) return;
+  $('mainWrap').classList.add('hide');
+  $('reportView').classList.add('show');
+  $('reportTitle').textContent = item.title || 'Gab';
+  const doc = $('reportFrame').contentDocument;
+  if (doc) {
+    doc.open();
+    doc.write(item.report_html);
+    doc.close();
+  }
+}
+
+function hideReport() {
+  $('reportView').classList.remove('show');
+  $('mainWrap').classList.remove('hide');
+}
+
+function render() {
+  const el = $('list');
+  const process = items.filter(i => ['queued','running','failed'].includes(i.status));
+  const history = items.filter(i => i.status === 'done');
+  const view = tab === 'history' ? history : process;
+
+  $('tabProcess').textContent = `To process${process.length ? ' · ' + process.length : ''}`;
+  $('tabHistory').textContent = `History${history.length ? ' · ' + history.length : ''}`;
+
+  if (!view.length) {
+    el.innerHTML = `<div class="empty">${tab === 'history'
+      ? 'No Gabs yet. Run one above.'
+      : 'Nothing waiting. Paste a link and Run now or Later.'}</div>`;
+    return;
+  }
+
+  el.innerHTML = view.map(i => {
+    const fit = (i.fit || '').toLowerCase();
+    const chips = [
+      `<span class="chip ${esc(i.status)}">${esc(i.status)}</span>`,
+      fit ? `<span class="chip ${esc(fit)}">${esc(fit)}</span>` : '',
+    ].join('');
+    let actions = '';
+    if (i.status === 'queued' || i.status === 'failed') {
+      actions = `<div class="row-actions">
+        <button type="button" data-run="${i.id}">Run</button>
+        <button type="button" data-cancel="${i.id}">Cancel</button>
+      </div>`;
+    } else if (i.status === 'done') {
+      actions = `<div class="row-actions">
+        <button type="button" data-open="${i.id}">Open report</button>
+      </div>`;
+    } else if (i.status === 'running') {
+      actions = `<div class="row-actions"><span style="font-size:0.72rem;color:#f39c12">Working…</span></div>`;
+    }
+    return `<div class="item" data-id="${i.id}">
+      <div class="t">${esc(i.title || i.url || 'Gab')}</div>
+      <div class="u">${esc(i.url)}</div>
+      ${i.bottom_line ? `<div class="bl">${esc(i.bottom_line)}</div>` : ''}
+      ${i.error ? `<div class="bl" style="color:#e74c3c">${esc(i.error)}</div>` : ''}
+      <div class="meta">${chips}<span style="color:#555">${esc((i.updated_at || '').slice(0,16))}</span></div>
+      ${actions}
+    </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-run]').forEach(btn => {
+    btn.onclick = () => runId(+btn.dataset.run);
+  });
+  el.querySelectorAll('[data-cancel]').forEach(btn => {
+    btn.onclick = () => cancelId(+btn.dataset.cancel);
+  });
+  el.querySelectorAll('[data-open]').forEach(btn => {
+    btn.onclick = () => {
+      const it = items.find(x => x.id === +btn.dataset.open);
+      showReport(it);
+    };
+  });
+}
+
+async function refresh() {
+  try {
+    const data = await api('/api/gabs');
+    items = data.items || [];
+    render();
+    const busy = items.some(i => i.status === 'running');
+    if (busy && !pollTimer) {
+      pollTimer = setInterval(refresh, 4000);
+    } else if (!busy && pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  } catch (e) {
+    setStatus(e.message || String(e), true);
+  }
+}
+
+async function capture(runNow) {
+  const url = $('url').value.trim();
+  if (!url) { setStatus('Paste a URL first', true); return; }
+  $('btnRun').disabled = true;
+  $('btnLater').disabled = true;
+  setStatus(runNow ? 'Starting…' : 'Saving to Later…');
+  try {
+    await api('/api/gabs/capture', {
+      method: 'POST',
+      body: JSON.stringify({
+        url,
+        context: $('ctx').value.trim(),
+        run_now: !!runNow,
+        mode: 'quick',
+      }),
+    });
+    if (runNow) $('url').value = '';
+    setStatus(runNow ? 'Running Quick assess…' : 'Queued for Later');
+    tab = runNow ? 'process' : 'process';
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === tab));
+    await refresh();
+  } catch (e) {
+    setStatus(e.message || String(e), true);
+  } finally {
+    $('btnRun').disabled = false;
+    $('btnLater').disabled = false;
+  }
+}
+
+async function runId(id) {
+  try {
+    setStatus('Starting…');
+    await api('/api/gabs/' + id + '/run', { method: 'POST', body: '{}' });
+    await refresh();
+  } catch (e) {
+    setStatus(e.message || String(e), true);
+  }
+}
+
+async function cancelId(id) {
+  try {
+    await api('/api/gabs/' + id + '/cancel', { method: 'POST', body: '{}' });
+    await refresh();
+  } catch (e) {
+    setStatus(e.message || String(e), true);
+  }
+}
+
+$('btnRun').onclick = () => capture(true);
+$('btnLater').onclick = () => capture(false);
+$('btnBack').onclick = hideReport;
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => {
+    tab = t.dataset.tab;
+    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+    render();
+  };
+});
+
+// Deep link ?url=
+(function () {
+  const q = new URLSearchParams(location.search);
+  const u = q.get('url');
+  if (u) $('url').value = u;
+  const c = q.get('context') || q.get('c');
+  if (c) $('ctx').value = c;
+})();
+
+refresh();
+</script>
+</body>
+</html>

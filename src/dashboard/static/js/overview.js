@@ -357,6 +357,15 @@ const AGENT_TOOLS = {
             url: `${location.origin}/jules`,
             icon: '🎙'
         }
+    ],
+    // #GABS-V1 — Gabs by Gabe (parallel Jules by Julian). Tools card on Gabe.
+    'gabe': [
+        {
+            name: 'Gabs by Gabe',
+            description: 'Paste a link → Quick assessment → History',
+            url: `${location.origin}/gabs`,
+            icon: '🔎'
+        }
     ]
 };
 

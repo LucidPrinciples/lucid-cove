@@ -542,12 +542,13 @@ async function loadSettingsTools() {
     const el = document.getElementById('settings-tools');
     if (!el) return;
 
-    // Build jules URL — served from the MC itself at /jules
+    // Tools served from this MC (origin-relative). jules + Gabs by Gabe (#GABS-V1).
     const origin = window.location.origin;
     const julesUrl = `${origin}/jules`;
+    const gabsUrl = `${origin}/gabs`;
 
     el.innerHTML = `
-        <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">Voice tools for your Presence. Tap a link to open, or add to your phone's home screen.</div>
+        <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">Tools for your Presence. Tap a link to open, or add to your phone's home screen.</div>
         <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
             <span style="font-size:1.4rem;">🎙</span>
             <div style="flex:1;min-width:0;">
@@ -559,8 +560,19 @@ async function loadSettingsTools() {
                 Open →
             </a>
         </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+            <span style="font-size:1.4rem;">🔎</span>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:0.82rem;font-weight:600;color:var(--text);">Gabs by Gabe</div>
+                <div style="font-size:0.68rem;color:var(--dim);">Paste a link → Quick assessment → History</div>
+            </div>
+            <a href="${gabsUrl}" target="_blank"
+               style="font-size:0.75rem;color:var(--accent);text-decoration:none;padding:4px 10px;border:1px solid var(--accent);border-radius:6px;white-space:nowrap;">
+                Open →
+            </a>
+        </div>
         <div style="font-size:0.62rem;color:var(--dim);margin-top:6px;">
-            Tip: Open jules, then use your browser's "Add to Home Screen" to create a shortcut.
+            Tip: Open a tool, then use your browser's "Add to Home Screen" for a phone shortcut.
         </div>
     `;
 }
