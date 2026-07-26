@@ -119,6 +119,36 @@
 .ab-act-subtab:hover { color: var(--text); }
 .ab-act-subtab.active { background: var(--card); border-color: var(--border); color: var(--text); }
 
+.ab-act-subtab.active { background: var(--card); border-color: var(--border); color: var(--text); }
+
+/* ── Multi-level filter chips (platform × length) ── */
+.ab-filter-bar {
+  display: flex; flex-direction: column; gap: 6px;
+  margin: 0 0 10px; padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+}
+.ab-filter-row {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+}
+.ab-filter-label {
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--dim); margin-right: 2px;
+  min-width: 3.6rem;
+}
+.ab-filter-chip {
+  background: var(--card); border: 1px solid var(--border); border-radius: 20px;
+  color: var(--dim); font-size: 0.68rem; font-weight: 600; font-family: inherit;
+  padding: 3px 10px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.ab-filter-chip:hover { color: var(--text); border-color: var(--accent); }
+.ab-filter-chip.on {
+  background: var(--text); color: var(--bg); border-color: transparent;
+}
+.ab-filter-count {
+  font-size: 0.62rem; color: var(--dim); margin-left: 4px;
+}
+
 /* ── Wizard step indicators in action cards ── */
 .ab-wizard-card { flex-direction: column; }
 .ab-wizard-card .ab-action-info { width: 100%; }
