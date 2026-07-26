@@ -11,6 +11,39 @@ let _abFlowsLoaded = false;
 let _abToolsLoaded = false;
 const _taskCache = {};
 const _scheduledCache = {};
+
+// ── Sticky UI state (tabs + session expand/collapse) — survives refresh ──
+const _AB_UI_KEY = 'lp.ab.actions.ui.v1';
+function _abLoadUi() {
+    try { return JSON.parse(localStorage.getItem(_AB_UI_KEY) || '{}') || {}; }
+    catch { return {}; }
+}
+function _abSaveUi(patch) {
+    try {
+        const cur = _abLoadUi();
+        const next = Object.assign(cur, patch || {});
+        localStorage.setItem(_AB_UI_KEY, JSON.stringify(next));
+    } catch { /* private mode / quota — non-fatal */ }
+}
+function _abSessionCollapsed(stem, collapseDefault) {
+    if (!stem || String(stem).startsWith('__')) return !!collapseDefault;
+    const ui = _abLoadUi();
+    const map = ui.sessionCollapsed || {};
+    if (Object.prototype.hasOwnProperty.call(map, stem)) return !!map[stem];
+    return !!collapseDefault;
+}
+function _abToggleSessionCollapsed(stem, el) {
+    if (!stem || !el) return;
+    el.classList.toggle('collapsed');
+    const collapsed = el.classList.contains('collapsed');
+    const btn = el.querySelector(':scope > .ab-session-header');
+    if (btn) btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    const ui = _abLoadUi();
+    const map = Object.assign({}, ui.sessionCollapsed || {});
+    map[stem] = collapsed;
+    _abSaveUi({ sessionCollapsed: map });
+}
+
 const _historyCache = {};
 // #VP-HIST1: history is on-demand (not cold-shell). Cache rows after first open.
 let _historyLoaded = false;
@@ -99,8 +132,13 @@ function renderActions(container, actions, scheduled) {
     // History is always present (lazy-filled). Other subtabs only when non-empty.
     // #VP-TEST1: testing cards leave platform subtabs and land in Testing.
     const testingItems = actions.filter(a => a.category === 'testing' || a.is_testing);
+    // Lifecycle split: Scheduled (waiting/uploading) vs Uploaded (on YT, not Mark Published)
+    // vs History (published). Drafts stay on platform tabs. Jules 2026-07-26.
+    const scheduledOnly = (scheduled || []).filter(s => s.status === 'queued' || s.status === 'uploading');
+    const uploadedOnly = (scheduled || []).filter(s => s.status === 'uploaded');
     const socialCats = {
-        'scheduled': { label: '📅 Scheduled', items: scheduled },
+        'scheduled': { label: '📅 Scheduled', items: scheduledOnly, lifecycle: true },
+        'uploaded': { label: '⬆ Uploaded', items: uploadedOnly, lifecycle: true },
         'youtube-short': { label: '📺 YouTube', items: actions.filter(a => a.category === 'youtube-short') },
         'tiktok': { label: '🎵 TikTok', items: actions.filter(a => a.category === 'tiktok') },
         'youtube-studio': { label: '🎬 Studio', items: actions.filter(a => a.category === 'youtube-studio') },
@@ -108,9 +146,16 @@ function renderActions(container, actions, scheduled) {
         'instagram': { label: '📸 Insta', items: actions.filter(a => a.category === 'instagram') },
         'facebook': { label: '📘 FB', items: actions.filter(a => a.category === 'facebook') },
     };
-    const socialSubs = Object.entries(socialCats)
-        .filter(([_, v]) => v.items.length > 0)
-        .map(([id, v]) => ({ id, label: v.label, count: v.items.length, items: v.items }));
+    // Lifecycle tabs always visible (empty state OK). Draft platform tabs only when non-empty.
+    const socialSubs = [];
+    for (const id of ['scheduled', 'uploaded']) {
+        const v = socialCats[id];
+        socialSubs.push({ id, label: v.label, count: v.items.length, items: v.items, lifecycle: true });
+    }
+    for (const [id, v] of Object.entries(socialCats)) {
+        if (id === 'scheduled' || id === 'uploaded') continue;
+        if (v.items.length > 0) socialSubs.push({ id, label: v.label, count: v.items.length, items: v.items });
+    }
     // Testing lane — only when seeded (steward batch / P620)
     if (testingItems.length) {
         socialSubs.push({
@@ -178,8 +223,8 @@ function renderActions(container, actions, scheduled) {
                         <button type="button" class="ab-btn ab-btn-danger" onclick="clearTestingLane()">Clear testing</button>
                     </div>`;
                     html += _renderActionCards(sub.items);
-                } else if (sub.id === 'scheduled') {
-                    html += _renderScheduledCards(sub.items);
+                } else if (sub.id === 'scheduled' || sub.id === 'uploaded') {
+                    html += _renderScheduledCards(sub.items, sub.id === 'uploaded' ? 'uploaded' : 'scheduled');
                 } else if (sub.id === 'history') {
                     html += _renderHistoryShell(sub.items);
                 } else {
@@ -215,6 +260,7 @@ function _switchActTab(tabId) {
     _actActiveTab = tabId;
     document.querySelectorAll('.ab-act-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
     document.querySelectorAll('.ab-act-panel').forEach(p => p.style.display = p.id === `ab-act-panel-${tabId}` ? '' : 'none');
+    _abSaveUi({ activeTab: tabId, activeSubtab: _actActiveSubtab });
 }
 
 function _switchActSubtab(parentId, subId) {
@@ -227,9 +273,16 @@ function _switchActSubtab(parentId, subId) {
     if (parentId === 'social' && subId === 'history') {
         loadHistorySubtab({ reset: !_historyLoaded });
     }
+    _abSaveUi({ activeTab: _actActiveTab || parentId, activeSubtab: _actActiveSubtab });
 }
 
 function _restoreActTabs() {
+    // Prefer in-memory (same session re-render), else localStorage (hard refresh)
+    const ui = _abLoadUi();
+    if (!_actActiveTab && ui.activeTab) _actActiveTab = ui.activeTab;
+    if (ui.activeSubtab && typeof ui.activeSubtab === 'object') {
+        _actActiveSubtab = Object.assign({}, ui.activeSubtab, _actActiveSubtab);
+    }
     if (_actActiveTab) _switchActTab(_actActiveTab);
     for (const [parentId, subId] of Object.entries(_actActiveSubtab)) {
         _switchActSubtab(parentId, subId);
@@ -458,14 +511,16 @@ function _sessionHeaderHtml(stem, items, opts) {
     const mapBits = _sessionMapBits(stem);
     const safeStem = esc(stem);
     const id = `ab-sess-${safeStem.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-    const collapsedCls = collapseDefault ? ' collapsed' : '';
-    const expanded = collapseDefault ? 'false' : 'true';
+    // Sticky expand/collapse: remembered preference wins over lane default
+    const collapsed = _abSessionCollapsed(stem, collapseDefault);
+    const collapsedCls = collapsed ? ' collapsed' : '';
+    const expanded = collapsed ? 'false' : 'true';
     // Nested map rows only on work lanes (drafts/scheduled/testing), not History clutter
     const showMap = !(opts && opts.collapseDefault);
     const mapHtml = showMap ? _sessionMapPanelHtml(stem) : '';
     return `<div class="ab-session-group${collapsedCls}" data-stem="${safeStem}">
         <button type="button" class="ab-session-header" aria-expanded="${expanded}"
-            onclick="this.parentElement.classList.toggle('collapsed'); this.setAttribute('aria-expanded', this.parentElement.classList.contains('collapsed') ? 'false' : 'true')">
+            onclick="event.stopPropagation(); _abToggleSessionCollapsed(this.parentElement.getAttribute('data-stem'), this.parentElement)">
             <span class="ab-session-chevron">▾</span>
             <span class="ab-session-title">Session ${safeStem}</span>
             <span class="ab-session-counts">${esc(bits.join(' · '))}${esc(mapBits)}</span>
@@ -632,7 +687,18 @@ function _renderActionCards(items) {
     });
 }
 
-function _renderScheduledCards(items) {
+function _renderScheduledCards(items, lane) {
+    items = items || [];
+    if (!items.length) {
+        if (lane === 'uploaded') {
+            return `<div class="ab-empty">No uploaded posts waiting on Mark Published.
+                <div style="margin-top:6px;font-size:0.78rem;color:var(--dim)">After Cove uploads to YouTube, cards land here until you mark them public (or they move on after publish).</div>
+            </div>`;
+        }
+        return `<div class="ab-empty">Nothing scheduled.
+            <div style="margin-top:6px;font-size:0.78rem;color:var(--dim)">Queued and uploading posts show here. Uploaded-but-not-marked-public are under <strong>Uploaded</strong>.</div>
+        </div>`;
+    }
     return _renderGrouped(items, (s) => {
         const statusColors = { queued: 'var(--yellow)', uploading: 'var(--accent)', uploaded: 'var(--green)', published: 'var(--green)' };
         const color = statusColors[s.status] || 'var(--dim)';

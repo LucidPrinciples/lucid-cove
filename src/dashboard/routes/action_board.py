@@ -658,6 +658,11 @@ async def get_scheduled(request: Request):
     YouTube rows come from youtube_queue (queued/uploading/uploaded).
     X short clips come from social_queue (queued/uploading). These are
     NOT draft actions — they're monitoring cards after Schedule.
+
+    The Action board UI splits this list client-side:
+      - Scheduled subtab: status queued | uploading
+      - Uploaded subtab: status uploaded (Mark Published lives here)
+    History (published) is a separate lazy endpoint.
     """
     if _is_public_app():
         return {"scheduled": [], "count": 0}
