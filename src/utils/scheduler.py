@@ -921,6 +921,15 @@ class AgentScheduler:
                        WHERE id = %s""",
                     (video_id, video_url, post_id),
                 )
+                # Board card lives in social_queue — flip it too or watcher nags "stuck"
+                try:
+                    from src.utils.social_youtube_sync import sync_social_for_youtube_queue
+                    await sync_social_for_youtube_queue(
+                        conn, post_id, status="uploaded",
+                        youtube_video_id=video_id, youtube_url=video_url,
+                    )
+                except Exception as _sync_e:
+                    print(f"{ts_log()} [scheduler] social sync after upload failed: {_sync_e}")
 
             print(f"{ts_log()} [scheduler] YouTube uploaded: #{post_id} '{post['title']}' "
                   f"→ {video_url} ({file_size // 1024}KB)")
@@ -954,6 +963,13 @@ class AgentScheduler:
                         "UPDATE youtube_queue SET status = 'failed', error_message = %s WHERE id = %s",
                         (error_msg, post_id),
                     )
+                    try:
+                        from src.utils.social_youtube_sync import sync_social_for_youtube_queue
+                        await sync_social_for_youtube_queue(
+                            conn, post_id, status="failed", error_message=error_msg,
+                        )
+                    except Exception as _sync_e:
+                        print(f"{ts_log()} [scheduler] social sync after fail failed: {_sync_e}")
             except Exception:
                 pass
         finally:

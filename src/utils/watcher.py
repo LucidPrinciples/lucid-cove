@@ -134,7 +134,22 @@ async def _check_approval_stale(conn) -> list[dict]:
 
 
 async def _check_queue_stuck(conn) -> list[dict]:
+    """Failed rows + past-due queued/uploading — but not false dual-queue ghosts.
+
+    YouTube board cards are social_queue rows promoted into youtube_queue. Upload
+    success used to advance only youtube_queue, leaving social stuck on queued and
+    this check nagging forever (even after Studio reschedule). Heal linked rows
+    first; skip social youtube rows whose linked youtube_queue is already done.
+    """
     alerts = []
+    try:
+        from src.utils.social_youtube_sync import heal_orphaned_social_youtube
+        healed = await heal_orphaned_social_youtube(conn)
+        if healed:
+            print(f"{ts_log()} [watcher] healed {healed} social_queue row(s) from youtube_queue state")
+    except Exception as e:
+        print(f"{ts_log()} [watcher] social youtube heal skipped: {e}")
+
     for table in ("youtube_queue", "social_queue"):
         r = await conn.execute(
             f"SELECT id, title, status, error_message FROM {table} "
@@ -149,11 +164,39 @@ async def _check_queue_stuck(conn) -> list[dict]:
                 "detail": _clip(row["error_message"] or "no stored error"),
                 "urgency": "high",
             })
-        r = await conn.execute(
-            f"SELECT id, title, upload_date FROM {table} "
-            "WHERE status IN ('queued', 'uploading') AND upload_date IS NOT NULL "
-            "AND upload_date < NOW() - (%s || ' hours')::interval",
-            (str(QUEUE_STUCK_HOURS),))
+
+        if table == "youtube_queue":
+            r = await conn.execute(
+                "SELECT id, title, upload_date FROM youtube_queue "
+                "WHERE status IN ('queued', 'uploading') AND upload_date IS NOT NULL "
+                "AND upload_date < NOW() - (%s || ' hours')::interval "
+                "AND COALESCE(youtube_video_id, '') = ''",
+                (str(QUEUE_STUCK_HOURS),))
+        else:
+            # social: real stuck only. Skip youtube platform rows already represented
+            # by a finished (or still-healthy uploading) youtube_queue twin.
+            r = await conn.execute(
+                """SELECT s.id, s.title, s.upload_date, s.platform
+                   FROM social_queue s
+                   WHERE s.status IN ('queued', 'uploading')
+                     AND s.upload_date IS NOT NULL
+                     AND s.upload_date < NOW() - (%s || ' hours')::interval
+                     AND NOT (
+                       s.platform = 'youtube'
+                       AND NULLIF(s.platform_data->>'youtube_queue_id', '') IS NOT NULL
+                       AND EXISTS (
+                         SELECT 1 FROM youtube_queue y
+                         WHERE y.id::text = s.platform_data->>'youtube_queue_id'
+                           AND (
+                             y.status IN ('uploaded', 'published', 'cancelled')
+                             OR COALESCE(y.youtube_video_id, '') <> ''
+                             OR (y.status IN ('queued', 'uploading')
+                                 AND y.upload_date IS NOT NULL
+                                 AND y.upload_date >= NOW() - (%s || ' hours')::interval)
+                           )
+                       )
+                     )""",
+                (str(QUEUE_STUCK_HOURS), str(QUEUE_STUCK_HOURS)))
         for row in await r.fetchall():
             alerts.append({
                 "alert_key": f"queue-stuck-{table}-{row['id']}",

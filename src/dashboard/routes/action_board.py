@@ -1418,12 +1418,18 @@ async def _promote_youtube_post(conn, item_id: int, presence_id: str | None = No
             break
 
     if yq_id:
-        # Reschedule / update the existing queue row
+        # Reschedule / update metadata. Only force status back to queued when the
+        # yt row is still pre-upload — never clobber uploaded/published after a
+        # Studio time edit on the board (that was resetting the real state).
         await conn.execute(
             """UPDATE youtube_queue
                SET title=%s, description=%s, tags=%s::jsonb, hashtags=%s,
                    file_path=%s, is_short=%s, thumbnail_path=%s,
-                   upload_date=%s, publish_date=%s, series=%s, status='queued',
+                   upload_date=%s, publish_date=%s, series=%s,
+                   status = CASE
+                     WHEN status IN ('draft', 'queued', 'failed') THEN 'queued'
+                     ELSE status
+                   END,
                    source_stem=COALESCE(NULLIF(%s, ''), source_stem)
                WHERE id=%s""",
             (s["title"], s["description"], tags_val, s["hashtags"], fpath,
@@ -1695,7 +1701,7 @@ async def mark_published(queue_id: int, request: Request):
                 f"""UPDATE youtube_queue
                    SET status = 'published', published_at = NOW()
                    WHERE id = %s AND status = 'uploaded'{scope_sql}
-                   RETURNING id, presence_id""",
+                   RETURNING id, presence_id, youtube_video_id, youtube_url""",
                 (queue_id,) + scope_args,
             )
             row = await result.fetchone()
@@ -1705,6 +1711,16 @@ async def mark_published(queue_id: int, request: Request):
                     status_code=404,
                     content={"error": "Item not found or not in 'uploaded' status."},
                 )
+
+            try:
+                from src.utils.social_youtube_sync import sync_social_for_youtube_queue
+                await sync_social_for_youtube_queue(
+                    conn, queue_id, status="published",
+                    youtube_video_id=row.get("youtube_video_id"),
+                    youtube_url=row.get("youtube_url"),
+                )
+            except Exception as e:
+                logger.warning(f"mark_published social sync failed for #{queue_id}: {e}")
 
         # #VP-CAL: calendar stays until Mark Published — then drop the event
         try:
