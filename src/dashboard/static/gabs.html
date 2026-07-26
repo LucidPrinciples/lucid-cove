@@ -5,19 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Gabs">
-<link rel="apple-touch-icon" href="/static/icon-192.png">
-<link rel="icon" type="image/png" href="/static/icon-192.png">
-<title>Gabs by Gabe</title>
+<meta name="apple-mobile-web-app-title" content="gabs">
+<link rel="apple-touch-icon" href="/static/gabe-icon.png">
+<link rel="icon" type="image/png" href="/static/gabe-icon.png">
+<title>gabs</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e0;
-  min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
-header{padding:16px 18px 12px;border-bottom:1px solid #1a1a2e;flex-shrink:0}
-.brand{font-size:0.78rem;color:#666;letter-spacing:.04em}
+  min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Header: avatar + branding centered (match Jules) ── */
+header{padding:18px 20px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;
+  border-bottom:1px solid #1a1a2e;flex-shrink:0;position:relative}
+.avatar{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#3a3a5c,#1a1a2e);
+  border:2px solid #333;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;overflow:hidden}
+.avatar img{width:96px;height:96px;border-radius:50%;object-fit:cover}
+.brand{font-size:0.85rem;color:#666;font-weight:400;letter-spacing:0.5px}
 .brand em{font-style:normal;color:#7eb8da}
-h1{font-size:1.15rem;font-weight:600;margin-top:4px;color:#fff}
-.sub{font-size:0.75rem;color:#666;margin-top:4px}
+.sub{font-size:0.72rem;color:#555;text-align:center;max-width:280px;line-height:1.35}
+.header-right{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:10px}
+header .status-chip{font-size:0.7rem;color:#666}
+
+.gb-close{position:fixed;top:10px;left:12px;z-index:50;width:36px;height:36px;border-radius:18px;
+  border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:18px;line-height:1;
+  display:none;align-items:center;justify-content:center;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;padding:0}
+.gb-close:hover{border-color:#7eb8da;color:#7eb8da}
+body.gb-show-close .gb-close{display:flex}
+
 .capture{padding:14px 18px;border-bottom:1px solid #1a1a2e;flex-shrink:0}
 label{display:block;font-size:0.7rem;color:#7eb8da;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
 input[type=url],textarea{
@@ -62,10 +78,17 @@ button:active{background:#252540}
 </style>
 </head>
 <body>
+<button type="button" class="gb-close" id="gb-close" aria-label="Close" title="Close">×</button>
+
 <header>
-  <div class="brand">Gabs by <em>Gabe</em></div>
-  <h1>Link → assessment</h1>
-  <div class="sub">Quick path · paste a URL · Run now or Later</div>
+  <div class="avatar" onclick="location.reload()" title="tap Gabe to refresh">
+    <img src="/static/gabe-icon.png" width="96" height="96" alt="Gabe">
+  </div>
+  <div class="brand"><em>gabs</em> by Gabe</div>
+  <div class="sub">Paste a link · Run now or Later · Quick assess</div>
+  <div class="header-right">
+    <span class="status-chip" id="connStatus">ready</span>
+  </div>
 </header>
 
 <div class="main-wrap" id="mainWrap">
@@ -101,6 +124,27 @@ const $ = (id) => document.getElementById(id);
 let tab = 'process';
 let items = [];
 let pollTimer = null;
+
+// Show close control when opened inside MC tool overlay (same pattern as Jules).
+(function () {
+  try {
+    if (window.parent && window.parent !== window) {
+      document.body.classList.add('gb-show-close');
+    }
+  } catch (e) {}
+  const btn = document.getElementById('gb-close');
+  if (btn) {
+    btn.onclick = () => {
+      try {
+        if (window.parent && typeof window.parent.closeFlowOverlay === 'function') {
+          window.parent.closeFlowOverlay();
+          return;
+        }
+      } catch (e) {}
+      history.length > 1 ? history.back() : (location.href = '/');
+    };
+  }
+})();
 
 function setStatus(msg, isErr) {
   const el = $('status');
@@ -208,6 +252,11 @@ async function refresh() {
     items = data.items || [];
     render();
     const busy = items.some(i => i.status === 'running');
+    const chip = $('connStatus');
+    if (chip) {
+      chip.textContent = busy ? 'working…' : 'ready';
+      chip.style.color = busy ? '#f39c12' : '#2ecc71';
+    }
     if (busy && !pollTimer) {
       pollTimer = setInterval(refresh, 4000);
     } else if (!busy && pollTimer) {
@@ -216,6 +265,8 @@ async function refresh() {
     }
   } catch (e) {
     setStatus(e.message || String(e), true);
+    const chip = $('connStatus');
+    if (chip) { chip.textContent = 'error'; chip.style.color = '#e74c3c'; }
   }
 }
 
@@ -235,9 +286,12 @@ async function capture(runNow) {
         mode: 'quick',
       }),
     });
-    if (runNow) $('url').value = '';
+    if (runNow) {
+      $('url').value = '';
+      $('ctx').value = '';
+    }
     setStatus(runNow ? 'Running Quick assess…' : 'Queued for Later');
-    tab = runNow ? 'process' : 'process';
+    tab = 'process';
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab === tab));
     await refresh();
   } catch (e) {
