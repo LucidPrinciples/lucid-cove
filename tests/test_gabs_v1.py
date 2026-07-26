@@ -35,11 +35,11 @@ def test_build_html_contains_sections():
     }
     html_out = gabs_mod._build_html(data, "https://example.com/x", "focus", 42)
     assert "Gabs by Gabe" in html_out
+    assert "Gab 42" in html_out
     assert "Test Gab" in html_out
     assert "Bottom line" in html_out
     assert "adjacent" in html_out
     assert "https://example.com/x" in html_out
-    assert "#42" in html_out or "42" in html_out
 
 
 def test_parse_sources():

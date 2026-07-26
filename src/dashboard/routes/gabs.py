@@ -211,13 +211,14 @@ def _build_html(data: dict, url: str, context: str, gab_id: int) -> str:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Gab — {title}</title>
+<title>Gab {gab_id} — {title}</title>
 <style>
 body{{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e0;
   max-width:720px;margin:0 auto;padding:24px 18px 48px;line-height:1.55}}
 h1{{font-size:1.35rem;margin:0 0 6px;color:#fff}}
 .meta{{color:#666;font-size:0.8rem;margin-bottom:18px}}
 .brand{{color:#7eb8da;font-size:0.78rem;letter-spacing:.04em;margin-bottom:10px}}
+.gab-id{{display:inline-block;font-weight:700;color:#fff;letter-spacing:.02em}}
 .fit{{display:inline-block;padding:2px 10px;border-radius:999px;font-size:0.75rem;
   font-weight:600;border:1px solid {fit_color};color:{fit_color};margin-bottom:14px}}
 section{{margin:18px 0;padding:14px 16px;background:#111118;border-radius:10px;border:1px solid #1a1a2e}}
@@ -230,7 +231,7 @@ a{{color:#7eb8da}}
 </style>
 </head>
 <body>
-<div class="brand">Gabs by Gabe · Quick · #{gab_id}</div>
+<div class="brand"><span class="gab-id">Gab {gab_id}</span> · Gabs by Gabe · Quick</div>
 <h1>{title}</h1>
 <div class="meta">{now}<br>Source: <a href="{src_url}" rel="noopener noreferrer">{src_url}</a>
 {f"<br>Context: {ctx}" if ctx else ""}</div>
