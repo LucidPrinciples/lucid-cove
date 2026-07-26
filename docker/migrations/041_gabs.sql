@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS gabs (
     id              SERIAL PRIMARY KEY,
-    presence_id     INTEGER,                          -- NULL in single mode
+    presence_id     UUID,                             -- accounts.id; NULL in single mode
     url             TEXT NOT NULL,
     context         TEXT DEFAULT '',
     mode            TEXT NOT NULL DEFAULT 'quick'
