@@ -231,9 +231,20 @@ async function loadPipelineKeys() {
             '<option value="' + esc(o.id) + '"' + (o.id === am.selected ? ' selected' : '') + '>'
             + esc(o.label) + '</option>')).join('');
     rows.innerHTML += '<div style="display:grid;grid-template-columns:170px 1fr auto;gap:8px;align-items:center;margin-top:10px;border-top:1px solid #1e2130;padding-top:10px;">'
-        + '<div style="font-size:11px;color:#ccc;">Analysis model<div style="font-size:10px;color:#888;">moments analysis</div></div>'
+        + '<div style="font-size:11px;color:#ccc;">Analysis model<div style="font-size:10px;color:#888;">moments (mine) — use primary for richer picks</div></div>'
         + '<select id="pk-analysis-model" ' + dis2 + ' style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">' + optHtml + '</select>'
         + '<button onclick="saveAnalysisModel()" ' + dis2 + ' style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 12px;font-size:11px;cursor:pointer;">Save</button>'
+        + '</div>';
+    // #VMETA-POLISH1 — Meta polish model (final pass after draft meta)
+    const pm = d.polish_model || { selected: '', options: am.options || [] };
+    const optHtmlP = ['<option value="">Draft chain only (default)</option>']
+        .concat((pm.options || am.options || []).map(o =>
+            '<option value="' + esc(o.id) + '"' + (o.id === pm.selected ? ' selected' : '') + '>'
+            + esc(o.label) + '</option>')).join('');
+    rows.innerHTML += '<div style="display:grid;grid-template-columns:170px 1fr auto;gap:8px;align-items:center;margin-top:8px;">'
+        + '<div style="font-size:11px;color:#ccc;">Polish model<div style="font-size:10px;color:#888;">final meta pass — skeleton, de-dupe, voice</div></div>'
+        + '<select id="pk-polish-model" ' + dis2 + ' style="background:#0a0a0f;border:1px solid #2a2d3a;border-radius:4px;padding:6px 10px;color:#ccc;font-size:12px;">' + optHtmlP + '</select>'
+        + '<button onclick="savePolishModel()" ' + dis2 + ' style="background:#1c2a3a;border:1px solid #2a4a6a;color:#bcd;border-radius:4px;padding:6px 12px;font-size:11px;cursor:pointer;">Save</button>'
         + '</div>';
     const btnState = document.getElementById('pk-state');
     if (btnState) {
@@ -255,6 +266,20 @@ async function saveAnalysisModel() {
         if (!r.ok) { alert(j.error || 'Could not save the analysis model.'); return; }
         loadPipelineKeys();
     } catch (e) { alert('Could not save the analysis model.'); }
+}
+async function savePolishModel() {
+    const sel = document.getElementById('pk-polish-model');
+    if (!sel) return;
+    try {
+        const r = await fetch('/api/pipeline/polish-model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: sel.value }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { alert(j.error || 'Could not save the polish model.'); return; }
+        loadPipelineKeys();
+    } catch (e) { alert('Could not save the polish model.'); }
 }
 // CF-96: header line naming the ACTIVE transcription path (rented GPU / cloud /
 // local GPU / off) from the one resolver — so the panel states what actually runs,

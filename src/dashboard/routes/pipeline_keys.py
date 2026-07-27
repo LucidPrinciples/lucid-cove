@@ -67,6 +67,7 @@ def get_service_key(service: str) -> str:
 # The sovereignty gate is enforced at consult time, NOT here: llm.mode=local still
 # blocks a paid pick regardless of this value; a local pick is always honored.
 ANALYSIS_MODEL_FLAG = "analysis_model"
+POLISH_MODEL_FLAG = "polish_model"
 
 
 def get_analysis_model() -> str:
@@ -80,6 +81,18 @@ def get_analysis_model() -> str:
         return ""
 
 
+def get_polish_model() -> str:
+    """Cove-level model for the video meta final-polish pass, or "" when unset
+    (polish uses the same fast draft chain as generation). Saved override only."""
+    try:
+        from src.config import get_feature_flags
+        v = (get_feature_flags().get(POLISH_MODEL_FLAG) or "")
+        return v.strip() if isinstance(v, str) else ""
+    except Exception:
+        return ""
+
+
+
 def analysis_model_allowed(provider: str, llm_mode: str) -> bool:
     """Sovereignty gate for the #3 analysis-model pick. A LOCAL (ollama) model is
     always honored. A paid (non-ollama) model is allowed only when the Cove's
@@ -89,6 +102,9 @@ def analysis_model_allowed(provider: str, llm_mode: str) -> bool:
     if is_local:
         return True
     return (llm_mode or "cloud").strip().lower() != "local"
+
+# Same sovereignty gate for the polish-model pick.
+polish_model_allowed = analysis_model_allowed
 
 
 def any_asr_key() -> bool:
@@ -152,6 +168,7 @@ async def pipeline_keys_status(request: Request):
     # CF-110 #3 — analysis-model dropdown state: the current pick + the registry list
     # to populate the select. "" pick == "Your agent's model (default)".
     out["analysis_model"] = {"selected": get_analysis_model(), "options": _analysis_model_options()}
+    out["polish_model"] = {"selected": get_polish_model(), "options": _analysis_model_options()}
     return out
 
 
@@ -193,6 +210,32 @@ async def save_analysis_model(body: AnalysisModel, request: Request):
     log.info("analysis model %s by admin", "cleared" if not model else f"set to {model}")
     return {"ok": True, "analysis_model": {"selected": get_analysis_model(),
                                            "options": _analysis_model_options()}}
+
+
+class PolishModel(BaseModel):
+    model: str = ""
+
+
+@router.post("/api/pipeline/polish-model")
+async def save_polish_model(body: PolishModel, request: Request):
+    """Set / clear the Cove-level video meta polish model. Admin only. Empty CLEARS
+    it (back to the default draft chain). Unknown ids rejected."""
+    from src.dashboard.routes.settings import _is_admin_presence
+    if not await _is_admin_presence(request):
+        return JSONResponse(status_code=403, content={"error": "Admin Presence only"})
+    model = (body.model or "").strip()
+    if model:
+        from src.config import get_model_from_registry
+        if not get_model_from_registry(model):
+            return JSONResponse(status_code=400, content={
+                "error": "Unknown model id — pick one from the registry list."})
+    from src.config import save_feature_overrides
+    if not save_feature_overrides({POLISH_MODEL_FLAG: model}):
+        return JSONResponse(status_code=500, content={"error": "Could not save the polish model."})
+    log.info("polish model %s by admin", "cleared" if not model else f"set to {model}")
+    return {"ok": True, "polish_model": {"selected": get_polish_model(),
+                                         "options": _analysis_model_options()}}
+
 
 
 class ServiceKey(BaseModel):

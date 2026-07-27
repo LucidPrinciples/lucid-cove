@@ -574,3 +574,276 @@ Return ONLY valid JSON:
   "hashtags": "#hashtag1 #hashtag2 #hashtag3 (3-5 relevant hashtags)",
   "tags": ["tag1", "tag2", "tag3", "..."]
 }}"""
+
+
+# =============================================================================
+# Final polish pass (#VMETA-POLISH1)
+# =============================================================================
+# Draft meta is written by the fast chain (gemini-flash / kimi / local). When the
+# operator sets a Cove polish model (pipeline keys — same pattern as Analysis
+# model), we run one batch pass over the sibling drafts for a stem so titles
+# de-dupe, skeleton/voice are enforced, and SEO tags tighten — without paying
+# the rich model on every intermediate encode step.
+
+import json
+import re
+
+
+def build_polish_system_prompt(meta: dict[str, str] | None) -> str:
+    """System prompt for the final polish pass over a batch of draft cards."""
+    meta = meta or empty_video_meta()
+    brand = (meta.get("brand_name") or "").strip()
+    topics = (meta.get("brand_topics") or "").strip()
+    voice = (meta.get("voice_notes") or "").strip()
+    extra = (meta.get("description_extra") or "").strip()
+    sk = effective_description_skeleton(meta)
+
+    who = f'Creator brand: "{brand}".' if brand else "No brand name — do not invent one."
+    about = f"Topics they cover: {topics}." if topics else "Infer topics only from the drafts + any clip notes."
+    voice_line = f"Voice guidance: {voice}" if voice else "Voice: plain, authentic, specific — not marketer hype."
+    extra_line = f"Standing operator note (honor when natural): {extra}" if extra else ""
+
+    return f"""You are the final editor for a creator's social/video draft metadata.
+
+{who}
+{about}
+{voice_line}
+{extra_line}
+
+You receive a JSON array of draft posts from one processing batch (same talk / stem).
+Each item has: id (stable string — return it unchanged), platform, clip_type, clip_label,
+title, description, hashtags, tags (array).
+
+Your job — FINAL POLISH only:
+1) DESCRIPTION FORMAT for multi-paragraph platforms (youtube, instagram, facebook):
+{sk}
+   Never leave a bare topic list with no lead-in. Fix that if the draft did it.
+2) Short platforms (x, tiktok): keep single short posts; do not expand into the multi-section skeleton. Respect length limits (X ≤240 chars including hashtags).
+3) DE-DUPE titles across the batch: sibling clips of the same moment must not share near-identical titles. Differentiate by angle/size while staying true to the clip.
+4) Voice + hard rules: no em dashes, no placeholder text, no hype words (groundbreaking, game-changing, revolutionary). Finished postable copy only.
+5) Hashtags/tags: tighten for discovery when weak; do not invent brand tags the profile did not seed. X stays light on hashtags (0–1).
+6) Do not invent URLs or closing blocks that were not already in the draft. Preserve exact closing blocks / CTAs already present.
+7) Keep platform_data and any fields you were not given out of the rewrite — only return the editable meta fields.
+
+Return ONLY valid JSON:
+{{
+  "items": [
+    {{
+      "id": "<same id>",
+      "title": "...",
+      "description": "...",
+      "hashtags": "...",
+      "tags": ["..."]
+    }}
+  ]
+}}
+Return one object per input item, same ids. No markdown fences."""
+
+
+def _parse_polish_response(content: str) -> list[dict] | None:
+    """Extract items list from polish model output. None on failure."""
+    if not content:
+        return None
+    text = content.strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    if "```json" in text:
+        text = text.split("```json", 1)[1].split("```", 1)[0].strip()
+    elif "```" in text:
+        text = text.split("```", 1)[1].split("```", 1)[0].strip()
+    try:
+        data = json.loads(text)
+    except Exception:
+        m = re.search(r"\{[\s\S]*\}", text)
+        if not m:
+            return None
+        try:
+            data = json.loads(m.group())
+        except Exception:
+            return None
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        items = data.get("items") or data.get("drafts") or data.get("results")
+    else:
+        return None
+    if not isinstance(items, list) or not items:
+        return None
+    out = []
+    for it in items:
+        if not isinstance(it, dict) or not it.get("id"):
+            continue
+        out.append({
+            "id": str(it["id"]),
+            "title": it.get("title"),
+            "description": it.get("description"),
+            "hashtags": it.get("hashtags"),
+            "tags": it.get("tags"),
+        })
+    return out or None
+
+
+async def _invoke_polish_model(system_prompt: str, human_prompt: str) -> tuple[str | None, str]:
+    """Call the configured polish model (or draft chain). Returns (content, model_used)."""
+    import asyncio
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    _llm_mode = "cloud"
+    try:
+        from src.config import get_compute_config
+        _llm_mode = ((get_compute_config() or {}).get("llm") or {}).get("mode") or "cloud"
+    except Exception:
+        pass
+
+    polish_id = ""
+    try:
+        from src.dashboard.routes.pipeline_keys import (
+            get_polish_model,
+            polish_model_allowed,
+        )
+        polish_id = get_polish_model()
+    except Exception:
+        polish_id = ""
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=human_prompt),
+    ]
+
+    # 1) Operator polish model first (sovereignty gate)
+    if polish_id:
+        try:
+            from src.models.provider import get_model_client, _resolve_model_string
+            provider, _ = _resolve_model_string(polish_id)
+            if not polish_model_allowed(provider, _llm_mode):
+                logger.info(
+                    "Polish model %s skipped — llm.mode=local blocks paid tiers",
+                    polish_id,
+                )
+            else:
+                client = get_model_client(polish_id, temperature=0.35)
+                resp = await asyncio.wait_for(client.ainvoke(messages), timeout=120)
+                content = (getattr(resp, "content", None) or "").strip()
+                if content:
+                    return content, f"polish-model/{polish_id}"
+        except Exception as e:
+            logger.warning("Polish model %s failed: %s", polish_id, e)
+
+    # 2) Fast draft chain (same as generate_platform_metadata)
+    candidates = ["gemini-flash", "kimi-k2.5"]
+    try:
+        from src.models.local_fallback import resolve_local_fallback_model
+        candidates.append(resolve_local_fallback_model())
+    except Exception:
+        pass
+    try:
+        from src.models.provider import get_model_client, _resolve_model_string
+        for model_name in candidates:
+            try:
+                client = get_model_client(model_name, temperature=0.35)
+                resp = await asyncio.wait_for(client.ainvoke(messages), timeout=90)
+                content = (getattr(resp, "content", None) or "").strip()
+                if content:
+                    return content, model_name
+            except Exception as e:
+                logger.warning("Polish fallback %s failed: %s", model_name, e)
+                continue
+    except Exception as e:
+        logger.warning("Polish invoke setup failed: %s", e)
+
+    return None, ""
+
+
+def _merge_polished_item(original: dict, polished: dict) -> dict:
+    """Apply polished fields onto a draft dict; keep unspecified fields."""
+    out = dict(original)
+    for key in ("title", "description", "hashtags"):
+        val = polished.get(key)
+        if isinstance(val, str) and val.strip():
+            out[key] = val
+    tags = polished.get("tags")
+    if isinstance(tags, list) and tags:
+        out["tags"] = tags
+    elif isinstance(tags, str) and tags.strip():
+        out["tags"] = [x.strip() for x in tags.split(",") if x.strip()]
+    return out
+
+
+async def polish_metadata_batch(
+    drafts: list[dict],
+    video_meta: dict | None = None,
+) -> list[dict]:
+    """Polish a batch of draft metadata dicts in one LLM call when possible.
+
+    Each draft must include a stable string ``id`` plus platform/title/description
+    fields. Returns drafts in the same order; on total failure returns originals
+    unchanged. When the polish model is unset, still runs the fast chain once for
+    skeleton/de-dupe if there are 2+ drafts — single drafts with no polish model
+    are left as the first-pass write (no extra cost).
+    """
+    if not drafts:
+        return drafts
+
+    polish_configured = False
+    try:
+        from src.dashboard.routes.pipeline_keys import get_polish_model
+        polish_configured = bool(get_polish_model())
+    except Exception:
+        polish_configured = False
+
+    # Skip no-op: one draft and no polish model → keep first-pass meta
+    if len(drafts) < 2 and not polish_configured:
+        return drafts
+
+    meta = video_meta or empty_video_meta()
+    system_prompt = build_polish_system_prompt(meta)
+
+    payload = []
+    for d in drafts:
+        payload.append({
+            "id": str(d.get("id") or ""),
+            "platform": d.get("platform") or "",
+            "clip_type": d.get("clip_type") or "",
+            "clip_label": d.get("clip_label") or "",
+            "title": d.get("title") or "",
+            "description": d.get("description") or "",
+            "hashtags": d.get("hashtags") or "",
+            "tags": d.get("tags") if isinstance(d.get("tags"), list) else [],
+        })
+    payload = [p for p in payload if p["id"]]
+    if not payload:
+        return drafts
+
+    human_prompt = (
+        "Polish this draft batch. Return JSON with an items array.\n\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+
+    content, model_used = await _invoke_polish_model(system_prompt, human_prompt)
+    if not content:
+        logger.warning("Meta polish produced no content — keeping first-pass drafts")
+        return drafts
+
+    items = _parse_polish_response(content)
+    if not items:
+        logger.warning(
+            "Meta polish parse failed (model=%s) — keeping first-pass drafts",
+            model_used or "?",
+        )
+        return drafts
+
+    by_id = {it["id"]: it for it in items}
+    merged = []
+    for d in drafts:
+        did = str(d.get("id") or "")
+        if did and did in by_id:
+            merged.append(_merge_polished_item(d, by_id[did]))
+        else:
+            merged.append(d)
+    logger.info(
+        "Meta polish applied via %s on %d drafts (%d returned)",
+        model_used or "?",
+        len(drafts),
+        len(items),
+    )
+    return merged
+

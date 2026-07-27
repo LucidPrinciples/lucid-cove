@@ -290,6 +290,10 @@ async def process_moments(request: Request):
                         lines.extend(siblings[:8])
                     return "\n".join(lines).strip()
 
+                # First-pass meta for every platform/clip, then optional batch polish
+                # (#VMETA-POLISH1) before social_queue insert — de-dupe + skeleton.
+                pending_drafts: list[dict] = []
+
                 for m_id, c_type in clip_units:
                     # Extract transcript text for this clip's SOURCE window
                     any_clip = next(
@@ -337,7 +341,7 @@ async def process_moments(request: Request):
                         if not clip:
                             continue
 
-                        # Generate platform-specific metadata via LLM
+                        # Generate platform-specific metadata via LLM (fast draft chain)
                         try:
                             meta = await generate_platform_metadata(
                                 platform=platform,
@@ -354,43 +358,91 @@ async def process_moments(request: Request):
                             logger.warning(f"Metadata gen failed for {platform}: {me}")
                             meta = {"title": clip.get("label", "Untitled"), "description": "", "hashtags": "", "tags": []}
 
-                        tags_json = json.dumps(meta.get("tags", []))
-
                         clip_format = clip.get("format", "vertical")
                         _series = (
                             f"test-moments-{stem}" if _testing_batch else f"moments-{stem}"
                         )
-                        _pdata = json.dumps({"testing": True}) if _testing_batch else "{}"
-                        await conn.execute(
-                            """INSERT INTO social_queue
-                               (platform, title, description, hashtags, tags,
-                                file_path, preview_path,
-                                source_stem, moment_id, clip_type, clip_label,
-                                duration_seconds, is_vertical, format, series, agent_id,
-                                presence_id, status, platform_data)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s::jsonb)""",
-                            (
-                                platform,
-                                meta.get("title", clip.get("label", "Untitled")),
-                                meta.get("description", ""),
-                                meta.get("hashtags", ""),
-                                tags_json,
-                                clip.get("nc_path", clip.get("filename", "")),
-                                clip.get("preview_nc_path", ""),
-                                stem,
-                                clip.get("moment_id"),
-                                clip.get("clip_type", ""),
-                                clip.get("label", ""),
-                                clip.get("duration_seconds", 0),
-                                clip_format == "vertical",
-                                clip_format,
-                                _series,
-                                owner_id,
-                                _cf1_pid if _cf1_pid else None,
-                                _pdata,
-                            ),
+                        _pdata = {"testing": True} if _testing_batch else {}
+                        draft_id = (
+                            f"{stem}:{m_id}:{c_type}:{platform}:{clip_format}"
                         )
-                        queued_count += 1
+                        pending_drafts.append({
+                            "id": draft_id,
+                            "platform": platform,
+                            "clip_type": clip.get("clip_type", ""),
+                            "clip_label": clip.get("label", ""),
+                            "title": meta.get("title", clip.get("label", "Untitled")),
+                            "description": meta.get("description", ""),
+                            "hashtags": meta.get("hashtags", ""),
+                            "tags": meta.get("tags", []) if isinstance(meta.get("tags"), list) else [],
+                            # queue fields (not sent to polish LLM payload builder beyond id/meta)
+                            "_nc_path": clip.get("nc_path", clip.get("filename", "")),
+                            "_preview": clip.get("preview_nc_path", ""),
+                            "_stem": stem,
+                            "_moment_id": clip.get("moment_id"),
+                            "_duration": clip.get("duration_seconds", 0),
+                            "_format": clip_format,
+                            "_series": _series,
+                            "_pdata": _pdata,
+                            "_owner_id": owner_id,
+                            "_presence_id": _cf1_pid if _cf1_pid else None,
+                        })
+
+                # Final polish pass over the whole batch (skeleton, de-dupe, voice)
+                if pending_drafts:
+                    try:
+                        from src.dashboard.routes.video_meta import polish_metadata_batch
+                        pending_drafts = await polish_metadata_batch(
+                            pending_drafts, video_meta=_vm,
+                        )
+                    except Exception as pe:
+                        logger.warning("Meta polish batch failed (keeping drafts): %s", pe)
+
+                for d in pending_drafts:
+                    tags_json = json.dumps(d.get("tags") or [])
+                    _pdata = d.get("_pdata") or {}
+                    if not isinstance(_pdata, str):
+                        # mark polish lightly when present
+                        try:
+                            from src.dashboard.routes.pipeline_keys import get_polish_model
+                            if get_polish_model():
+                                _pdata = dict(_pdata)
+                                _pdata["meta_polished"] = True
+                        except Exception:
+                            pass
+                        _pdata_s = json.dumps(_pdata) if _pdata else "{}"
+                    else:
+                        _pdata_s = _pdata
+                    await conn.execute(
+                        """INSERT INTO social_queue
+                           (platform, title, description, hashtags, tags,
+                            file_path, preview_path,
+                            source_stem, moment_id, clip_type, clip_label,
+                            duration_seconds, is_vertical, format, series, agent_id,
+                            presence_id, status, platform_data)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s::jsonb)""",
+                        (
+                            d.get("platform"),
+                            d.get("title") or d.get("clip_label") or "Untitled",
+                            d.get("description") or "",
+                            d.get("hashtags") or "",
+                            tags_json,
+                            d.get("_nc_path") or "",
+                            d.get("_preview") or "",
+                            d.get("_stem") or stem,
+                            d.get("_moment_id"),
+                            d.get("clip_type") or "",
+                            d.get("clip_label") or "",
+                            d.get("_duration") or 0,
+                            (d.get("_format") or "vertical") == "vertical",
+                            d.get("_format") or "vertical",
+                            d.get("_series") or f"moments-{stem}",
+                            d.get("_owner_id"),
+                            d.get("_presence_id"),
+                            _pdata_s,
+                        ),
+                    )
+                    queued_count += 1
             unique_moments = len(set(c.get("moment_id") for c in processed))
             logger.info(
                 f"Queued {queued_count} social drafts "
@@ -555,6 +607,34 @@ async def _generate_video_metadata(stem: str, request=None) -> dict:
                     content = content.split("```")[1].split("```")[0].strip()
                 metadata = json.loads(content)
                 logger.info(f"Video metadata generated via {model_name}: {metadata.get('title', '')[:60]}")
+                # Optional single-item polish when polish model is configured
+                try:
+                    from src.dashboard.routes.pipeline_keys import get_polish_model
+                    from src.dashboard.routes.video_meta import polish_metadata_batch
+                    if get_polish_model():
+                        polished = await polish_metadata_batch(
+                            [{
+                                "id": f"{stem}:full:youtube",
+                                "platform": "youtube",
+                                "clip_type": "full",
+                                "clip_label": stem,
+                                "title": metadata.get("title") or f"{stem} — Full Video",
+                                "description": metadata.get("description") or "",
+                                "hashtags": metadata.get("hashtags") or "",
+                                "tags": metadata.get("tags") or [],
+                            }],
+                            video_meta=_meta,
+                        )
+                        if polished:
+                            metadata = {
+                                **metadata,
+                                "title": polished[0].get("title") or metadata.get("title"),
+                                "description": polished[0].get("description") or metadata.get("description"),
+                                "hashtags": polished[0].get("hashtags") or metadata.get("hashtags"),
+                                "tags": polished[0].get("tags") or metadata.get("tags") or [],
+                            }
+                except Exception as pe:
+                    logger.warning("Full-video meta polish skipped: %s", pe)
                 return metadata
             except Exception as e:
                 logger.warning(f"Metadata generation failed with {model_name}: {e}")
