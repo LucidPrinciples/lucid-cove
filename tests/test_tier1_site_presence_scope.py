@@ -1,7 +1,7 @@
 """#TIER1 — two-tier Site Builder + presence privacy (Phase 1).
 
 Acceptance:
-- Site list is bound to acting NC creds only (no host-wide union).
+- Site list is bound to door-aware NC creds only (resolve_tab_nc_creds; no host-wide union).
 - site.yaml create stamps tier + owner_presence_id.
 - Steward no longer receives ambient shares of presence Sites/Content.
 - Video body presence_name cannot retarget another signed-in presence.
@@ -60,12 +60,27 @@ def test_annotate_site_config_stamps_tier():
 
 @pytest.mark.asyncio
 async def test_list_sites_uses_only_acting_nc_user(monkeypatch):
-    """Two different NC users → two different site sets; no union."""
+    """Door-aware NC user → isolated site sets; no union across presences.
+
+    Mirrors Files/Calendar: resolve_tab_nc_creds on a manager door with an
+    admin session returns the shared admin NC (Tier A). Presence doors stay
+    on that presence's own NC (Tier B). Founding-operator cookie alone must
+    not leave Tier A invisible on Stuart MC (#SB-CREDS1).
+    """
     calls = []
 
     async def fake_creds(request):
+        # Simulate resolve_tab_nc_creds behavior for this unit test:
+        # - explicit nc_username on presence (members / already-admin) wins
+        # - admin/steward without nc_username → shared admin NC (manager door)
         p = getattr(request.state, "presence", {}) or {}
-        user = p.get("nc_username") or "unknown"
+        user = p.get("nc_username")
+        if not user:
+            cr = (p.get("cove_role") or "").strip().lower()
+            if cr in ("admin", "steward"):
+                user = "adminclearfield"
+            else:
+                user = "unknown"
         return ("http://nc", user, "pw")
 
     async def fake_propfind(client, url, nc_user, nc_pass):
@@ -76,6 +91,8 @@ async def test_list_sites_uses_only_acting_nc_user(monkeypatch):
             return ["bob-site.com"]
         if nc_user == "adminclearfield":
             return ["cove-business.com"]
+        if nc_user == "jag":
+            return []  # founding operator personal NC — empty Sites (#SB-CREDS1)
         return []
 
     async def fake_get(client, url, nc_user, nc_pass):
@@ -85,7 +102,7 @@ async def test_list_sites_uses_only_acting_nc_user(monkeypatch):
                 return yaml.dump({"domain": d, "status": "setup"}).encode()
         return None
 
-    monkeypatch.setattr(sites_mod, "get_nc_creds", fake_creds)
+    monkeypatch.setattr(sites_mod, "resolve_tab_nc_creds", fake_creds)
     monkeypatch.setattr(sites_mod, "_nc_propfind", fake_propfind)
     monkeypatch.setattr(sites_mod, "_nc_get", fake_get)
     monkeypatch.setattr(sites_mod, "get_sites_path", lambda: "AgentSkills/Sites")
@@ -106,13 +123,20 @@ async def test_list_sites_uses_only_acting_nc_user(monkeypatch):
     req_b = SimpleNamespace(state=SimpleNamespace(presence={
         "id": "b", "cove_role": "member", "nc_username": "bob",
     }))
+    # Admin on manager door: cookie may still be founding operator "jag", but
+    # resolve_tab_nc_creds must yield adminclearfield (no nc_username stamp).
     req_s = SimpleNamespace(state=SimpleNamespace(presence={
-        "id": "s", "cove_role": "admin", "nc_username": "adminclearfield",
+        "id": "s", "cove_role": "admin",
+    }))
+    # Control: raw operator cookie path without manager-door resolution → empty
+    req_jag = SimpleNamespace(state=SimpleNamespace(presence={
+        "id": "jag-id", "cove_role": "admin", "nc_username": "jag",
     }))
 
     sites_a = await sites_mod._list_sites_internal(req_a)
     sites_b = await sites_mod._list_sites_internal(req_b)
     sites_s = await sites_mod._list_sites_internal(req_s)
+    sites_jag = await sites_mod._list_sites_internal(req_jag)
 
     domains_a = {s["domain"] for s in sites_a}
     domains_b = {s["domain"] for s in sites_b}
@@ -125,9 +149,10 @@ async def test_list_sites_uses_only_acting_nc_user(monkeypatch):
     assert "alice-site.com" not in domains_s
     assert "bob-site.com" not in domains_s
     assert domains_s == {"cove-business.com"}
+    assert sites_jag == [] or {s["domain"] for s in sites_jag} == set()
     assert all(s.get("tier") == "presence" for s in sites_a)
     assert all(s.get("tier") == "cove" for s in sites_s)
-    assert calls == ["alice", "bob", "adminclearfield"]
+    assert calls == ["alice", "bob", "adminclearfield", "jag"]
 
 
 def test_reject_cross_presence_name():

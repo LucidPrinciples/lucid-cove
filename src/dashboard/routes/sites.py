@@ -3,8 +3,11 @@
 #
 # Sites live under AgentSkills/Sites/{domain}/ on the ACTING user's Nextcloud account.
 # Each site has a site.yaml config and the actual site files (HTML, CSS, etc.).
-# Privacy (#TIER1): list/get/deploy use get_nc_creds(request) only — that NC user.
-# No host-wide union, no steward browse of other presences' Sites folders.
+# Privacy (#TIER1): list/get/deploy use resolve_tab_nc_creds(request) — same door-aware
+# NC resolution as Files/Calendar. On a manager door (stuart./mercer.) with a matching
+# admin/steward session this is the shared cove ADMIN NC (Tier A). On a presence door
+# it is that presence's own NC (Tier B). No host-wide union, no steward browse of other
+# presences' Sites folders.
 # tier in site.yaml: "cove" (Tier A, admin/steward NC) | "presence" (Tier B).
 #
 # Agents (Archimedes) build site files via this API. The operator approves
@@ -29,7 +32,7 @@ import yaml
 from fastapi import APIRouter, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 
-from src.dashboard.routes.nextcloud import get_nc_creds
+from src.dashboard.routes.nextcloud import resolve_tab_nc_creds
 from src.config import get_primary_agent_id, get_operator_name, get_sites_path
 
 log = logging.getLogger("sites")
@@ -184,7 +187,7 @@ async def _list_sites_internal(request: Request) -> list:
     Tier A sites only; presence list = that presence NC Tier B only.
     """
     try:
-        nc_url, nc_user, nc_pass = await get_nc_creds(request)
+        nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
         if not nc_user or not nc_pass:
             return []
 
@@ -227,7 +230,7 @@ async def list_sites(request: Request):
     sites = await _list_sites_internal(request)
     if not sites and sites is not None:
         # Could be NC not configured — check
-        nc_url, nc_user, nc_pass = await get_nc_creds(request)
+        nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
         if not nc_user or not nc_pass:
             return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
     return {"sites": sites}
@@ -260,7 +263,7 @@ async def create_site(request: Request):
     if not safe_domain:
         return JSONResponse({"error": "Invalid domain"}, status_code=400)
 
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_user or not nc_pass:
         return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
 
@@ -336,7 +339,7 @@ async def create_site(request: Request):
 @router.get("/api/sites/{domain}")
 async def get_site(request: Request, domain: str):
     """Get a site's config."""
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_user or not nc_pass:
         return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
 
@@ -385,7 +388,7 @@ async def update_site(request: Request, domain: str):
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
 
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_user or not nc_pass:
         return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
 
@@ -434,7 +437,7 @@ async def delete_site(request: Request, domain: str):
 
     Does NOT touch GitHub repos or Cloudflare projects — those are external.
     """
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_user or not nc_pass:
         return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
 
@@ -483,7 +486,7 @@ async def write_site_file(request: Request, domain: str):
     if ".." in file_path or file_path.startswith("/"):
         return JSONResponse({"error": "Invalid file path"}, status_code=400)
 
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_user or not nc_pass:
         return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
 
@@ -528,7 +531,7 @@ async def write_site_file(request: Request, domain: str):
 @router.get("/api/sites/{domain}/files")
 async def list_site_files(request: Request, domain: str):
     """List files in a site's root folder."""
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_user or not nc_pass:
         return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
 
@@ -575,7 +578,7 @@ async def upload_site_asset(
     if len(content) > 10 * 1024 * 1024:
         return JSONResponse({"error": "File too large (max 10MB)"}, status_code=400)
 
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_user or not nc_pass:
         return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
 
@@ -1010,7 +1013,7 @@ async def deploy_site(request: Request, domain: str):
         body = {}
     description = (body.get("description") or "Full site deploy").strip()
 
-    nc_url, nc_user, nc_pass = await get_nc_creds(request)
+    nc_url, nc_user, nc_pass = await resolve_tab_nc_creds(request)
     if not nc_user or not nc_pass:
         return JSONResponse({"error": "Nextcloud not configured"}, status_code=500)
 
