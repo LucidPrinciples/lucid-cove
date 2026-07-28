@@ -20,10 +20,10 @@ router = APIRouter()
 RUNBOOKS_DIR = Path(env("RUNBOOKS_DIR", "/app/data/runbooks"))
 SEED_DIR = Path(env("RUNBOOKS_SEED_DIR", "/cove-core/runbooks"))
 
-# Host-specific ops that must NEVER ship as a universal seed. RB16 talks to
-# Clearfield + Founders host paths via ssh to lp-homebase — useless (and confusing)
-# on a fresh Woods/Quietgrove/iMac install. Keep those on the Clearfield operator's
-# Nextcloud at AgentSkills/Ops/runbooks/ (NC merge still shows them on Clearfield).
+# Host-specific ops that must NEVER ship as a universal seed. Early lab-only
+# deploy runbooks (SSH to a single host) are useless on a fresh install — keep
+# those on the operator's private Nextcloud under AgentSkills/Ops/runbooks/.
+# Filename kept so ensure_dir can delete a stale copy if one was seeded once.
 _REMOVED_SEED_FILES = frozenset({
     "16-deploy-main-clearfield-founders.json",
 })

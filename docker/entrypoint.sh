@@ -132,30 +132,36 @@ if [ -n "$DATABASE_URL" ] && [ -d /cove-core/docker/migrations ]; then
     echo "[migrate] done"
 fi
 
-# ── Git identity (set at runtime from config) ──────────────────────────
+# ── Git identity (product-facing; never instance/family labels) ────────
+# Commits may land on public GitHub. Use steward role + product email only.
+# Do NOT stamp "{name} {family_name}" — that leaked lab labels onto history.
 GIT_NAME=$(python3 -c "
-import yaml
+import re, yaml
 try:
     with open('/app/config/agent.yaml') as f:
-        cfg = yaml.safe_load(f)
-    inst = cfg.get('instance', {})
-    name = inst.get('name', 'Agent')
-    family = inst.get('family_name', '')
-    print(f'{name} {family}'.strip())
+        cfg = yaml.safe_load(f) or {}
+    inst = cfg.get('instance', {}) or {}
+    display = (inst.get('name') or inst.get('agent_name') or 'Stuart').strip()
+    if not display or re.search(r'^(Founders|Clearfield)$', display, re.I):
+        display = 'Stuart'
+    print(f'{display} Cove')
 except Exception:
-    print('Agent')
-" 2>/dev/null || echo "Agent")
+    print('Stuart Cove')
+" 2>/dev/null || echo "Stuart Cove")
 
 GIT_EMAIL=$(python3 -c "
-import yaml
+import re, yaml
 try:
     with open('/app/config/agent.yaml') as f:
-        cfg = yaml.safe_load(f)
-    agent_id = cfg.get('instance', {}).get('agent_id', 'agent')
-    print(f'{agent_id}@family.local')
+        cfg = yaml.safe_load(f) or {}
+    agent_id = (cfg.get('instance', {}) or {}).get('agent_id', 'stuart') or 'stuart'
+    agent_id = str(agent_id).strip().lower()
+    if not re.fullmatch(r'[a-z][a-z0-9_-]{0,32}', agent_id):
+        agent_id = 'stuart'
+    print(f'{agent_id}@lucidtuner.ai')
 except Exception:
-    print('agent@family.local')
-" 2>/dev/null || echo "agent@family.local")
+    print('stuart@lucidtuner.ai')
+" 2>/dev/null || echo "stuart@lucidtuner.ai")
 
 git config --global user.name "$GIT_NAME"
 git config --global user.email "$GIT_EMAIL"

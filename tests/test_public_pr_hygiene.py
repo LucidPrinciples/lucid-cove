@@ -121,3 +121,45 @@ async def test_git_commit_refuses_leaky_message_on_github(monkeypatch, tmp_path)
 def test_ship_branch_docstring_has_no_instance_labels():
     assert "Clearfield" not in (dt.ship_branch.description or "")
     assert "Founders" not in (dt.ship_branch.description or "")
+
+
+@pytest.mark.asyncio
+async def test_git_push_refuses_leaky_unpushed_commit_message(monkeypatch, tmp_path):
+    repo_dir = tmp_path / "r"
+    repo_dir.mkdir()
+    (repo_dir / ".git").mkdir()
+
+    async def _mock_git(cmd, repo_dir_arg, timeout=30):
+        if "branch --show-current" in cmd:
+            return "stuart/hygiene"
+        if "rev-parse" in cmd:
+            return "a" * 40
+        if "rev-list --count" in cmd:
+            return "1"
+        if cmd.startswith("log "):
+            return "fix deploy path for Clearfield app restart\n"
+        if cmd.startswith("push "):
+            return "SHOULD_NOT_PUSH"
+        return ""
+
+    monkeypatch.setattr(dt, "_run_git", _mock_git)
+    monkeypatch.setattr(dt, "_is_github_origin", lambda r: True)
+
+    result = await dt.git_push.coroutine(str(repo_dir), "stuart/hygiene")
+    assert result.startswith("REFUSED: public-repo hygiene")
+    assert "unpushed commit" in result
+
+
+@pytest.mark.asyncio
+async def test_refuse_unpushed_clean_messages(monkeypatch, tmp_path):
+    repo_dir = tmp_path / "r"
+    repo_dir.mkdir()
+
+    async def _mock_git(cmd, repo_dir_arg, timeout=30):
+        if cmd.startswith("log "):
+            return "fix(x): refuse silent truncate\n\nApp-only restart after merge.\n"
+        return ""
+
+    monkeypatch.setattr(dt, "_run_git", _mock_git)
+    monkeypatch.setattr(dt, "_is_github_origin", lambda r: True)
+    assert await dt._refuse_unpushed_commit_leaks(str(repo_dir), "stuart/x", "main") is None

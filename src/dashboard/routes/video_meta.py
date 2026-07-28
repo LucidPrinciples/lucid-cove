@@ -24,7 +24,7 @@ VIDEO_META_FIELDS = (
     "theme_mix",           # optional moment-mining mix; empty = balanced default
     "moment_mine_brief",   # new: guidance for moment selection (niche/SEO mix)
     "description_skeleton",# new: enforced structure for titles/descriptions
-    "attribute_handle",    # e.g. "@jasonbroadcast on X" — soft creator credit line
+    "attribute_handle",    # e.g. "@handle on X" — soft creator credit line
     "short_cta_url",       # final-line URL for Shorts / Facebook (optional)
     "short_cta_line",       # full final block for shorts; if empty + url -> composed
     "full_cta_url",         # long-form YouTube CTA URL
@@ -86,9 +86,9 @@ VIDEO_META_FIELD_META = {
         "label": "Attribute / handle line",
         "help": (
             "Soft creator credit near the end of descriptions (not a hard CTA). "
-            "Example: @jasonbroadcast on X. Leave empty to skip."
+            "Example: @handle on X. Leave empty to skip."
         ),
-        "placeholder": "e.g. @jasonbroadcast on X",
+        "placeholder": "e.g. @handle on X",
     },
     "short_cta_url": {
         "label": "Short-form CTA URL",

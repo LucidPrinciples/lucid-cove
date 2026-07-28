@@ -398,6 +398,13 @@ def _dev_workflow_block(agent: dict) -> str:
         "message is a form of fabrication and will be caught."
     )
     lines.append(
+        "\n**Public GitHub text is product-only.** PR titles, PR bodies, and commit messages "
+        "on public repos describe the product change — never lab instance names, operator "
+        "handles, container names, mesh hosts, or private deploy steps. Ops detail stays in "
+        "chat or private Ops docs. ship_branch / git_commit refuse the rest; rewrite and ship "
+        "again. Do not narrate hygiene incidents in public titles."
+    )
+    lines.append(
         "\n**\"Done\" is verified, not remembered.** A ticket is done only when it is on "
         "`origin/main` and its tests pass — confirm against the remote, never assert from "
         "recollection. Claiming a commit or merge that didn't happen erodes trust and is "
