@@ -275,19 +275,30 @@ async def git_commit(project: str, message: str) -> str:
     if branch.strip() in ("main", "master") and not is_site:
         return f"REFUSED: Cannot commit on {branch}. Create a feature branch first."
 
-    # Set admin agent as the git author
-    _admin_name = get_setting_sync("admin_agent_display_name", "Stuart")
-    _family = get_setting_sync("family_name", "Cove")
-    _git_name = f"{_admin_name} {_family}"
-    _admin_id = get_setting_sync("admin_agent_id", "stuart")
+    # Public GitHub surfaces: refuse ops/personal detail in the commit message.
+    if _is_github_origin(repo):
+        leak = _refuse_public_leaks("commit message", message)
+        if leak:
+            return leak
+
+    # Product-safe author on GitHub-bound repos. Never "{agent} {family_name}" —
+    # that stamped instance labels like "Clearfield Clearfield" onto public history.
+    if _is_github_origin(repo):
+        _git_name, _git_email = _public_commit_identity()
+    else:
+        _admin_name = get_setting_sync("admin_agent_display_name", "Stuart")
+        _family = get_setting_sync("family_name", "Cove") or "Cove"
+        _git_name = f"{_admin_name} {_family}"
+        _admin_id = get_setting_sync("admin_agent_id", "stuart")
+        _git_email = f"{_admin_id}@lucidtuner.ai"
     # shlex.quote EVERYTHING user-supplied: an apostrophe/quote/dash in a commit
     # message used to shell-split the command (found live 2026-07-09: the steward's
     # first #D10 commit failed twice and forced a raw-shell workaround).
     env_cmd = (
         f'GIT_AUTHOR_NAME={shlex.quote(_git_name)} '
         f'GIT_COMMITTER_NAME={shlex.quote(_git_name)} '
-        f'GIT_AUTHOR_EMAIL={shlex.quote(_admin_id + "@lucidtuner.ai")} '
-        f'GIT_COMMITTER_EMAIL={shlex.quote(_admin_id + "@lucidtuner.ai")} '
+        f'GIT_AUTHOR_EMAIL={shlex.quote(_git_email)} '
+        f'GIT_COMMITTER_EMAIL={shlex.quote(_git_email)} '
         f'git commit -m {shlex.quote(message)}'
     )
     proc = await asyncio.create_subprocess_shell(
@@ -396,6 +407,98 @@ async def git_delete_branch(project: str, branch: str, remote: bool = False) -> 
     return result
 
 
+
+# =============================================================================
+# Public-repo hygiene (PR title/body + commit message + author)
+# =============================================================================
+# Hard rule: public GitHub surfaces read like a product company repo. No family
+# instance names, operator handles, container/host labels, or private ops steps.
+# Ops detail stays in chat / private Ops docs. Refuse the ship rather than scrub
+# silently — the author should rewrite product-facing text on purpose.
+
+_PUBLIC_SURFACE_LEAK_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
+    # Instance / host labels (product has many Coves; these are lab-specific)
+    ("instance-label", re.compile(r"\b(Founders|Clearfield)\b", re.I)),
+    # Operator / personal
+    ("operator-name", re.compile(r"\b(Jason|JAG)\b")),
+    ("operator-handle", re.compile(r"@?jasonbroadcast\b", re.I)),
+    ("operator-nc-account", re.compile(r"\bjag\b", re.I)),
+    # NC account ids that name the instance
+    ("admin-nc-account", re.compile(r"\badminclearfield\b", re.I)),
+    # Container / mesh / home lab hosts
+    ("container-name", re.compile(r"\blucidcove-[a-z0-9-]+-app\b", re.I)),
+    ("mesh-host", re.compile(r"\blp-homebase\b", re.I)),
+    ("mesh-host", re.compile(r"\.mesh\.lucidcove\.org\b", re.I)),
+    # Presence used as deploy target in PR copy
+    ("presence-ops", re.compile(r"\bAtlas Founders\b", re.I)),
+]
+
+
+def _github_origin_slug(repo: str) -> str | None:
+    """owner/name if origin is github, else None."""
+    import subprocess
+    try:
+        url = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo, capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+    except Exception:
+        return None
+    m = re.search(r"github\.com[:/](?P<own>[^/]+)/(?P<name>[^/\s]+?)(?:\.git)?$", url)
+    return f"{m.group('own')}/{m.group('name')}" if m else None
+
+
+def _is_github_origin(repo: str) -> bool:
+    return _github_origin_slug(repo) is not None
+
+
+def _public_commit_identity() -> tuple[str, str]:
+    """Product-safe git author for GitHub-bound commits.
+
+    Never use family/instance display names (those leaked as
+    "Clearfield Clearfield" on public commits). Steward role identity only.
+    """
+    admin_id = (get_setting_sync("admin_agent_id", "stuart") or "stuart").strip().lower()
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,32}", admin_id):
+        admin_id = "stuart"
+    display = (get_setting_sync("admin_agent_display_name", "Stuart") or "Stuart").strip()
+    # If display was overwritten with the instance/family label, fall back.
+    if not display or re.search(r"^(Founders|Clearfield)$", display, re.I):
+        display = "Stuart"
+    # "Stuart Cove" — agent role + product, never "{Name} {FamilyName}".
+    name = f"{display} Cove"
+    email = f"{admin_id}@lucidtuner.ai"
+    return name, email
+
+
+def find_public_surface_leaks(*parts: str) -> list[str]:
+    """Return leak category hits in title/body/commit text."""
+    text = "\n".join(p for p in parts if p)
+    if not text.strip():
+        return []
+    hits: list[str] = []
+    seen: set[str] = set()
+    for label, pat in _PUBLIC_SURFACE_LEAK_PATTERNS:
+        if pat.search(text):
+            if label not in seen:
+                seen.add(label)
+                hits.append(label)
+    return hits
+
+
+def _refuse_public_leaks(surface: str, *parts: str) -> str | None:
+    hits = find_public_surface_leaks(*parts)
+    if not hits:
+        return None
+    kinds = ", ".join(hits)
+    return (
+        f"REFUSED: public-repo hygiene — {surface} contains ops/personal detail "
+        f"({kinds}). Rewrite title/body/commit as product-facing text only "
+        f"(no instance names, operator handles, containers, mesh hosts, or "
+        f"private deploy topology). Put ops steps in chat or private Ops docs."
+    )
+
+
 def _github_token() -> str:
     """The GitHub PAT create_github_pr authenticates with — GH_TOKEN/GITHUB_TOKEN
     env, else the ~/.git-credentials token the clone pushes with. The ONE token
@@ -471,6 +574,10 @@ async def create_github_pr(project: str, title: str, body: str = "",
         return f"Error: could not determine current branch in {repo}: {branch}"
     if branch in ("main", "master"):
         return "REFUSED: you are on main — create the PR from your feature branch."
+
+    leak = _refuse_public_leaks("PR title/body", title, body)
+    if leak:
+        return leak
 
     # PRE-CHECK: Branch must exist on origin before creating PR
     # This prevents 422 head-invalid errors after operator approval
@@ -570,7 +677,7 @@ async def ship_branch(project: str, title: str, body: str = "",
 
     #SHIP1 preferred ship path: one operator Approve → branch on origin + PR
     review card (structured JSON with pr_url). Does not merge or deploy —
-    operator merges on GitHub, then deploys founders/Clearfield as usual.
+    operator merges on GitHub, then deploys the target instance as usual.
 
     Prefer this over separate git_push + create_github_pr during active builds
     so the operator is not the message bus between two gates.
@@ -595,6 +702,10 @@ async def ship_branch(project: str, title: str, body: str = "",
         )
     if current in ("main", "master"):
         return "REFUSED: you are on main — ship from your feature branch."
+
+    leak = _refuse_public_leaks("PR title/body", title, body)
+    if leak:
+        return leak
 
     push_result = await git_push.coroutine(project, "")
     push_ok_already = isinstance(push_result, str) and "No unpushed commits" in push_result
