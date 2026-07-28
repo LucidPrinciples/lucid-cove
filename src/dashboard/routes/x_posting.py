@@ -612,6 +612,10 @@ async def process_queued_x_posts() -> dict:
     or → failed with error_message.
 
     Shared by the /api/x/process-queue route and the 15-minute scheduler check.
+
+    Captions longer than the presence ceiling fail the row (status=failed) —
+    they are never word-fit and published. That keeps Schedule and Publish Now
+    from shipping truncated bodies when long_posts is off.
     """
     # CF-1: left unscoped (processor path) — Cove machinery posts every
     # presence's due rows; per-presence identity comes from agent_id.
@@ -653,10 +657,39 @@ async def process_queued_x_posts() -> dict:
             )
         row_creds = creds_cache[owner_id]
         max_chars = max_chars_cache[owner_id]
+        # Fail closed: never silently post a truncated Premium body under a
+        # 280 ceiling. Schedule and Publish Now share this path — a soft fit
+        # here is how full captions shipped as "...It's not just theory....".
+        raw_title = row["title"] or ""
+        raw_desc = row.get("description") or ""
+        raw_tags = row["hashtags"] or ""
+        uncapped = build_caption(
+            raw_title, raw_tags, raw_desc, max_chars=X_PREMIUM_MAX_CHARS
+        )
+        uncapped_len = x_length(uncapped)
+        if uncapped_len > max_chars:
+            msg = (
+                f"Caption is {uncapped_len} chars; this presence allows {max_chars}. "
+                f"Enable Premium long posts (Posting Accounts → X → long posts, or "
+                f"X_LONG_POSTS=true on the app) — refusing to auto-truncate and post."
+            )
+            async with get_db() as conn:
+                await conn.execute(
+                    "UPDATE social_queue SET status='failed', error_message=%s WHERE id=%s",
+                    (msg[:500], qid),
+                )
+            results.append({
+                "id": qid,
+                "status": "failed",
+                "error": msg,
+                "max_chars": max_chars,
+                "caption_len": uncapped_len,
+            })
+            continue
         caption = build_caption(
-            row["title"],
-            row["hashtags"],
-            row.get("description", ""),
+            raw_title,
+            raw_tags,
+            raw_desc,
             max_chars=max_chars,
         )
         if not row_creds:
