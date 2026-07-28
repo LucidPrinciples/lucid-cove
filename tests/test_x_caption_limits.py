@@ -101,3 +101,10 @@ def test_posting_ui_has_long_posts_checkbox():
     ).read_text()
     assert 'id="pa-x-long-posts"' in html
     assert "long_posts" in html
+
+
+def test_queue_path_documents_fail_closed_not_silent_fit():
+    """process_queued_x_posts must refuse over-ceiling captions (source guard)."""
+    src = XP.read_text()
+    assert "refusing to auto-truncate" in src
+    assert "uncapped_len > max_chars" in src or "uncapped_len" in src
