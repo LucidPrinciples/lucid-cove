@@ -377,6 +377,10 @@ async def git_push(project: str, branch: str = "") -> str:
             return f"REFUSED: Could not verify branch state. Git output: {commit_count}"
 
     # If we reach here: either upstream exists with unpushed commits, OR new branch with commits
+    if _is_github_origin(repo):
+        leak = await _refuse_unpushed_commit_leaks(repo, branch.strip(), "main")
+        if leak:
+            return leak
     result = await _run_git(f"push origin {shlex.quote(branch)}", repo)
     
     # POST-CHECK: Verify the remote ref actually exists after push
@@ -497,6 +501,44 @@ def _refuse_public_leaks(surface: str, *parts: str) -> str | None:
         f"(no instance names, operator handles, containers, mesh hosts, or "
         f"private deploy topology). Put ops steps in chat or private Ops docs."
     )
+
+
+async def _refuse_unpushed_commit_leaks(
+    repo: str, branch: str, base: str = "main"
+) -> str | None:
+    """Refuse push/ship if unpushed commit subjects/bodies fail public hygiene.
+
+    Catches shell commits and anything authored before the commit-time gate.
+    Only checks messages (not file diffs) — product code may mention lab names
+    in historical comments; the ship surface is the commit log on GitHub.
+    """
+    if not _is_github_origin(repo):
+        return None
+    br = (branch or "").strip()
+    if not br or br.startswith("Error"):
+        return None
+    base_ref = (base or "main").strip() or "main"
+    # Prefer commits not on origin/branch; fall back to base..branch for first push.
+    range_specs = [
+        f"origin/{br}..{br}",
+        f"origin/{base_ref}..{br}",
+        f"{base_ref}..{br}",
+    ]
+    log = ""
+    for spec in range_specs:
+        out = await _run_git(
+            f"log {shlex.quote(spec)} --format=%B%x1e",
+            repo,
+        )
+        if out.startswith("Error"):
+            continue
+        if out and out != "(no output)":
+            log = out
+            break
+    if not log:
+        return None
+    leak = _refuse_public_leaks("unpushed commit message(s)", log)
+    return leak
 
 
 def _github_token() -> str:
@@ -704,6 +746,10 @@ async def ship_branch(project: str, title: str, body: str = "",
         return "REFUSED: you are on main — ship from your feature branch."
 
     leak = _refuse_public_leaks("PR title/body", title, body)
+    if leak:
+        return leak
+
+    leak = await _refuse_unpushed_commit_leaks(repo, current, base)
     if leak:
         return leak
 

@@ -12,7 +12,7 @@ Approval tiers:
 
 Environment variables required (in docker/.env):
   NEXTCLOUD_URL      — e.g. http://nextcloud-app (internal docker network)
-                       or http://100.65.124.97:8080 (host access)
+                       or http://host.docker.internal:8080 (host access)
   NEXTCLOUD_USER     — Nextcloud username for this agent
   NEXTCLOUD_PASSWORD — Nextcloud app password (generate in Nextcloud Security settings)
 """
