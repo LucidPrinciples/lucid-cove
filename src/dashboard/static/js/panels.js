@@ -421,6 +421,10 @@ function _defaultPanelHTML(tabId) {
                     <div id="settings-status" class="settings-status-grid"></div>
                 </div>
                 <div class="settings-group">
+                    <div class="settings-group-title">Backup</div>
+                    <div id="settings-backup" class="settings-row-list"></div>
+                </div>
+                <div class="settings-group">
                     <div class="settings-group-title">Nextcloud</div>
                     <div id="settings-nc" class="settings-row-list"></div>
                 </div>

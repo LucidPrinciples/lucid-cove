@@ -79,6 +79,7 @@ async function loadSettings() {
     if (MC.adminView || MC.coveAdminView) {
         const tasks = [
             loadSettingsStatus(),
+            loadSettingsBackup(),
             loadSettingsNextcloud(),
             loadSettingsMatrixAdmin(),
             loadSettingsModel(),

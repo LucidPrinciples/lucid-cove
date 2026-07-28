@@ -102,16 +102,75 @@ def build_push_url(remote_url: str, token: str) -> str:
     return clean.replace("https://", f"https://oauth2:{token}@", 1)
 
 
+# GitHub hard-rejects any single blob over 100MB. Stay under with headroom.
+GITHUB_MAX_FILE_BYTES = 100 * 1024 * 1024
+DUMP_CHUNK_BYTES = 90 * 1024 * 1024  # 90MB chunks
+
+
+def _dump_prefixes(db_dir: Path) -> list[str]:
+    """Unique dump basenames, where a dump is either foo.sql.gz or foo.sql.gz.partNNN."""
+    prefs: set[str] = set()
+    if not db_dir.is_dir():
+        return []
+    for p in db_dir.iterdir():
+        name = p.name
+        if name.endswith(".sql.gz"):
+            prefs.add(name[: -len(".sql.gz")])
+        elif ".sql.gz.part" in name:
+            prefs.add(name.split(".sql.gz.part", 1)[0])
+    return sorted(prefs)
+
+
 def rotate_dumps(db_dir: Path, keep: int = DUMPS_KEPT) -> int:
-    """Delete oldest dated dumps beyond `keep`. Returns how many were removed."""
-    dumps = sorted(db_dir.glob("*.sql.gz"))
-    excess = dumps[:-keep] if len(dumps) > keep else []
-    for f in excess:
-        try:
-            f.unlink()
-        except Exception:
-            pass
-    return len(excess)
+    """Delete oldest dated dumps beyond `keep`. A dump may be one file or many parts.
+    Returns how many dump files were removed."""
+    prefs = _dump_prefixes(db_dir)
+    excess = prefs[:-keep] if len(prefs) > keep else []
+    removed = 0
+    for pref in excess:
+        for f in list(db_dir.glob(f"{pref}.sql.gz")) + list(db_dir.glob(f"{pref}.sql.gz.part*")):
+            try:
+                f.unlink()
+                removed += 1
+            except Exception:
+                pass
+    return removed
+
+
+def write_dump_chunks(dump_file: Path, max_chunk: int = DUMP_CHUNK_BYTES) -> list[Path]:
+    """If dump_file is under max_chunk, leave as single .sql.gz. Else split into
+    dump_file.name + '.part001' etc and remove the original oversized file.
+    Returns the list of files that should be committed."""
+    if not dump_file.exists():
+        return []
+    size = dump_file.stat().st_size
+    if size <= max_chunk:
+        return [dump_file]
+    parts: list[Path] = []
+    with dump_file.open("rb") as src:
+        idx = 1
+        while True:
+            chunk = src.read(max_chunk)
+            if not chunk:
+                break
+            part = dump_file.parent / f"{dump_file.name}.part{idx:03d}"
+            part.write_bytes(chunk)
+            parts.append(part)
+            idx += 1
+    try:
+        dump_file.unlink()
+    except Exception:
+        pass
+    return parts
+
+
+def reject_if_still_oversized(root: Path, limit: int = GITHUB_MAX_FILE_BYTES - 1024 * 1024) -> list[str]:
+    """Return paths (relative) of any file still over GitHub's limit."""
+    bad = []
+    for p in root.rglob("*"):
+        if p.is_file() and ".git" not in p.parts and p.stat().st_size > limit:
+            bad.append(str(p.relative_to(root)))
+    return bad
 
 
 # ── config/status accessors (feature-overrides store) ───────────────────────
@@ -276,8 +335,20 @@ async def run_cove_backup(trigger: str = "manual") -> dict:
         db_url = env("DATABASE_URL")
         p = _run(f"pg_dump {shlex.quote(db_url)} | gzip > {shlex.quote(str(dump_file))}",
                  shell=True, timeout=300)
-        detail["db"] = {"ok": p.returncode == 0 and dump_file.exists() and dump_file.stat().st_size > 0,
-                        "err": (p.stderr or "").strip()[:200]}
+        db_ok = p.returncode == 0 and dump_file.exists() and dump_file.stat().st_size > 0
+        parts: list = []
+        if db_ok:
+            parts = write_dump_chunks(dump_file)
+            db_ok = bool(parts) and all(x.exists() and x.stat().st_size > 0 for x in parts)
+        detail["db"] = {
+            "ok": db_ok,
+            "err": (p.stderr or "").strip()[:200],
+            "bytes": sum(x.stat().st_size for x in parts) if parts else (
+                dump_file.stat().st_size if dump_file.exists() else 0
+            ),
+            "parts": len(parts),
+            "files": [x.name for x in parts],
+        }
         detail["db"]["rotated"] = rotate_dumps(db_dir)
 
         # 2 · config (redacted)
@@ -296,6 +367,24 @@ async def run_cove_backup(trigger: str = "manual") -> dict:
         detail["nc"] = await _backup_nc_agentskills(root)
 
         # 4 · commit + push (token only in the push URL, reset after)
+        # Guard: never attempt a push that GitHub will hard-reject (>100MB blob).
+        oversized = reject_if_still_oversized(root)
+        if oversized:
+            detail["push"] = {
+                "ok": False,
+                "note": "blocked",
+                "err": f"files over GitHub 100MB limit: {', '.join(oversized[:8])}",
+            }
+            summary = (
+                f"db {'✓' if detail['db']['ok'] else '✗'} · config {copied} files · "
+                f"files {detail['nc']['files']} across {detail['nc']['users']} presences "
+                f"({detail['nc']['skipped_videos']} videos excluded) · "
+                f"push ✗ {detail['push']['err'][:80]}"
+            )
+            st = {"ts": started.isoformat(), "ok": False, "summary": summary, "detail": detail}
+            _set_last_status(st)
+            return st
+
         _run(["git", "add", "-A"], cwd=root, timeout=120)
         c = _run(["git", "commit", "-m", f"Cove backup {ts} ({trigger})"], cwd=root, timeout=60)
         nothing_new = "nothing to commit" in ((c.stdout or "") + (c.stderr or "")).lower()
