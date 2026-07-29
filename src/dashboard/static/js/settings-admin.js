@@ -966,3 +966,106 @@ async function clearModelOverride() {
         if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--red)'; }
     }
 }
+
+// ── CF-112 Backup (permanent admin panel — not onboarding-only) ──────────────
+// Home onboarding still walks first-time setup; this is where operators manage
+// repo URL, rotate the PAT, run a backup, and see last status after the nag is gone.
+
+async function loadSettingsBackup() {
+    const el = document.getElementById('settings-backup');
+    if (!el) return;
+    el.innerHTML = '<div class="loading">Loading backup…</div>';
+    try {
+        const s = await fetch('/api/backup/status').then(r => r.json());
+        const last = s.last || {};
+        const configured = !!(s.configured);
+        const green = !!s.green;
+        const badge = !configured
+            ? '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--orange,#e67e22);border:1px solid var(--orange,#e67e22);border-radius:4px;padding:1px 5px;">not set up</span>'
+            : (green
+                ? '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--green,#3fb950);border:1px solid var(--green,#3fb950);border-radius:4px;padding:1px 5px;">healthy</span>'
+                : '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--orange,#e67e22);border:1px solid var(--orange,#e67e22);border-radius:4px;padding:1px 5px;">needs attention</span>');
+        const lastLine = last.ts
+            ? `<div style="margin-top:6px;color:${last.ok ? 'var(--green)' : 'var(--orange)'};font-size:0.72rem;">Last run: ${last.ok ? '✓' : '✗'} ${ESC(last.summary || '')}<div style="color:var(--dim);margin-top:2px;">${ESC(last.ts)}</div></div>`
+            : '<div style="margin-top:6px;color:var(--dim);font-size:0.72rem;">No backup run yet.</div>';
+        const running = s.running
+            ? '<div style="margin-top:4px;color:var(--dim);font-size:0.7rem;">A backup is running now…</div>'
+            : '';
+        el.innerHTML = `
+            <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <span class="settings-label" style="margin:0;">Daily GitHub backup</span>
+                    ${badge}
+                </div>
+                <div style="font-size:0.72rem;color:var(--dim);line-height:1.5;">
+                    Private repo snapshot of the database, redacted config, and AgentSkills files (videos excluded).
+                    Runs daily around 03:30. Large database dumps are split so GitHub’s 100&nbsp;MB file limit is not exceeded.
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <input id="settings-backup-url" class="settings-input" placeholder="https://github.com/you/my-cove-backup" value="${ESC(s.remote_url || '')}" style="flex:1;min-width:220px;">
+                    <input id="settings-backup-token" class="settings-input" type="password" placeholder="${s.has_token ? '******** (saved — paste to replace)' : 'github_pat_…'}" style="flex:1;min-width:180px;">
+                </div>
+                <div id="settings-backup-out">${lastLine}${running}</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <button class="btn-approve" onclick="saveSettingsBackupConfig(this)">Save</button>
+                    <button class="btn-approve" onclick="runSettingsBackupNow(this)" ${configured ? '' : 'disabled title="Save repo URL + token first"'}>Back up now</button>
+                </div>
+                <div style="font-size:0.68rem;color:var(--dim);line-height:1.45;">
+                    Token needs Contents read/write on that private repo only. Leave the token field blank when saving to keep the current one.
+                </div>
+            </div>`;
+    } catch (e) {
+        el.innerHTML = `<div style="color:var(--orange);font-size:0.72rem;">Could not load backup status: ${ESC(e.message)}</div>`;
+    }
+}
+
+async function saveSettingsBackupConfig(btn) {
+    const url = (document.getElementById('settings-backup-url') || {}).value || '';
+    const tok = (document.getElementById('settings-backup-token') || {}).value || '';
+    const out = document.getElementById('settings-backup-out');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    try {
+        const r = await fetch('/api/backup/config', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ remote_url: url, token: tok || '********' }),
+        });
+        const d = await r.json();
+        if (out) out.innerHTML = d.error
+            ? `<span style="color:var(--orange);">${ESC(d.error)}</span>`
+            : `<span style="color:var(--green);">Saved${d.configured ? ' — ready to back up.' : ' — still needs ' + (d.has_token ? 'the repo URL.' : 'the token.')}</span>`;
+        if (d.configured) setTimeout(() => loadSettingsBackup(), 600);
+    } catch (e) {
+        if (out) out.innerHTML = `<span style="color:var(--orange);">Could not save: ${ESC(e.message)}</span>`;
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+    }
+}
+
+async function runSettingsBackupNow(btn) {
+    const out = document.getElementById('settings-backup-out');
+    if (btn) { btn.disabled = true; btn.textContent = 'Backing up…'; }
+    try {
+        const r = await fetch('/api/backup/run', { method: 'POST' });
+        const d = await r.json();
+        if (d.error) {
+            if (out) out.innerHTML = `<span style="color:var(--orange);">${ESC(d.error)}</span>`;
+            if (btn) { btn.disabled = false; btn.textContent = 'Back up now'; }
+            return;
+        }
+        if (out) out.innerHTML = '<span style="color:var(--dim);">Backup started…</span>';
+        const poll = async (tries) => {
+            const s = await fetch('/api/backup/status').then(x => x.json()).catch(() => ({}));
+            if (s.running && tries > 0) { setTimeout(() => poll(tries - 1), 4000); return; }
+            const last = s.last || {};
+            if (out) out.innerHTML = last.ts
+                ? `<span style="color:${last.ok ? 'var(--green)' : 'var(--orange)'};">${last.ok ? '✓' : '✗'} ${ESC(last.summary || '')}</span>`
+                : '<span style="color:var(--dim);">Started — check back in a minute.</span>';
+            if (btn) { btn.disabled = false; btn.textContent = 'Back up now'; }
+            if (last.ts) setTimeout(() => loadSettingsBackup(), 800);
+        };
+        setTimeout(() => poll(60), 4000);
+    } catch (e) {
+        if (out) out.innerHTML = `<span style="color:var(--orange);">${ESC(e.message)}</span>`;
+        if (btn) { btn.disabled = false; btn.textContent = 'Back up now'; }
+    }
+}

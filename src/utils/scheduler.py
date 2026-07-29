@@ -658,7 +658,9 @@ class AgentScheduler:
                 data = resp.json()
                 if data.get("skipped"):
                     print(f"{ts_log()} [scheduler] Weekly backup skipped — {data.get('summary', 'not configured')}")
-                    await _log_run_finish(run_id, "success", dur, None)
+                    # Skipped ≠ success. Keep protocol history honest so status surfaces
+                    # do not treat a 13ms no-op as a green backup.
+                    await _log_run_finish(run_id, "skipped", dur, data.get("summary", "not configured")[:200])
                 else:
                     git_ok = data.get("results", {}).get("git", {}).get("ok", False)
                     db_ok = data.get("results", {}).get("db", {}).get("ok", False)
