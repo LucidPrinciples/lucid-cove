@@ -563,8 +563,66 @@ function _socialBoardLegendHtml() {
         <span class="ab-legend-item"><span class="ab-legend-swatch ab-post-paste"></span> Paste / manual</span>
         <span class="ab-legend-item"><span class="ab-legend-swatch ab-len-short"></span> Short</span>
         <span class="ab-legend-item"><span class="ab-legend-swatch ab-len-long"></span> Long</span>
+        <button type="button" class="ab-legend-item ab-regen-meta-btn" onclick="regenDraftMeta()" title="Rewrite titles/descriptions on draft (unscheduled) cards using current voice + polish">↻ Regen draft meta</button>
     </div>`;
 }
+
+/** #VMETA-REGEN1 — rewrite meta on status=draft social_queue cards only. */
+async function regenDraftMeta() {
+    if (_abRegenMetaBusy) return;
+    let dry;
+    try {
+        const r = await fetch('/api/action-board/regen-draft-meta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dry_run: true }),
+        });
+        dry = r.ok ? await r.json() : null;
+    } catch (e) {
+        alert('Could not reach regen-draft-meta.');
+        return;
+    }
+    if (!dry || !dry.ok) {
+        alert((dry && dry.error) || 'Dry-run failed.');
+        return;
+    }
+    const n = dry.eligible || 0;
+    if (!n) {
+        alert('No draft (unscheduled) cards to regenerate.');
+        return;
+    }
+    const plat = dry.by_platform ? Object.entries(dry.by_platform).map(([k, v]) => k + ': ' + v).join(', ') : '';
+    if (!confirm(
+        'Regenerate metadata on ' + n + ' draft card(s)?\n'
+        + (plat ? '(' + plat + ')\n' : '')
+        + 'Scheduled/published cards are not touched. Moments and video files stay as-is.'
+    )) return;
+    _abRegenMetaBusy = true;
+    try {
+        const r = await fetch('/api/action-board/regen-draft-meta', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dry_run: false }),
+        });
+        const data = r.ok ? await r.json() : null;
+        if (!data || !data.ok) {
+            alert((data && data.error) || 'Regenerate failed (HTTP ' + r.status + ').');
+            return;
+        }
+        alert(
+            'Updated ' + (data.updated || 0)
+            + ' draft card(s). Failed: ' + (data.failed || 0)
+            + (data.skipped_no_transcript ? ('. Thin transcript fallback: ' + data.skipped_no_transcript) : '')
+        );
+        refreshActions();
+    } catch (e) {
+        alert('Regenerate request failed.');
+    } finally {
+        _abRegenMetaBusy = false;
+    }
+}
+let _abRegenMetaBusy = false;
+
 
 // #VP-SESS-MAP1 — moments.json summaries keyed by stem (lazy-loaded)
 const _sessionMapCache = {};

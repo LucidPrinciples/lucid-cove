@@ -399,6 +399,7 @@ Write metadata for a YouTube Short clip.
 Rules:
 - Title: 50-70 chars. Hook-first. No clickbait but must grab attention. Include a key concept from the clip.
 - Description: Follow DESCRIPTION FORMAT above (3-5 short sections). First line is the hook (shows in search). Topic bullets use → arrows, not dashes. Prefer easy response prompts when natural (a real question the viewer can answer), not forced engagement bait. {yt_link_rule}
+- TITLE VS OPENING LINE: the title and the first line of the description must NOT be identical or a near-paraphrase of each other. Title is the short searchable label; the description opening can restate the idea in different words or lead with the frame/why it matters. Never paste the title as description line 1.
 {attr_rule}
 - Hashtags: 8-12 relevant hashtags, mix of broad and niche. {hash_brand}
 - Tags: 10-15 comma-separated search terms for YouTube's tag system.
@@ -440,6 +441,7 @@ Write a caption for a TikTok video.
 Rules:
 - Title: Short hook (shown in search).
 - Description: Caption 150-300 chars. Hook in first line, then one tight thought — not a multi-section skeleton. No URLs.
+- TITLE VS OPENING LINE: title and description first line must not be identical or near-paraphrase.
 - Prefer an easy response prompt when natural. Soft handle mention OK if brief.
 - Hashtags: 4-6 searchable topic tags. {hash_brand} Skip spam tags like #fyp.
 - Tags: Empty array.
@@ -461,6 +463,7 @@ Return ONLY valid JSON:
 Rules:
 - Title: Short hook for the cover (40 chars max).
 - Description: Follow DESCRIPTION FORMAT above (2-4 sections). Prefer an easy response prompt when natural. No URLs (not clickable). If a site pointer is needed, say "link in bio" — never invent a URL.
+- TITLE VS OPENING LINE: title and description first line must not be identical or near-paraphrase.
 {attr_rule}
 - Hashtags: 8-12 focused hashtags at the end. {hash_brand}
 - Tags: Empty array.
@@ -563,6 +566,7 @@ Hard rules:
 - No em dashes. Use periods or commas instead.
 - Prefer an easy response prompt when natural (a real question), not forced engagement bait.
 - Never open the description with a bare topic list — lead-in first, topics only after.
+- TITLE VS OPENING LINE: the title and the first line of the description must NOT be identical or a near-paraphrase. Title is the short searchable label; description opening restates or frames in different words.
 - Provide 8 to 12 tags. Each tag is 1 to 3 words, no tag longer than 25 characters, and the whole tag set stays under 400 characters total.
 - {link_rules}
 - {tag_hint}
@@ -620,6 +624,7 @@ Your job — FINAL POLISH only:
    Never leave a bare topic list with no lead-in. Fix that if the draft did it.
 2) Short platforms (x, tiktok): keep single short posts; do not expand into the multi-section skeleton. Respect length limits (X ≤240 chars including hashtags).
 3) DE-DUPE titles across the batch: sibling clips of the same moment must not share near-identical titles. Differentiate by angle/size while staying true to the clip.
+3b) TITLE VS OPENING LINE (same card): for each item, title and the first line of description must not be identical or near-paraphrase. If the draft pasted the title as description line 1, rewrite the opening line (keep title) so the body starts with a different frame or restatement.
 4) Voice + hard rules: no em dashes, no placeholder text, no hype words (groundbreaking, game-changing, revolutionary). Finished postable copy only.
 5) Hashtags/tags: tighten for discovery when weak; do not invent brand tags the profile did not seed. X stays light on hashtags (0–1).
 6) Do not invent URLs or closing blocks that were not already in the draft. Preserve exact closing blocks / CTAs already present.
@@ -753,6 +758,50 @@ async def _invoke_polish_model(system_prompt: str, human_prompt: str) -> tuple[s
     return None, ""
 
 
+def _norm_meta_line(s: str) -> str:
+    """Collapse whitespace + case for title/opening comparison."""
+    return " ".join((s or "").strip().lower().split())
+
+
+def ensure_title_differs_from_opening(item: dict) -> dict:
+    """If title == description first line, drop that first line so the body leads.
+
+    Soft safety net after LLM draft/polish. Prefer model compliance; this only
+    fires on exact/near-exact matches so we never invent replacement copy.
+    """
+    if not isinstance(item, dict):
+        return item
+    title = (item.get("title") or "").strip()
+    desc = item.get("description") or ""
+    if not title or not isinstance(desc, str) or not desc.strip():
+        return item
+    # Prefer blank-line section split (skeleton); else first physical line.
+    if "\n\n" in desc:
+        first, rest = desc.split("\n\n", 1)
+    else:
+        parts = desc.split("\n", 1)
+        first = parts[0]
+        rest = parts[1] if len(parts) > 1 else ""
+    first = (first or "").strip()
+    rest = (rest or "").strip()
+    nt, nf = _norm_meta_line(title), _norm_meta_line(first)
+    if not nt or not nf:
+        return item
+    same = nt == nf
+    if not same:
+        shorter, longer = (nt, nf) if len(nt) <= len(nf) else (nf, nt)
+        if shorter and shorter in longer and len(shorter) >= 12:
+            if len(longer) <= int(len(shorter) * 1.25) + 8:
+                same = True
+    if not same:
+        return item
+    if not rest:
+        return item
+    out = dict(item)
+    out["description"] = rest
+    return out
+
+
 def _merge_polished_item(original: dict, polished: dict) -> dict:
     """Apply polished fields onto a draft dict; keep unspecified fields."""
     out = dict(original)
@@ -765,7 +814,8 @@ def _merge_polished_item(original: dict, polished: dict) -> dict:
         out["tags"] = tags
     elif isinstance(tags, str) and tags.strip():
         out["tags"] = [x.strip() for x in tags.split(",") if x.strip()]
-    return out
+    return ensure_title_differs_from_opening(out)
+
 
 
 async def polish_metadata_batch(
@@ -790,9 +840,9 @@ async def polish_metadata_batch(
     except Exception:
         polish_configured = False
 
-    # Skip no-op: one draft and no polish model → keep first-pass meta
+    # Skip no-op: one draft and no polish model → keep first-pass meta (still title≠hook)
     if len(drafts) < 2 and not polish_configured:
-        return drafts
+        return [ensure_title_differs_from_opening(dict(d)) for d in drafts]
 
     meta = video_meta or empty_video_meta()
     system_prompt = build_polish_system_prompt(meta)
@@ -821,7 +871,7 @@ async def polish_metadata_batch(
     content, model_used = await _invoke_polish_model(system_prompt, human_prompt)
     if not content:
         logger.warning("Meta polish produced no content — keeping first-pass drafts")
-        return drafts
+        return [ensure_title_differs_from_opening(dict(d)) for d in drafts]
 
     items = _parse_polish_response(content)
     if not items:
@@ -829,7 +879,7 @@ async def polish_metadata_batch(
             "Meta polish parse failed (model=%s) — keeping first-pass drafts",
             model_used or "?",
         )
-        return drafts
+        return [ensure_title_differs_from_opening(dict(d)) for d in drafts]
 
     by_id = {it["id"]: it for it in items}
     merged = []
@@ -838,7 +888,7 @@ async def polish_metadata_batch(
         if did and did in by_id:
             merged.append(_merge_polished_item(d, by_id[did]))
         else:
-            merged.append(d)
+            merged.append(ensure_title_differs_from_opening(dict(d)))
     logger.info(
         "Meta polish applied via %s on %d drafts (%d returned)",
         model_used or "?",
