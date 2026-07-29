@@ -9,6 +9,8 @@
 #
 # SCOPE (operator decision, locked 2026-07-03): EVERYTHING that makes the Cove —
 #   db/       pg_dump of the Cove database (gzip, dated, keep last 14)
+#             LangGraph runtime checkpoint tables excluded (rebuildable session
+#             state; can be multi-GB and is not family/product restore data)
 #   config/   /app/config yaml files with secret-ish values REDACTED
 #   files/{nc_username}/AgentSkills/…  every active presence's NC AgentSkills
 #             via WebDAV with that presence's own creds — video binaries
@@ -47,6 +49,34 @@ DUMPS_KEPT = 14
 # Video binaries stay out of the backup (they're huge and reproducible from
 # masters per the C4/CF-98 retention decisions). Transcripts/captions/etc stay.
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".mts", ".m2ts", ".3gp", ".wmv"}
+
+# LangGraph checkpoint tables are runtime graph state (often multi-GB). They are
+# not required to restore accounts, memory, tasks, or product config — and they
+# blow past practical pg_dump + GitHub backup limits. Exclude from CF-112 dumps.
+PG_DUMP_EXCLUDE_TABLES = (
+    "checkpoint_blobs",
+    "checkpoint_writes",
+    "checkpoints",
+    "checkpoint_migrations",
+)
+
+# pg_dump of a healthy Cove can exceed 5 minutes once memory/history grows.
+# Keep git ops shorter; dump/push get their own budgets.
+PG_DUMP_TIMEOUT_SEC = 1800  # 30 minutes
+GIT_PUSH_TIMEOUT_SEC = 600
+
+
+def redact_secrets(text: str) -> str:
+    """Strip credentials from process/error strings before status UI or logs."""
+    s = text or ""
+    s = re.sub(r"postgresql://[^\s\"']+", "postgresql://***", s)
+    s = re.sub(r"postgres://[^\s\"']+", "postgres://***", s)
+    s = re.sub(r"github_pat_[A-Za-z0-9_]+", "github_pat_***", s)
+    s = re.sub(r"ghp_[A-Za-z0-9]+", "ghp_***", s)
+    s = re.sub(r"oauth2:[^@\s]+@", "oauth2:***@", s)
+    s = re.sub(r":([^:/@\s]{8,})@", ":***@", s)  # user:pass@host forms
+    return s
+
 
 # Keys whose VALUES get redacted from backed-up config yaml (matched on the key
 # name, case-insensitive). The backup must be restorable WITHOUT being a
@@ -328,13 +358,26 @@ async def run_cove_backup(trigger: str = "manual") -> dict:
     try:
         _ensure_repo(root, clean_remote)
 
-        # 1 · DB dump
+        # 1 · DB dump (exclude rebuildable LangGraph checkpoint runtime state)
         db_dir = root / "db"
         db_dir.mkdir(parents=True, exist_ok=True)
         dump_file = db_dir / f"{ts}.sql.gz"
         db_url = env("DATABASE_URL")
-        p = _run(f"pg_dump {shlex.quote(db_url)} | gzip > {shlex.quote(str(dump_file))}",
-                 shell=True, timeout=300)
+        exclude = " ".join(
+            f"--exclude-table-data={shlex.quote(t)}" for t in PG_DUMP_EXCLUDE_TABLES
+        )
+        # Schema for excluded tables still ships; data does not.
+        dump_cmd = (
+            f"pg_dump {shlex.quote(db_url)} {exclude} "
+            f"| gzip > {shlex.quote(str(dump_file))}"
+        )
+        p = _run(dump_cmd, shell=True, timeout=PG_DUMP_TIMEOUT_SEC)
+        # Drop partial dumps on failure so the next run starts clean.
+        if p.returncode != 0 and dump_file.exists():
+            try:
+                dump_file.unlink()
+            except Exception:
+                pass
         db_ok = p.returncode == 0 and dump_file.exists() and dump_file.stat().st_size > 0
         parts: list = []
         if db_ok:
@@ -342,12 +385,13 @@ async def run_cove_backup(trigger: str = "manual") -> dict:
             db_ok = bool(parts) and all(x.exists() and x.stat().st_size > 0 for x in parts)
         detail["db"] = {
             "ok": db_ok,
-            "err": (p.stderr or "").strip()[:200],
+            "err": redact_secrets((p.stderr or "").strip())[:200],
             "bytes": sum(x.stat().st_size for x in parts) if parts else (
                 dump_file.stat().st_size if dump_file.exists() else 0
             ),
             "parts": len(parts),
             "files": [x.name for x in parts],
+            "excluded_data": list(PG_DUMP_EXCLUDE_TABLES),
         }
         detail["db"]["rotated"] = rotate_dumps(db_dir)
 
@@ -391,14 +435,14 @@ async def run_cove_backup(trigger: str = "manual") -> dict:
         push_url = build_push_url(clean_remote, token)
         try:
             _run(["git", "remote", "set-url", "origin", push_url], cwd=root)
-            push = _run(["git", "push", "-u", "origin", "main"], cwd=root, timeout=300)
+            push = _run(["git", "push", "-u", "origin", "main"], cwd=root, timeout=GIT_PUSH_TIMEOUT_SEC)
         finally:
             _run(["git", "remote", "set-url", "origin", clean_remote], cwd=root)
         push_txt = ((push.stdout or "") + (push.stderr or "")).strip()
         ok = push.returncode == 0 and detail["db"]["ok"]
         detail["push"] = {"ok": push.returncode == 0,
                           "note": "no changes" if nothing_new else "pushed",
-                          "err": "" if push.returncode == 0 else push_txt[:300]}
+                          "err": "" if push.returncode == 0 else redact_secrets(push_txt)[:300]}
 
         summary = (f"db {'✓' if detail['db']['ok'] else '✗'} · config {copied} files · "
                    f"files {detail['nc']['files']} across {detail['nc']['users']} presences "
@@ -408,6 +452,7 @@ async def run_cove_backup(trigger: str = "manual") -> dict:
     except Exception as e:
         log.error("cove backup failed: %s", e)
         st = {"ts": started.isoformat(), "ok": False,
-              "summary": f"Backup error: {type(e).__name__}: {str(e)[:160]}", "detail": detail}
+              "summary": f"Backup error: {type(e).__name__}: {redact_secrets(str(e))[:160]}",
+              "detail": detail}
     _set_last_status(st)
     return st
