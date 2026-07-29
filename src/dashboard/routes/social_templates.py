@@ -125,12 +125,15 @@ Generate the metadata for {PLATFORM_NAMES[platform]}. Write from THIS clip's win
                     logger.info(
                         f"Generated {platform} metadata via {model_name} for '{clip_label}'"
                     )
-                    return {
+                    from src.dashboard.routes.video_meta import (
+                        ensure_title_differs_from_opening,
+                    )
+                    return ensure_title_differs_from_opening({
                         "title": result.get("title", clip_label),
                         "description": result.get("description", ""),
                         "hashtags": result.get("hashtags", ""),
                         "tags": result.get("tags", []),
-                    }
+                    })
             except Exception as e:
                 logger.warning(f"Metadata gen failed on {model_name} for {platform}: {e}")
                 continue

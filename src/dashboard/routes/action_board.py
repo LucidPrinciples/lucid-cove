@@ -1854,6 +1854,325 @@ def _sanitize_links(payload) -> dict:
     return {"cards": cards}
 
 
+
+# ── Draft meta regeneration (#VMETA-REGEN1) ─────────────────────────────
+# Re-write title/description/hashtags/tags for unscheduled social_queue drafts
+# using current presence video_meta + polish. Does not touch queued/published,
+# does not re-encode. Moments timestamps stay; only copy changes.
+
+
+def _moments_window_lookup(moments_data: dict | None) -> dict:
+    """Map (moment_id, clip_type) -> {start_seconds, end_seconds, label, topic}."""
+    out: dict = {}
+    if not moments_data:
+        return out
+    for moment in moments_data.get("moments") or []:
+        mid = moment.get("id")
+        for clip in moment.get("clips") or []:
+            ct = clip.get("type") or clip.get("clip_type") or ""
+            try:
+                s = float(clip.get("start_seconds", moment.get("start_seconds", 0)) or 0)
+                e = float(clip.get("end_seconds", moment.get("end_seconds", 0)) or 0)
+            except (TypeError, ValueError):
+                s, e = 0.0, 0.0
+            entry = {
+                "start_seconds": s,
+                "end_seconds": e,
+                "label": clip.get("label") or moment.get("label") or "",
+                "topic": moment.get("topic") or "",
+            }
+            out[(mid, ct)] = entry
+            out.setdefault((mid, None), entry)
+        # moment-level fallback
+        try:
+            s = float(moment.get("start_seconds", 0) or 0)
+            e = float(moment.get("end_seconds", 0) or 0)
+        except (TypeError, ValueError):
+            s, e = 0.0, 0.0
+        out.setdefault((mid, None), {
+            "start_seconds": s,
+            "end_seconds": e,
+            "label": moment.get("label") or "",
+            "topic": moment.get("topic") or "",
+        })
+    return out
+
+
+@router.post("/api/action-board/regen-draft-meta")
+async def regen_draft_meta(request: Request):
+    """Regenerate metadata for draft (unscheduled) social_queue cards.
+
+    Body (all optional):
+      dry_run: bool — count only, no writes (default false)
+      limit: int — max drafts to process (default 500, max 2000)
+      ids: list[int] — optional explicit draft ids (still must be draft + scoped)
+      platforms: list[str] — optional filter
+      stems: list[str] — optional source_stem filter
+
+    Scope: acting presence only (CF-1). status=draft only.
+    """
+    if _is_public_app():
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    pid = await _acting_presence_id(request)
+    if pid == "":
+        return JSONResponse({"error": "not found"}, status_code=404)
+    scope_sql, scope_args = _scope_clause(pid)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    dry_run = bool(body.get("dry_run"))
+    try:
+        limit = int(body.get("limit") or 500)
+    except (TypeError, ValueError):
+        limit = 500
+    limit = max(1, min(limit, 2000))
+    id_list = body.get("ids") or []
+    if not isinstance(id_list, list):
+        id_list = []
+    id_list = [int(x) for x in id_list if str(x).isdigit() or isinstance(x, int)]
+    platforms = body.get("platforms") or []
+    if isinstance(platforms, str):
+        platforms = [platforms]
+    platforms = [str(p).strip().lower() for p in platforms if str(p).strip()]
+    stems = body.get("stems") or []
+    if isinstance(stems, str):
+        stems = [stems]
+    stems = [str(s).strip() for s in stems if str(s).strip()]
+
+    from src.memory.database import get_db
+    from src.dashboard.routes.video_meta import resolve_video_meta, polish_metadata_batch
+    from src.dashboard.routes.social_templates import generate_platform_metadata
+    from src.dashboard.routes.video_processing import (
+        _clip_window_seconds,
+        _transcript_text_for_window,
+    )
+    from src.dashboard.routes.video_pipeline import _read_video_json
+    from src.dashboard.routes.posting_identity import owner_id_from_request
+
+    owner_id = await owner_id_from_request(request)
+    video_meta = await resolve_video_meta(owner_id=owner_id, request=request)
+
+    extra_sql = ""
+    extra_args: list = []
+    if id_list:
+        extra_sql += " AND id = ANY(%s)"
+        extra_args.append(id_list)
+    if platforms:
+        extra_sql += " AND platform = ANY(%s)"
+        extra_args.append(platforms)
+    if stems:
+        extra_sql += " AND source_stem = ANY(%s)"
+        extra_args.append(stems)
+
+    async with get_db() as conn:
+        result = await conn.execute(
+            f"""SELECT id, platform, title, description, hashtags, tags,
+                      file_path, source_stem, moment_id, clip_type, clip_label,
+                      duration_seconds, format, series, platform_data, status
+               FROM social_queue
+               WHERE status = 'draft'{scope_sql}{extra_sql}
+               ORDER BY source_stem NULLS LAST, moment_id NULLS LAST, id
+               LIMIT %s""",
+            tuple(scope_args) + tuple(extra_args) + (limit,),
+        )
+        rows = await result.fetchall()
+
+    total = len(rows)
+    if dry_run:
+        by_plat: dict[str, int] = {}
+        by_stem: dict[str, int] = {}
+        for r in rows:
+            by_plat[r["platform"]] = by_plat.get(r["platform"], 0) + 1
+            st = r.get("source_stem") or "(none)"
+            by_stem[st] = by_stem.get(st, 0) + 1
+        return {
+            "ok": True,
+            "dry_run": True,
+            "eligible": total,
+            "by_platform": by_plat,
+            "by_stem": by_stem,
+            "limit": limit,
+        }
+
+    if not rows:
+        return {"ok": True, "updated": 0, "failed": 0, "eligible": 0, "skipped": 0}
+
+    # Cache transcripts / moments per stem
+    stem_cache: dict[str, dict] = {}
+
+    async def _stem_bundle(stem: str) -> dict:
+        if stem in stem_cache:
+            return stem_cache[stem]
+        bundle = {"segments": [], "moments_lookup": {}, "loaded": False}
+        if not stem:
+            stem_cache[stem] = bundle
+            return bundle
+        for tf in [f"{stem}-transcript-edited.json", f"{stem}-transcript.json"]:
+            tdata = await _read_video_json(request, f"transcripts/{tf}")
+            if tdata:
+                bundle["segments"] = tdata.get("segments") or []
+                bundle["loaded"] = True
+                break
+        mdata = await _read_video_json(request, f"transcripts/{stem}-moments.json")
+        bundle["moments_lookup"] = _moments_window_lookup(mdata)
+        stem_cache[stem] = bundle
+        return bundle
+
+    # Build draft payloads grouped by stem for polish batches
+    pending: list[dict] = []
+    skipped = 0
+    for r in rows:
+        stem = r.get("source_stem") or ""
+        bundle = await _stem_bundle(stem)
+        mid = r.get("moment_id")
+        ctype = r.get("clip_type") or ""
+        label = r.get("clip_label") or r.get("title") or "Untitled"
+        dur = float(r.get("duration_seconds") or 0)
+
+        clip_text = ""
+        # Full-length captioned rows often have clip_type full / empty moment
+        is_full = (ctype or "").lower() in ("full", "full_video", "captioned") or (
+            mid is None and "full" in (r.get("series") or "").lower()
+        )
+        if is_full and bundle["segments"]:
+            clip_text = " ".join(
+                (s.get("text") or "").strip()
+                for s in bundle["segments"]
+                if (s.get("text") or "").strip()
+            )
+            words = clip_text.split()
+            if len(words) > 4000:
+                clip_text = " ".join(words[:4000]) + " [truncated]"
+        else:
+            src = bundle["moments_lookup"].get((mid, ctype)) or bundle["moments_lookup"].get((mid, None)) or {}
+            fake_clip = {
+                "moment_id": mid,
+                "clip_type": ctype,
+                "start_seconds": src.get("start_seconds"),
+                "end_seconds": src.get("end_seconds"),
+                "duration_seconds": dur,
+            }
+            start, end = _clip_window_seconds(fake_clip, bundle["moments_lookup"])
+            clip_text = _transcript_text_for_window(bundle["segments"], start, end)
+            if not clip_text:
+                clip_text = (src.get("topic") or src.get("label") or label or "").strip()
+
+        if not clip_text:
+            skipped += 1
+            clip_text = label
+
+        # moment context: sibling types
+        siblings = []
+        for (m2, ct2), info in bundle["moments_lookup"].items():
+            if m2 == mid and ct2 and ct2 != ctype:
+                siblings.append(f"- {ct2}: {info.get('label') or ct2}")
+        moment_ctx = ""
+        if siblings:
+            moment_ctx = "sibling sizes in this moment:\n" + "\n".join(siblings[:8])
+
+        pending.append({
+            "id": str(r["id"]),
+            "_db_id": r["id"],
+            "platform": r["platform"],
+            "clip_type": ctype or ("full" if is_full else "thought"),
+            "clip_label": label,
+            "title": r.get("title") or label,
+            "description": r.get("description") or "",
+            "hashtags": r.get("hashtags") or "",
+            "tags": r["tags"] if isinstance(r.get("tags"), list) else [],
+            "_transcript": clip_text,
+            "_moment_ctx": moment_ctx,
+            "_duration": dur,
+            "_stem": stem,
+            "_old_pdata": r.get("platform_data") if isinstance(r.get("platform_data"), dict) else {},
+        })
+
+    # Generate fresh meta per item (platform-aware)
+    generated: list[dict] = []
+    failed = 0
+    for d in pending:
+        try:
+            meta = await generate_platform_metadata(
+                platform=d["platform"],
+                clip_label=d["clip_label"],
+                clip_type=d["clip_type"],
+                duration_seconds=d["_duration"],
+                transcript_text=d["_transcript"],
+                video_meta=video_meta,
+                request=request,
+                owner_id=owner_id,
+                moment_context=d.get("_moment_ctx") or "",
+            )
+            d["title"] = meta.get("title") or d["title"]
+            d["description"] = meta.get("description") or ""
+            d["hashtags"] = meta.get("hashtags") or ""
+            tags = meta.get("tags") or []
+            d["tags"] = tags if isinstance(tags, list) else []
+            generated.append(d)
+        except Exception as e:
+            logger.warning("regen-draft-meta gen failed id=%s: %s", d.get("_db_id"), e)
+            failed += 1
+
+    # Polish by stem groups (better de-dupe)
+    by_stem_groups: dict[str, list] = {}
+    for d in generated:
+        by_stem_groups.setdefault(d.get("_stem") or "_", []).append(d)
+
+    polished_all: list[dict] = []
+    for stem_key, group in by_stem_groups.items():
+        try:
+            polished_all.extend(await polish_metadata_batch(group, video_meta=video_meta))
+        except Exception as e:
+            logger.warning("regen-draft-meta polish failed stem=%s: %s", stem_key, e)
+            polished_all.extend(group)
+
+    updated = 0
+    async with get_db() as conn:
+        for d in polished_all:
+            db_id = d.get("_db_id")
+            if not db_id:
+                continue
+            tags_json = json.dumps(d.get("tags") or [])
+            pdata = dict(d.get("_old_pdata") or {})
+            pdata["meta_regenerated"] = True
+            pdata["meta_polished"] = True
+            try:
+                await conn.execute(
+                    f"""UPDATE social_queue
+                       SET title = %s,
+                           description = %s,
+                           hashtags = %s,
+                           tags = %s::jsonb,
+                           platform_data = %s::jsonb,
+                           updated_at = NOW()
+                       WHERE id = %s AND status = 'draft'{scope_sql}""",
+                    (
+                        d.get("title") or d.get("clip_label") or "Untitled",
+                        d.get("description") or "",
+                        d.get("hashtags") or "",
+                        tags_json,
+                        json.dumps(pdata),
+                        db_id,
+                    ) + tuple(scope_args),
+                )
+                updated += 1
+            except Exception as e:
+                logger.warning("regen-draft-meta update failed id=%s: %s", db_id, e)
+                failed += 1
+
+    return {
+        "ok": True,
+        "eligible": total,
+        "updated": updated,
+        "failed": failed,
+        "skipped_no_transcript": skipped,
+        "dry_run": False,
+    }
+
+
 def _default_links() -> list:
     """Primary links every Cove starts with (the operator can edit/remove). The
     Backlog is the catch-all driver (everything to organize, distinct from the

@@ -607,6 +607,8 @@ async def _generate_video_metadata(stem: str, request=None) -> dict:
                     content = content.split("```")[1].split("```")[0].strip()
                 metadata = json.loads(content)
                 logger.info(f"Video metadata generated via {model_name}: {metadata.get('title', '')[:60]}")
+                from src.dashboard.routes.video_meta import ensure_title_differs_from_opening
+                metadata = ensure_title_differs_from_opening(metadata)
                 # Optional single-item polish when polish model is configured
                 try:
                     from src.dashboard.routes.pipeline_keys import get_polish_model
@@ -626,13 +628,13 @@ async def _generate_video_metadata(stem: str, request=None) -> dict:
                             video_meta=_meta,
                         )
                         if polished:
-                            metadata = {
+                            metadata = ensure_title_differs_from_opening({
                                 **metadata,
                                 "title": polished[0].get("title") or metadata.get("title"),
                                 "description": polished[0].get("description") or metadata.get("description"),
                                 "hashtags": polished[0].get("hashtags") or metadata.get("hashtags"),
                                 "tags": polished[0].get("tags") or metadata.get("tags") or [],
-                            }
+                            })
                 except Exception as pe:
                     logger.warning("Full-video meta polish skipped: %s", pe)
                 return metadata
