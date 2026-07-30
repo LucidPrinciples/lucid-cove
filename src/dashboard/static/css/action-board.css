@@ -295,6 +295,30 @@
     color: var(--red, #c44);
 }
 
+/* HISTFULL1 — History subtab: shell + cards span full board width.
+   #ab-history-body is a single child of .ab-act-subpanel (CSS grid). Without
+   grid-column span it occupies one auto-fill track (~280px) and history cards
+   look compressed vs Scheduled/Uploaded. */
+#ab-history-body,
+.ab-history-empty,
+.ab-history-more {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+}
+#ab-history-body .ab-filter-bar {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+/* History reads as full-width rows (session stack), not a multi-column tile grid */
+#ab-history-body .ab-session-body {
+  grid-template-columns: 1fr;
+}
+#ab-history-body .ab-history-card {
+  width: 100%;
+  max-width: none;
+}
+
 /* #VP-SESS1 — session groups (one master stem = full + moments) */
 .ab-session-group {
     grid-column: 1 / -1;

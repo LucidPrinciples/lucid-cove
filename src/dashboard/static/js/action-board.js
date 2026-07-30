@@ -1053,7 +1053,7 @@ async function cancelScheduled(queueId) {
 function _renderHistoryShell(items) {
     const list = items || [];
     if (!_historyLoaded && !_historyLoading && list.length === 0) {
-        return `<div class="ab-empty ab-history-empty" id="ab-history-body">
+        return `<div class="ab-empty ab-history-empty ab-history-body" id="ab-history-body">
             Open History to load published posts (newest first).
             <div style="margin-top:8px;">
                 <button type="button" class="ab-btn" onclick="loadHistorySubtab({reset:true})">Load history</button>
@@ -1061,12 +1061,12 @@ function _renderHistoryShell(items) {
         </div>`;
     }
     if (_historyLoading && list.length === 0) {
-        return `<div class="ab-empty" id="ab-history-body">Loading published posts…</div>`;
+        return `<div class="ab-empty ab-history-body" id="ab-history-body">Loading published posts…</div>`;
     }
     if (_historyLoaded && list.length === 0) {
-        return `<div class="ab-empty" id="ab-history-body">No published posts yet.</div>`;
+        return `<div class="ab-empty ab-history-body" id="ab-history-body">No published posts yet.</div>`;
     }
-    return `<div id="ab-history-body">${_renderHistoryCards(list)}${_historyMoreHtml()}</div>`;
+    return `<div id="ab-history-body" class="ab-history-body">${_renderHistoryCards(list)}${_historyMoreHtml()}</div>`;
 }
 
 function _historyMoreHtml() {
