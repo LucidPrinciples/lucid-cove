@@ -54,3 +54,6 @@ def test_regen_endpoint_surface():
     js = (ROOT / "src/dashboard/static/js/action-board.js").read_text()
     assert "regenDraftMeta" in js
     assert "regen-draft-meta" in js
+    # UI control stays intentionally hidden (API-only bulk path).
+    assert "ab-regen-meta-btn" not in js
+    assert "↻ Regen draft meta" not in js
