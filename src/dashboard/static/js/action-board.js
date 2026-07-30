@@ -563,8 +563,11 @@ function _socialBoardLegendHtml() {
         <span class="ab-legend-item"><span class="ab-legend-swatch ab-post-paste"></span> Paste / manual</span>
         <span class="ab-legend-item"><span class="ab-legend-swatch ab-len-short"></span> Short</span>
         <span class="ab-legend-item"><span class="ab-legend-swatch ab-len-long"></span> Long</span>
-        <button type="button" class="ab-legend-item ab-regen-meta-btn" onclick="regenDraftMeta()" title="Rewrite titles/descriptions on draft (unscheduled) cards using current voice + polish">↻ Regen draft meta</button>
     </div>`;
+    // #VMETA-REGEN1: regenDraftMeta() + POST /api/action-board/regen-draft-meta stay wired.
+    // Button intentionally not rendered — bulk rewrite is opt-in via API/console only
+    // so a dense draft board cannot be swept by an accidental click. Ops note:
+    // AgentSkills/Ops/regen-draft-meta.md
 }
 
 /** #VMETA-REGEN1 — rewrite meta on status=draft social_queue cards only. */

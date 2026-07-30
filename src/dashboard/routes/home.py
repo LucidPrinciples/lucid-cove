@@ -549,6 +549,25 @@ async def get_calendar_events(request: Request, days: int = 14):
 # =============================================================================
 
 @router.post("/api/calendar/events")
+def _ical_escape_text(value: str) -> str:
+    """Escape text for iCalendar TEXT values (RFC 5545)."""
+    if value is None:
+        return ""
+    s = str(value)
+    s = s.replace("\\", "\\\\")
+    s = s.replace(";", "\\;")
+    s = s.replace(",", "\\,")
+    s = s.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
+    return s
+
+
+def _ical_crlf(body: str) -> bytes:
+    """Sabre/CalDAV expects CRLF line endings on .ics PUT bodies."""
+    normalized = body.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [ln for ln in normalized.split("\n") if ln.strip() != ""]
+    return ("\r\n".join(lines) + "\r\n").encode("utf-8")
+
+
 async def create_calendar_event(request: Request):
     """Create a new Nextcloud CalDAV event.
 
@@ -603,22 +622,26 @@ async def create_calendar_event(request: Request):
 
     now_stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
-    vcal = f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//MC Dashboard//EN
-BEGIN:VEVENT
-UID:{uid}
-DTSTAMP:{now_stamp}
-{dtstart}
-{dtend}
-SUMMARY:{summary}
-{f'LOCATION:{location}' if location else ''}
-{f'DESCRIPTION:{description}' if description else ''}
-END:VEVENT
-END:VCALENDAR"""
-
-    # Clean empty lines
-    vcal = "\n".join(line for line in vcal.splitlines() if line.strip())
+    loc_line = f"LOCATION:{_ical_escape_text(location)}" if location else ""
+    desc_line = f"DESCRIPTION:{_ical_escape_text(description)}" if description else ""
+    parts = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//MC Dashboard//EN",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"DTSTAMP:{now_stamp}",
+        dtstart,
+    ]
+    if dtend:
+        parts.append(dtend)
+    parts.append(f"SUMMARY:{_ical_escape_text(summary)}")
+    if loc_line:
+        parts.append(loc_line)
+    if desc_line:
+        parts.append(desc_line)
+    parts.extend(["END:VEVENT", "END:VCALENDAR"])
+    vcal_bytes = _ical_crlf("\n".join(parts))
 
     caldav = _caldav_url(nc_url, nc_user, calendar)
     event_url = f"{caldav}{uid}.ics"
@@ -628,7 +651,7 @@ END:VCALENDAR"""
             resp = await client.put(
                 event_url,
                 headers={"Content-Type": "text/calendar; charset=utf-8"},
-                content=vcal,
+                content=vcal_bytes,
             )
 
         if resp.status_code in (201, 204):
@@ -687,21 +710,26 @@ async def update_calendar_event(uid: str, request: Request):
 
     now_stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
 
-    vcal = f"""BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//MC Dashboard//EN
-BEGIN:VEVENT
-UID:{uid}
-DTSTAMP:{now_stamp}
-{dtstart}
-{dtend}
-SUMMARY:{summary}
-{f'LOCATION:{location}' if location else ''}
-{f'DESCRIPTION:{description}' if description else ''}
-END:VEVENT
-END:VCALENDAR"""
-
-    vcal = "\n".join(line for line in vcal.splitlines() if line.strip())
+    loc_line = f"LOCATION:{_ical_escape_text(location)}" if location else ""
+    desc_line = f"DESCRIPTION:{_ical_escape_text(description)}" if description else ""
+    parts = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//MC Dashboard//EN",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"DTSTAMP:{now_stamp}",
+        dtstart,
+    ]
+    if dtend:
+        parts.append(dtend)
+    parts.append(f"SUMMARY:{_ical_escape_text(summary)}")
+    if loc_line:
+        parts.append(loc_line)
+    if desc_line:
+        parts.append(desc_line)
+    parts.extend(["END:VEVENT", "END:VCALENDAR"])
+    vcal_bytes = _ical_crlf("\n".join(parts))
 
     # Use href from frontend if available (handles NC-created events with non-UID filenames)
     href = body.get("href", "")
@@ -716,7 +744,7 @@ END:VCALENDAR"""
             resp = await client.put(
                 event_url,
                 headers={"Content-Type": "text/calendar; charset=utf-8"},
-                content=vcal,
+                content=vcal_bytes,
             )
 
         if resp.status_code in (200, 201, 204):
