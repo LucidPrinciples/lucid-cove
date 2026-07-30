@@ -1426,18 +1426,109 @@ Each clip object additionally carries:  "virality_score": 82  with  "why": "the 
 
 # ── Transcript read/write endpoints ───────────────────────────────
 
+async def _load_asr_vocab_pairs(request: Request | None) -> list:
+    """Repo defaults + optional presence AgentSkills/Content/video/asr-vocab.json."""
+    from src.asr_vocab import (
+        load_default_pairs,
+        merge_pairs,
+        pairs_from_map_data,
+    )
+
+    presence_pairs: list = []
+    try:
+        raw = await _read_video_json(request, "asr-vocab.json")
+        if raw is not None:
+            presence_pairs = pairs_from_map_data(raw)
+    except Exception as e:
+        logger.warning("asr-vocab presence map read failed: %s", e)
+    return merge_pairs(load_default_pairs(), presence_pairs)
+
+
+def _apply_vocab_for_editor(data: dict, pairs: list) -> dict:
+    """Ensure transcript shown in editor already has proper-noun fixes."""
+    from src.asr_vocab import apply_to_transcript
+
+    if not isinstance(data, dict):
+        return data
+    # Operator-saved edits are authoritative — do not re-mutate them.
+    if data.get("edited") is True:
+        return data
+    out, _stats = apply_to_transcript(data, pairs)
+    return out
+
+
 @router.get("/transcript/{stem}")
 async def get_transcript(stem: str, request: Request, edited: str = ""):
     """Load a transcript's word-level segments for the editor (presence's NC in
-    multi-mode). Pass ?edited=1 to prefer a saved edit if one exists."""
+    multi-mode). Pass ?edited=1 to prefer a saved edit if one exists.
+
+    ASRVOCAB1: raw transcripts get the proper-noun replace map applied before
+    the editor paints, so the operator only fixes unique phrases. Already-edited
+    saves are left alone.
+    """
+    pairs = await _load_asr_vocab_pairs(request)
     if edited == "1":
         d = await _read_video_json(request, f"transcripts/{stem}-transcript-edited.json")
         if d is not None:
-            return JSONResponse(d)
+            return JSONResponse(_apply_vocab_for_editor(d, pairs))
     d = await _read_video_json(request, f"transcripts/{stem}-transcript.json")
     if d is None:
         return JSONResponse({"error": f"Transcript not found: {stem}"}, status_code=404)
-    return JSONResponse(d)
+    return JSONResponse(_apply_vocab_for_editor(d, pairs))
+
+
+@router.get("/asr-vocab")
+async def get_asr_vocab(request: Request):
+    """Merged replace map (defaults + presence) for Settings / inspection."""
+    from src.asr_vocab import load_default_pairs, map_to_json, pairs_from_map_data
+
+    defaults = load_default_pairs()
+    presence_raw = await _read_video_json(request, "asr-vocab.json")
+    presence_pairs = pairs_from_map_data(presence_raw) if presence_raw else []
+    merged = await _load_asr_vocab_pairs(request)
+    return JSONResponse(
+        {
+            "defaults": map_to_json(defaults)["replacements"],
+            "presence": map_to_json(presence_pairs)["replacements"],
+            "merged": map_to_json(merged)["replacements"],
+            "path": "AgentSkills/Content/video/asr-vocab.json",
+        }
+    )
+
+
+@router.put("/asr-vocab")
+async def put_asr_vocab(request: Request):
+    """Write presence replace map to AgentSkills/Content/video/asr-vocab.json.
+
+    Body: { "replacements": [ {"from": "Stewart", "to": "Stuart"}, ... ] }
+    or a bare list of pairs. Presence entries override repo defaults on merge.
+    """
+    from src.asr_vocab import map_to_json, pairs_from_map_data
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+    pairs = pairs_from_map_data(body)
+    payload = map_to_json(
+        pairs,
+        notes="Presence ASR vocab — overrides repo defaults on matching `from`.",
+    )
+    _nch = await pipecat_nc_headers(request)
+    wrote = await _pipecat_write_json("asr-vocab.json", payload, _nch)
+    if not wrote:
+        return JSONResponse(
+            {"error": "Failed to write asr-vocab.json via pipecat-voice"},
+            status_code=500,
+        )
+    return JSONResponse(
+        {
+            "status": "saved",
+            "path": "AgentSkills/Content/video/asr-vocab.json",
+            "count": len(pairs),
+            "replacements": payload["replacements"],
+        }
+    )
 
 
 @router.put("/transcript/{stem}")
