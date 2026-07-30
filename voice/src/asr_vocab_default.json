@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "notes": "Repo-default ASR proper-noun fixes. Presence map at AgentSkills/Content/video/asr-vocab.json extends/overrides.",
+  "replacements": [
+    {"from": "Stewart", "to": "Stuart"},
+    {"from": "Open Claw", "to": "OpenClaw"},
+    {"from": "open claw", "to": "OpenClaw"},
+    {"from": "Next Cloud", "to": "Nextcloud"},
+    {"from": "next cloud", "to": "Nextcloud"},
+    {"from": "lucid cove", "to": "Lucid Cove"},
+    {"from": "lucid principles", "to": "Lucid Principles"}
+  ]
+}

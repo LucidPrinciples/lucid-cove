@@ -408,6 +408,50 @@ async def transcribe_video(request: Request):
         import json as json_mod
         import shutil
 
+        # ASRVOCAB1: proper-noun replace map BEFORE first editor display.
+        # Defaults + optional presence AgentSkills/Content/video/asr-vocab.json.
+        try:
+            from src.asr_vocab import (
+                apply_to_transcript,
+                load_default_pairs,
+                merge_pairs,
+                pairs_from_map_data,
+            )
+            presence_pairs = []
+            try:
+                import tempfile as _tmpmod
+                raw_map = None
+                if nc is not None:
+                    with _tmpmod.NamedTemporaryFile(suffix=".json", delete=False) as _tf:
+                        _map_local = _tf.name
+                    try:
+                        if await nc.pull("asr-vocab.json", _map_local):
+                            with open(_map_local, "r", encoding="utf-8") as _mf:
+                                raw_map = json_mod.loads(_mf.read())
+                    finally:
+                        try:
+                            os.unlink(_map_local)
+                        except Exception:
+                            pass
+                else:
+                    _map_path = os.path.join(VIDEO_MOUNT, "asr-vocab.json")
+                    if os.path.isfile(_map_path):
+                        with open(_map_path, "r", encoding="utf-8") as _mf:
+                            raw_map = json_mod.loads(_mf.read())
+                if raw_map is not None:
+                    presence_pairs = pairs_from_map_data(raw_map)
+            except Exception as _map_err:
+                logger.warning("asr-vocab presence map load skipped: %s", _map_err)
+            pairs = merge_pairs(load_default_pairs(), presence_pairs)
+            transcript, vocab_stats = apply_to_transcript(transcript, pairs)
+            logger.info(
+                "asr-vocab applied on write: hits=%s pairs=%s",
+                vocab_stats.get("hits"),
+                len(pairs),
+            )
+        except Exception as vocab_err:
+            logger.warning("asr-vocab apply skipped: %s", vocab_err)
+
         # Build content first (identical for both paths).
         json_content = json_mod.dumps(transcript, indent=2, ensure_ascii=False)
 
