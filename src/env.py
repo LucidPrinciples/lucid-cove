@@ -305,7 +305,25 @@ REGISTRY: list[EnvVar] = [
         "str",
         "Analytics",
         secret=True,
-        desc="Umami API key for Haven/MC stats proxy. Created in Umami Settings → API.",
+        desc=(
+            "Optional static Bearer for stats proxy. Umami Cloud API keys only — "
+            "self-hosted has no API-keys UI; prefer UMAMI_USERNAME/PASSWORD."
+        ),
+    ),
+    EnvVar(
+        "UMAMI_USERNAME",
+        "",
+        "str",
+        "Analytics",
+        desc="Self-hosted Umami login user for Haven Traffic proxy (not Cloud).",
+    ),
+    EnvVar(
+        "UMAMI_PASSWORD",
+        "",
+        "str",
+        "Analytics",
+        secret=True,
+        desc="Self-hosted Umami login password for Haven Traffic proxy JWT.",
     ),
     EnvVar(
         "HAVEN_STATS_SITES",
