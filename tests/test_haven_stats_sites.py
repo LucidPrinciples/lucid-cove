@@ -54,6 +54,8 @@ def test_metric_value_reads_nested_and_flat():
 async def test_haven_stats_sites_missing_key(monkeypatch):
     monkeypatch.setenv("UMAMI_INTERNAL_URL", "http://umami.test:3000")
     monkeypatch.setenv("UMAMI_API_KEY", "")
+    monkeypatch.setenv("UMAMI_USERNAME", "")
+    monkeypatch.setenv("UMAMI_PASSWORD", "")
     monkeypatch.setenv("HAVEN_STATS_SITES", "")
     haven_mod._STATS_CACHE["ts"] = 0.0
     haven_mod._STATS_CACHE["payload"] = None
@@ -73,9 +75,9 @@ async def test_haven_stats_sites_missing_key(monkeypatch):
     assert res.status_code == 200
     body = res.json()
     assert body["ok"] is False
-    assert body["error"] == "umami_api_key_missing"
+    assert body["error"] == "umami_auth_missing"
     assert len(body["sites"]) == 4
-    assert body["sites"][0]["error"] == "umami_api_key_missing"
+    assert body["sites"][0]["error"] == "umami_auth_missing"
 
 
 @pytest.mark.asyncio

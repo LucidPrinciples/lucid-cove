@@ -372,6 +372,113 @@ async def _fetch_site_windows(
     }
 
 
+
+_UMAMI_TOKEN_CACHE: dict[str, Any] = {"token": None, "ts": 0.0}
+_UMAMI_TOKEN_TTL_SEC = 50 * 60.0  # refresh before typical JWT hour
+
+
+async def _umami_login_token(
+    client: httpx.AsyncClient, base: str, username: str, password: str
+) -> dict[str, Any]:
+    """Self-hosted Umami auth: POST /api/auth/login → Bearer JWT (not Cloud API keys)."""
+    try:
+        resp = await client.post(
+            f"{base}/api/auth/login",
+            json={"username": username, "password": password},
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "LucidCove-HavenStats/1.0",
+            },
+        )
+    except Exception as e:
+        return {"ok": False, "error": "umami_unreachable", "detail": str(e)[:160]}
+    if resp.status_code >= 400:
+        return {
+            "ok": False,
+            "error": "umami_login_failed",
+            "detail": f"login {resp.status_code}: {(resp.text or '')[:120]}",
+        }
+    try:
+        data = resp.json() if resp.content else {}
+    except Exception:
+        return {"ok": False, "error": "umami_login_failed", "detail": "invalid_json"}
+    token = ""
+    if isinstance(data, dict):
+        token = (data.get("token") or "") or (
+            (data.get("data") or {}).get("token")
+            if isinstance(data.get("data"), dict)
+            else ""
+        )
+    token = (token or "").strip()
+    if not token:
+        return {
+            "ok": False,
+            "error": "umami_login_failed",
+            "detail": "no_token_in_response",
+        }
+    return {"ok": True, "token": token}
+
+
+async def _umami_auth_headers(client: httpx.AsyncClient, base: str) -> dict[str, Any]:
+    """Build Authorization headers for Umami stats calls.
+
+    Self-hosted Umami has no Settings → API keys screen (Cloud only).
+    Use UMAMI_USERNAME + UMAMI_PASSWORD for a login JWT, or UMAMI_API_KEY
+    if a static Bearer secret is provided.
+    """
+    api_key = (env("UMAMI_API_KEY") or "").strip()
+    user = (
+        env("UMAMI_USERNAME")
+        or env("UMAMI_USER")
+        or env("UMAMI_ADMIN_USER")
+        or ""
+    ).strip()
+    password = (
+        env("UMAMI_PASSWORD")
+        or env("UMAMI_ADMIN_PASSWORD")
+        or ""
+    ).strip()
+
+    headers_base = {
+        "Accept": "application/json",
+        "User-Agent": "LucidCove-HavenStats/1.0",
+    }
+
+    if api_key:
+        h = dict(headers_base)
+        h["Authorization"] = f"Bearer {api_key}"
+        h["x-umami-api-key"] = api_key
+        return {"ok": True, "headers": h, "mode": "api_key"}
+
+    if not (user and password):
+        return {
+            "ok": False,
+            "error": "umami_auth_missing",
+            "detail": (
+                "Self-hosted: set UMAMI_USERNAME and UMAMI_PASSWORD "
+                "(Umami admin login). There is no API-keys page in self-hosted admin."
+            ),
+        }
+
+    now = time.time()
+    cached = (_UMAMI_TOKEN_CACHE.get("token") or "").strip()
+    if cached and (now - float(_UMAMI_TOKEN_CACHE.get("ts") or 0)) < _UMAMI_TOKEN_TTL_SEC:
+        h = dict(headers_base)
+        h["Authorization"] = f"Bearer {cached}"
+        return {"ok": True, "headers": h, "mode": "login_cached"}
+
+    login = await _umami_login_token(client, base, user, password)
+    if not login.get("ok"):
+        return login
+    token = login["token"]
+    _UMAMI_TOKEN_CACHE["token"] = token
+    _UMAMI_TOKEN_CACHE["ts"] = now
+    h = dict(headers_base)
+    h["Authorization"] = f"Bearer {token}"
+    return {"ok": True, "headers": h, "mode": "login"}
+
+
 @router.get("/api/haven/stats/sites")
 async def haven_stats_sites(request: Request):
     """Server-side Umami proxy for Haven Traffic cards."""
@@ -386,7 +493,6 @@ async def haven_stats_sites(request: Request):
 
     sites = _parse_stats_sites()
     base = _umami_base()
-    api_key = (env("UMAMI_API_KEY") or "").strip()
     public_url = (env("UMAMI_PUBLIC_URL") or "").strip().rstrip("/") or base
 
     if not base:
@@ -410,38 +516,38 @@ async def haven_stats_sites(request: Request):
         }
         return payload
 
-    if not api_key:
-        payload = {
-            "ok": False,
-            "error": "umami_api_key_missing",
-            "detail": "Create an API key in Umami Settings → API and set UMAMI_API_KEY",
-            "umami_public_url": public_url,
-            "sites": [
-                {
-                    "name": s["name"],
-                    "domain": s["domain"],
-                    "umami_website_id": s["umami_website_id"],
-                    "ok": False,
-                    "error": "umami_api_key_missing",
-                }
-                for s in sites
-            ],
-            "updated_at": datetime.now(_stats_tz()).isoformat(),
-            "cached": False,
-        }
-        return payload
-
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": "LucidCove-HavenStats/1.0",
-        # Umami accepts Bearer API keys; some builds also read x-umami-api-key.
-        "Authorization": f"Bearer {api_key}",
-        "x-umami-api-key": api_key,
-    }
     tz = _stats_tz()
 
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
+            auth = await _umami_auth_headers(client, base)
+            if not auth.get("ok"):
+                err = auth.get("error") or "umami_auth_failed"
+                detail = auth.get("detail") or (
+                    "Self-hosted Umami has no API-keys UI. "
+                    "Set UMAMI_USERNAME + UMAMI_PASSWORD (login token) "
+                    "or UMAMI_API_KEY if your build supports it."
+                )
+                payload = {
+                    "ok": False,
+                    "error": err,
+                    "detail": detail,
+                    "umami_public_url": public_url,
+                    "sites": [
+                        {
+                            "name": s["name"],
+                            "domain": s["domain"],
+                            "umami_website_id": s["umami_website_id"],
+                            "ok": False,
+                            "error": err,
+                        }
+                        for s in sites
+                    ],
+                    "updated_at": datetime.now(tz).isoformat(),
+                    "cached": False,
+                }
+                return payload
+            headers = auth["headers"]
             site_rows = await asyncio.gather(
                 *[
                     _fetch_site_windows(
