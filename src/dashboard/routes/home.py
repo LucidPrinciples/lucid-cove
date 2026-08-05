@@ -548,7 +548,6 @@ async def get_calendar_events(request: Request, days: int = 14):
 # Calendar — Create Event
 # =============================================================================
 
-@router.post("/api/calendar/events")
 def _ical_escape_text(value: str) -> str:
     """Escape text for iCalendar TEXT values (RFC 5545)."""
     if value is None:
@@ -567,7 +566,7 @@ def _ical_crlf(body: str) -> bytes:
     lines = [ln for ln in normalized.split("\n") if ln.strip() != ""]
     return ("\r\n".join(lines) + "\r\n").encode("utf-8")
 
-
+@router.post("/api/calendar/events")
 async def create_calendar_event(request: Request):
     """Create a new Nextcloud CalDAV event.
 
