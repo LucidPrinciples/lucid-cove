@@ -32,6 +32,7 @@ def test_compose_includes_umami_service_and_db_init():
     assert "init-umami-db.sql:/docker-entrypoint-initdb.d/04-umami.sql" in out
     assert "UMAMI_INTERNAL_URL: http://lucidcove-test-umami:3000" in out
     assert "DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD}@postgres:5432/umami" in out
+    assert 'SKIP_LOCATION_HEADERS: "1"' in out
 
 
 def test_compose_can_disable_umami():

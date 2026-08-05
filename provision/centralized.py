@@ -907,6 +907,9 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
       APP_SECRET: ${{UMAMI_APP_SECRET}}
       # Disable telemetry noise on family boxes
       DISABLE_TELEMETRY: "1"
+      # Behind Cloudflare/tunnel, CF-IPCountry alone yields country-only geo.
+      # Force MaxMind GeoLite2-City so region + city populate on new sessions.
+      SKIP_LOCATION_HEADERS: "1"
     ports:
       - "{bind}{umami_port}:3000"{svc_nets}
 """ if umami_on else "")
