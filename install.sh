@@ -392,19 +392,48 @@ done
 printf "\n"
 
 # ── 7. Where to go ───────────────────────────────────────────────────────────
+# Consumer handoff: terminal → browser is the hard step for non-technical people.
+# Print the claim URL clearly, try to open it, and spell out copy/paste because
+# most terminals do NOT make localhost links clickable.
+CLAIM_URL="${CLAIM:-$POLL_BASE/}"
 if [ -n "$COVE_READY" ]; then
-  c_cyan "Your Lucid Cove is ready. Open this to finish setup in your browser:"
+  c_cyan "Your Lucid Cove is ready. Finish setup in your browser:"
 else
   c_cyan "Your Lucid Cove is still starting (taking longer than usual). Give it another"
   c_cyan "minute, then open this — refresh once if a page looks empty:"
 fi
-echo "  ${CLAIM:-$POLL_BASE/}"
-c_dim "  (On the box itself this localhost link works and the mic/voice work too —"
-c_dim "   it's a secure context. Once you claim an address in the wizard, the shared"
-c_dim "   Caddy routes it on 80/443 over HTTPS. To reach the Cove from other devices,"
-c_dim "   claim an address and join the mesh.)"
-# Install-end = the link and nothing else (run-3 B4, Chords): the nags inside
-# the Cove own the ENTIRE go-live flow (Set Address walks mesh + address in
-# order). No trailing "when you're ready" coaching, no headless/NEXT_STEPS
-# pointer — that text re-nagged what the wizard already handles and kept
-# creeping back. Headless users find NEXT_STEPS.md in the out/ dir on their own.
+echo ""
+echo "  $CLAIM_URL"
+echo ""
+# Best-effort: open the default browser (Mac open, Linux xdg-open, Windows/WSL).
+# Never fail the install if a browser can't launch (SSH, headless, locked-down box).
+_open_claim() {
+  [ -n "${CLAIM_URL:-}" ] || return 0
+  case "$(uname -s 2>/dev/null)" in
+    Darwin)
+      open "$CLAIM_URL" >/dev/null 2>&1 && return 0
+      ;;
+  esac
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$CLAIM_URL" >/dev/null 2>&1 && return 0
+  fi
+  if command -v wslview >/dev/null 2>&1; then
+    wslview "$CLAIM_URL" >/dev/null 2>&1 && return 0
+  fi
+  if command -v cmd.exe >/dev/null 2>&1; then
+    cmd.exe /c start "" "$CLAIM_URL" >/dev/null 2>&1 && return 0
+  fi
+  return 1
+}
+if _open_claim; then
+  c_dim "  Tried to open that link in your browser."
+  c_dim "  If a window didn't appear: select the link above, copy it, paste into your"
+  c_dim "  browser's address bar, and press Return. (Terminal links often aren't clickable.)"
+else
+  c_dim "  This link usually isn't clickable in Terminal — that's normal."
+  c_dim "  Select the whole line above, copy it, paste it into your browser's address"
+  c_dim "  bar, and press Return. Stay on this computer for the first setup visit."
+fi
+# Install-end = the link and the browser handoff only. Mesh, address, and model
+# live in the Cove wizard after claim. Headless users still have NEXT_STEPS.md
+# in the out/ dir if they need it.
