@@ -1134,7 +1134,25 @@ tr:last-child td { border-bottom: none; }
 .runbook-card { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; transition: background 0.15s; }
 .runbook-card:hover { background: var(--card2); }
 .runbook-card-row { display: flex; align-items: center; gap: 10px; }
-.runbook-num { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--bg); font-size: 0.7rem; font-weight: 700; flex-shrink: 0; }
+.runbook-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.4rem;
+  height: auto;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  /* Solid chip — not a wash. Label is near-white on near-black so RB16 never blends into the badge. */
+  background: #0b1220;
+  color: #e8f1ff;
+  border: 1px solid rgba(92, 225, 230, 0.55);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  line-height: 1.2;
+}
 .runbook-cat { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; min-width: 50px; }
 .runbook-name { font-weight: 600; font-size: 0.85rem; flex: 1; }
 .runbook-steps { font-size: 0.7rem; color: var(--dim); }
