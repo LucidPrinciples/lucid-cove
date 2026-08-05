@@ -566,6 +566,107 @@ def _ical_crlf(body: str) -> bytes:
     lines = [ln for ln in normalized.split("\n") if ln.strip() != ""]
     return ("\r\n".join(lines) + "\r\n").encode("utf-8")
 
+
+def _ical_local_dt_token(value: str) -> str:
+    """Normalize MC form datetimes to floating iCal YYYYMMDDTHHMMSS.
+
+    Calendar UI sends local wall times like ``2026-08-05T14:30:00`` with no
+    offset. Emitting those as ``...Z`` (UTC) shifts the event by the operator's
+    offset in Nextcloud. Floating local form keeps "2:30pm" as 2:30pm on the
+    family calendar. Also refuses the old create-path bug that appended an
+    extra ``00`` when seconds were already present (``143000`` → ``14300000Z``).
+    """
+    import re
+
+    s = (value or "").strip()
+    if not s:
+        return ""
+    # Drop explicit UTC / offsets — MC form is wall-clock, not absolute UTC.
+    if s.endswith("Z") or s.endswith("z"):
+        s = s[:-1]
+    s = re.sub(r"[+-]\d{2}:?\d{2}$", "", s)
+    if "T" in s:
+        date_part, time_part = s.split("T", 1)
+    else:
+        date_part, time_part = s, "00:00:00"
+    date_part = date_part.replace("-", "")[:8]
+    time_part = time_part.replace(":", "").replace(".", "")
+    if len(time_part) <= 2:
+        time_part = time_part.ljust(2, "0") + "0000"
+    elif len(time_part) <= 4:
+        time_part = time_part[:4].ljust(4, "0") + "00"
+    else:
+        time_part = time_part[:6].ljust(6, "0")
+    if len(date_part) != 8 or not date_part.isdigit():
+        raise ValueError(f"invalid calendar date: {value!r}")
+    if not time_part.isdigit():
+        raise ValueError(f"invalid calendar time: {value!r}")
+    return f"{date_part}T{time_part}"
+
+
+def _ical_dt_lines(start_str: str, end_str: str, all_day: bool):
+    """Build DTSTART / DTEND property lines for create+update."""
+    from datetime import datetime, timedelta
+
+    start_str = (start_str or "").strip()
+    end_str = (end_str or "").strip()
+    if all_day or (start_str and "T" not in start_str and len(start_str) <= 10):
+        day = start_str[:10].replace("-", "")
+        if len(day) != 8:
+            raise ValueError("all-day start date required")
+        dtstart = f"DTSTART;VALUE=DATE:{day}"
+        if end_str:
+            end_day = end_str[:10].replace("-", "")
+            dtend = f"DTEND;VALUE=DATE:{end_day}"
+        else:
+            d = datetime.strptime(day, "%Y%m%d") + timedelta(days=1)
+            dtend = f"DTEND;VALUE=DATE:{d.strftime('%Y%m%d')}"
+        return dtstart, dtend
+
+    start_tok = _ical_local_dt_token(start_str)
+    dtstart = f"DTSTART:{start_tok}"
+    if end_str:
+        dtend = f"DTEND:{_ical_local_dt_token(end_str)}"
+    else:
+        dt = datetime.strptime(start_tok, "%Y%m%dT%H%M%S") + timedelta(hours=1)
+        dtend = f"DTEND:{dt.strftime('%Y%m%dT%H%M%S')}"
+    return dtstart, dtend
+
+
+def _ical_vevent_bytes(
+    *,
+    uid: str,
+    summary: str,
+    start_str: str,
+    end_str: str,
+    all_day: bool,
+    location: str = "",
+    description: str = "",
+) -> bytes:
+    """Full VCALENDAR bytes (CRLF) for CalDAV PUT."""
+    from datetime import datetime
+
+    dtstart, dtend = _ical_dt_lines(start_str, end_str, all_day)
+    now_stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    parts = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//MC Dashboard//EN",
+        "BEGIN:VEVENT",
+        f"UID:{uid}",
+        f"DTSTAMP:{now_stamp}",
+        dtstart,
+        dtend,
+        f"SUMMARY:{_ical_escape_text(summary)}",
+    ]
+    if location:
+        parts.append(f"LOCATION:{_ical_escape_text(location)}")
+    if description:
+        parts.append(f"DESCRIPTION:{_ical_escape_text(description)}")
+    parts.extend(["END:VEVENT", "END:VCALENDAR"])
+    return _ical_crlf("\n".join(parts))
+
+
 @router.post("/api/calendar/events")
 async def create_calendar_event(request: Request):
     """Create a new Nextcloud CalDAV event.
@@ -595,52 +696,18 @@ async def create_calendar_event(request: Request):
 
     uid = str(uuid.uuid4())
 
-    # Build iCal
-    if all_day:
-        dtstart = f"DTSTART;VALUE=DATE:{start_str.replace('-', '')}"
-        if end_str:
-            dtend = f"DTEND;VALUE=DATE:{end_str.replace('-', '')}"
-        else:
-            # All-day events: end = start + 1 day
-            from datetime import timedelta
-            d = datetime.strptime(start_str[:10], "%Y-%m-%d") + timedelta(days=1)
-            dtend = f"DTEND;VALUE=DATE:{d.strftime('%Y%m%d')}"
-    else:
-        # Timed event — convert to UTC format
-        s = start_str.replace("-", "").replace(":", "").replace("T", "T")
-        if len(s) == 13:  # YYYYMMDDTHHM M
-            s += "00"
-        dtstart = f"DTSTART:{s}00Z" if not s.endswith("Z") and len(s) < 16 else f"DTSTART:{s}"
-        if end_str:
-            e = end_str.replace("-", "").replace(":", "").replace("T", "T")
-            if len(e) == 13:
-                e += "00"
-            dtend = f"DTEND:{e}00Z" if not e.endswith("Z") and len(e) < 16 else f"DTEND:{e}"
-        else:
-            dtend = ""
-
-    now_stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-
-    loc_line = f"LOCATION:{_ical_escape_text(location)}" if location else ""
-    desc_line = f"DESCRIPTION:{_ical_escape_text(description)}" if description else ""
-    parts = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//MC Dashboard//EN",
-        "BEGIN:VEVENT",
-        f"UID:{uid}",
-        f"DTSTAMP:{now_stamp}",
-        dtstart,
-    ]
-    if dtend:
-        parts.append(dtend)
-    parts.append(f"SUMMARY:{_ical_escape_text(summary)}")
-    if loc_line:
-        parts.append(loc_line)
-    if desc_line:
-        parts.append(desc_line)
-    parts.extend(["END:VEVENT", "END:VCALENDAR"])
-    vcal_bytes = _ical_crlf("\n".join(parts))
+    try:
+        vcal_bytes = _ical_vevent_bytes(
+            uid=uid,
+            summary=summary,
+            start_str=start_str,
+            end_str=end_str,
+            all_day=bool(all_day),
+            location=location,
+            description=description,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
     caldav = _caldav_url(nc_url, nc_user, calendar)
     event_url = f"{caldav}{uid}.ics"
@@ -690,45 +757,18 @@ async def update_calendar_event(uid: str, request: Request):
     description = body.get("description", "")
     calendar = body.get("calendar", "personal")
 
-    if all_day:
-        dtstart = f"DTSTART;VALUE=DATE:{start_str.replace('-', '')}"
-        if end_str:
-            dtend = f"DTEND;VALUE=DATE:{end_str.replace('-', '')}"
-        else:
-            from datetime import timedelta
-            d = datetime.strptime(start_str[:10], "%Y-%m-%d") + timedelta(days=1)
-            dtend = f"DTEND;VALUE=DATE:{d.strftime('%Y%m%d')}"
-    else:
-        s = start_str.replace("-", "").replace(":", "")
-        dtstart = f"DTSTART:{s}Z" if not s.endswith("Z") else f"DTSTART:{s}"
-        if end_str:
-            e = end_str.replace("-", "").replace(":", "")
-            dtend = f"DTEND:{e}Z" if not e.endswith("Z") else f"DTEND:{e}"
-        else:
-            dtend = ""
-
-    now_stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-
-    loc_line = f"LOCATION:{_ical_escape_text(location)}" if location else ""
-    desc_line = f"DESCRIPTION:{_ical_escape_text(description)}" if description else ""
-    parts = [
-        "BEGIN:VCALENDAR",
-        "VERSION:2.0",
-        "PRODID:-//MC Dashboard//EN",
-        "BEGIN:VEVENT",
-        f"UID:{uid}",
-        f"DTSTAMP:{now_stamp}",
-        dtstart,
-    ]
-    if dtend:
-        parts.append(dtend)
-    parts.append(f"SUMMARY:{_ical_escape_text(summary)}")
-    if loc_line:
-        parts.append(loc_line)
-    if desc_line:
-        parts.append(desc_line)
-    parts.extend(["END:VEVENT", "END:VCALENDAR"])
-    vcal_bytes = _ical_crlf("\n".join(parts))
+    try:
+        vcal_bytes = _ical_vevent_bytes(
+            uid=uid,
+            summary=summary,
+            start_str=start_str,
+            end_str=end_str,
+            all_day=bool(all_day),
+            location=location,
+            description=description,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
     # Use href from frontend if available (handles NC-created events with non-UID filenames)
     href = body.get("href", "")
@@ -748,7 +788,10 @@ async def update_calendar_event(uid: str, request: Request):
 
         if resp.status_code in (200, 201, 204):
             return {"ok": True, "uid": uid}
-        return JSONResponse({"error": f"CalDAV PUT returned {resp.status_code}"}, status_code=resp.status_code)
+        return JSONResponse(
+            {"error": f"CalDAV PUT returned {resp.status_code}: {resp.text[:200]}"},
+            status_code=resp.status_code,
+        )
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
