@@ -329,6 +329,14 @@ async def get_runbook(slug: str, request: Request):
         # Mirror the list endpoint: the UI reads rb.name, but the new runbook format stores
         # the display name under `title`. Without this the detail header renders "undefined".
         data["name"] = data.get("title", data.get("name", slug))
+        # RB locator for detail header (same num/order contract as list_runbooks).
+        num = data.get("num", data.get("order"))
+        if num is not None:
+            data["num"] = num
+            try:
+                data["order"] = int(num)
+            except (TypeError, ValueError):
+                data.setdefault("order", 99)
         return _fill_paths(data)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

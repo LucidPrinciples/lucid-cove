@@ -632,7 +632,7 @@ async function loadRunbooks() {
             }[rb.category] || 'var(--trust)';
             return `<div class="runbook-card" onclick="loadRunbookDetail('${ESC(rb.slug)}')" style="cursor:pointer;">
                 <div class="runbook-card-row">
-                    <span class="runbook-num">${rb.order || ''}</span>
+                    <span class="runbook-num">${rb.order ? 'RB' + rb.order : ''}</span>
                     <span class="runbook-cat" style="color:${catColor};">${ESC(rb.category)}</span>
                     <span class="runbook-name">${ESC(rb.name)}</span>
                     <span class="runbook-steps">${rb.step_count} steps</span>
@@ -667,6 +667,7 @@ async function loadRunbookDetail(slug) {
         let html = `<div class="runbook-detail">
             <div class="runbook-detail-header">
                 <button class="btn btn-sm" onclick="loadRunbooks()">← All Runbooks</button>
+                <span class="runbook-num" style="margin-right:6px;">${rb.num != null && rb.num !== '' ? 'RB' + rb.num : (rb.order ? 'RB' + rb.order : '')}</span>
                 <span class="runbook-name" style="font-size:1rem;">${ESC(rb.name)}</span>
                 <span class="runbook-cat" style="color:${catColor};">${ESC(rb.category || '')}</span>
             </div>
