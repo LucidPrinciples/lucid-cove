@@ -89,6 +89,13 @@ services:
       DATABASE_TYPE: postgresql
       APP_SECRET: ${UMAMI_APP_SECRET}
       DISABLE_TELEMETRY: "1"
+      # Country-only is common behind Cloudflare when only CF-IPCountry is set.
+      # Skip CDN location headers and use the image GeoLite2-City DB so new
+      # sessions get country + region + city. Client IP still prefers
+      # CF-Connecting-IP / X-Forwarded-For (see Umami ip.ts).
+      SKIP_LOCATION_HEADERS: "1"
+      # Optional override if your edge uses a non-standard IP header:
+      # CLIENT_IP_HEADER: CF-Connecting-IP
     ports:
       - "127.0.0.1:${UMAMI_PORT:-3000}:3000"
 
