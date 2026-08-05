@@ -104,3 +104,43 @@ def test_post_decorator_binds_create_not_helper():
     assert "async def create_calendar_event" in window
     assert "def _ical_escape_text" not in window
     assert "def _ical_vevent_bytes" not in window
+
+
+def test_list_time_range_covers_local_today_before_utc_now():
+    """REPORT window must include floating local times earlier than UTC now."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    src = HOME_PY.read_text()
+    start = src.index("def _caldav_list_time_range")
+    end = src.index('@router.get("/api/calendar/events")')
+    ns: dict = {"datetime": datetime}
+    # Provide a minimal app_tz stub via exec env after patching import path:
+    # helper imports app_tz inside the function — inject module.
+    import sys
+    import types
+
+    fake_tu = types.ModuleType("src.utils.time_utils")
+    fake_tu.app_tz = lambda: ZoneInfo("America/New_York")
+    sys.modules.setdefault("src", types.ModuleType("src"))
+    sys.modules.setdefault("src.utils", types.ModuleType("src.utils"))
+    sys.modules["src.utils.time_utils"] = fake_tu
+
+    exec(src[start:end], ns)
+    # 2026-08-05 13:17 EDT = 17:17 UTC — old window start was 1717Z and dropped 14:30 local
+    now = datetime(2026, 8, 5, 13, 17, tzinfo=ZoneInfo("America/New_York"))
+    range_start, range_end = ns["_caldav_list_time_range"](14, now_local=now)
+    assert range_start == "20260805T000000Z"
+    assert range_end == "20260820T000000Z"
+    # floating 2:30pm local digit string sits inside [start, end)
+    assert range_start <= "20260805T143000Z" < range_end
+    # and still includes late evening local
+    assert range_start <= "20260805T200000Z" < range_end
+
+
+def test_get_calendar_events_uses_local_day_range_helper():
+    src = HOME_PY.read_text()
+    assert "def _caldav_list_time_range" in src
+    assert "_caldav_list_time_range(days)" in src
+    # old UTC-now window gone from list path
+    assert 'now.strftime("%Y%m%dT%H%M%SZ")' not in src

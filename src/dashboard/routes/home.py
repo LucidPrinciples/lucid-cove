@@ -482,19 +482,55 @@ def _parse_ical_event(cal_data: str) -> dict:
     return ev
 
 
+def _caldav_list_time_range(days: int = 14, *, now_local=None):
+    """CalDAV REPORT time-range bounds for the MC calendar list.
+
+    MC writes timed events as *floating local* (``DTSTART:YYYYMMDDTHHMMSS`` with
+    no ``Z``). Sabre compares floating values to time-range as if they were UTC
+    (same digit string). A window starting at real UTC ``now`` therefore drops
+    any of today's local wall times whose HHMMSS is earlier than current UTC
+    clock — classic "all-day shows, timed today does not."
+
+    Bounds use cove-local calendar midnights, labeled with a ``Z`` suffix only
+    so the digit string matches that floating comparison (not as absolute UTC
+    instants). Range is [local today 00:00, local today+days+1 00:00).
+    """
+    from datetime import datetime, timedelta
+
+    from src.utils.time_utils import app_tz
+
+    if now_local is None:
+        now_local = datetime.now(app_tz())
+    elif now_local.tzinfo is None:
+        now_local = now_local.replace(tzinfo=app_tz())
+    else:
+        now_local = now_local.astimezone(app_tz())
+
+    try:
+        span = int(days)
+    except (TypeError, ValueError):
+        span = 14
+    span = max(1, min(span, 366))
+
+    start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=span + 1)
+    return (
+        start_local.strftime("%Y%m%dT000000Z"),
+        end_local.strftime("%Y%m%dT000000Z"),
+    )
+
+
 @router.get("/api/calendar/events")
 async def get_calendar_events(request: Request, days: int = 14):
     """Upcoming calendar events from Nextcloud CalDAV."""
     import httpx
     import xml.etree.ElementTree as ET
-    from datetime import datetime, timezone, timedelta
 
     nc_url, nc_user, nc_pass = await _nc_creds(request)
     if not nc_pass:
         return {"events": [], "error": "NEXTCLOUD_PASSWORD not configured"}
 
-    now = datetime.now(timezone.utc)
-    end = now + timedelta(days=days)
+    range_start, range_end = _caldav_list_time_range(days)
     caldav = _caldav_url(nc_url, nc_user)
 
     report_body = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -503,7 +539,7 @@ async def get_calendar_events(request: Request, days: int = 14):
   <c:filter>
     <c:comp-filter name="VCALENDAR">
       <c:comp-filter name="VEVENT">
-        <c:time-range start="{now.strftime('%Y%m%dT%H%M%SZ')}" end="{end.strftime('%Y%m%dT%H%M%SZ')}"/>
+        <c:time-range start="{range_start}" end="{range_end}"/>
       </c:comp-filter>
     </c:comp-filter>
   </c:filter>
