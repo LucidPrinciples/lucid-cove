@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brief — Lucid Cove</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<meta name="theme-color" content="#0a0a0f">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2a;
+    --text: #e8e8f0;
+    --text-dim: #9a9ab0;
+    --text-faint: #5a5a70;
+    --accent: #5ce1e6;
+    --accent-soft: rgba(92, 225, 230, 0.12);
+    --plan: #a78bfa;
+    --spec: #fbbf24;
+    --brief: #5ce1e6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 18px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 20px;
+    background: rgba(10, 10, 15, 0.92);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar a {
+    color: var(--text-dim); text-decoration: none; font-size: 13px; font-weight: 600;
+  }
+  .topbar a:hover { color: var(--accent); }
+  .topbar .spacer { flex: 1; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .badge.brief { background: var(--accent-soft); color: var(--brief); border: 1px solid rgba(92,225,230,0.35); }
+  .badge.plan { background: rgba(167,139,250,0.12); color: var(--plan); border: 1px solid rgba(167,139,250,0.35); }
+  .badge.spec { background: rgba(251,191,36,0.12); color: var(--spec); border: 1px solid rgba(251,191,36,0.35); }
+  .layout {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 42rem) 1fr;
+    gap: 0 28px;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 28px 20px 80px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; padding: 20px 16px 64px; }
+    .toc { display: none; }
+  }
+  .toc {
+    position: sticky; top: 64px; align-self: start;
+    font-size: 13px; line-height: 1.45;
+    max-height: calc(100vh - 80px); overflow: auto;
+  }
+  .toc-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px;
+  }
+  .toc a {
+    display: block; color: var(--text-dim); text-decoration: none;
+    padding: 4px 0 4px 10px; border-left: 2px solid transparent;
+  }
+  .toc a:hover, .toc a.active {
+    color: var(--accent); border-left-color: var(--accent);
+  }
+  .toc a.h3 { padding-left: 20px; font-size: 12px; }
+  article.reader { min-width: 0; }
+  .meta {
+    margin-bottom: 28px; padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .meta h1 {
+    font-size: 2rem; font-weight: 700; line-height: 1.25;
+    letter-spacing: -0.02em; margin: 10px 0 12px;
+  }
+  .meta .summary {
+    color: var(--text-dim); font-size: 1.05rem; line-height: 1.55;
+    max-width: 38rem;
+  }
+  .meta .when {
+    margin-top: 12px; font-size: 12px; color: var(--text-faint);
+  }
+  .prose h1, .prose h2, .prose h3, .prose h4 {
+    line-height: 1.3; letter-spacing: -0.015em;
+    margin: 1.6em 0 0.55em; color: #f2f2f8;
+  }
+  .prose h1 { font-size: 1.55rem; }
+  .prose h2 {
+    font-size: 1.28rem; padding-top: 0.4em;
+    border-top: 1px solid var(--border);
+  }
+  .prose h3 { font-size: 1.1rem; color: #d8d8e8; }
+  .prose h4 { font-size: 1rem; color: var(--text-dim); }
+  .prose p { margin: 0 0 1em; }
+  .prose ul, .prose ol { margin: 0 0 1.1em 1.25em; }
+  .prose li { margin: 0.35em 0; }
+  .prose li::marker { color: var(--text-faint); }
+  .prose blockquote {
+    margin: 1.1em 0; padding: 0.6em 0 0.6em 1em;
+    border-left: 3px solid var(--accent);
+    color: var(--text-dim); background: var(--surface);
+    border-radius: 0 8px 8px 0;
+  }
+  .prose code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.86em; background: #16161f; color: var(--accent);
+    padding: 0.12em 0.4em; border-radius: 4px;
+  }
+  .prose pre {
+    margin: 1.1em 0; padding: 14px 16px; overflow: auto;
+    background: #0e0e16; border: 1px solid var(--border);
+    border-radius: 10px; font-size: 0.84rem; line-height: 1.5;
+  }
+  .prose pre code { background: none; padding: 0; color: #d0d0e0; }
+  .prose table {
+    width: 100%; border-collapse: collapse; margin: 1.2em 0;
+    font-size: 0.92rem;
+  }
+  .prose th, .prose td {
+    border: 1px solid var(--border); padding: 8px 10px; text-align: left;
+  }
+  .prose th { background: var(--surface); color: var(--text-dim); font-weight: 600; }
+  .prose hr {
+    border: none; border-top: 1px solid var(--border); margin: 2em 0;
+  }
+  .prose a { color: var(--accent); text-decoration: none; }
+  .prose a:hover { text-decoration: underline; }
+  .prose strong { color: #fff; font-weight: 650; }
+  .empty, .error {
+    padding: 48px 20px; text-align: center; color: var(--text-dim);
+  }
+  .error { color: #f87171; }
+  .raw-toggle {
+    font-size: 12px; color: var(--text-faint); cursor: pointer;
+    background: none; border: 1px solid var(--border); border-radius: 6px;
+    padding: 4px 10px;
+  }
+  .raw-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  .raw-box {
+    display: none; margin-top: 24px; white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13px; line-height: 1.5; color: var(--text-dim);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+  }
+  .raw-box.open { display: block; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <a href="/briefs">← Briefs</a>
+    <a href="/static/action-board/links.html">Links</a>
+    <span class="spacer"></span>
+    <span id="kind-badge" class="badge brief">brief</span>
+    <button type="button" class="raw-toggle" id="raw-btn" hidden>View source</button>
+  </div>
+  <div id="root">
+    <div class="empty">Loading…</div>
+  </div>
+<script>
+(function () {
+  const parts = location.pathname.replace(/\/+$/, "").split("/");
+  const slug = decodeURIComponent(parts[parts.length - 1] || "");
+  const root = document.getElementById("root");
+  const badge = document.getElementById("kind-badge");
+  const rawBtn = document.getElementById("raw-btn");
+
+  function esc(s) {
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  function slugifyHeading(text) {
+    return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "section";
+  }
+
+  function buildToc(container) {
+    const heads = container.querySelectorAll("h2, h3");
+    if (!heads.length) return "";
+    let html = '<nav class="toc"><div class="toc-title">On this page</div>';
+    const used = {};
+    heads.forEach((h) => {
+      let id = slugifyHeading(h.textContent);
+      if (used[id]) { used[id] += 1; id = id + "-" + used[id]; }
+      else used[id] = 1;
+      h.id = id;
+      const cls = h.tagName === "H3" ? "h3" : "h2";
+      html += '<a class="' + cls + '" href="#' + id + '">' + esc(h.textContent) + "</a>";
+    });
+    html += "</nav>";
+    return html;
+  }
+
+  async function load() {
+    if (!slug || slug === "briefs") {
+      root.innerHTML = '<div class="empty">Missing brief id.</div>';
+      return;
+    }
+    try {
+      const res = await fetch("/api/briefs/" + encodeURIComponent(slug) + "?raw=1", {
+        credentials: "same-origin",
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        root.innerHTML = '<div class="error">' + esc(data.error || "Not found") + "</div>";
+        return;
+      }
+      document.title = (data.title || "Brief") + " — Lucid Cove";
+      const kind = (data.kind || "brief").toLowerCase();
+      badge.textContent = kind;
+      badge.className = "badge " + kind;
+
+      const prose = document.createElement("div");
+      prose.className = "prose";
+      prose.innerHTML = data.html || "";
+      const toc = buildToc(prose);
+
+      let when = "";
+      if (data.updated_at) when += "Updated " + esc(data.updated_at.replace("T", " ").replace("+00:00", " UTC"));
+      if (data.published_by) when += (when ? " · " : "") + "via " + esc(data.published_by);
+      if (data.source_path) when += (when ? " · " : "") + "source " + esc(data.source_path);
+
+      root.innerHTML =
+        '<div class="layout">' +
+        (toc || "<div></div>") +
+        '<article class="reader">' +
+        '<header class="meta">' +
+        '<span class="badge ' + kind + '">' + esc(kind) + "</span>" +
+        "<h1>" + esc(data.title || slug) + "</h1>" +
+        (data.summary ? '<p class="summary">' + esc(data.summary) + "</p>" : "") +
+        (when ? '<div class="when">' + when + "</div>" : "") +
+        "</header>" +
+        '<div id="prose-mount"></div>' +
+        '<pre class="raw-box" id="raw-box"></pre>' +
+        "</article><div></div></div>";
+
+      document.getElementById("prose-mount").appendChild(prose);
+      const rawBox = document.getElementById("raw-box");
+      rawBox.textContent = data.markdown || "";
+      rawBtn.hidden = false;
+      rawBtn.onclick = function () {
+        rawBox.classList.toggle("open");
+        rawBtn.textContent = rawBox.classList.contains("open") ? "Hide source" : "View source";
+      };
+    } catch (e) {
+      root.innerHTML = '<div class="error">Failed to load brief.</div>';
+    }
+  }
+  load();
+})();
+</script>
+</body>
+</html>

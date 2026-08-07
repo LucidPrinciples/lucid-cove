@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Briefs — Lucid Cove</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<meta name="theme-color" content="#0a0a0f">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #1e1e2a;
+    --text: #e8e8f0;
+    --text-dim: #9a9ab0;
+    --text-faint: #5a5a70;
+    --accent: #5ce1e6;
+    --plan: #a78bfa;
+    --spec: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.5; padding: 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .bar {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .bar a { color: var(--text-dim); text-decoration: none; font-size: 13px; font-weight: 600; }
+  .bar a:hover { color: var(--accent); }
+  .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 18px; max-width: 36rem; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+  .filters button {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 999px; padding: 5px 12px; font-size: 12px; font-weight: 600;
+    cursor: pointer;
+  }
+  .filters button.on, .filters button:hover {
+    color: var(--accent); border-color: rgba(92,225,230,0.45);
+  }
+  .list { display: flex; flex-direction: column; gap: 8px; max-width: 44rem; }
+  .card {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .card:hover { border-color: rgba(92,225,230,0.4); }
+  .card .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .badge {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .badge.brief { color: var(--accent); background: rgba(92,225,230,0.1); }
+  .badge.plan { color: var(--plan); background: rgba(167,139,250,0.12); }
+  .badge.spec { color: var(--spec); background: rgba(251,191,36,0.12); }
+  .card h2 { font-size: 16px; font-weight: 650; }
+  .card p { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+  .card .when { color: var(--text-faint); font-size: 11px; margin-top: 8px; }
+  .empty { color: var(--text-dim); padding: 32px 0; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <h1>Briefs</h1>
+    <a href="/static/action-board/links.html">Links</a>
+  </div>
+  <p class="sub">Readable operator docs. Agents publish here; markdown stays available as source. Brief → Plan → Spec is the same document promoted forward.</p>
+  <div class="filters" id="filters">
+    <button type="button" data-kind="" class="on">All</button>
+    <button type="button" data-kind="brief">Briefs</button>
+    <button type="button" data-kind="plan">Plans</button>
+    <button type="button" data-kind="spec">Specs</button>
+  </div>
+  <div class="list" id="list"><div class="empty">Loading…</div></div>
+<script>
+(function () {
+  let kind = "";
+  const list = document.getElementById("list");
+  function esc(s) {
+    return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+  async function load() {
+    const q = kind ? ("?kind=" + encodeURIComponent(kind)) : "";
+    try {
+      const res = await fetch("/api/briefs" + q, { credentials: "same-origin" });
+      const data = await res.json();
+      const docs = (data && data.docs) || [];
+      if (!docs.length) {
+        list.innerHTML = '<div class="empty">No published briefs yet. When an agent publishes one, it lands here and on Links.</div>';
+        return;
+      }
+      list.innerHTML = docs.map(function (d) {
+        const k = (d.kind || "brief").toLowerCase();
+        return (
+          '<a class="card" href="/briefs/' + encodeURIComponent(d.slug) + '">' +
+          '<div class="row"><span class="badge ' + k + '">' + esc(k) + "</span></div>" +
+          "<h2>" + esc(d.title || d.slug) + "</h2>" +
+          (d.summary ? "<p>" + esc(d.summary) + "</p>" : "") +
+          '<div class="when">' + esc((d.updated_at || "").replace("T", " ").replace("+00:00", " UTC")) + "</div>" +
+          "</a>"
+        );
+      }).join("");
+    } catch (e) {
+      list.innerHTML = '<div class="empty">Could not load briefs.</div>';
+    }
+  }
+  document.getElementById("filters").addEventListener("click", function (ev) {
+    const btn = ev.target.closest("button[data-kind]");
+    if (!btn) return;
+    kind = btn.getAttribute("data-kind") || "";
+    document.querySelectorAll("#filters button").forEach(function (b) {
+      b.classList.toggle("on", b === btn);
+    });
+    load();
+  });
+  load();
+})();
+</script>
+</body>
+</html>
