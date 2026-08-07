@@ -44,11 +44,29 @@ from src.memory.memory import (
 # landed in Stuart's pool. Bind the acting agent for the request (chat.py),
 # same class as JF4 / #PRJ1 presence ContextVars.
 _mem_agent_ctx: _ctxvars.ContextVar = _ctxvars.ContextVar("mem_agent", default=None)
+# Mission Control presence on this turn (provenance for shared manager memory).
+_mem_presence_ctx: _ctxvars.ContextVar = _ctxvars.ContextVar("mem_presence", default=None)
+_mem_operator_ctx: _ctxvars.ContextVar = _ctxvars.ContextVar("mem_operator", default=None)
 
 
 def set_request_memory_agent(agent_id: str | None):
     """Bind acting agent_id for memory tool R/W this turn. Returns reset token."""
     return _mem_agent_ctx.set(str(agent_id) if agent_id else None)
+
+
+def set_request_memory_presence(
+    presence_id: str | None,
+    operator_name: str | None = None,
+):
+    """Bind which presence/human is on this MC session for memory provenance.
+
+    Returns (presence_token, operator_token).
+    """
+    ptok = _mem_presence_ctx.set(str(presence_id) if presence_id else None)
+    otok = _mem_operator_ctx.set(
+        (operator_name or "").strip() or None
+    )
+    return ptok, otok
 
 
 def clear_request_memory_agent(token) -> None:
@@ -58,9 +76,51 @@ def clear_request_memory_agent(token) -> None:
         pass
 
 
+def clear_request_memory_presence(tokens) -> None:
+    if tokens is None:
+        return
+    try:
+        if isinstance(tokens, tuple):
+            if len(tokens) > 0 and tokens[0] is not None:
+                try:
+                    _mem_presence_ctx.reset(tokens[0])
+                except Exception:
+                    pass
+            if len(tokens) > 1 and tokens[1] is not None:
+                try:
+                    _mem_operator_ctx.reset(tokens[1])
+                except Exception:
+                    pass
+        else:
+            try:
+                _mem_presence_ctx.reset(tokens)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _acting_memory_agent() -> str | None:
     """Agent id for tool calls; None → store_memory's primary fallback (single-agent)."""
     return _mem_agent_ctx.get()
+
+
+def _acting_memory_presence() -> tuple[str | None, str | None]:
+    return _mem_presence_ctx.get(), _mem_operator_ctx.get()
+
+
+def _enrich_memory_content(content: str, operator_name: str | None) -> str:
+    """Ensure multi-presence memories name who was on the turn (product standing rule)."""
+    text = (content or "").strip()
+    if not text or not operator_name:
+        return text
+    # Already names the speaker near the start — leave alone
+    low = text[:120].lower()
+    if operator_name.lower() in low:
+        return text
+    if low.startswith(("operator ", "presence ")):
+        return text
+    return f"{operator_name}: {text}"
 
 
 # =============================================================================
@@ -81,8 +141,11 @@ async def save_memory(
     gives an instruction, or when you learn something worth keeping.
 
     Args:
-        content: What to remember. Write as a clear standalone statement.
-                 Bad: "He said yes" Good: "Operator approved moving DNS to Cloudflare"
+        content: What to remember. Write as a clear standalone statement that
+                 names who when more than one person uses this Cove.
+                 Bad: "He said yes"
+                 Good: "Jordan approved moving DNS to Cloudflare"
+                 (The product also stamps the MC session presence automatically.)
         category: Type of memory. One of: decision, fact, preference, person,
                   project, technical, observation, instruction, general
         importance: How important (0.0-1.0). Use 0.8+ for decisions and instructions
@@ -90,18 +153,27 @@ async def save_memory(
         tags: Comma-separated tags for easier retrieval (e.g. "dns,infrastructure,cloudflare")
     """
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    presence_id, operator_name = _acting_memory_presence()
+    body = _enrich_memory_content(content, operator_name)
+    # Soft tag for lane filtering without hard privacy walls
+    if operator_name:
+        lane = operator_name.lower().replace(" ", "-")[:40]
+        if lane and lane not in tag_list:
+            tag_list = list(tag_list) + [f"from:{lane}"]
 
     result = await store_memory(
-        content=content,
+        content=body,
         category=category,
         importance=importance,
         tags=tag_list,
         agent_id=_acting_memory_agent(),
+        source_presence_id=presence_id,
+        source_operator_name=operator_name,
     )
 
     return (
-        f"Memory saved (#{result['id']}): [{category}] {content[:100]}"
-        f"{'...' if len(content) > 100 else ''}"
+        f"Memory saved (#{result['id']}): [{category}] {body[:100]}"
+        f"{'...' if len(body) > 100 else ''}"
     )
 
 
@@ -271,11 +343,15 @@ async def correct_memory_tool(
         corrected_content: The new, corrected version of the memory
         reason: Brief explanation of what changed and why
     """
+    presence_id, operator_name = _acting_memory_presence()
+    body = _enrich_memory_content(corrected_content, operator_name)
     result = await correct_memory_service(
         memory_id=memory_id,
-        new_content=corrected_content,
+        new_content=body,
         reason=reason,
         agent_id=_acting_memory_agent(),
+        source_presence_id=presence_id,
+        source_operator_name=operator_name,
     )
 
     if not result:
@@ -283,8 +359,8 @@ async def correct_memory_tool(
 
     return (
         f"Memory corrected: #{memory_id} superseded by #{result['id']}. "
-        f"New content: {corrected_content[:150]}"
-        f"{'...' if len(corrected_content) > 150 else ''}"
+        f"New content: {body[:150]}"
+        f"{'...' if len(body) > 150 else ''}"
     )
 
 
