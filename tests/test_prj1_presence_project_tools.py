@@ -90,6 +90,9 @@ def test_prj_scope_bound_equals_presence():
 async def test_create_project_writes_presence_id(monkeypatch):
     conn = _FakeConn()
     _patch_db(monkeypatch, conn)
+    async def _nofolder(_name):
+        return " — folder Projects/Book Promotion/ ready on Files"
+    monkeypatch.setattr(pt, "_ensure_project_nc_folder", _nofolder)
     tok = pt.set_request_project_presence("pres-A", "atlas")
     try:
         # StructuredTool: call underlying coroutine via .ainvoke or coroutine
@@ -97,6 +100,7 @@ async def test_create_project_writes_presence_id(monkeypatch):
         coro = fn.coroutine if hasattr(fn, "coroutine") else fn
         out = await coro(name="Book Promotion", description="promo", goals="")
         assert "book-promotion" in out.lower() or "Book Promotion" in out
+        assert "Projects/Book Promotion" in out
         insert = [c for c in conn.calls if "INSERT INTO projects" in c[0]]
         assert insert, conn.calls
         sql, params = insert[0]
@@ -156,7 +160,8 @@ async def test_get_projects_scopes_sql(monkeypatch):
         assert sel
         sql, params = sel[0]
         assert "p.presence_id = %s" in sql
-        assert params == ("pres-B",)
+        assert "project_members" in sql
+        assert params == ("pres-B", "pres-B")
     finally:
         pt.clear_request_project_presence(tok)
 
@@ -184,6 +189,8 @@ def test_chat_binds_and_clears_project_presence():
     text = Path("/app/data/projects/lucid-cove/src/dashboard/routes/chat.py").read_text()
     assert "set_request_project_presence" in text
     assert "clear_request_project_presence" in text
+    assert "set_request_project_viewer" in text
+    assert "set_team_nc_creds" in text
 
 
 def test_get_tool_modules_appends_project_tools_on_upgrade(monkeypatch):
@@ -274,3 +281,33 @@ def test_provision_and_upgrade_include_site_tools():
     assert "tools.site_tools" in text
     from src import config as cfg
     assert "tools.site_tools" in cfg._PRESENCE_DEFAULT_MODULES
+
+
+@pytest.mark.asyncio
+async def test_ensure_project_nc_folder_mkcol_sequence(monkeypatch):
+    calls = []
+
+    class _Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *a):
+            return False
+        async def request(self, method, url, **k):
+            calls.append((method, url))
+            return _Resp(201)
+
+    import src.tools.nextcloud_tools as nc
+    monkeypatch.setattr(nc, "check_nc_path_access", lambda path, write=False: None)
+    monkeypatch.setattr(nc, "_auth", lambda: ("u", "p"))
+    monkeypatch.setattr(nc, "_webdav_url", lambda p: f"http://nc/dav/{p}")
+    monkeypatch.setattr(nc.httpx, "AsyncClient", _Client)
+    note = await pt._ensure_project_nc_folder("Warehouse Liquidation")
+    assert "Projects/Warehouse Liquidation" in note
+    assert ("MKCOL", "http://nc/dav/Projects") in calls
+    assert ("MKCOL", "http://nc/dav/Projects/Warehouse Liquidation") in calls
