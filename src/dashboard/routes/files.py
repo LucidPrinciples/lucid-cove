@@ -193,24 +193,40 @@ async def list_files(request: Request, path: str = "/"):
 
         # Parse XML response
         import xml.etree.ElementTree as ET
+        from urllib.parse import unquote
         root = ET.fromstring(response.text)
 
         items = []
         ns = {"D": "DAV:", "oc": "http://owncloud.org/ns"}
         base_path = f"/remote.php/dav/files/{nc_user}"
+        parent_rel = (clean_path or "").strip("/")
 
         for resp in root.findall(".//D:response", ns):
             href = resp.findtext("D:href", namespaces=ns) or ""
-            # Skip the parent itself
-            rel = href.replace(base_path, "").strip("/")
-            if rel == clean_path.strip("/"):
+            # Decode %20 etc before compare — raw href often differs from clean_path
+            href_dec = unquote(href)
+            # Skip the parent itself (encoded or plain)
+            if base_path in href_dec:
+                rel = href_dec.split(base_path, 1)[-1].strip("/")
+            elif base_path in href:
+                rel = unquote(href.split(base_path, 1)[-1]).strip("/")
+            else:
+                # Fallback: last path segment chain after /files/{user}
+                marker = f"/files/{nc_user}"
+                if marker in href_dec:
+                    rel = href_dec.split(marker, 1)[-1].strip("/")
+                else:
+                    rel = unquote(href).strip("/")
+            if rel == parent_rel:
                 continue
 
             props = resp.find(".//D:propstat/D:prop", ns)
             if props is None:
                 continue
 
-            name = props.findtext("D:displayname", namespaces=ns) or rel.split("/")[-1]
+            name = props.findtext("D:displayname", namespaces=ns) or (rel.split("/")[-1] if rel else "")
+            # Prefer API path from href (decoded), not displayname alone
+            item_path = rel or name
             resourcetype = props.find("D:resourcetype", ns)
             is_dir = resourcetype is not None and resourcetype.find("D:collection", ns) is not None
             size = props.findtext("D:getcontentlength", namespaces=ns) or props.findtext("oc:size", namespaces=ns)
@@ -225,11 +241,11 @@ async def list_files(request: Request, path: str = "/"):
                         and not (clean_path or "").strip("/")):
                     continue
                 if (nc_user == NC_ADMIN_USER
-                        and _is_operator_shared_path(rel or name)):
+                        and _is_operator_shared_path(item_path or name)):
                     continue
                 items.append({
                     "name": name,
-                    "path": rel or name,
+                    "path": item_path,
                     "is_dir": is_dir,
                     "size": int(size) if size else 0,
                     "modified": modified,
@@ -331,7 +347,7 @@ async def delete_file(request: Request, path: str):
     (Nextcloud trashbin) — never a silent permanent wipe.
     """
     import time
-    from urllib.parse import quote
+    from urllib.parse import quote, unquote
 
     clean_path, path_err = _clean_webdav_path(path)
     if path_err is not None:
