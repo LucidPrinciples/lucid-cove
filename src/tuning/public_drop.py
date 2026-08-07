@@ -187,6 +187,35 @@ def public_drop_package() -> dict | None:
     }
 
 
+
+def get_latest_available_drop():
+    """Latest signed Drop for human cold-start: today if present, else newest archive.
+
+    Morning-open and /api/tuning/latest use this so an early alarm never lands on
+    empty — stale-but-real practice beats a blank screen (same spirit as DropClient
+    offline cache).
+    """
+    drop = get_public_drop()
+    if drop is not None:
+        return drop
+    recent = get_recent_drops(1)
+    if not recent:
+        return None
+    # recent entries are summaries; re-fetch the full Drop for that date
+    try:
+        from lucid_tuner_protocol import DropClient
+    except ImportError:
+        return None
+    try:
+        base = env("LTP_DROP_URL", "https://drop.lucidprinciples.com")
+        pem = env("LTP_DROP_PUBKEY") or None
+        client = DropClient(base_url=base, public_key_pem=pem)
+        return client.for_date(recent[0]["date"])
+    except Exception as e:
+        log.warning("get_latest_available_drop for_date failed: %s", e)
+        return None
+
+
 def drop_as_operator_tuning(drop) -> dict:
     """Map an ltp-core Drop → the /api/tuning/operator response shape.
 

@@ -217,6 +217,26 @@ async function loadTuneFlow() {
     // Clear any previous countdown
     if (_tfCountdownInterval) { clearInterval(_tfCountdownInterval); _tfCountdownInterval = null; }
 
+    // Morning-open / cold-start: ?view=latest (or session flag) always opens the
+    // latest public Drop — never a blank wizard, never "waiting for today".
+    let openLatest = false;
+    try {
+        openLatest = new URLSearchParams(location.search).get('view') === 'latest'
+            || sessionStorage.getItem('mc_open_latest_tuning') === '1';
+        if (openLatest) sessionStorage.removeItem('mc_open_latest_tuning');
+    } catch (e) { openLatest = false; }
+
+    if (openLatest && !tuneFlow._forceNewFlow) {
+        const dropTune = await _tfFetchLatestDropTuning();
+        if (dropTune) {
+            tuneFlow.tuningData = dropTune;
+            tuneFlow.step = 0;
+            tuneFlow.todayCount = 0;
+            await _renderCompletedTuning(container, dropTune);
+            return;
+        }
+    }
+
     // Check for today's tuning(s) AND most recent tuning (any day)
     let latestTune = null;
     let mostRecentEver = null;
@@ -254,6 +274,12 @@ async function loadTuneFlow() {
         } catch (e2) {}
     }
 
+    // Universal daily Drop fills empty history (habit path / first open)
+    if (!latestTune && !mostRecentEver) {
+        const dropTune = await _tfFetchLatestDropTuning();
+        if (dropTune) mostRecentEver = dropTune;
+    }
+
     tuneFlow.todayCount = todayCount;
 
     // Pick the best tuning to show: today's if available, otherwise most recent from any day
@@ -281,6 +307,35 @@ async function loadTuneFlow() {
         tuneFlow.tuningData = null;
         tuneFlow.error = null;
         _renderStep1(container);
+    }
+}
+
+async function _tfFetchLatestDropTuning() {
+    try {
+        const resp = await fetch('/api/tuning/latest?v=' + encodeURIComponent(window._buildVersion || '')
+            + '&d=' + new Date().toISOString().slice(0, 10));
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        if (!data || !data.has_tuning) return null;
+        // Shape for _renderCompletedTuning / otInitPlayer
+        return {
+            frequency: data.frequency || '',
+            principle: data.principle || '',
+            tuning_key: data.tuning_key || '',
+            signal_type: data.signal_type || '',
+            audio_url: data.audio_url || '',
+            date: data.date || '',
+            universal_coaching: data.universal_coaching || data.tuning_prompt || '',
+            universal_practice: data.universal_practice || [],
+            practice_steps: data.practice_steps || null,
+            context: data.is_today === false ? 'Latest tuning' : 'Today\'s tuning',
+            entry_mode: data.is_today === false ? 'Archive drop' : 'Daily drop',
+            from_public_drop: true,
+            is_latest: true,
+            session_id: '',
+        };
+    } catch (e) {
+        return null;
     }
 }
 
@@ -802,9 +857,28 @@ async function _renderCompletedTuning(container, data) {
     const freq = rawFreq.charAt(0).toUpperCase() + rawFreq.slice(1).toLowerCase();
     const key = data.tuning_key || data.tuningKey || '';
     const principle = data.principle || '';
-    const coaching = TUNE_COACHING[freq] || '';
+    // Prefer Drop/universal coaching when morning-open or public Drop landed here
+    let coaching = (data.universal_coaching || data.tuning_prompt || '').trim();
+    if (!coaching) coaching = TUNE_COACHING[freq] || '';
     const templateKey = TUNE_TEMPLATE_MAP[freq] || 'coherence';
-    const practice = TUNE_PRACTICE_TEMPLATES[templateKey];
+    let practice = TUNE_PRACTICE_TEMPLATES[templateKey];
+    const uPractice = data.universal_practice;
+    if (Array.isArray(uPractice) && uPractice.length >= 3) {
+        const step = (i) => {
+            const s = uPractice[i];
+            if (typeof s === 'object' && s) {
+                return { title: s.title || String(i + 1), text: s.instruction || s.text || '' };
+            }
+            return { title: String(i + 1), text: String(s || '') };
+        };
+        practice = { step1: step(0), step2: step(1), step3: step(2) };
+    } else if (data.practice_steps && Array.isArray(data.practice_steps) && data.practice_steps.length >= 3) {
+        const step = (i) => {
+            const s = data.practice_steps[i] || {};
+            return { title: s.title || String(i + 1), text: s.instruction || s.text || '' };
+        };
+        practice = { step1: step(0), step2: step(1), step3: step(2) };
+    }
     const audioUrl = data.audio_url || '';
     const echoName = (data.echo_full_name || data.echo_filename || '').replace('.mp3','').replace(/_/g,' ');
     const album = (data.echo_album || '').replace(/_/g,' ');
@@ -1345,9 +1419,28 @@ async function _tfShowTuningDetail(s) {
     const timeStr = s.time ? s.time.substring(0, 5) : '';
 
     // Coaching and practice from static templates (same as completed view)
-    const coaching = TUNE_COACHING[freq] || '';
+    // Prefer Drop/universal coaching when morning-open or public Drop landed here
+    let coaching = (data.universal_coaching || data.tuning_prompt || '').trim();
+    if (!coaching) coaching = TUNE_COACHING[freq] || '';
     const templateKey = TUNE_TEMPLATE_MAP[freq] || 'coherence';
-    const practice = TUNE_PRACTICE_TEMPLATES[templateKey];
+    let practice = TUNE_PRACTICE_TEMPLATES[templateKey];
+    const uPractice = data.universal_practice;
+    if (Array.isArray(uPractice) && uPractice.length >= 3) {
+        const step = (i) => {
+            const s = uPractice[i];
+            if (typeof s === 'object' && s) {
+                return { title: s.title || String(i + 1), text: s.instruction || s.text || '' };
+            }
+            return { title: String(i + 1), text: String(s || '') };
+        };
+        practice = { step1: step(0), step2: step(1), step3: step(2) };
+    } else if (data.practice_steps && Array.isArray(data.practice_steps) && data.practice_steps.length >= 3) {
+        const step = (i) => {
+            const s = data.practice_steps[i] || {};
+            return { title: s.title || String(i + 1), text: s.instruction || s.text || '' };
+        };
+        practice = { step1: step(0), step2: step(1), step3: step(2) };
+    }
 
     const fBadge = typeof lpFreqBadgeHTML === 'function'
         ? lpFreqBadgeHTML(rawFreq)
