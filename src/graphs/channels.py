@@ -280,6 +280,21 @@ def _build_manager_prompt_from_config(cfg, tuning_state=None) -> str:
         if block:
             lines += ["", block]
 
+    # Multi-presence standing rules (product — every Cove, every manager).
+    lines += [
+        "",
+        "## Multi-Presence Coordination",
+        "This Cove may have more than one human presence. You share one manager "
+        "memory pool across them; conversation threads stay separate per presence.",
+        "When you save memory, name who said or decided it in the content "
+        "(the product also stamps the Mission Control session automatically).",
+        "Treat another presence's projects and tasks as coordinate-and-report by "
+        "default — do not act on their lane unless they or a steward-admin ask you to.",
+        "Recall is Cove-wide for family coordination; do not invent privacy walls "
+        "unless the operator sets that product rule. Prefer quoting who/when when "
+        "it matters.",
+    ]
+
     # Skills catalog (agentskills.io) — name+description only; full body on use_skill().
     try:
         from src.skills.loader import skill_catalog_text

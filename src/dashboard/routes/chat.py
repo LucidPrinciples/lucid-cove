@@ -848,8 +848,12 @@ async def send_message(request: Request):
             except Exception:
                 _links_tok = None
             _mem_tok = None
+            _mem_pres_tok = None
             try:
-                from src.tools.memory_tools import set_request_memory_agent
+                from src.tools.memory_tools import (
+                    set_request_memory_agent,
+                    set_request_memory_presence,
+                )
                 _mem_agent = ""
                 try:
                     from src.graphs.channels import _is_manager_channel, _get_manager_config
@@ -862,8 +866,20 @@ async def send_message(request: Request):
                     _mem_agent = str(agent_id or "") if agent_id else ""
                 if _mem_agent:
                     _mem_tok = set_request_memory_agent(_mem_agent)
+                # Provenance: who is on this MC session (shared manager pool still agent_id=steward)
+                try:
+                    from src.dashboard.routes.presence import get_current_presence as _gcp_mem
+                    _lp_mem = await _gcp_mem(request)
+                    if _lp_mem and _lp_mem.get("id"):
+                        _mem_pres_tok = set_request_memory_presence(
+                            str(_lp_mem["id"]),
+                            (_lp_mem.get("display_name") or _lp_mem.get("username") or "").strip() or None,
+                        )
+                except Exception:
+                    _mem_pres_tok = None
             except Exception:
                 _mem_tok = None
+                _mem_pres_tok = None
 
             async def _emit(data: dict):
                 # After phone lock the SSE observer is gone — never block the turn
@@ -1076,9 +1092,14 @@ async def send_message(request: Request):
                 except Exception:
                     pass
                 try:
-                    from src.tools.memory_tools import clear_request_memory_agent
+                    from src.tools.memory_tools import (
+                        clear_request_memory_agent,
+                        clear_request_memory_presence,
+                    )
                     if _mem_tok is not None:
                         clear_request_memory_agent(_mem_tok)
+                    if _mem_pres_tok is not None:
+                        clear_request_memory_presence(_mem_pres_tok)
                 except Exception:
                     pass
 

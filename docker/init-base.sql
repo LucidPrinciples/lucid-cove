@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS agent_memory (
     source_thread   TEXT,
     source_channel  TEXT,
     source_summary  TEXT,
+    source_presence_id UUID,
+    source_operator_name TEXT,
 
     -- Lifecycle
     supersedes      INTEGER REFERENCES agent_memory(id),

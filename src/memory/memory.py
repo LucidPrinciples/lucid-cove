@@ -198,6 +198,8 @@ async def store_memory(
     source_thread: str | None = None,
     source_channel: str | None = None,
     source_summary: str | None = None,
+    source_presence_id: str | None = None,
+    source_operator_name: str | None = None,
     expires_at: str | None = None,
     supersedes_id: int | None = None,
 ) -> dict:
@@ -205,12 +207,17 @@ async def store_memory(
 
     Returns the created memory dict with id.
     If supersedes_id is provided, marks the old memory as superseded.
+
+    source_presence_id / source_operator_name label which Mission Control
+    presence was on the turn (manager shared pool still uses agent_id=steward).
     """
     agent_id = _default_agent_id(agent_id)
     if category not in VALID_CATEGORIES:
         category = "general"
     importance = max(0.0, min(1.0, importance))
     tags = tags or []
+    spid = str(source_presence_id).strip() if source_presence_id else None
+    sop = (source_operator_name or "").strip() or None
 
     async with get_db() as conn:
         # If superseding, mark the old memory
@@ -226,11 +233,13 @@ async def store_memory(
             """INSERT INTO agent_memory
                (agent_id, content, category, importance, tags,
                 source_thread, source_channel, source_summary,
+                source_presence_id, source_operator_name,
                 supersedes, expires_at)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                RETURNING id, created_at""",
             (agent_id, content, category, importance, tags,
              source_thread, source_channel, source_summary,
+             spid, sop,
              supersedes_id,
              expires_at),
         )
@@ -668,6 +677,8 @@ async def correct_memory(
     agent_id: str | None = None,
     source_thread: str | None = None,
     source_channel: str | None = None,
+    source_presence_id: str | None = None,
+    source_operator_name: str | None = None,
 ) -> dict:
     """Correct a memory by creating a new version that supersedes the old one.
 
@@ -701,6 +712,8 @@ async def correct_memory(
         source_thread=source_thread,
         source_channel=source_channel,
         source_summary=f"Corrected from #{memory_id}: {reason}" if reason else f"Corrected from #{memory_id}",
+        source_presence_id=source_presence_id,
+        source_operator_name=source_operator_name,
         supersedes_id=memory_id,
     )
 
@@ -969,7 +982,8 @@ async def load_memories_for_prompt(
         # across thread boundaries. Most recent 3 summaries get priority.
         continuity = await conn.execute(
             """SELECT id, content, category, importance, tags,
-                      access_count, last_accessed, created_at
+                      access_count, last_accessed, created_at,
+                      source_operator_name, source_presence_id
                FROM agent_memory
                WHERE agent_id = %s AND is_active = TRUE
                  AND category = 'context'
@@ -987,7 +1001,8 @@ async def load_memories_for_prompt(
         # decay formula instead of duplicating step-functions in SQL.
         candidates = await conn.execute(
             """SELECT id, content, category, importance, tags,
-                      access_count, last_accessed, created_at
+                      access_count, last_accessed, created_at,
+                      source_operator_name, source_presence_id
                FROM agent_memory
                WHERE agent_id = %s AND is_active = TRUE
                  AND (expires_at IS NULL OR expires_at > NOW())
@@ -1004,7 +1019,8 @@ async def load_memories_for_prompt(
         if channel:
             ch_result = await conn.execute(
                 """SELECT id, content, category, importance, tags,
-                          access_count, last_accessed, created_at
+                          access_count, last_accessed, created_at,
+                          source_operator_name, source_presence_id
                    FROM agent_memory
                    WHERE agent_id = %s AND is_active = TRUE
                      AND source_channel = %s
@@ -1068,7 +1084,9 @@ async def load_memories_for_prompt(
     for mem in selected:
         cat_label = mem["category"].upper()
         tag_str = f" [{', '.join(mem['tags'])}]" if mem.get("tags") else ""
-        line = f"- ({cat_label}{tag_str}) {mem['content']}"
+        who = (mem.get("source_operator_name") or "").strip()
+        who_bit = f" · {who}" if who else ""
+        line = f"- ({cat_label}{tag_str}{who_bit}) {mem['content']}"
 
         if char_count + len(line) + 1 > budget_chars:
             break
