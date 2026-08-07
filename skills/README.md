@@ -32,6 +32,7 @@ Agents only see **name + description** until they call `use_skill("<name>")` (pr
 | `canon-checker` | Exact Canon lyric verification |
 | `session-logger` | Append-only session / memory logging |
 | `framework-glossary` | Framework + product term definitions |
+| `host-hands` | Operator-runs + paste-back for host/sibling/VPS; Mac-safe commands (no nested heredocs) |
 
 Repo skills under this tree (and `/cove-core/skills` in the container) are **trusted** — always visible to agents.
 
