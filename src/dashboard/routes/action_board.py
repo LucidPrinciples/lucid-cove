@@ -2174,9 +2174,12 @@ async def regen_draft_meta(request: Request):
 
 
 def _default_links() -> list:
-    """Primary links every Cove starts with (the operator can edit/remove). The
-    Backlog is the catch-all driver (everything to organize, distinct from the
-    time-sensitive Attention board); jules feeds it; Cloud is the files home."""
+    """Primary links every Cove starts with (the operator can edit/remove).
+
+    Product doors (not local seeds): Backlog, jules, Cloud, Briefs. Same set for
+    every family Cove — empty boards get the full list; existing boards merge
+    missing doors via _ensure_product_doors so upgrades do not wait on re-install.
+    """
     try:
         from src.config import load_cove_config
         dom = (load_cove_config().get("domain") or "").strip().lstrip("*").lstrip(".")
@@ -2189,7 +2192,57 @@ def _default_links() -> list:
          "note": "Capture by voice → your Inbox", "icon": "🎙", "group": "", "items": []},
         {"id": "cloud", "type": "link", "title": "Cloud", "url": (f"https://cloud.{dom}" if dom else "/files"),
          "note": "Your files", "icon": "☁", "group": "", "items": []},
+        {"id": "briefs", "type": "link", "title": "Briefs", "url": "/briefs",
+         "note": "Readable plans and specs", "icon": "📄", "group": "", "items": []},
     ]
+
+
+def _ensure_product_doors(cards: list | None) -> list:
+    """Append fundamental product-door cards missing from an existing board.
+
+    Only the stable product doors (by id or URL path). Does not inject
+    instance-specific seeds. Operators can still remove other cards freely.
+    """
+    base = list(cards or [])
+    if not base:
+        return list(_default_links())
+
+    def _norm_url(u: str) -> str:
+        s = (u or "").strip().rstrip("/").lower()
+        # Treat same-origin library path as the door even with query/hash stripped
+        if "?" in s:
+            s = s.split("?", 1)[0]
+        if "#" in s:
+            s = s.split("#", 1)[0]
+        return s.rstrip("/")
+
+    have_ids = {(c.get("id") or "").strip().lower() for c in base if isinstance(c, dict)}
+    have_urls = {_norm_url(c.get("url") or "") for c in base if isinstance(c, dict)}
+    # Also treat leaf rows inside bundles as satisfying a door URL
+    for c in base:
+        if not isinstance(c, dict):
+            continue
+        for it in c.get("items") or []:
+            if isinstance(it, dict):
+                have_urls.add(_norm_url(it.get("url") or ""))
+
+    out = list(base)
+    for door in _default_links():
+        did = (door.get("id") or "").strip().lower()
+        durl = _norm_url(door.get("url") or "")
+        if did and did in have_ids:
+            continue
+        if durl and durl in have_urls:
+            continue
+        # Only auto-merge doors that are true product fundamentals on upgrade.
+        # Backlog/jules/cloud already shipped in older defaults; Briefs is the
+        # door existing boards lack after the Briefs feature lands.
+        if did != "briefs":
+            continue
+        out.append(dict(door))
+        have_ids.add(did)
+        have_urls.add(durl)
+    return out
 
 
 @router.get("/api/action-board/links")
@@ -2208,6 +2261,7 @@ async def get_links(request: Request):
                 except Exception:
                     prefs = {}
             cards = _sanitize_links(prefs.get(_LINKS_KEY) or {})["cards"] or _default_links()
+            cards = _ensure_product_doors(cards)
             return {"cards": cards, "editable": True}
         # single-mode Cove: file-backed, cove-wide
         data = {}
@@ -2216,7 +2270,9 @@ async def get_links(request: Request):
                 data = json.loads(_LINKS_FILE.read_text())
             except Exception:
                 data = {}
-        return {"cards": _sanitize_links(data)["cards"] or _default_links(), "editable": True}
+        cards = _sanitize_links(data)["cards"] or _default_links()
+        cards = _ensure_product_doors(cards)
+        return {"cards": cards, "editable": True}
     except Exception as e:
         logger.warning("[links] get failed: %s", e)
         return {"cards": [], "editable": True}

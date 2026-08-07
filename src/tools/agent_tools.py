@@ -128,7 +128,13 @@ def get_mercer_tools() -> list:
 def get_builder_tools() -> list:
     """System + dev + memory tools for Archimedes — builds infrastructure,
     recalls past build decisions and specs."""
-    return ALL_SYSTEM_TOOLS + ALL_DEV_TOOLS + ALL_PROJECT_TOOLS + ALL_MEMORY_TOOLS
+    return (
+        ALL_SYSTEM_TOOLS
+        + ALL_DEV_TOOLS
+        + ALL_PROJECT_TOOLS
+        + ALL_MEMORY_TOOLS
+        + ALL_BRIEFS_TOOLS
+    )
 
 
 # =============================================================================

@@ -61,6 +61,7 @@ async def _read_cards() -> tuple[list, str]:
     """(cards, error). Reads the same store the API serves."""
     from src.dashboard.routes.action_board import (_LINKS_FILE, _LINKS_KEY,
                                                    _default_links,
+                                                   _ensure_product_doors,
                                                    _sanitize_links)
     if _cove_mode() == "multi":
         pid = _links_presence_ctx.get()
@@ -78,15 +79,16 @@ async def _read_cards() -> tuple[list, str]:
                 prefs = json.loads(prefs)
             except Exception:
                 prefs = {}
-        return (_sanitize_links(prefs.get(_LINKS_KEY) or {})["cards"]
-                or _default_links()), ""
+        cards = (_sanitize_links(prefs.get(_LINKS_KEY) or {})["cards"]
+                or _default_links())
+        return _ensure_product_doors(cards), ""
     data = {}
     if _LINKS_FILE.exists():
         try:
             data = json.loads(_LINKS_FILE.read_text())
         except Exception:
             data = {}
-    return (_sanitize_links(data)["cards"] or _default_links()), ""
+    return _ensure_product_doors(_sanitize_links(data)["cards"] or _default_links()), ""
 
 
 async def _write_cards(cards: list) -> str:

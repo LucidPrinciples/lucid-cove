@@ -148,6 +148,7 @@ def get_primary_agent_id() -> str:
 _PRESENCE_DEFAULT_MODULES = (
     "tools.project_tools",  # #PRJ1 — personal projects/tasks for every presence
     "tools.links_tools",    # #LNK2 — Action Board Links create/edit for every presence
+    "tools.briefs_tools",   # Briefs — publish/read operator-facing plans & specs (every presence)
     "tools.site_tools",     # Tier B Site Builder — list/edit/deploy own NC Sites only (#TIER1)
     "tools.research_tools",  # #GABS-V1 Phase 0 — web_search/fetch for personal agents (Atlas+)
 )
