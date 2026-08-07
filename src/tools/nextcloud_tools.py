@@ -419,6 +419,33 @@ def check_nc_path_access(path: str, write: bool = False) -> str | None:
             f"Allowed prefixes under AgentSkills/: rw={rw}, ro={ro}.")
 
 
+async def _ensure_webdav_parents(path: str) -> None:
+    """MKCOL each parent segment of path (best-effort).
+
+    WebDAV PUT does not create intermediate collections. Agent uploads to
+    Projects/Foo/plan.md 404'd when only Projects/ existed (or nothing did).
+    """
+    norm = _norm_nc_path(path)
+    if not norm or "/" not in norm:
+        return
+    parts = [p for p in norm.split("/") if p and p not in (".", "..")]
+    if len(parts) < 2:
+        return
+    # parents only — not the final file segment
+    try:
+        async with httpx.AsyncClient(auth=_auth(), timeout=15) as client:
+            built = []
+            for seg in parts[:-1]:
+                built.append(seg)
+                url = _webdav_url("/".join(built))
+                resp = await client.request("MKCOL", url)
+                if resp.status_code not in (200, 201, 405, 301, 302):
+                    # keep going; PUT may still work if parent exists another way
+                    pass
+    except Exception:
+        pass
+
+
 async def _ensure_own_team_workspace(path: str) -> None:
     """On first write under Team/<self>/, MKCOL the agent folder if missing.
 
@@ -716,6 +743,7 @@ async def nextcloud_upload(path: str, content: str, overwrite: bool = False) -> 
     if denied:
         return denied
     await _ensure_own_team_workspace(path)
+    await _ensure_webdav_parents(path)
     url = _webdav_url(path)
     try:
         if not overwrite:

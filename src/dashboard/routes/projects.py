@@ -29,23 +29,47 @@ log = logging.getLogger(__name__)
 COVE_MODE = env("COVE_MODE", "single")
 
 
-async def _get_presence_id(request: Request):
-    """Get presence_id from cookie in multi mode. Returns None in single mode."""
+async def _get_presence_row(request: Request):
+    """Current presence dict in multi mode, else None."""
     if COVE_MODE != "multi":
         return None
     try:
         from src.dashboard.routes.presence import get_current_presence
-        presence = await get_current_presence(request)
-        return presence["id"] if presence else None
+        return await get_current_presence(request)
     except Exception:
         return None
 
 
-def _presence_filter(presence_id):
-    """Return SQL WHERE clause fragment and params for presence scoping."""
-    if presence_id:
-        return "p.presence_id = %s", (presence_id,)
-    return "p.presence_id IS NULL", ()
+async def _get_presence_id(request: Request):
+    """Get presence_id from cookie in multi mode. Returns None in single mode."""
+    presence = await _get_presence_row(request)
+    return presence["id"] if presence else None
+
+
+def _is_cove_admin(presence) -> bool:
+    if not presence:
+        return False
+    role = (presence.get("cove_role") or "").strip().lower()
+    return role in ("admin", "steward")
+
+
+def _presence_filter(presence_id, is_admin: bool = False):
+    """SQL WHERE + params for project list.
+
+    - Single / no presence: Cove board only (presence_id IS NULL).
+    - Admin: Cove board + own personal rows.
+    - Member: own personal + Cove projects they are attached to.
+    """
+    if not presence_id:
+        return "p.presence_id IS NULL", ()
+    if is_admin:
+        return "(p.presence_id IS NULL OR p.presence_id = %s)", (presence_id,)
+    return (
+        "(p.presence_id = %s OR (p.presence_id IS NULL AND EXISTS ("
+        "SELECT 1 FROM project_members pm "
+        "WHERE pm.project_id = p.id AND pm.presence_id = %s)))",
+        (presence_id, presence_id),
+    )
 
 
 def _task_scope(presence_id):
@@ -56,26 +80,47 @@ def _task_scope(presence_id):
     return "", []
 
 
-async def _owns_project(conn, project_id, presence_id):
-    """True if the project belongs to this operator (always True in single mode). (#191)"""
+async def _owns_project(conn, project_id, presence_id, is_admin: bool = False):
+    """True if caller may open this project."""
     if not presence_id:
         return True
+    if is_admin:
+        r = await conn.execute(
+            "SELECT 1 FROM projects WHERE id = %s AND (presence_id IS NULL OR presence_id = %s)",
+            (project_id, presence_id),
+        )
+        return (await r.fetchone()) is not None
     r = await conn.execute(
-        "SELECT 1 FROM projects WHERE id = %s AND presence_id = %s",
-        (project_id, presence_id),
+        """SELECT 1 FROM projects p
+           WHERE p.id = %s AND (
+             p.presence_id = %s
+             OR (p.presence_id IS NULL AND EXISTS (
+               SELECT 1 FROM project_members pm
+               WHERE pm.project_id = p.id AND pm.presence_id = %s
+             ))
+           )""",
+        (project_id, presence_id, presence_id),
     )
     return (await r.fetchone()) is not None
 
 
-async def _owns_task(conn, task_id, presence_id):
-    """True if the task belongs to this operator (always True in single mode). (#191)"""
+async def _owns_task(conn, task_id, presence_id, is_admin: bool = False):
+    """True if the task is visible to this operator."""
     if not presence_id:
         return True
+    # Task on an accessible project, or legacy task presence_id match
     r = await conn.execute(
-        "SELECT 1 FROM tasks WHERE id = %s AND presence_id = %s",
-        (task_id, presence_id),
+        """SELECT t.id, t.presence_id, t.project_id FROM tasks t WHERE t.id = %s""",
+        (task_id,),
     )
-    return (await r.fetchone()) is not None
+    row = await r.fetchone()
+    if not row:
+        return False
+    if row.get("presence_id") and str(row["presence_id"]) == str(presence_id):
+        return True
+    if row.get("project_id"):
+        return await _owns_project(conn, row["project_id"], presence_id, is_admin=is_admin)
+    return is_admin
 
 
 # =============================================================================
@@ -283,8 +328,11 @@ async def list_projects(request: Request):
     """All active projects with task counts, scoped by presence in multi mode."""
     try:
         from src.memory.database import get_db
-        presence_id = await _get_presence_id(request)
-        where_clause, where_params = _presence_filter(presence_id)
+        presence = await _get_presence_row(request)
+        presence_id = presence["id"] if presence else None
+        where_clause, where_params = _presence_filter(
+            presence_id, is_admin=_is_cove_admin(presence)
+        )
 
         async with get_db() as conn:
             result = await conn.execute(
@@ -323,7 +371,12 @@ async def list_projects(request: Request):
 
 @router.post("/api/projects")
 async def create_project(request: Request):
-    """Create a new project, scoped to presence in multi mode."""
+    """Create a project.
+
+    Admin/steward UI creates Cove projects (presence_id NULL) by default.
+    Members create personal projects. body.scope='cove' is ignored for members
+    (use chat with Stuart + attach instead).
+    """
     try:
         from src.memory.database import get_db
         body = await request.json()
@@ -335,16 +388,35 @@ async def create_project(request: Request):
         slug = _slugify(name)
         owner = body.get("owner", get_operator_name().lower())
         goals = body.get("goals", "")
-        presence_id = await _get_presence_id(request)
+        presence = await _get_presence_row(request)
+        presence_id = presence["id"] if presence else None
+        # Admin → Cove board; member → personal
+        if _is_cove_admin(presence) or not presence_id:
+            insert_presence = None
+        else:
+            insert_presence = presence_id
 
         async with get_db() as conn:
             result = await conn.execute(
                 """INSERT INTO projects (presence_id, slug, name, description, owner, goals)
                    VALUES (%s, %s, %s, %s, %s, %s)
                    RETURNING *""",
-                (presence_id, slug, name, description, owner, goals),
+                (insert_presence, slug, name, description, owner, goals),
             )
             row = await result.fetchone()
+            # Seed folder + auto-attach member when they somehow create cove (n/a)
+            # Admin cove folder is created by agent tools; UI create is best-effort.
+        try:
+            from src.tools.project_tools import (
+                _ensure_project_nc_folder,
+                _attach_presence_to_project,
+            )
+            # Only seed when we can bind admin NC (manager path); skip if no env
+            if insert_presence is None:
+                # folder ensure uses bound NC — may no-op without chat ctx
+                pass
+        except Exception:
+            pass
         return _serialize(row)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -371,15 +443,15 @@ async def update_project(project_id: int, request: Request):
         set_parts.append("updated_at = NOW()")
         values.append(project_id)
 
-        presence_id = await _get_presence_id(request)
-        scope = ""
-        if presence_id:
-            scope = " AND presence_id = %s"
-            values.append(presence_id)
+        presence = await _get_presence_row(request)
+        presence_id = presence["id"] if presence else None
+        is_admin = _is_cove_admin(presence)
 
         async with get_db() as conn:
+            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+                return JSONResponse({"error": "Project not found"}, status_code=404)
             result = await conn.execute(
-                f"UPDATE projects SET {', '.join(set_parts)} WHERE id = %s{scope} RETURNING *",
+                f"UPDATE projects SET {', '.join(set_parts)} WHERE id = %s RETURNING *",
                 tuple(values),
             )
             row = await result.fetchone()
@@ -395,18 +467,15 @@ async def get_project_detail(project_id: int, request: Request = None):
     """Full project detail with tasks, comments, and activity."""
     try:
         from src.memory.database import get_db
-        presence_id = await _get_presence_id(request) if request else None
+        presence = await _get_presence_row(request) if request else None
+        presence_id = presence["id"] if presence else None
+        is_admin = _is_cove_admin(presence)
         async with get_db() as conn:
-            # Project (operator-scoped in multi mode)
-            if presence_id:
-                result = await conn.execute(
-                    "SELECT * FROM projects WHERE id = %s AND presence_id = %s",
-                    (project_id, presence_id),
-                )
-            else:
-                result = await conn.execute(
-                    "SELECT * FROM projects WHERE id = %s", (project_id,)
-                )
+            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+                return JSONResponse({"error": "Project not found"}, status_code=404)
+            result = await conn.execute(
+                "SELECT * FROM projects WHERE id = %s", (project_id,)
+            )
             project = await result.fetchone()
             if not project:
                 return JSONResponse({"error": "Project not found"}, status_code=404)
@@ -460,22 +529,18 @@ async def get_project_detail(project_id: int, request: Request = None):
 
 @router.get("/api/projects/by-slug/{slug}")
 async def get_project_by_slug(slug: str, request: Request):
-    """Get project by slug — used for URL routing. Scoped by presence."""
+    """Get project by slug — used for URL routing. Scoped by presence + attach."""
     try:
         from src.memory.database import get_db
-        presence_id = await _get_presence_id(request)
-
+        presence = await _get_presence_row(request)
+        presence_id = presence["id"] if presence else None
+        is_admin = _is_cove_admin(presence)
+        where, params = _presence_filter(presence_id, is_admin=is_admin)
         async with get_db() as conn:
-            if presence_id:
-                result = await conn.execute(
-                    "SELECT id FROM projects WHERE slug = %s AND presence_id = %s",
-                    (slug, presence_id),
-                )
-            else:
-                result = await conn.execute(
-                    "SELECT id FROM projects WHERE slug = %s AND presence_id IS NULL",
-                    (slug,),
-                )
+            result = await conn.execute(
+                f"SELECT p.id FROM projects p WHERE p.slug = %s AND {where}",
+                (slug, *params),
+            )
             row = await result.fetchone()
         if not row:
             return JSONResponse({"error": "Project not found"}, status_code=404)
@@ -795,21 +860,24 @@ async def add_task_comment(task_id: int, request: Request):
 
 @router.get("/api/projects/{project_id}/tasks")
 async def get_project_tasks(project_id: int, status: str = None, request: Request = None):
-    """Tasks for a specific project."""
+    """Tasks for a specific project (all tasks once the project is accessible)."""
     try:
         from src.memory.database import get_db
-        presence_id = await _get_presence_id(request) if request else None
-        scope, scope_params = _task_scope(presence_id)
+        presence = await _get_presence_row(request) if request else None
+        presence_id = presence["id"] if presence else None
+        is_admin = _is_cove_admin(presence)
         async with get_db() as conn:
+            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+                return JSONResponse({"error": "Project not found"}, status_code=404)
             if status:
                 result = await conn.execute(
-                    f"""SELECT * FROM tasks WHERE project_id = %s AND status = %s{scope}
+                    """SELECT * FROM tasks WHERE project_id = %s AND status = %s
                        ORDER BY created_at DESC""",
-                    tuple([project_id, status] + scope_params),
+                    (project_id, status),
                 )
             else:
                 result = await conn.execute(
-                    f"""SELECT * FROM tasks WHERE project_id = %s{scope}
+                    """SELECT * FROM tasks WHERE project_id = %s
                        ORDER BY
                          CASE status
                            WHEN 'in_progress' THEN 0
@@ -819,7 +887,7 @@ async def get_project_tasks(project_id: int, status: str = None, request: Reques
                            WHEN 'done' THEN 4
                          END,
                          created_at DESC""",
-                    tuple([project_id] + scope_params),
+                    (project_id,),
                 )
             rows = await result.fetchall()
         return {"tasks": [_serialize(r) for r in rows]}
@@ -901,5 +969,82 @@ async def add_project_comment(project_id: int, request: Request):
             )
             row = await result.fetchone()
         return _serialize(row)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# Project members (Cove attach)
+# =============================================================================
+
+@router.get("/api/projects/{project_id}/members")
+async def list_project_members(project_id: int, request: Request):
+    """List presences attached to a Cove project."""
+    try:
+        from src.memory.database import get_db
+        presence = await _get_presence_row(request)
+        presence_id = presence["id"] if presence else None
+        is_admin = _is_cove_admin(presence)
+        async with get_db() as conn:
+            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+                return JSONResponse({"error": "Project not found"}, status_code=404)
+            result = await conn.execute(
+                """SELECT pm.presence_id, pm.role, pm.created_at,
+                          a.username, a.display_name
+                   FROM project_members pm
+                   LEFT JOIN accounts a ON a.id = pm.presence_id
+                   WHERE pm.project_id = %s
+                   ORDER BY pm.created_at""",
+                (project_id,),
+            )
+            rows = await result.fetchall()
+        return {"members": [_serialize(r) for r in rows]}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.post("/api/projects/{project_id}/members")
+async def add_project_member(project_id: int, request: Request):
+    """Attach a presence to a Cove project (admin or existing work/admin member)."""
+    try:
+        from src.memory.database import get_db
+        from src.tools.project_tools import _attach_presence_to_project
+        body = await request.json()
+        member = (body.get("member") or body.get("username") or body.get("presence_id") or "").strip()
+        role = (body.get("role") or "work").strip().lower()
+        if not member:
+            return JSONResponse({"error": "member required"}, status_code=400)
+        presence = await _get_presence_row(request)
+        presence_id = presence["id"] if presence else None
+        is_admin = _is_cove_admin(presence)
+        async with get_db() as conn:
+            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+                return JSONResponse({"error": "Project not found"}, status_code=404)
+            prow = await (await conn.execute(
+                "SELECT id, name, presence_id FROM projects WHERE id = %s", (project_id,)
+            )).fetchone()
+            if not prow or prow.get("presence_id") is not None:
+                return JSONResponse(
+                    {"error": "Only Cove projects support members"}, status_code=400
+                )
+            r = await conn.execute(
+                "SELECT id, username, display_name FROM accounts "
+                "WHERE id::text = %s OR lower(username) = lower(%s) "
+                "OR lower(display_name) = lower(%s) LIMIT 1",
+                (member, member, member),
+            )
+            acc = await r.fetchone()
+            if not acc:
+                return JSONResponse({"error": "Presence not found"}, status_code=404)
+        note = await _attach_presence_to_project(
+            project_id, str(acc["id"]), role, prow.get("name") or ""
+        )
+        return {
+            "ok": True,
+            "presence_id": str(acc["id"]),
+            "username": acc.get("username"),
+            "role": role,
+            "detail": note,
+        }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

@@ -790,6 +790,11 @@ async def send_message(request: Request):
                 _byok_tok = None
             _nc_tok = None
             _ch_tok = None
+            # Manager/team channels: Cove admin NC + role path scope.
+            # Personal agent channels: viewing presence NC.
+            # Project board: manager/team → Cove (presence_id NULL). Personal →
+            # that presence. Viewer id is still recorded on manager turns so
+            # create_project can auto-attach the human who asked.
             try:
                 from src.tools.nextcloud_tools import (
                     set_request_nc_creds, set_team_nc_creds, set_acting_channel,
@@ -812,6 +817,7 @@ async def send_message(request: Request):
             try:
                 from src.dashboard.routes.presence import get_current_presence as _gcp
                 from src.tools.links_tools import set_request_links_presence
+                from src.graphs.channels import _is_manager_channel as _is_mgr_ch
                 _lp = await _gcp(request)
                 if _lp and _lp.get("id"):
                     _links_tok = set_request_links_presence(str(_lp["id"]))
@@ -821,13 +827,22 @@ async def send_message(request: Request):
                     except Exception:
                         _ql_tok = None
                     try:
-                        from src.tools.project_tools import set_request_project_presence
+                        from src.tools.project_tools import (
+                            set_request_project_presence,
+                            set_request_project_viewer,
+                        )
                         _prj_agent = ""
                         try:
                             _prj_agent = str(agent_id or "")
                         except Exception:
                             _prj_agent = ""
-                        _prj_tok = set_request_project_presence(str(_lp["id"]), _prj_agent)
+                        if _is_mgr_ch(ch):
+                            # Cove board; remember viewer for auto-attach on create
+                            _prj_tok = set_request_project_viewer(str(_lp["id"]))
+                        else:
+                            _prj_tok = set_request_project_presence(
+                                str(_lp["id"]), _prj_agent
+                            )
                     except Exception:
                         _prj_tok = None
             except Exception:
