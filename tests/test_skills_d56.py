@@ -22,6 +22,7 @@ EXPECTED_SHIPPED = {
     "canon-checker",
     "session-logger",
     "framework-glossary",
+    "host-hands",
 }
 
 

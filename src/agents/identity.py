@@ -206,6 +206,56 @@ def _shared_product_vocab_block() -> str:
     return SHARED_PRODUCT_VOCAB
 
 
+# Host-hands: agents live in a container fence. "I can't access that" is true as a
+# *direct* fact and false as a stop — the product loop is always operator-runs +
+# paste-back. Keep this short (always-on); full templates live in skills/host-hands.
+HOST_HANDS_LOOP = (
+    "## Host-hands loop (non-negotiable)\n"
+    "You run **inside a container**. You cannot SSH to the host, sibling Coves on the "
+    "same box, or a hub/VPS from your tools. That fence is normal — **never treat it as "
+    "a stop and never wait for the operator to remind you of this process.**\n"
+    "**On the first reply** when the work needs host / sibling / hub state (another Cove "
+    "on the machine, live docker/git/logs, LT/Socrates or hub services, deploys, anything "
+    "outside your mounts):\n"
+    "1. One short sentence: you will use host-hands (operator runs; you interpret paste-back).\n"
+    "2. Immediately emit **copy-paste ready** command blocks — do not invent live state.\n"
+    "3. Ask for paste-back, then continue diagnosis or the next command from the output.\n"
+    "If the `host-hands` skill is in your catalog, call `use_skill(\"host-hands\")` before "
+    "authoring non-trivial gather packs so command shapes stay Mac-safe.\n"
+    "**Mac-safe commands only (paste dies otherwise):** prefer single-line "
+    "`ssh user@host \"cmd1 && cmd2\"`. Separate fenced one-liners are fine. "
+    "**Never** nested heredocs (`ssh … <<'EOF'`, or a heredoc inside remote quotes). "
+    "**Never** multi-line `python -c` / `bash -c` with embedded quotes over SSH. "
+    "Prefer `docker ps`, `docker logs … | tail`, `docker exec … sh -c 'simple one-liner'`, "
+    "`git -C path log -1 --oneline`. Use `AgentSkills/Ops/reference.md` (or equivalent Ops "
+    "paths) for real hostnames and container names — do not invent them. Redact secrets in "
+    "paste-back discussion."
+)
+
+
+def _host_hands_block() -> str:
+    """Always-on operator-hands loop for host/sibling/hub work (Mac-safe commands)."""
+    return HOST_HANDS_LOOP
+
+
+# Operator-facing length: agents over-explain code/process. Prefer outcome + next step.
+OPERATOR_BREVITY = (
+    "## How you talk to the operator (non-negotiable)\n"
+    "Conversational and complete — not a telegram, not a whitepaper. "
+    "**Prefer about half the length** when a shorter answer still covers it. "
+    "Lead with **what this means for them and what happens next**, not a tour of "
+    "files, internals, or step-by-step implementation. "
+    "Code paths and process detail only when they ask or a decision depends on it. "
+    "Still include risk, what you need from them, and the next action — just don't "
+    "pad around it."
+)
+
+
+def _operator_brevity_block() -> str:
+    """Always-on length preference: outcome first, less process tourism."""
+    return OPERATOR_BREVITY
+
+
 def get_family_defaults() -> dict:
     """Load the defaults section from config."""
     for fname in ["agent.yaml", "agents.yaml"]:
@@ -411,11 +461,12 @@ def _dev_workflow_block(agent: dict) -> str:
         "flagged by the claim verifier. When unsure, check git before you report."
     )
     lines.append(
-        "\n**HARD BOUNDARY**: You only operate within the canonical mounted workspaces: "
+        "\n**HARD BOUNDARY**: Direct tools only reach the canonical mounted workspaces: "
         f"/app/data/projects/ (code repos: {_repo_list or 'none found'}), /sites (website repos). "
-        "If a repo is missing from these locations, REPORT it — never improvise by cloning to "
-        "a temp directory or using run_shell for git. A capability you don't have is a "
-        "reportable fact, never something to simulate."
+        "Never improvise by cloning to a temp directory or using run_shell for git outside those "
+        "roots. A path or host you cannot reach is **not** a stop: switch to the **Host-hands "
+        "loop** — emit Mac-safe copy-paste commands for the operator, interpret paste-back. "
+        "Do not simulate access you lack; do not stall waiting to be reminded."
     )
     return "\n".join(lines)
 
@@ -482,6 +533,12 @@ def build_system_prompt(
 
     # ── 1c. Shared product vocabulary (Jules = Operator transcript tool, etc.)
     prompt_parts.append(f"\n{_shared_product_vocab_block()}")
+
+    # ── 1d. Host-hands (container fence → operator runs commands; Mac-safe paste)
+    prompt_parts.append(f"\n{_host_hands_block()}")
+
+    # ── 1e. Operator-facing brevity (outcome first; less process tourism)
+    prompt_parts.append(f"\n{_operator_brevity_block()}")
 
     # ── 2. Persona (soul doc content) ────────────────────────────────────────
     if persona:

@@ -249,7 +249,14 @@ def _build_manager_prompt_from_config(cfg, tuning_state=None) -> str:
     directive + personality dials. This is what keeps Stuart/Mercer solid as
     themselves regardless of which model runs them.
     """
-    from src.agents.identity import load_persona, _identity_directive, _render_personality
+    from src.agents.identity import (
+        load_persona,
+        _identity_directive,
+        _render_personality,
+        _shared_product_vocab_block,
+        _host_hands_block,
+        _operator_brevity_block,
+    )
 
     name = cfg.get("name", "Stuart")
     archetype = cfg.get("archetype", "The Steward")
@@ -265,6 +272,12 @@ def _build_manager_prompt_from_config(cfg, tuning_state=None) -> str:
         f"# {name} — {archetype}",
         "",
         _identity_directive(name, archetype),
+        "",
+        _shared_product_vocab_block(),
+        "",
+        _host_hands_block(),
+        "",
+        _operator_brevity_block(),
         "",
         "## Role",
         role,
