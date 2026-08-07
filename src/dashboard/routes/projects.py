@@ -53,16 +53,64 @@ def _is_cove_admin(presence) -> bool:
     return role in ("admin", "steward")
 
 
-def _presence_filter(presence_id, is_admin: bool = False):
+def _full_cove_board(request: Request, presence) -> bool:
+    """True when this MC door should list the full Cove project board.
+
+    Product rule (multi-presence):
+      - Steward/merchant manager MC (manager host, ?as=<steward|merchant>)
+        and Cove admin apex: all Cove rows (presence_id IS NULL), plus own personal.
+      - Personal agent MC (presence handle door), even if cove_role=admin:
+        own personal + Cove projects the presence is attached to only.
+
+    Single-mode / no presence: full Cove board (legacy).
+    """
+    if COVE_MODE != "multi":
+        return True
+    if not presence:
+        return True
+    try:
+        from src.config import load_cove_config
+        from src.dashboard.host_context import resolve_host_context, request_host
+
+        cove = load_cove_config()
+        hc = resolve_host_context(request_host(request), cove)
+        as_param = (request.query_params.get("as") or "").strip().lower()
+        force_personal = False
+        if as_param:
+            own = (presence.get("username") or "").lstrip("@").strip().lower()
+            role = (presence.get("cove_role") or "").strip().lower()
+            mgrs = {
+                ((cove.get("steward_channel") or {}).get("name") or "").strip().lower(),
+                ((cove.get("merchant_channel") or {}).get("name") or "").strip().lower(),
+            } - {""}
+            if role == "admin" and as_param in mgrs:
+                hc = {**hc, "kind": "manager", "label": as_param}
+            elif as_param == own:
+                force_personal = True
+        if force_personal:
+            return False
+        kind = (hc.get("kind") or "").strip().lower()
+        if kind == "manager":
+            return True
+        # Cove apex admin surface (not a personal handle door)
+        if kind == "cove" and _is_cove_admin(presence):
+            return True
+        return False
+    except Exception:
+        # Fail closed: personal/member scope if door cannot be resolved.
+        return False
+
+
+def _presence_filter(presence_id, full_cove_board: bool = False):
     """SQL WHERE + params for project list.
 
     - Single / no presence: Cove board only (presence_id IS NULL).
-    - Admin: Cove board + own personal rows.
-    - Member: own personal + Cove projects they are attached to.
+    - Manager / Cove-admin door: Cove board + own personal rows.
+    - Personal MC (any role): own personal + Cove projects they are attached to.
     """
     if not presence_id:
         return "p.presence_id IS NULL", ()
-    if is_admin:
+    if full_cove_board:
         return "(p.presence_id IS NULL OR p.presence_id = %s)", (presence_id,)
     return (
         "(p.presence_id = %s OR (p.presence_id IS NULL AND EXISTS ("
@@ -80,11 +128,11 @@ def _task_scope(presence_id):
     return "", []
 
 
-async def _owns_project(conn, project_id, presence_id, is_admin: bool = False):
-    """True if caller may open this project."""
+async def _owns_project(conn, project_id, presence_id, full_cove_board: bool = False):
+    """True if caller may open this project on this MC door."""
     if not presence_id:
         return True
-    if is_admin:
+    if full_cove_board:
         r = await conn.execute(
             "SELECT 1 FROM projects WHERE id = %s AND (presence_id IS NULL OR presence_id = %s)",
             (project_id, presence_id),
@@ -104,8 +152,8 @@ async def _owns_project(conn, project_id, presence_id, is_admin: bool = False):
     return (await r.fetchone()) is not None
 
 
-async def _owns_task(conn, task_id, presence_id, is_admin: bool = False):
-    """True if the task is visible to this operator."""
+async def _owns_task(conn, task_id, presence_id, full_cove_board: bool = False):
+    """True if the task is visible to this operator on this MC door."""
     if not presence_id:
         return True
     # Task on an accessible project, or legacy task presence_id match
@@ -119,8 +167,8 @@ async def _owns_task(conn, task_id, presence_id, is_admin: bool = False):
     if row.get("presence_id") and str(row["presence_id"]) == str(presence_id):
         return True
     if row.get("project_id"):
-        return await _owns_project(conn, row["project_id"], presence_id, is_admin=is_admin)
-    return is_admin
+        return await _owns_project(conn, row["project_id"], presence_id, full_cove_board=full_board)
+    return full_cove_board
 
 
 # =============================================================================
@@ -330,8 +378,9 @@ async def list_projects(request: Request):
         from src.memory.database import get_db
         presence = await _get_presence_row(request)
         presence_id = presence["id"] if presence else None
+        full_board = _full_cove_board(request, presence)
         where_clause, where_params = _presence_filter(
-            presence_id, is_admin=_is_cove_admin(presence)
+            presence_id, full_cove_board=full_board
         )
 
         async with get_db() as conn:
@@ -390,8 +439,9 @@ async def create_project(request: Request):
         goals = body.get("goals", "")
         presence = await _get_presence_row(request)
         presence_id = presence["id"] if presence else None
-        # Admin → Cove board; member → personal
-        if _is_cove_admin(presence) or not presence_id:
+        # Manager / Cove-admin door → Cove board; personal MC → personal
+        full_board = _full_cove_board(request, presence)
+        if full_board or not presence_id:
             insert_presence = None
         else:
             insert_presence = presence_id
@@ -445,10 +495,10 @@ async def update_project(project_id: int, request: Request):
 
         presence = await _get_presence_row(request)
         presence_id = presence["id"] if presence else None
-        is_admin = _is_cove_admin(presence)
+        full_board = _full_cove_board(request, presence)
 
         async with get_db() as conn:
-            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+            if not await _owns_project(conn, project_id, presence_id, full_cove_board=full_board):
                 return JSONResponse({"error": "Project not found"}, status_code=404)
             result = await conn.execute(
                 f"UPDATE projects SET {', '.join(set_parts)} WHERE id = %s RETURNING *",
@@ -469,9 +519,9 @@ async def get_project_detail(project_id: int, request: Request = None):
         from src.memory.database import get_db
         presence = await _get_presence_row(request) if request else None
         presence_id = presence["id"] if presence else None
-        is_admin = _is_cove_admin(presence)
+        full_board = _full_cove_board(request, presence)
         async with get_db() as conn:
-            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+            if not await _owns_project(conn, project_id, presence_id, full_cove_board=full_board):
                 return JSONResponse({"error": "Project not found"}, status_code=404)
             result = await conn.execute(
                 "SELECT * FROM projects WHERE id = %s", (project_id,)
@@ -534,8 +584,8 @@ async def get_project_by_slug(slug: str, request: Request):
         from src.memory.database import get_db
         presence = await _get_presence_row(request)
         presence_id = presence["id"] if presence else None
-        is_admin = _is_cove_admin(presence)
-        where, params = _presence_filter(presence_id, is_admin=is_admin)
+        full_board = _full_cove_board(request, presence)
+        where, params = _presence_filter(presence_id, full_cove_board=full_board)
         async with get_db() as conn:
             result = await conn.execute(
                 f"SELECT p.id FROM projects p WHERE p.slug = %s AND {where}",
@@ -865,9 +915,9 @@ async def get_project_tasks(project_id: int, status: str = None, request: Reques
         from src.memory.database import get_db
         presence = await _get_presence_row(request) if request else None
         presence_id = presence["id"] if presence else None
-        is_admin = _is_cove_admin(presence)
+        full_board = _full_cove_board(request, presence)
         async with get_db() as conn:
-            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+            if not await _owns_project(conn, project_id, presence_id, full_cove_board=full_board):
                 return JSONResponse({"error": "Project not found"}, status_code=404)
             if status:
                 result = await conn.execute(
@@ -984,9 +1034,9 @@ async def list_project_members(project_id: int, request: Request):
         from src.memory.database import get_db
         presence = await _get_presence_row(request)
         presence_id = presence["id"] if presence else None
-        is_admin = _is_cove_admin(presence)
+        full_board = _full_cove_board(request, presence)
         async with get_db() as conn:
-            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+            if not await _owns_project(conn, project_id, presence_id, full_cove_board=full_board):
                 return JSONResponse({"error": "Project not found"}, status_code=404)
             result = await conn.execute(
                 """SELECT pm.presence_id, pm.role, pm.created_at,
@@ -1016,9 +1066,9 @@ async def add_project_member(project_id: int, request: Request):
             return JSONResponse({"error": "member required"}, status_code=400)
         presence = await _get_presence_row(request)
         presence_id = presence["id"] if presence else None
-        is_admin = _is_cove_admin(presence)
+        full_board = _full_cove_board(request, presence)
         async with get_db() as conn:
-            if not await _owns_project(conn, project_id, presence_id, is_admin=is_admin):
+            if not await _owns_project(conn, project_id, presence_id, full_cove_board=full_board):
                 return JSONResponse({"error": "Project not found"}, status_code=404)
             prow = await (await conn.execute(
                 "SELECT id, name, presence_id FROM projects WHERE id = %s", (project_id,)

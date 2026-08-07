@@ -40,8 +40,12 @@ async function loadFiles(path) {
     data.items.forEach(item => {
       const icon = item.is_dir ? '📁' : fileIcon(item.name);
       const size = item.is_dir ? '' : formatSize(item.size);
+      // Prefer API path (decoded href) — concat of current+name double-nests share mounts
+      const target = (item.path && String(item.path).replace(/^\/+/, '')) ||
+        `${String(currentFilePath || '/').replace(/\/$/, '')}/${item.name}`.replace(/^\/+/, '');
+      const targetJs = target.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       html += `<div class="file-row ${item.is_dir ? 'file-dir' : 'file-file'}"
-        onclick="${item.is_dir ? `loadFiles('${currentFilePath.replace(/\/$/, '')}/${item.name}')` : `downloadFile('${currentFilePath.replace(/\/$/, '')}/${item.name}')`}">
+        onclick="${item.is_dir ? `loadFiles('${targetJs}')` : `downloadFile('${targetJs}')`}">
         <span class="file-icon">${icon}</span>
         <span class="file-name">${ESC(item.name)}</span>
         ${size ? `<span class="file-size">${size}</span>` : ''}
