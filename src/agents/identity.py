@@ -256,6 +256,28 @@ def _operator_brevity_block() -> str:
     return OPERATOR_BREVITY
 
 
+# Public git history is forever and searchable — write like a company OSS product.
+PUBLIC_REPO_VOICE = (
+    "## Public GitHub text (non-negotiable)\n"
+    "Commit messages, PR titles, and PR bodies on public repos must read like a "
+    "**large company's open-source product** — not a private family lab. "
+    "Describe the product/engineering change only.\n"
+    "**Never** put: personal or household names, personal-agent names as people, "
+    "family/instance labels, home hosts (mesh/LAN), machine nicknames, absolute "
+    "home paths, container ids, internal env/deploy topology, or operator handles.\n"
+    "That detail stays in **chat or private Ops** — never in git history. "
+    "`git_commit` / `ship_branch` / `create_github_pr` **refuse** leaky text; "
+    "rewrite product-facing and retry. Do not narrate the hygiene refusal in the "
+    "next title. Good: 'Refuse silent truncate on queue publish'. Bad: anything "
+    "naming who, which Cove install, or which home box."
+)
+
+
+def _public_repo_voice_block() -> str:
+    """Always-on: public commits/PRs are corporate product voice only."""
+    return PUBLIC_REPO_VOICE
+
+
 def get_family_defaults() -> dict:
     """Load the defaults section from config."""
     for fname in ["agent.yaml", "agents.yaml"]:
@@ -448,11 +470,12 @@ def _dev_workflow_block(agent: dict) -> str:
         "message is a form of fabrication and will be caught."
     )
     lines.append(
-        "\n**Public GitHub text is product-only.** PR titles, PR bodies, and commit messages "
-        "on public repos describe the product change — never lab instance names, operator "
-        "handles, container names, mesh hosts, or private deploy steps. Ops detail stays in "
-        "chat or private Ops docs. ship_branch / git_commit refuse the rest; rewrite and ship "
-        "again. Do not narrate hygiene incidents in public titles."
+        "\n**Public GitHub text is corporate product-only.** PR titles, bodies, and commit "
+        "messages must read like a large OSS product company: the change only — never "
+        "personal names, household agents, family/instance labels, home hosts/paths, "
+        "containers, mesh, or private deploy topology. Ops stays in chat or private Ops. "
+        "ship_branch / git_commit refuse the rest; rewrite and ship again. Do not narrate "
+        "hygiene refusals in the next title."
     )
     lines.append(
         "\n**\"Done\" is verified, not remembered.** A ticket is done only when it is on "
@@ -539,6 +562,9 @@ def build_system_prompt(
 
     # ── 1e. Operator-facing brevity (outcome first; less process tourism)
     prompt_parts.append(f"\n{_operator_brevity_block()}")
+
+    # ── 1f. Public git/PR voice (company product; no personal/lab leaks)
+    prompt_parts.append(f"\n{_public_repo_voice_block()}")
 
     # ── 2. Persona (soul doc content) ────────────────────────────────────────
     if persona:

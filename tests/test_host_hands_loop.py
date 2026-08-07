@@ -98,6 +98,7 @@ def test_operator_brevity_block_and_prompts(monkeypatch):
     monkeypatch.setattr(identity, "_charter_block", lambda: "")
     prompt = identity.build_system_prompt("stuart")
     assert "How you talk to the operator" in prompt
+    assert "Public GitHub text" in prompt
 
     from src.graphs import channels
 
@@ -111,3 +112,4 @@ def test_operator_brevity_block_and_prompts(monkeypatch):
         }
     )
     assert "How you talk to the operator" in mp
+    assert "Public GitHub text" in mp

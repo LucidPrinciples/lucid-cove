@@ -415,27 +415,87 @@ async def git_delete_branch(project: str, branch: str, remote: bool = False) -> 
 # =============================================================================
 # Public-repo hygiene (PR title/body + commit message + author)
 # =============================================================================
-# Hard rule: public GitHub surfaces read like a product company repo. No family
-# instance names, operator handles, container/host labels, or private ops steps.
-# Ops detail stays in chat / private Ops docs. Refuse the ship rather than scrub
-# silently — the author should rewrite product-facing text on purpose.
+# Hard rule: public GitHub surfaces read like a *large company's* open-source
+# product repo — not a family lab notebook. No personal names, household agents,
+# instance labels, home hosts/paths, LAN, or private deploy topology.
+# Ops stays in chat / private Ops docs. Refuse the ship rather than scrub
+# silently — the author rewrites product-facing text on purpose.
 
 _PUBLIC_SURFACE_LEAK_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
-    # Instance / host labels (product has many Coves; these are lab-specific)
-    ("instance-label", re.compile(r"\b(Founders|Clearfield)\b", re.I)),
-    # Operator / personal
-    ("operator-name", re.compile(r"\b(Jason|JAG)\b")),
+    # Lab / instance labels (product has many Coves; these are install-specific)
+    ("instance-label", re.compile(r"\b(Founders|Clearfield|Covington)\b", re.I)),
+    ("instance-id", re.compile(r"\blucidcove-[0-9a-f]{4,}\b", re.I)),
+    ("instance-dir", re.compile(
+        r"\b(ClearfieldCove|CoveCoveNew|FoundersCove|StuartCove|AtlasCove)\b", re.I
+    )),
+    # Operator / household people (first names + lab nicknames — not product roles)
+    ("personal-name", re.compile(r"\b(Jason|JAG|Ben|Jeff|Chords)\b")),
     ("operator-handle", re.compile(r"@?jasonbroadcast\b", re.I)),
     ("operator-nc-account", re.compile(r"\bjag\b", re.I)),
-    # NC account ids that name the instance
     ("admin-nc-account", re.compile(r"\badminclearfield\b", re.I)),
-    # Container / mesh / home lab hosts
+    # Household / personal agents named as people or deploy targets
+    ("personal-agent", re.compile(r"\bAtlas\b")),
+    ("presence-ops", re.compile(r"\bAtlas Founders\b", re.I)),
+    # Container / mesh / home lab hosts and paths
     ("container-name", re.compile(r"\blucidcove-[a-z0-9-]+-app\b", re.I)),
+    ("container-name", re.compile(r"\b(clearfield|founders|covington)-app\b", re.I)),
     ("mesh-host", re.compile(r"\blp-homebase\b", re.I)),
     ("mesh-host", re.compile(r"\.mesh\.lucidcove\.org\b", re.I)),
-    # Presence used as deploy target in PR copy
-    ("presence-ops", re.compile(r"\bAtlas Founders\b", re.I)),
+    ("home-lab", re.compile(r"\b(P620|lphomebase|homebase)\b", re.I)),
+    ("home-path", re.compile(r"/home/[A-Za-z0-9._-]+")),
+    ("lan-ip", re.compile(r"\b192\.168\.\d{1,3}\.\d{1,3}\b")),
+    # Private Mac/layout paths that show up in agent commit copy
+    ("private-path", re.compile(
+        r"(?:Documents/LucidCove|~/Documents/LucidCove|LucidCove/Haven)", re.I
+    )),
 ]
+
+# Product role names that are OK on public surfaces (steward template, etc.).
+# Do NOT add household first names here.
+_PUBLIC_HYGIENE_ALLOW_ROLES = frozenset({
+    "stuart", "mercer", "julian", "archimedes", "arthur", "gabe", "ezra",
+    "iris", "vera", "soren", "jules",
+})
+
+
+def _dynamic_public_leak_patterns() -> list[tuple[str, "re.Pattern[str]"]]:
+    """Block this install's family/instance label + optional operator denylist.
+
+    Every Cove inherits the static list; dynamic terms cover *this* family's
+    name so a random household does not need a Lucid-specific patch.
+    """
+    out: list[tuple[str, "re.Pattern[str]"]] = []
+    try:
+        family = (get_setting_sync("family_name", "") or "").strip()
+    except Exception:
+        family = ""
+    if (
+        family
+        and len(family) >= 3
+        and family.lower() not in ("cove", "new cove", "lucid cove", "lucid")
+        and family.lower() not in _PUBLIC_HYGIENE_ALLOW_ROLES
+    ):
+        out.append((
+            "instance-label",
+            re.compile(rf"\b{re.escape(family)}\b", re.I),
+        ))
+    # Optional comma-separated extra terms from settings (operator-curated).
+    try:
+        extra = (get_setting_sync("public_hygiene_extra_terms", "") or "").strip()
+    except Exception:
+        extra = ""
+    if extra:
+        for raw in extra.split(","):
+            term = raw.strip()
+            if len(term) < 3:
+                continue
+            if term.lower() in _PUBLIC_HYGIENE_ALLOW_ROLES:
+                continue
+            out.append((
+                "extra-denylist",
+                re.compile(rf"\b{re.escape(term)}\b", re.I),
+            ))
+    return out
 
 
 def _github_origin_slug(repo: str) -> str | None:
@@ -482,7 +542,7 @@ def find_public_surface_leaks(*parts: str) -> list[str]:
         return []
     hits: list[str] = []
     seen: set[str] = set()
-    for label, pat in _PUBLIC_SURFACE_LEAK_PATTERNS:
+    for label, pat in list(_PUBLIC_SURFACE_LEAK_PATTERNS) + _dynamic_public_leak_patterns():
         if pat.search(text):
             if label not in seen:
                 seen.add(label)
@@ -497,9 +557,12 @@ def _refuse_public_leaks(surface: str, *parts: str) -> str | None:
     kinds = ", ".join(hits)
     return (
         f"REFUSED: public-repo hygiene — {surface} contains ops/personal detail "
-        f"({kinds}). Rewrite title/body/commit as product-facing text only "
-        f"(no instance names, operator handles, containers, mesh hosts, or "
-        f"private deploy topology). Put ops steps in chat or private Ops docs."
+        f"({kinds}). Rewrite as a large-company product PR/commit: describe the "
+        f"user-facing or engineering change only — no personal names, household "
+        f"agents, family/instance labels, home hosts/paths, LAN, containers, mesh "
+        f"hosts, or private deploy steps. Ops stays in chat or private Ops docs. "
+        f"Example: 'Add host-hands loop for operator-run diagnostics' — not who "
+        f"or which home machine. Do not put this refusal wording in the next title."
     )
 
 

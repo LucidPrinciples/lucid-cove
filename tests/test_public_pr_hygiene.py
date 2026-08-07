@@ -15,8 +15,20 @@ def test_find_leaks_instance_and_operator():
         "Founders first; ask JAG; @jasonbroadcast",
     )
     assert "instance-label" in hits
-    assert "operator-name" in hits
+    assert "personal-name" in hits
     assert "operator-handle" in hits
+
+
+def test_find_leaks_personal_agents_and_home_lab():
+    hits = dt.find_public_surface_leaks(
+        "Wire Ben and Atlas on P620 at /home/lphomebase/ClearfieldCove",
+        "check 192.168.1.15 then lucidcove-6f6f-app",
+    )
+    assert "personal-name" in hits
+    assert "personal-agent" in hits
+    assert "home-lab" in hits or "home-path" in hits
+    assert "instance-id" in hits or "container-name" in hits
+    assert "lan-ip" in hits
 
 
 def test_find_leaks_clean_product_text():
@@ -25,6 +37,27 @@ def test_find_leaks_clean_product_text():
         "App-only restart after merge. Enable Premium long posts on the posting presence.",
     )
     assert hits == []
+
+
+def test_find_leaks_allows_product_role_names():
+    """Steward template names are public product vocabulary, not household leaks."""
+    hits = dt.find_public_surface_leaks(
+        "Stuart coordinates Jules capture; Mercer owns commerce tools",
+    )
+    assert hits == []
+
+
+def test_dynamic_family_name_blocked(monkeypatch):
+    monkeypatch.setattr(
+        dt, "get_setting_sync",
+        lambda key, default=None: {
+            "family_name": "Quietgrove",
+            "public_hygiene_extra_terms": "River,Mabel",
+        }.get(key, default),
+    )
+    hits = dt.find_public_surface_leaks("Ship Quietgrove calendar fix for River")
+    assert "instance-label" in hits
+    assert "extra-denylist" in hits
 
 
 def test_public_commit_identity_ignores_family_label(monkeypatch):

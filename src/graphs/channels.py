@@ -256,6 +256,7 @@ def _build_manager_prompt_from_config(cfg, tuning_state=None) -> str:
         _shared_product_vocab_block,
         _host_hands_block,
         _operator_brevity_block,
+        _public_repo_voice_block,
     )
 
     name = cfg.get("name", "Stuart")
@@ -278,6 +279,8 @@ def _build_manager_prompt_from_config(cfg, tuning_state=None) -> str:
         _host_hands_block(),
         "",
         _operator_brevity_block(),
+        "",
+        _public_repo_voice_block(),
         "",
         "## Role",
         role,
