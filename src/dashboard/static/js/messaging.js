@@ -409,10 +409,20 @@ function addMessage(role, content, timestamp, model, thinking) {
 
 function formatMessage(text) {
     if (!text) return '';
-    return ESC(text)
+    // Escape first, then light markdown + safe URL linkify.
+    // Cove-relative paths (/briefs/..., /backlog) open the in-app reader from chat.
+    var html = ESC(text)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/`(.+?)`/g, '<code>$1</code>')
-        .replace(/\n/g, '<br>');
+        .replace(/`(.+?)`/g, '<code>$1</code>');
+    html = html.replace(/(https?:\/\/[^\s<]+)/g, function (u) {
+        var trail = '';
+        while (u && /[.,);:!?]$/.test(u)) { trail = u.slice(-1) + trail; u = u.slice(0, -1); }
+        return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>' + trail;
+    });
+    html = html.replace(/(^|[\s(])(\/(?:briefs|backlog)(?:\/[^\s<]*)?)/g, function (_m, pre, path) {
+        return pre + '<a href="' + path + '" target="_blank" rel="noopener">' + path + '</a>';
+    });
+    return html.replace(/\n/g, '<br>');
 }
 
 function scrollToBottom() {
