@@ -100,6 +100,9 @@ def test_static_surfaces_and_wiring():
     assert "ALL_BRIEFS_TOOLS" in agent
     msg = (ROOT / "src/dashboard/static/js/messaging.js").read_text()
     assert "/briefs" in msg and "formatMessage" in msg
+    # Trailing punctuation must not ride into href (chat often wraps (/briefs/slug).)
+    assert "while (path && /[.,);:!?]$/.test(path))" in msg
+    assert "trail = path.slice(-1) + trail" in msg
     links = (ROOT / "src/dashboard/static/action-board/links.html").read_text()
     assert 'href="/briefs"' in links
 

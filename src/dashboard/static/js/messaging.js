@@ -419,8 +419,11 @@ function formatMessage(text) {
         while (u && /[.,);:!?]$/.test(u)) { trail = u.slice(-1) + trail; u = u.slice(0, -1); }
         return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>' + trail;
     });
+    // Same trailing-punct strip as https — chat often wraps paths like (/briefs/slug).
     html = html.replace(/(^|[\s(])(\/(?:briefs|backlog)(?:\/[^\s<]*)?)/g, function (_m, pre, path) {
-        return pre + '<a href="' + path + '" target="_blank" rel="noopener">' + path + '</a>';
+        var trail = '';
+        while (path && /[.,);:!?]$/.test(path)) { trail = path.slice(-1) + trail; path = path.slice(0, -1); }
+        return pre + '<a href="' + path + '" target="_blank" rel="noopener">' + path + '</a>' + trail;
     });
     return html.replace(/\n/g, '<br>');
 }
