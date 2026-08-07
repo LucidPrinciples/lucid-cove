@@ -148,6 +148,7 @@ cove:
       - tools.calendar_notify
       - tools.site_tools
       - tools.links_tools           # Action Board Links (CF-59 / #LNK2)
+      - tools.briefs_tools          # Briefs — operator-facing plans & specs
       - tools.steward_queue_tools   # Pillar 1 — the execution queue
       - tools.delegation_tools      # Pillar 2 — delegate_task
     channels:
@@ -213,6 +214,7 @@ cove:
       - tools.finance_tools
       - tools.calendar_notify
       - tools.links_tools           # Action Board Links
+      - tools.briefs_tools          # Briefs — operator-facing plans & specs
       - tools.dev_read_tools        # #D17 — READ-ONLY repo access (release lane); no push/PR
     channels:
       day:
