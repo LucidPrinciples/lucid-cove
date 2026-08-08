@@ -487,7 +487,13 @@ async function boot() {
         // jules 07-07: an explicit ?tab= (e.g. the "Open chat" door) wins — land where it points.
         // Action Board tabs (ab-*) are virtual — not in MC.tabs — so accept them too.
         // Used by Backlog/Jules × close with ?return=links → /?tab=ab-links.
-        const _wantTab = new URLSearchParams(location.search).get('tab');
+        const _bootParams = new URLSearchParams(location.search);
+        const _wantTab = _bootParams.get('tab');
+        // Morning-open deep link: latest tuning lands on Tune even if tab omitted.
+        const _wantLatest = _bootParams.get('view') === 'latest';
+        if (_wantLatest) {
+            try { sessionStorage.setItem('mc_open_latest_tuning', '1'); } catch (e) {}
+        }
         const _abTabIds = (_getActionTabs() || []).map(t => t.id);
         if (_wantTab) {
             if (MC.tabs.some(t => (t.id || t) === _wantTab)) {
@@ -495,6 +501,8 @@ async function boot() {
             } else if (_abTabIds.indexOf(_wantTab) !== -1) {
                 firstTab = _wantTab;
             }
+        } else if (_wantLatest && MC.tabs.some(t => (t.id || t) === 'tune')) {
+            firstTab = 'tune';
         }
 
         // Shell + first-tab scripts only (parallel). Remaining tabs load on switch
@@ -1390,7 +1398,8 @@ function _shellScriptBasenames(firstTab) {
     // #PERF-MC1 cold shell: only what Attention home needs for first paint.
     // action-board (~127KB) loads when the operator opens Action board (or lands
     // on an ab-* tab). onboarding/upgrade load with Tuners or on first use.
-    const shell = ['quick-list'];
+    // morning-alert: tiny habit scheduler — always on shell so prefs arm after boot.
+    const shell = ['quick-list', 'morning-alert'];
     const id = firstTab || 'home';
     if (typeof id === 'string' && id.indexOf('ab-') === 0) {
         shell.push('action-board');

@@ -115,6 +115,7 @@ async function loadSettings() {
         loadSettingsProfile(),
         loadSettingsFeatures(),
         loadSettingsSignalFilter(),
+        loadSettingsMorningAlert(),
         loadSettingsSelfHost(),
     ];
     if (hasCloud) personal.push(loadSettingsCloud(), loadSettingsConnect(), loadSettingsDevices());

@@ -137,3 +137,101 @@ async function saveCoveTimezone() {
         if (result) { result.textContent = 'Error: ' + err.message; result.style.color = 'var(--red, #f44336)'; }
     }
 }
+
+
+// ── Morning open alert (habit wedge) ─────────────────────────────────────
+// Persist preferred local time; schedule best-effort Notification when the
+// browser allows. Deep link: /?tab=tune&view=latest → latest Drop.
+
+async function loadSettingsMorningAlert() {
+    const el = document.getElementById('settings-morning-alert');
+    if (!el) return;
+
+    let alert = { enabled: false, local_time: '07:00' };
+    try {
+        const res = await fetch('/api/tuning/morning-alert');
+        const data = await res.json();
+        if (data && data.morning_alert) alert = data.morning_alert;
+    } catch (e) { /* defaults */ }
+
+    const enabled = !!alert.enabled;
+    const time = alert.local_time || '07:00';
+    const notifOk = (typeof Notification !== 'undefined');
+    const perm = notifOk ? Notification.permission : 'unsupported';
+    let supportNote = '';
+    if (!notifOk) {
+        supportNote = 'This browser cannot schedule local alerts. Time is saved for when a capable shell is available.';
+    } else if (perm === 'denied') {
+        supportNote = 'Notifications are blocked for this site. Enable them in browser settings, or add to Home Screen where supported.';
+    } else if (perm === 'default') {
+        supportNote = 'When you turn this on, the browser will ask to allow alerts. On iPhone, add the app to your Home Screen for the best chance of delivery — Safari tabs are limited.';
+    } else {
+        supportNote = 'Alert fires around your chosen local time while this app can run (installed PWA / open browser). True lock-screen delivery varies by OS.';
+    }
+
+    el.innerHTML = `
+        <div style="font-size:0.7rem;color:var(--dim);margin-bottom:10px;line-height:1.45;">
+            Morning open — open the <strong>latest daily tuning</strong> (practice + music) from a time you choose. Low-friction habit path; not a second Tune wizard.
+        </div>
+        <div class="settings-edit-row" style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;">
+            <span style="font-size:0.82rem;">Morning alert</span>
+            <div style="cursor:pointer;position:relative;width:40px;height:22px;flex-shrink:0;"
+                 onclick="_toggleMorningAlertEnabled(${enabled ? 'true' : 'false'})">
+                <span style="pointer-events:none;position:absolute;inset:0;background:${enabled ? 'var(--accent,#5ce1e6)' : 'var(--border)'};border-radius:11px;transition:background 0.2s;"></span>
+                <span style="pointer-events:none;position:absolute;top:2px;left:${enabled ? '20px' : '2px'};width:18px;height:18px;background:#fff;border-radius:50%;transition:left 0.2s;"></span>
+            </div>
+        </div>
+        <div class="settings-edit-row" style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;gap:12px;">
+            <span style="font-size:0.82rem;">Local time</span>
+            <input type="time" id="morning-alert-time" value="${ESC(time)}"
+                   style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:0.85rem;"
+                   onchange="saveMorningAlertTime(this.value)" />
+        </div>
+        <div id="morning-alert-status" style="font-size:0.68rem;color:var(--dim);margin-top:8px;line-height:1.4;">${ESC(supportNote)}</div>
+    `;
+
+    // Keep in-memory + reschedule if already enabled
+    if (!MC.features) MC.features = {};
+    MC.features.morning_alert = alert;
+    if (typeof window._morningAlertReschedule === 'function') {
+        window._morningAlertReschedule(alert);
+    }
+}
+
+async function _toggleMorningAlertEnabled(currentlyEnabled) {
+    const next = !currentlyEnabled;
+    if (next && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        try { await Notification.requestPermission(); } catch (e) {}
+    }
+    await _saveMorningAlert({ enabled: next });
+}
+
+async function saveMorningAlertTime(value) {
+    if (!value) return;
+    // input type=time may be HH:MM
+    await _saveMorningAlert({ local_time: value.slice(0, 5) });
+}
+
+async function _saveMorningAlert(partial) {
+    const status = document.getElementById('morning-alert-status');
+    try {
+        const res = await fetch('/api/tuning/morning-alert', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(partial || {}),
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) {
+            if (status) { status.textContent = data.error || 'Could not save'; status.style.color = 'var(--red,#f44336)'; }
+            return;
+        }
+        if (!MC.features) MC.features = {};
+        MC.features.morning_alert = data.morning_alert;
+        if (typeof window._morningAlertReschedule === 'function') {
+            window._morningAlertReschedule(data.morning_alert);
+        }
+        await loadSettingsMorningAlert();
+    } catch (e) {
+        if (status) { status.textContent = 'Could not save: ' + e.message; status.style.color = 'var(--red,#f44336)'; }
+    }
+}

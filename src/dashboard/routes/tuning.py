@@ -251,6 +251,45 @@ async def recent_drops(request: Request):
         return {"drops": []}
 
 
+@router.get("/api/tuning/latest")
+async def latest_tuning():
+    """Latest available daily tuning for cold-start / morning-open.
+
+    Prefer today's public Drop; if it is not published yet, return the newest
+    archive Drop. Always the universal human tuning (practice + music path),
+    never a blank "waiting for today" state when any Drop exists.
+    """
+    try:
+        from src.tuning.public_drop import (
+            get_latest_available_drop,
+            drop_as_operator_tuning,
+            get_public_drop,
+        )
+        from src.config import get_operator_name
+
+        drop = get_latest_available_drop()
+        if drop is None:
+            return {
+                "has_tuning": False,
+                "is_latest": True,
+                "note": "No tuning data available yet",
+            }
+        resp = drop_as_operator_tuning(drop)
+        resp["operator_name"] = get_operator_name()
+        resp["is_latest"] = True
+        today = get_public_drop()
+        today_date = getattr(today, "drop_date", None) if today is not None else None
+        resp["is_today"] = bool(today_date and resp.get("date") == today_date)
+        resp["source"] = "public_drop"
+        # Surface echo audio when the Drop carries it (player cold-start).
+        audio = getattr(drop, "echo_audio_url", None) or ""
+        if audio:
+            resp["audio_url"] = audio
+        return resp
+    except Exception as e:
+        return {"has_tuning": False, "is_latest": True, "error": str(e)}
+
+
 @router.get("/api/tuning/operator")
 async def operator_tuning():
     """Get today's full tuning for the operator.
@@ -377,3 +416,118 @@ async def operator_tuning():
 
 
 # Manual trigger removed — LTP is cron-only (7am ET via scheduler)
+
+# ── Morning open alert (human daily habit) ───────────────────────────────────
+# Free/operator cold-start: preferred local time + enabled flag. Stored in
+# presence preferences (multi) or feature overrides (single). The browser/PWA
+# schedules a best-effort local notification that deep-links to latest tuning.
+# True lock-screen delivery is OS-limited on iOS Safari; we still persist the
+# preference so native/PWA shells can honor it later.
+
+_DEFAULT_MORNING_ALERT = {
+    "enabled": False,
+    "local_time": "07:00",  # HH:MM 24h in the user's local timezone
+}
+
+
+def _normalize_morning_alert(raw) -> dict:
+    out = dict(_DEFAULT_MORNING_ALERT)
+    if not isinstance(raw, dict):
+        return out
+    if "enabled" in raw:
+        out["enabled"] = bool(raw["enabled"])
+    lt = raw.get("local_time") or raw.get("time") or out["local_time"]
+    if isinstance(lt, str) and len(lt) >= 4:
+        # Accept "7:00", "07:00", "07:00:00"
+        parts = lt.strip().split(":")
+        try:
+            h = max(0, min(23, int(parts[0])))
+            m = max(0, min(59, int(parts[1]))) if len(parts) > 1 else 0
+            out["local_time"] = f"{h:02d}:{m:02d}"
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+async def _read_morning_alert(request: Request) -> dict:
+    import json
+    from src.env import env as _env
+    cove_mode = _env("COVE_MODE", "single")
+    if cove_mode == "multi":
+        try:
+            from src.dashboard.routes.presence import get_current_presence
+            presence = await get_current_presence(request)
+            if presence:
+                prefs = presence.get("preferences") or {}
+                if isinstance(prefs, str):
+                    prefs = json.loads(prefs) if prefs else {}
+                return _normalize_morning_alert(prefs.get("morning_alert"))
+        except Exception:
+            pass
+        return dict(_DEFAULT_MORNING_ALERT)
+    # single: feature overrides file
+    try:
+        from src.config import get_feature_flags
+        flags = get_feature_flags() or {}
+        return _normalize_morning_alert(flags.get("morning_alert"))
+    except Exception:
+        return dict(_DEFAULT_MORNING_ALERT)
+
+
+async def _write_morning_alert(request: Request, alert: dict) -> bool:
+    import json
+    from src.env import env as _env
+    cove_mode = _env("COVE_MODE", "single")
+    alert = _normalize_morning_alert(alert)
+    if cove_mode == "multi":
+        from src.dashboard.routes.presence import get_current_presence
+        presence = await get_current_presence(request)
+        if not presence:
+            return False
+        try:
+            from src.memory.database import get_db
+            async with get_db() as conn:
+                prefs = presence.get("preferences") or {}
+                if isinstance(prefs, str):
+                    prefs = json.loads(prefs) if prefs else {}
+                if not isinstance(prefs, dict):
+                    prefs = {}
+                prefs["morning_alert"] = alert
+                await conn.execute(
+                    "UPDATE accounts SET preferences = %s, updated_at = NOW() WHERE id = %s",
+                    (json.dumps(prefs), presence["id"]),
+                )
+            return True
+        except Exception:
+            return False
+    from src.config import save_feature_overrides
+    return bool(save_feature_overrides({"morning_alert": alert}))
+
+
+@router.get("/api/tuning/morning-alert")
+async def get_morning_alert(request: Request):
+    """Read the operator's morning-open alert preference."""
+    alert = await _read_morning_alert(request)
+    return {"ok": True, "morning_alert": alert}
+
+
+@router.put("/api/tuning/morning-alert")
+async def put_morning_alert(request: Request):
+    """Save morning-open alert time + enabled. Body: {enabled?, local_time?}."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    current = await _read_morning_alert(request)
+    if "enabled" in body:
+        current["enabled"] = bool(body["enabled"])
+    if "local_time" in body or "time" in body:
+        current["local_time"] = body.get("local_time") or body.get("time")
+    current = _normalize_morning_alert(current)
+    ok = await _write_morning_alert(request, current)
+    if not ok:
+        return JSONResponse(status_code=500, content={"ok": False, "error": "Could not save morning alert"})
+    return {"ok": True, "morning_alert": current}
+

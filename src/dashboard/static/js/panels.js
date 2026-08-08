@@ -357,6 +357,9 @@ function _defaultPanelHTML(tabId) {
                     <div class="settings-group-title">Tuning</div>
                     <div id="settings-features" class="settings-row-list"></div>
                     <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px;">
+                        <div id="settings-morning-alert" class="settings-row-list"></div>
+                    </div>
+                    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px;">
                         <div id="settings-signal-filter" class="settings-row-list"></div>
                     </div>
                 </div>
