@@ -151,6 +151,7 @@ _PRESENCE_DEFAULT_MODULES = (
     "tools.briefs_tools",   # Briefs — publish/read operator-facing plans & specs (every presence)
     "tools.site_tools",     # Tier B Site Builder — list/edit/deploy own NC Sites only (#TIER1)
     "tools.research_tools",  # #GABS-V1 Phase 0 — web_search/fetch for personal agents (Atlas+)
+    "tools.video_pipeline_tools",  # #VP-ATLAS1 — presence video pipeline read model
 )
 
 
