@@ -1236,20 +1236,9 @@ async def process_moments(request: Request):
     # triggers the NC scan on the mount path.
     await publish_video_output(manifest_local, f"shorts/{manifest_name}", nc, "application/json")
 
-    # #SKIP-MOM1 — skip-moments / whole_video single full clip: graduate master
-    # processing → raw once at least one clip published (same end-state as caption-full).
-    try:
-        whole_done = any(
-            (m.get("whole_video") is True) or (m.get("clip_label") == "Full video" and m.get("start_seconds") == 0)
-            for m in (moments or [])
-            if isinstance(m, dict)
-        )
-        if whole_done and processed:
-            from src.video_lifecycle import graduate_processing_to_raw
-            await graduate_processing_to_raw(stem, nc)
-            logger.info("[lifecycle] graduated after whole_video process-moments for %s", stem)
-    except Exception as _ge:
-        logger.warning("[lifecycle] whole_video graduate skipped: %s", _ge)
+    # #VP-SESS-LIFE2 — do not auto-graduate here. App-side try_graduate_session
+    # gates processing→raw on full plan completion + settled publish queue.
+    # Voice still exposes POST /api/video/graduate-stem for that gated path.
 
     logger.info(
         f"Moments processing complete: {len(processed)} done, {len(errors)} errors"
@@ -1928,14 +1917,8 @@ async def caption_full_video(request: Request):
 
         logger.info(f"Captioned full video done: {out_name} ({size_mb:.1f} MB) → {dest_path}")
 
-        # C4 #1 — captioned-full published for this stem: GRADUATE the original
-        # processing/ → raw/ (finished source material, never auto-deleted).
-        # Best-effort — a graduation hiccup must never fail the render.
-        try:
-            from src.video_lifecycle import graduate_processing_to_raw
-            await graduate_processing_to_raw(stem, nc)
-        except Exception as _ge:
-            logger.warning(f"[lifecycle] graduation call skipped: {_ge}")
+        # #VP-SESS-LIFE2 — graduation is app-gated (try_graduate_session) after
+        # this proxy returns; voice no longer moves processing→raw on render alone.
 
         return JSONResponse({
             "filename": out_name,

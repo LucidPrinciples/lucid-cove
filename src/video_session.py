@@ -200,10 +200,7 @@ def may_graduate_to_raw(
     queue_scheduled: int,
     in_processing: bool,
 ) -> bool:
-    """Folder move gate — processing → raw only when session is clear.
-
-    Phase 1 exposes the flag; callers must not move until product wires it.
-    """
+    """Folder move gate — processing → raw only when session is clear."""
     if not in_processing:
         return False
     return is_session_clear(

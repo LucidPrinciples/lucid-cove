@@ -104,14 +104,13 @@ def test_publish_webdav_false_when_mount_missing_and_push_fails(tmp_path, monkey
 
 
 def test_caption_full_checks_publish_return(monkeypatch):
-    """Regression: caption-full must not 200/graduate when publish returns False."""
+    """Regression: caption-full must not 200 when publish returns False."""
     video_py = (
         Path(__file__).resolve().parents[1] / "voice" / "src" / "routes" / "video.py"
     ).read_text()
     assert "wrote = await publish_video_output" in video_py
     assert "Captioned full publish FAILED" in video_py
-    assert 'status_code=502' in video_py
-    # Graduate only after success path (still present, but after the wrote gate)
-    fail_idx = video_py.index("Captioned full publish FAILED")
-    grad_idx = video_py.index("graduate_processing_to_raw", fail_idx)
-    assert grad_idx > fail_idx
+    assert "status_code=502" in video_py
+    # #VP-SESS-LIFE2 — voice no longer auto-graduates after caption-full
+    success_tail = video_py.split("Captioned full video done")[-1][:800]
+    assert "graduate_processing_to_raw" not in success_tail

@@ -222,3 +222,23 @@ def test_css_open_work():
     assert ".ab-open-work-card" in CSS
     assert ".ab-open-work-list" in CSS
     assert ".ab-ow-phase" in CSS
+
+
+def test_try_graduate_session_wired():
+    assert "async def try_graduate_session" in VP
+    assert "may_graduate_to_raw" in VP
+    assert "try_graduate_session" in (
+        ROOT / "src/dashboard/routes/video_processing.py"
+    ).read_text(encoding="utf-8")
+    ab = (ROOT / "src/dashboard/routes/action_board.py").read_text(encoding="utf-8")
+    assert "try_graduate_session" in ab
+    assert "graduation" in ab
+
+
+def test_voice_no_eager_graduate_on_render():
+    voice = (ROOT / "voice/src/routes/video.py").read_text(encoding="utf-8")
+    # process-moments / caption-full success paths must not call graduate inline
+    pm = voice.split("async def process_moments")[1].split("async def graduate_stem_api")[0]
+    assert "graduate_processing_to_raw" not in pm
+    # caption-full still has the helper available via graduate-stem route only
+    assert '@router.post("/api/video/graduate-stem")' in voice

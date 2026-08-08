@@ -1727,6 +1727,224 @@ def _shorts_belong_to_stem(stem: str, filename: str) -> bool:
     return shorts_belong_to_stem(stem, filename)
 
 
+async def _queue_buckets_for_stem(request: Request, stem: str) -> dict:
+    """Count open/scheduled/uploaded/settled queue rows for a master stem.
+
+    CF-1 self-scoped when multi-mode has an acting presence.
+    """
+    from src.video_session import classify_queue_row
+
+    buckets = {"open": 0, "scheduled": 0, "uploaded": 0, "settled": 0, "other": 0}
+    if not stem:
+        return buckets
+    try:
+        from src.dashboard.routes.action_board import (
+            _acting_presence_id,
+            _scope_clause,
+            _session_stem_from_row,
+        )
+        from src.memory.database import get_db
+
+        pid = await _acting_presence_id(request)
+        if pid == "":
+            return buckets
+        scope_sql, scope_args = _scope_clause(pid)
+        async with get_db() as conn:
+            result = await conn.execute(
+                f"""SELECT status, source_stem, series, file_path
+                    FROM youtube_queue
+                    WHERE status IN (
+                        'draft','queued','uploading','uploaded','failed',
+                        'published','cancelled'
+                    ){scope_sql}
+                    ORDER BY id DESC LIMIT 400""",
+                scope_args,
+            )
+            for row in await result.fetchall():
+                s = _session_stem_from_row(
+                    row.get("source_stem"), row.get("series"), row.get("file_path")
+                )
+                if s != stem:
+                    continue
+                b = classify_queue_row(row.get("status"))
+                buckets[b] = buckets.get(b, 0) + 1
+
+            result = await conn.execute(
+                f"""SELECT status, source_stem, series, file_path
+                    FROM social_queue
+                    WHERE status IN (
+                        'draft','queued','uploading','uploaded','failed',
+                        'published','cancelled'
+                    ){scope_sql}
+                    ORDER BY id DESC LIMIT 400""",
+                scope_args,
+            )
+            for row in await result.fetchall():
+                s = _session_stem_from_row(
+                    row.get("source_stem"), row.get("series"), row.get("file_path")
+                )
+                if s != stem:
+                    continue
+                b = classify_queue_row(row.get("status"))
+                buckets[b] = buckets.get(b, 0) + 1
+    except Exception as e:
+        logger.warning("queue buckets for stem %s failed: %s", stem, e)
+    return buckets
+
+
+async def try_graduate_session(
+    request: Request,
+    stem: str,
+    *,
+    skip_moments: bool | None = None,
+) -> dict:
+    """#VP-SESS-LIFE2 — processing → raw only when the session is clear.
+
+    Reads plan progress + queue buckets, then best-effort MOVE via voice.
+    Never raises. Returns {ok, graduated, reason, stem, ...}.
+    """
+    from src.video_session import (
+        has_processed_outputs,
+        may_graduate_to_raw,
+        moments_plan_progress,
+    )
+
+    stem = (stem or "").strip()
+    out = {
+        "ok": True,
+        "graduated": False,
+        "stem": stem,
+        "reason": "",
+        "may_graduate": False,
+    }
+    if not stem:
+        out["ok"] = False
+        out["reason"] = "stem required"
+        return out
+
+    try:
+        proc_files = await _list_video_dir(request, "processing")
+        t_files = await _list_video_dir(request, "transcripts")
+        short_files = await _list_video_dir(request, "shorts")
+    except Exception as e:
+        out["ok"] = False
+        out["reason"] = f"list failed: {e}"
+        return out
+
+    def _names(files):
+        names = set()
+        for f in files or []:
+            n = f.get("filename") if isinstance(f, dict) else str(f)
+            if n:
+                names.add(n)
+        return names
+
+    proc_names = _names(proc_files)
+    tnames = _names(t_files)
+    short_names = _names(short_files)
+
+    master_exts = (".mp4", ".mov", ".webm", ".m4v", ".mkv", ".MP4", ".MOV", ".AVI", ".avi")
+    in_processing = any(f"{stem}{ext}" in proc_names for ext in master_exts)
+    if not in_processing:
+        out["reason"] = "not in processing (already raw or missing)"
+        return out
+
+    has_transcript = f"{stem}-transcript.json" in tnames
+    has_moments = f"{stem}-moments.json" in tnames
+    has_processed = has_processed_outputs(stem, short_names)
+
+    moments_complete = False
+    if has_moments:
+        mdata = await _read_video_json(request, f"transcripts/{stem}-moments.json")
+        prog = moments_plan_progress(mdata)
+        moments_complete = bool(prog.get("moments_complete"))
+        if mdata is None:
+            moments_complete = False
+
+    if skip_moments is None:
+        skip_moments = False
+        if not has_moments and has_processed:
+            skip_moments = True
+        elif has_moments is False and f"{stem}-skip-moments.json" in tnames:
+            skip_moments = True
+    skip_moments = bool(skip_moments)
+
+    if skip_moments and not has_moments:
+        moments_complete = bool(has_processed)
+
+    buckets = await _queue_buckets_for_stem(request, stem)
+    may = may_graduate_to_raw(
+        has_transcript=has_transcript,
+        has_moments=has_moments,
+        skip_moments=skip_moments,
+        moments_complete=moments_complete,
+        queue_open=buckets.get("open", 0),
+        queue_uploaded=buckets.get("uploaded", 0),
+        queue_scheduled=buckets.get("scheduled", 0),
+        in_processing=True,
+    )
+    out["may_graduate"] = may
+    out["queue"] = {
+        "open": buckets.get("open", 0),
+        "scheduled": buckets.get("scheduled", 0),
+        "uploaded": buckets.get("uploaded", 0),
+        "settled": buckets.get("settled", 0),
+    }
+    out["moments_complete"] = moments_complete
+    out["has_moments"] = has_moments
+    out["skip_moments"] = skip_moments
+
+    if not may:
+        reasons = []
+        if not has_transcript:
+            reasons.append("no transcript")
+        if not moments_complete:
+            reasons.append("moments plan incomplete")
+        if buckets.get("open"):
+            reasons.append(f"{buckets['open']} open draft(s)")
+        if buckets.get("scheduled"):
+            reasons.append(f"{buckets['scheduled']} scheduled")
+        if buckets.get("uploaded"):
+            reasons.append(f"{buckets['uploaded']} uploaded (mark published)")
+        out["reason"] = "session not clear: " + (
+            ", ".join(reasons) if reasons else "work remains"
+        )
+        return out
+
+    # Clear — MOVE processing → raw via voice
+    _nch = await pipecat_nc_headers(request)
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(
+                f"{PIPECAT_URL}/api/video/graduate-stem",
+                json={"stem": stem},
+                headers=_nch,
+            )
+            raw = (resp.text or "").strip()
+            try:
+                data = resp.json() if raw else {}
+            except Exception:
+                data = {"error": raw[:200]}
+            moved = bool(isinstance(data, dict) and data.get("ok"))
+            out["graduated"] = moved
+            out["voice"] = data if isinstance(data, dict) else {"raw": data}
+            if moved:
+                out["reason"] = "graduated processing → raw"
+                logger.info("[lifecycle] gated graduate ok for %s", stem)
+            else:
+                out["reason"] = (
+                    (data.get("reason") or data.get("error") or "voice graduate failed")
+                    if isinstance(data, dict)
+                    else "voice graduate failed"
+                )
+            return out
+    except Exception as e:
+        logger.warning("[lifecycle] gated graduate call failed for %s: %s", stem, e)
+        out["ok"] = False
+        out["reason"] = str(e)
+        return out
+
+
 @router.get("/transcripts")
 async def list_transcripts(request: Request):
     """List available transcripts and their analysis status (founder mount or NC).
@@ -1794,42 +2012,25 @@ async def get_moments(stem: str, request: Request):
 
 @router.post("/graduate-stem")
 async def graduate_stem(request: Request):
-    """#SKIP-MOM1 — move finished original processing/ → raw/ so skip-moments
-    stems leave the active Video Pipeline list (same graduation as caption-full).
+    """#VP-SESS-LIFE2 — processing → raw only when the session is clear.
 
-    Body: { "stem": "IMG_7168" }
+    Body: { "stem": "IMG_7168", "skip_moments": optional bool }
     Best-effort; never fails a successful render path hard — returns ok + detail.
     """
     body = await request.json()
     stem = (body.get("stem") or "").strip()
     if not stem:
         return JSONResponse({"ok": False, "error": "stem required"}, status_code=400)
-    # Presence-scoped NC session (multi-mode); None = founder mount via voice proxy path.
-    _nch = await pipecat_nc_headers(request)
-    try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(
-                f"{PIPECAT_URL}/api/video/graduate-stem",
-                json={"stem": stem},
-                headers=_nch,
-            )
-            raw = (resp.text or "").strip()
-            if not raw:
-                return JSONResponse(
-                    {"ok": False, "error": f"empty voice response HTTP {resp.status_code}"},
-                    status_code=502,
-                )
-            try:
-                data = resp.json()
-            except Exception:
-                return JSONResponse(
-                    {"ok": False, "error": f"non-JSON voice HTTP {resp.status_code}: {raw[:200]}"},
-                    status_code=502,
-                )
-            return JSONResponse(data, status_code=resp.status_code)
-    except Exception as e:
-        logger.error("graduate-stem proxy error: %s", e)
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    skip = body.get("skip_moments")
+    if skip is None:
+        skip = body.get("whole_video")
+    result = await try_graduate_session(
+        request,
+        stem,
+        skip_moments=bool(skip) if skip is not None else None,
+    )
+    # ok=True even when not graduated (gated); HTTP 200 so callers can branch on graduated
+    return JSONResponse(result)
 
 
 @router.post("/moments/mark-skipped")
