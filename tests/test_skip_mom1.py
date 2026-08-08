@@ -80,11 +80,19 @@ def test_transcripts_api_exposes_has_processed():
 def test_graduate_stem_routes_exist():
     assert '@router.post("/graduate-stem")' in VPIPE
     assert '@router.post("/api/video/graduate-stem")' in VPROC
+    assert "try_graduate_session" in VPIPE
 
 
-def test_process_moments_graduates_whole_video():
-    assert "whole_video process-moments" in VPROC or "whole_done" in VPROC
-    assert "graduate_processing_to_raw" in VPROC
+def test_process_moments_does_not_auto_graduate_in_voice():
+    """#VP-SESS-LIFE2 — voice process-moments no longer moves processing→raw."""
+    assert "whole_done and processed" not in VPROC
+    # Graduate helper still exists for the gated app path
+    assert "graduate_processing_to_raw" in VPROC or "graduate-stem" in VPROC
+
+
+def test_crop_whole_uses_gated_graduate_flag():
+    assert "skip_moments: true" in CROP or "skip_moments:true" in CROP
+    assert "gd.graduated" in CROP
 
 
 def test_legacy_skip_moments_still_wired():

@@ -1189,19 +1189,22 @@ async function startProcessing() {
         }
         try { window.parent && window.parent.postMessage({ type: 'cove:social-queued' }, '*'); } catch (e) {}
 
-        // #SKIP-MOM1: whole/skip-moments is ONE full clip via process-moments.
-        // Never also fire caption-full (that was a second full-length encode).
-        // Graduate processing→raw so the stem leaves the active pipeline list.
+        // #SKIP-MOM1 + #VP-SESS-LIFE2: whole/skip-moments is ONE full clip via
+        // process-moments (never also caption-full). Graduation is gated —
+        // moves to raw/ only when the session is clear (no open queue work).
         if (wholeVideo) {
             try {
                 const g = await fetch('/api/video/graduate-stem', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ stem }),
+                    body: JSON.stringify({ stem, skip_moments: true }),
                 });
                 const gd = await g.json().catch(() => ({}));
-                if (g.ok && gd.ok) {
-                    status.textContent = `Full video ready — left pipeline (master in raw/). Cards are in Actions.`;
+                if (g.ok && gd.graduated) {
+                    status.textContent = `Full video ready — session clear, master in raw/. Cards are in Actions.`;
+                } else if (g.ok && gd.may_graduate === false) {
+                    status.textContent = `Full video ready in Actions.` +
+                        (gd.reason ? ` Master stays in processing until session is clear (${gd.reason}).` : ' Master stays in processing until session is clear.');
                 } else {
                     status.textContent = `Full video ready in Actions.` +
                         (gd.reason || gd.error ? ` (graduate: ${gd.reason || gd.error})` : '');

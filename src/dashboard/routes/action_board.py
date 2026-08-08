@@ -2014,7 +2014,8 @@ async def mark_published(queue_id: int, request: Request):
                 f"""UPDATE youtube_queue
                    SET status = 'published', published_at = NOW()
                    WHERE id = %s AND status = 'uploaded'{scope_sql}
-                   RETURNING id, presence_id, youtube_video_id, youtube_url""",
+                   RETURNING id, presence_id, youtube_video_id, youtube_url,
+                             source_stem, series, file_path""",
                 (queue_id,) + scope_args,
             )
             row = await result.fetchone()
@@ -2043,7 +2044,24 @@ async def mark_published(queue_id: int, request: Request):
         except Exception as e:
             logger.warning(f"mark_published calendar delete failed for #{queue_id}: {e}")
 
-        return {"status": "published", "id": queue_id}
+        # #VP-SESS-LIFE2 — session may now be clear; try processing → raw
+        graduation = None
+        try:
+            stem = _session_stem_from_row(
+                row.get("source_stem"), row.get("series"), row.get("file_path")
+            )
+            if stem:
+                from src.dashboard.routes.video_pipeline import try_graduate_session
+
+                graduation = await try_graduate_session(request, stem)
+        except Exception as e:
+            logger.warning(f"mark_published graduate failed for #{queue_id}: {e}")
+            graduation = {"ok": False, "graduated": False, "reason": str(e)}
+
+        out = {"status": "published", "id": queue_id}
+        if graduation is not None:
+            out["graduation"] = graduation
+        return out
 
     except Exception as e:
         return JSONResponse(

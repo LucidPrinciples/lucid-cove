@@ -480,6 +480,30 @@ async def process_moments(request: Request):
         except Exception as e:
             logger.warning(f"Failed to update moments JSON with processed status: {e}")
 
+    # #VP-SESS-LIFE2 — graduate only when plan + publish queue are clear
+    if processed and stem:
+        try:
+            from src.dashboard.routes.video_pipeline import try_graduate_session
+
+            whole = any(
+                isinstance(m, dict)
+                and (
+                    m.get("whole_video") is True
+                    or (
+                        (m.get("clip_label") or m.get("label") or "") == "Full video"
+                        and float(m.get("start_seconds") or 0) == 0
+                    )
+                )
+                for m in (body.get("moments") or [])
+            )
+            grad = await try_graduate_session(
+                request, stem, skip_moments=True if whole else None
+            )
+            result["graduation"] = grad
+        except Exception as e:
+            logger.warning("gated graduate after process-moments failed: %s", e)
+            result["graduation"] = {"ok": False, "graduated": False, "reason": str(e)}
+
     result["queued_count"] = queued_count
     result["platforms"] = platforms
     return JSONResponse(result)
@@ -539,6 +563,20 @@ async def caption_full_video(request: Request):
                     stem, request, result, client, _nch,
                     testing=bool(body.get("testing") or body.get("is_testing")),
                 )
+                # #VP-SESS-LIFE2 — gated graduate (caption-full no longer moves in voice)
+                try:
+                    from src.dashboard.routes.video_pipeline import try_graduate_session
+
+                    result["graduation"] = await try_graduate_session(
+                        request, stem, skip_moments=True
+                    )
+                except Exception as ge:
+                    logger.warning("gated graduate after caption-full failed: %s", ge)
+                    result["graduation"] = {
+                        "ok": False,
+                        "graduated": False,
+                        "reason": str(ge),
+                    }
 
             return JSONResponse(result, status_code=resp.status_code)
     except httpx.TimeoutException:
