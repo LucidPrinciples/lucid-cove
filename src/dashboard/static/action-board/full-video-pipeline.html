@@ -466,6 +466,8 @@ async function init() {
             has_moments: t?.has_moments || false,
             has_edits: t?.has_edits || false,
             has_processed: !!(t && t.has_processed),
+            clips_left: (t && t.clips_left != null) ? t.clips_left : null,
+            moments_complete: !!(t && t.moments_complete),
         });
     }
 
@@ -487,13 +489,20 @@ async function init() {
             has_moments: t?.has_moments || false,
             has_edits: t?.has_edits || false,
             has_processed: !!(t && t.has_processed),
+            clips_left: (t && t.clips_left != null) ? t.clips_left : null,
+            moments_complete: !!(t && t.moments_complete),
         });
     }
 
-    // Transcript-only (file already left both lists / raw) — still hide if processed
+    // Transcript-only (master left inbox/processing/raw). Keep while work remains:
+    // has_processed is a badge, not a drop. Hide only when the moments plan is
+    // fully complete (all clips processed or skipped). Missing plan after
+    // transcript/shorts still stays so Analyze / Moments can be re-entered.
     for (const t of transcripts) {
         if (seen.has(t.stem)) continue;
-        if (t.has_processed) continue;
+        const complete = !!t.moments_complete;
+        if (t.has_processed && t.has_moments && complete) continue;
+        seen.add(t.stem);
         videos.push({
             stem: t.stem,
             filename: t.stem,
@@ -502,6 +511,9 @@ async function init() {
             status: t.has_moments ? 'moments' : 'transcribed',
             has_moments: t.has_moments,
             has_edits: t.has_edits,
+            has_processed: !!t.has_processed,
+            clips_left: (t.clips_left != null) ? t.clips_left : null,
+            moments_complete: complete,
         });
     }
 
@@ -552,11 +564,11 @@ async function init() {
             <div class="video-icon">🎬</div>
             <div class="video-info">
                 <div class="video-name">${esc(v.filename)}</div>
-                <div class="video-meta">${sizeStr}${v.folder ? (sizeStr ? ' · ' : '') + v.folder + '/' : ''}</div>
+                <div class="video-meta">${sizeStr}${v.folder ? (sizeStr ? ' · ' : '') + v.folder + '/' : ''}${v.has_processed ? ((sizeStr || v.folder) ? ' · ' : '') + 'has shorts' : ''}${v.clips_left != null ? ((sizeStr || v.folder || v.has_processed) ? ' · ' : '') + (v.clips_left > 0 ? (v.clips_left + ' left') : 'complete') : (!v.has_moments && v.has_processed ? ' · needs plan' : '')}</div>
             </div>
             <div class="video-status">
                 <div class="status-dot ${statusClass}"></div>
-                <span class="status-label">${statusLabel(v.status, v.has_moments)}</span>
+                <span class="status-label">${statusLabel(v.status, v.has_moments, v.clips_left)}</span>
             </div>
             <div class="video-actions">
                 ${skipAction}
@@ -568,8 +580,12 @@ async function init() {
     container.innerHTML = html;
 }
 
-function statusLabel(status, hasMoments) {
-    if (hasMoments) return 'Moments ready';
+function statusLabel(status, hasMoments, clipsLeft) {
+    if (hasMoments) {
+        if (clipsLeft != null && clipsLeft > 0) return clipsLeft + ' clips left';
+        if (clipsLeft === 0) return 'Moments complete';
+        return 'Moments ready';
+    }
     if (status === 'transcribed') return 'Transcribed';
     return 'New';
 }

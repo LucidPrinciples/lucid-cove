@@ -29,14 +29,66 @@ def test_active_list_rule_matches_ui():
     assert vpt._on_active_pipeline_list(
         in_inbox=False, in_processing=True, has_transcript=True, has_processed=True
     )
-    # transcript-only + processed → hidden (the History vs pipeline bug)
+    # transcript-only + shorts + incomplete plan → still listed (work left)
+    assert vpt._on_active_pipeline_list(
+        in_inbox=False,
+        in_processing=False,
+        has_transcript=True,
+        has_processed=True,
+        has_moments=True,
+        moments_complete=False,
+    )
+    # transcript-only + shorts + complete plan → hide
     assert not vpt._on_active_pipeline_list(
-        in_inbox=False, in_processing=False, has_transcript=True, has_processed=True
+        in_inbox=False,
+        in_processing=False,
+        has_transcript=True,
+        has_processed=True,
+        has_moments=True,
+        moments_complete=True,
+    )
+    # transcript-only + shorts + missing plan → keep (needs Analyze)
+    assert vpt._on_active_pipeline_list(
+        in_inbox=False,
+        in_processing=False,
+        has_transcript=True,
+        has_processed=True,
+        has_moments=False,
+        moments_complete=False,
     )
     # transcript-only not processed → still listed
     assert vpt._on_active_pipeline_list(
         in_inbox=False, in_processing=False, has_transcript=True, has_processed=False
     )
+
+
+def test_shorts_belong_to_stem_rejects_clean_dual():
+    assert vpt._shorts_belong_to_stem("IMG_7171", "IMG_7171-m12-thought.mp4")
+    assert not vpt._shorts_belong_to_stem("IMG_7171", "IMG_7171-clean-m11.mp4")
+    assert not vpt._shorts_belong_to_stem("IMG_7171", "OTHER-clip.mp4")
+
+
+def test_plan_progress_counts_left():
+    data = {
+        "moments": [
+            {
+                "id": 1,
+                "clips": [
+                    {"processed": True},
+                    {"skipped": True},
+                    {"processed": False},
+                ],
+            }
+        ]
+    }
+    p = vpt._plan_progress(data)
+    assert p["clip_count"] == 3
+    assert p["clips_left"] == 1
+    assert p["moments_complete"] is False
+    data["moments"][0]["clips"][2]["processed"] = True
+    p2 = vpt._plan_progress(data)
+    assert p2["clips_left"] == 0
+    assert p2["moments_complete"] is True
 
 
 def test_nc_list_parses_nextcloud_list_format():
@@ -95,15 +147,28 @@ async def test_pipeline_status_builds_matrix(monkeypatch):
         }
         return data.get(subdir, []), None
 
+    async def fake_read(rel):
+        # large-plan shape; also proves full read path is used
+        if rel.endswith("IMG_7168-moments.json"):
+            return {
+                "moments": [
+                    {"id": 1, "clips": [{"processed": True}, {"processed": False}]}
+                ]
+            }
+        return None
+
     monkeypatch.setattr(vpt, "_nc_list_or_err", fake_list)
+    monkeypatch.setattr(vpt, "_nc_read_json", fake_read)
     out = await vpt.video_pipeline_status.coroutine(include_hidden="true")
     data = json.loads(out)
     by = {r["stem"]: r for r in data["stems"]}
     assert by["IMG_7159"]["on_active_pipeline_list"] is True
     assert by["IMG_7159"]["folder"] == "processing"
-    assert by["IMG_7168"]["on_active_pipeline_list"] is False
-    assert by["IMG_7168"]["ui_hidden_reason"] == "has_processed_transcript_only"
+    # 7168 has shorts + moments with 1 left → stays on active list
+    assert by["IMG_7168"]["on_active_pipeline_list"] is True
     assert by["IMG_7168"]["has_moments_json"] is True
+    assert by["IMG_7168"]["clips_left"] == 1
+    assert by["IMG_7168"]["moments_complete"] is False
 
 
 def test_tools_exported():

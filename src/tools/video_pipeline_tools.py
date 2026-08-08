@@ -98,38 +98,61 @@ async def _nc_list_or_err(subdir: str) -> tuple[list[str], str | None]:
 
 
 async def _nc_read_json(rel_under_video: str) -> dict | None:
-    path = f"{_VIDEO_ROOT}/{rel_under_video}"
+    """Read JSON under the video tree via raw WebDAV (no 8KB tool truncate).
+
+    `nextcloud_read` truncates chat-facing text at 8000 chars. Moments plans for
+    extended videos are often 9–25KB+, so the agent map looked "missing" while
+    NC still had a valid file. Always GET the bytes here and parse full JSON.
+    """
+    rel = (rel_under_video or "").lstrip("/")
+    path = f"/{_VIDEO_ROOT}/{rel}".replace("//", "/")
     try:
+        import httpx
+
         from src.tools import nextcloud_tools as nc
 
-        fn = nc.nextcloud_read
-        raw = await (fn.coroutine if hasattr(fn, "coroutine") else fn)(path=path)
+        url = nc._webdav_url(path)
+        async with httpx.AsyncClient(auth=nc._auth(), timeout=60.0) as client:
+            resp = await client.get(url)
+            if resp.status_code == 404:
+                alt = await nc._find_sibling_by_ws(path)
+                if alt:
+                    resp = await client.get(nc._webdav_url(alt))
+                    path = alt
+            if resp.status_code != 200:
+                logger.warning(
+                    "video tool read %s HTTP %s", path, resp.status_code
+                )
+                return None
+            data = resp.json()
+            return data if isinstance(data, dict) else None
     except Exception as e:
         logger.warning("video tool read %s failed: %s", path, e)
         return None
-    if not isinstance(raw, str) or raw.startswith("Error") or raw.startswith("Access denied"):
-        return None
-    text = raw.strip()
-    if text.startswith("{"):
-        body = text
-    else:
-        idx = text.find("{")
-        if idx < 0:
-            return None
-        body = text[idx:]
-    try:
-        data = json.loads(body)
-        return data if isinstance(data, dict) else None
-    except Exception:
-        return None
+
+
+def _shorts_belong_to_stem(stem: str, filename: str) -> bool:
+    """True when a shorts basename is for this stem, not a dual-stem sibling.
+
+    Prefix match alone attaches `IMG_7171-clean-*` to parent `IMG_7171`.
+    """
+    if not stem or not filename:
+        return False
+    prefix = f"{stem}-"
+    if not filename.startswith(prefix):
+        return False
+    rest = filename[len(prefix):]
+    # Known dual-stem / variant pollution (forensics 2026-08-08).
+    if rest.startswith("clean-") or rest.startswith("clean."):
+        return False
+    return True
 
 
 def _has_processed(stem: str, short_names: set[str]) -> bool:
     if f"{stem}-moments-processed.json" in short_names:
         return True
-    prefix = f"{stem}-"
     for n in short_names:
-        if not n.startswith(prefix):
+        if not _shorts_belong_to_stem(stem, n):
             continue
         if "-preview" in n:
             continue
@@ -138,19 +161,60 @@ def _has_processed(stem: str, short_names: set[str]) -> bool:
     return False
 
 
+def _plan_progress(moments_data: dict | None) -> dict:
+    """clips_left / moments_complete from a moments.json payload."""
+    if not isinstance(moments_data, dict):
+        return {
+            "clip_count": None,
+            "clips_left": None,
+            "moments_complete": False,
+        }
+    clip_count = left = 0
+    for moment in moments_data.get("moments") or []:
+        if not isinstance(moment, dict):
+            continue
+        for clip in moment.get("clips") or []:
+            if not isinstance(clip, dict):
+                continue
+            clip_count += 1
+            if clip.get("skipped"):
+                continue
+            if not clip.get("processed"):
+                left += 1
+    return {
+        "clip_count": clip_count,
+        "clips_left": left,
+        "moments_complete": bool(clip_count > 0 and left == 0),
+    }
+
+
 def _on_active_pipeline_list(
     *,
     in_inbox: bool,
     in_processing: bool,
     has_transcript: bool,
     has_processed: bool,
+    has_moments: bool = False,
+    moments_complete: bool = False,
 ) -> bool:
-    """Mirror full-video-pipeline.html merge rules (as of #VP-ATLAS1)."""
+    """Mirror full-video-pipeline.html merge rules (list/moments flow fix).
+
+    Masters in inbox/processing always stay. Transcript-only rows stay until the
+    moments plan is fully done (or there is no plan yet after shorts exist) —
+    "has any short" is no longer enough to drop a stem with work left.
+    """
     if in_processing or in_inbox:
         return True
-    if has_transcript and not has_processed:
+    if not has_transcript:
+        return False
+    if not has_processed:
         return True
-    return False
+    # Shorts exist, master gone: keep unless the plan is fully complete.
+    if not has_moments:
+        return True
+    if moments_complete:
+        return False
+    return True
 
 
 @auto
@@ -225,11 +289,21 @@ async def video_pipeline_status(include_hidden: str = "true") -> str:
         has_m = stem in moments_stems
         has_e = stem in edited_stems
         has_p = _has_processed(stem, short_names)
+        progress = {
+            "clip_count": None,
+            "clips_left": None,
+            "moments_complete": False,
+        }
+        if has_m:
+            mdata = await _nc_read_json(f"transcripts/{stem}-moments.json")
+            progress = _plan_progress(mdata)
         on_list = _on_active_pipeline_list(
             in_inbox=in_inbox,
             in_processing=in_proc,
             has_transcript=has_t,
             has_processed=has_p,
+            has_moments=has_m,
+            moments_complete=bool(progress.get("moments_complete")),
         )
         if on_list:
             active += 1
@@ -248,6 +322,16 @@ async def video_pipeline_status(include_hidden: str = "true") -> str:
             if has_t
             else "unknown"
         )
+        hide_reason = None
+        if not on_list:
+            if has_t and has_p and not in_inbox and not in_proc and progress.get("moments_complete"):
+                hide_reason = "moments_complete"
+            elif has_t and has_p and not in_inbox and not in_proc:
+                hide_reason = "has_processed_transcript_only"
+            elif not has_t and not in_inbox and not in_proc:
+                hide_reason = "no_master_no_transcript"
+            else:
+                hide_reason = "not_on_list"
         rows.append(
             {
                 "stem": stem,
@@ -260,18 +344,11 @@ async def video_pipeline_status(include_hidden: str = "true") -> str:
                 "has_moments_json": has_m,
                 "has_edits": has_e,
                 "has_processed": has_p,
+                "clip_count": progress.get("clip_count"),
+                "clips_left": progress.get("clips_left"),
+                "moments_complete": bool(progress.get("moments_complete")),
                 "on_active_pipeline_list": on_list,
-                "ui_hidden_reason": (
-                    None
-                    if on_list
-                    else (
-                        "has_processed_transcript_only"
-                        if (has_t and has_p and not in_inbox and not in_proc)
-                        else "no_master_no_transcript"
-                        if not has_t and not in_inbox and not in_proc
-                        else "not_on_list"
-                    )
-                ),
+                "ui_hidden_reason": hide_reason,
             }
         )
 
@@ -285,9 +362,10 @@ async def video_pipeline_status(include_hidden: str = "true") -> str:
         "stems": rows,
         "product_rule": (
             "Active Video Pipeline list = masters in inbox/ or processing/, plus "
-            "transcript-only stems where has_processed is false. Once any short "
-            "exists and the master left inbox/processing, the stem drops off the "
-            "active list even if many moments clips remain."
+            "transcript-only stems that still need work. has_processed (any short) "
+            "is a badge, not a drop: transcript-only stems stay while clips_left > 0 "
+            "or the moments plan is missing after transcript. Fully complete plans "
+            "drop off the active list."
         ),
     }
     return json.dumps(payload, indent=2, default=str)
@@ -321,7 +399,7 @@ async def video_moments_map(stem: str) -> str:
     short_names, _ = await _nc_list_or_err("shorts")
     summary["has_processed_marker"] = _has_processed(stem, set(short_names or []))
     summary["shorts_matching_prefix"] = sorted(
-        n for n in (short_names or []) if n.startswith(f"{stem}-")
+        n for n in (short_names or []) if _shorts_belong_to_stem(stem, n)
     )[:40]
     return json.dumps(summary, indent=2, default=str)
 

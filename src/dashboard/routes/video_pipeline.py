@@ -256,9 +256,23 @@ async def _read_video_json(request, subpath: str):
             if r.status_code == 200:
                 data = r.json()
                 if isinstance(data, dict) and "error" not in data:
-                    return data
+                    # Stale voice scratch can serve a tiny/wrong JSON for large
+                    # moments plans. Require a real moments list when reading
+                    # *-moments.json; otherwise fall through to NC WebDAV.
+                    if subpath.endswith("-moments.json") and not isinstance(
+                        data.get("moments"), list
+                    ):
+                        logger.warning(
+                            "voice read-json unusable moments payload for %s; "
+                            "falling through",
+                            subpath,
+                        )
+                    else:
+                        return data
                 # Some proxies wrap; if it looks like transcript payload, accept.
-                if isinstance(data, dict) and ("segments" in data or "moments" in data):
+                elif isinstance(data, dict) and (
+                    "segments" in data or isinstance(data.get("moments"), list)
+                ):
                     return data
     except Exception as e:
         logger.warning(f"voice read-json failed ({subpath}): {e}")
@@ -1694,12 +1708,50 @@ async def heal_inbox_processing(request: Request):
     }
 
 
+def _moments_plan_progress(moments_data) -> dict:
+    """Derive clips_left / complete from a moments.json dict (shared list rule)."""
+    if not isinstance(moments_data, dict):
+        return {"clip_count": None, "clips_left": None, "moments_complete": False}
+    clip_count = left = 0
+    for moment in moments_data.get("moments") or []:
+        if not isinstance(moment, dict):
+            continue
+        for clip in moment.get("clips") or []:
+            if not isinstance(clip, dict):
+                continue
+            clip_count += 1
+            if clip.get("skipped"):
+                continue
+            if not clip.get("processed"):
+                left += 1
+    return {
+        "clip_count": clip_count,
+        "clips_left": left,
+        "moments_complete": bool(clip_count > 0 and left == 0),
+    }
+
+
+def _shorts_belong_to_stem(stem: str, filename: str) -> bool:
+    """Reject dual-stem pollution (e.g. IMG_7171-clean-* under parent IMG_7171)."""
+    if not stem or not filename or not filename.startswith(f"{stem}-"):
+        return False
+    rest = filename[len(stem) + 1 :]
+    if rest.startswith("clean-") or rest.startswith("clean."):
+        return False
+    return True
+
+
 @router.get("/transcripts")
 async def list_transcripts(request: Request):
-    """List available transcripts and their analysis status (founder mount or NC)."""
+    """List available transcripts and their analysis status (founder mount or NC).
+
+    Includes plan progress so the active Video Pipeline list can keep stems with
+    remaining clips instead of hiding on first short (#list-moments-flow).
+    """
     files = await _list_video_dir(request, "transcripts")
     names = {f["filename"] for f in files}
-    # #SKIP-MOM1 — shorts products mark a stem as finished for active-pipeline hide
+    # #SKIP-MOM1 — shorts products used to mean "drop from active list"; now only
+    # a badge. Remaining work comes from moments plan progress.
     short_files = await _list_video_dir(request, "shorts")
     short_names = {f["filename"] for f in short_files}
     transcripts = []
@@ -1713,10 +1765,24 @@ async def list_transcripts(request: Request):
             has_processed = (
                 f"{stem}-moments-processed.json" in short_names
                 or any(
-                    n.startswith(f"{stem}-") and n.endswith(".mp4") and "-preview" not in n
+                    _shorts_belong_to_stem(stem, n)
+                    and n.endswith(".mp4")
+                    and "-preview" not in n
                     for n in short_names
                 )
             )
+            clip_count = clips_left = None
+            moments_complete = False
+            if has_moments:
+                mdata = await _read_video_json(request, f"transcripts/{moments_file}")
+                prog = _moments_plan_progress(mdata)
+                clip_count = prog["clip_count"]
+                clips_left = prog["clips_left"]
+                moments_complete = bool(prog["moments_complete"])
+                # File listed but unreadable → treat as incomplete so UI keeps it
+                if mdata is None:
+                    clips_left = None
+                    moments_complete = False
             transcripts.append({
                 "stem": stem,
                 "transcript_file": f,
@@ -1724,6 +1790,9 @@ async def list_transcripts(request: Request):
                 "moments_file": moments_file if has_moments else None,
                 "has_edits": has_edits,
                 "has_processed": has_processed,
+                "clip_count": clip_count,
+                "clips_left": clips_left,
+                "moments_complete": moments_complete,
             })
     return {"transcripts": transcripts}
 
