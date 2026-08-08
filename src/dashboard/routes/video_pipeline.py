@@ -1710,35 +1710,21 @@ async def heal_inbox_processing(request: Request):
 
 def _moments_plan_progress(moments_data) -> dict:
     """Derive clips_left / complete from a moments.json dict (shared list rule)."""
-    if not isinstance(moments_data, dict):
-        return {"clip_count": None, "clips_left": None, "moments_complete": False}
-    clip_count = left = 0
-    for moment in moments_data.get("moments") or []:
-        if not isinstance(moment, dict):
-            continue
-        for clip in moment.get("clips") or []:
-            if not isinstance(clip, dict):
-                continue
-            clip_count += 1
-            if clip.get("skipped"):
-                continue
-            if not clip.get("processed"):
-                left += 1
+    from src.video_session import moments_plan_progress
+
+    p = moments_plan_progress(moments_data)
     return {
-        "clip_count": clip_count,
-        "clips_left": left,
-        "moments_complete": bool(clip_count > 0 and left == 0),
+        "clip_count": p.get("clip_count"),
+        "clips_left": p.get("clips_left"),
+        "moments_complete": p.get("moments_complete"),
     }
 
 
 def _shorts_belong_to_stem(stem: str, filename: str) -> bool:
     """Reject dual-stem pollution (e.g. IMG_7171-clean-* under parent IMG_7171)."""
-    if not stem or not filename or not filename.startswith(f"{stem}-"):
-        return False
-    rest = filename[len(stem) + 1 :]
-    if rest.startswith("clean-") or rest.startswith("clean."):
-        return False
-    return True
+    from src.video_session import shorts_belong_to_stem
+
+    return shorts_belong_to_stem(stem, filename)
 
 
 @router.get("/transcripts")

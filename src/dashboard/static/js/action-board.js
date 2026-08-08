@@ -240,6 +240,11 @@ let _historyHasMore = false;
 let _historyOffset = 0;
 const _HISTORY_PAGE = 50;
 
+// #VP-SESS-LIFE1 — Open Work sessions (per-original lifecycle)
+let _openWorkSessions = [];
+let _openWorkSummary = {};
+let _openWorkLoaded = false;
+
 // =============================================================================
 // Actions tab — individual items from the queue
 // =============================================================================
@@ -250,15 +255,23 @@ async function loadABActions() {
     if (!container) return;
 
     try {
-        // #VP-HIST1 / #PERF-MC1: drafts + scheduled only on first paint.
+        // #VP-HIST1 / #PERF-MC1: drafts + scheduled + open-work on first paint.
         // History loads when the History subtab is opened (or restored).
-        const [actRes, schedRes] = await Promise.all([
+        const [actRes, schedRes, owRes] = await Promise.all([
             fetch('/api/action-board/actions'),
             fetch('/api/action-board/scheduled'),
+            fetch('/api/action-board/open-work'),
         ]);
         const actData = actRes.ok ? await actRes.json() : { actions: [] };
         const schedData = schedRes.ok ? await schedRes.json() : { scheduled: [] };
-        renderActions(container, actData.actions || [], schedData.scheduled || []);
+        let owData = { sessions: [], summary: {} };
+        if (owRes.ok) {
+            try { owData = await owRes.json(); } catch (_) { /* ignore */ }
+        }
+        _openWorkSessions = owData.sessions || [];
+        _openWorkSummary = owData.summary || {};
+        _openWorkLoaded = true;
+        renderActions(container, actData.actions || [], schedData.scheduled || [], _openWorkSessions);
         // If operator was already on History this session, rehydrate after paint.
         if (_actActiveSubtab.social === 'history') {
             loadHistorySubtab({ reset: true });
@@ -289,6 +302,7 @@ window.addEventListener('message', (e) => {
 
 function refreshActions() {
     _abActionsLoaded = false;
+    _openWorkLoaded = false;
     // Keep history cache unless operator force-refreshes while on History
     // (loadHistorySubtab reset happens when History subtab is re-opened after refresh).
     if (_actActiveSubtab.social === 'history') {
@@ -299,16 +313,28 @@ function refreshActions() {
     loadABActions();
 }
 
-function renderActions(container, actions, scheduled) {
+function renderActions(container, actions, scheduled, openWorkSessions) {
     actions = actions || [];
     scheduled = scheduled || [];
+    openWorkSessions = openWorkSessions || _openWorkSessions || [];
     window._abLastScheduledItems = scheduled;
+    window._abLastOpenWork = openWorkSessions;
 
     // ── Build tabs from all items ──────────────────────
     // Tab definitions: id, label, items, subtabs (optional)
     // #VP-HIST1: Social Posts always present so History is one click away
     // even on a published-only day (no drafts/scheduled).
+    // #VP-SESS-LIFE1: Open Work is first — per-original session map.
     const tabs = [];
+
+    const owCount = openWorkSessions.length;
+    tabs.push({
+        id: 'open-work',
+        label: '🎬 Open Work',
+        count: owCount,
+        openWork: true,
+        items: openWorkSessions,
+    });
 
     // Wizard/Continue Setup items
     const wizardItems = actions.filter(a => a.category === 'wizard');
@@ -391,7 +417,9 @@ function renderActions(container, actions, scheduled) {
         const display = i === 0 ? '' : 'display:none;';
         html += `<div class="ab-act-panel" id="ab-act-panel-${tab.id}" style="${display}">`;
 
-        if (tab.showLegend) {
+        if (tab.openWork) {
+            html += _renderOpenWorkPanel(tab.items || []);
+        } else if (tab.showLegend) {
             html += _socialBoardLegendHtml();
         }
 
@@ -422,7 +450,7 @@ function renderActions(container, actions, scheduled) {
                 }
                 html += '</div>';
             });
-        } else {
+        } else if (!tab.openWork) {
             html += _renderActionCards(tab.items);
         }
 
@@ -626,6 +654,137 @@ async function regenDraftMeta() {
 }
 let _abRegenMetaBusy = false;
 
+
+// =============================================================================
+// #VP-SESS-LIFE1 — Open Work (per-original session lifecycle)
+// =============================================================================
+
+function _openWorkPhaseLabel(phase) {
+    const map = {
+        needs_transcript: 'Needs transcript',
+        needs_moments_plan: 'Needs moments plan',
+        ready_to_crop: 'Ready to crop',
+        crop_or_caption: 'Crop / caption',
+        clips_remaining: 'Clips remaining',
+        drafts_open: 'Drafts open',
+        scheduled: 'Scheduled',
+        uploaded_awaiting_publish: 'Uploaded — mark published',
+        clear: 'Clear',
+        in_progress: 'In progress',
+    };
+    return map[phase] || phase || 'In progress';
+}
+
+function _renderOpenWorkPanel(sessions) {
+    const list = sessions || [];
+    const sum = _openWorkSummary || {};
+    const hint = `<div class="ab-open-work-hint">
+        One card per original. Shows clips left, queue state, and the next step.
+        Folder moves to raw/ stay gated until the session is fully clear.
+    </div>`;
+    if (!_openWorkLoaded && !list.length) {
+        return `${hint}<div class="ab-empty">Loading open work…</div>`;
+    }
+    if (!list.length) {
+        return `${hint}<div class="ab-empty">No open video sessions.
+            <div style="margin-top:6px;font-size:0.78rem;color:var(--dim)">
+                Inbox / processing masters and unfinished moments plans show here.
+                Clear sessions belong in History once publish is settled.
+            </div>
+        </div>`;
+    }
+    const rollupBits = [];
+    if (sum.open_count != null) rollupBits.push(`${sum.open_count} open`);
+    if (sum.clips_left_total) rollupBits.push(`${sum.clips_left_total} clips left`);
+    const rollup = rollupBits.length
+        ? `<div class="ab-open-work-rollup">${esc(rollupBits.join(' · '))}</div>`
+        : '';
+    let cards = '';
+    for (const s of list) {
+        cards += _renderOpenWorkCard(s);
+    }
+    return `${hint}${rollup}<div class="ab-open-work-list" id="ab-open-work-body">${cards}</div>`;
+}
+
+function _renderOpenWorkCard(s) {
+    if (!s || !s.stem) return '';
+    const stem = String(s.stem);
+    const phase = s.phase || 'in_progress';
+    const folder = s.folder || 'none';
+    const q = s.queue || {};
+    const bits = [];
+    if (folder && folder !== 'none') bits.push(`${folder}/`);
+    if (s.clips_left != null) {
+        bits.push(s.clips_left > 0 ? `${s.clips_left} left` : 'clips done');
+    } else if (s.has_moments) {
+        bits.push('plan unread');
+    } else if (!s.has_moments && s.has_transcript) {
+        bits.push(s.skip_moments ? 'skip-moments' : 'needs plan');
+    }
+    if (s.has_processed) bits.push('has shorts');
+    if (q.open) bits.push(`${q.open} draft`);
+    if (q.scheduled) bits.push(`${q.scheduled} scheduled`);
+    if (q.uploaded) bits.push(`${q.uploaded} uploaded`);
+    const next = s.next_action || 'Continue';
+    const links = s.links || {};
+    const primary = links.primary || links.pipeline || '';
+    const crop = links.crop || '';
+    const moments = links.moments || '';
+    const edit = links.edit || '';
+    const pipeline = links.pipeline || '';
+
+    const openPrimary = primary
+        ? `onclick="openFlowOverlay('${esc(primary)}', 'ab-actions', '${esc(stem)}')"`
+        : '';
+    const cursor = primary ? 'style="cursor:pointer;"' : '';
+
+    const actions = [];
+    if (pipeline) {
+        actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(pipeline)}', 'ab-actions', '${esc(stem)}')">Pipeline</button>`);
+    }
+    if (edit && (phase === 'needs_moments_plan' || !s.has_edits)) {
+        actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(edit)}', 'ab-actions', '${esc(stem)}')">Edit</button>`);
+    }
+    if (moments && !s.skip_moments) {
+        actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(moments)}', 'ab-actions', '${esc(stem)}')">Moments</button>`);
+    }
+    if (crop && (phase === 'clips_remaining' || phase === 'crop_or_caption' || phase === 'ready_to_crop' || s.has_moments)) {
+        const cropUrl = (s.skip_moments && links.crop_whole) ? links.crop_whole : crop;
+        actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(cropUrl)}', 'ab-actions', '${esc(stem)}')">Crop</button>`);
+    }
+
+    const mapBitsRaw = (_sessionMapBits(stem) || '').replace(/^ · /, '');
+    // Ensure map loads for open-work stems
+    if (_sessionMapCache[stem] === undefined) {
+        ensureSessionMaps([stem]).then(() => {
+            try {
+                const card = document.querySelector('.ab-open-work-card[data-stem="' + stem.replace(/"/g, '') + '"]');
+                if (!card) return;
+                const el = card.querySelector('.ab-ow-map');
+                if (el) el.innerHTML = _sessionMapPanelHtml(stem);
+                const counts = card.querySelector('.ab-ow-map-bits');
+                if (counts) {
+                    const b = (_sessionMapBits(stem) || '').replace(/^ · /, '');
+                    counts.textContent = b ? (' · ' + b) : '';
+                }
+            } catch (_) { /* ignore */ }
+        });
+    }
+    const mapHtml = _sessionMapPanelHtml(stem);
+
+    return `<div class="ab-open-work-card ab-action-card" data-stem="${esc(stem)}" data-phase="${esc(phase)}" ${openPrimary} ${cursor}>
+        <div class="ab-action-urgency" style="background:var(--accent)"></div>
+        <div class="ab-action-info ab-ow-info">
+            <div class="ab-action-title">Session ${esc(stem)}
+                <span class="ab-meta-chip ab-ow-phase">${esc(_openWorkPhaseLabel(phase))}</span>
+            </div>
+            <div class="ab-action-desc">${esc(bits.join(' · '))}<span class="ab-ow-map-bits">${mapBitsRaw ? esc(' · ' + mapBitsRaw) : ''}</span></div>
+            <div class="ab-ow-next"><strong>Next:</strong> ${esc(next)}</div>
+            <div class="ab-ow-actions">${actions.join('')}</div>
+            <div class="ab-ow-map">${mapHtml}</div>
+        </div>
+    </div>`;
+}
 
 // #VP-SESS-MAP1 — moments.json summaries keyed by stem (lazy-loaded)
 const _sessionMapCache = {};

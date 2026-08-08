@@ -319,6 +319,60 @@
   max-width: none;
 }
 
+/* #VP-SESS-LIFE1 — Open Work (per-original lifecycle) */
+.ab-open-work-hint {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+  color: var(--dim);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.ab-open-work-rollup {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  color: var(--accent);
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+.ab-open-work-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.ab-open-work-card {
+  width: 100%;
+  max-width: none;
+  align-items: stretch;
+}
+.ab-ow-info { flex: 1; min-width: 0; }
+.ab-ow-phase {
+  border-color: var(--accent);
+  color: var(--accent);
+  margin-left: 6px;
+  font-weight: 500;
+}
+.ab-ow-next {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+.ab-ow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ab-ow-btn {
+  font-size: 0.72rem !important;
+  padding: 4px 10px !important;
+}
+.ab-ow-map {
+  margin-top: 10px;
+}
+.ab-ow-map-bits { color: var(--dim); }
+
 /* #VP-SESS1 — session groups (one master stem = full + moments) */
 .ab-session-group {
     grid-column: 1 / -1;

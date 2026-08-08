@@ -39,7 +39,8 @@ def test_js_groups_by_session():
     assert "session_role" in JS
     # drafts, scheduled, history all go through grouped render
     assert "_renderGrouped(items" in JS
-    assert JS.count("return _renderGrouped") >= 3
+    # scheduled/history may prefix filterBar; count call sites not exact "return _"
+    assert JS.count("_renderGrouped(") >= 4  # def + action + scheduled + history
 
 
 def test_history_sessions_collapsed_newest_first():

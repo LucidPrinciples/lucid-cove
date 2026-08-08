@@ -1011,6 +1011,314 @@ async def get_history(request: Request, limit: int = 50, offset: int = 0):
     }
 
 
+@router.get("/api/action-board/open-work")
+async def get_open_work(request: Request, include_clear: str = "false"):
+    """#VP-SESS-LIFE1 — per-original session open-work for Actions.
+
+    Aggregates folder placement, moments plan progress, and queue buckets
+    keyed by master stem. Does not move files (graduation stays gated).
+
+    Query: include_clear=true also returns sessions that are fully clear
+    (useful for diagnostics). Default is open sessions only.
+    """
+    if _is_public_app():
+        return JSONResponse({"error": "unavailable"}, status_code=404)
+    pid = await _acting_presence_id(request)
+    if pid == "":
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    show_clear = str(include_clear or "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+    try:
+        from src.dashboard.routes.video_pipeline import (
+            _list_video_dir,
+            _read_video_json,
+        )
+        from src.video_session import (
+            build_session_snapshot,
+            has_processed_outputs,
+            summarize_open_work,
+        )
+        from src.video_stems import stem_from_transcript_name
+    except Exception as e:
+        logger.warning(f"open-work import failed: {e}")
+        return {
+            "sessions": [],
+            "summary": {"open_count": 0, "clear_count": 0, "total": 0, "by_phase": {}},
+            "error": "import_failed",
+        }
+
+    master_exts = (".mp4", ".mov", ".webm", ".m4v", ".mkv", ".MP4", ".MOV", ".AVI", ".avi")
+
+    def _stem_from_master(name: str) -> str:
+        base = name or ""
+        for ext in master_exts:
+            if base.endswith(ext):
+                return base[: -len(ext)]
+        if "." in base:
+            return base.rsplit(".", 1)[0]
+        return base
+
+    try:
+        inbox_files = await _list_video_dir(request, "inbox")
+        proc_files = await _list_video_dir(request, "processing")
+        raw_files = await _list_video_dir(request, "raw")
+        t_files = await _list_video_dir(request, "transcripts")
+        short_files = await _list_video_dir(request, "shorts")
+    except Exception as e:
+        logger.warning(f"open-work list dirs failed: {e}")
+        return {
+            "sessions": [],
+            "summary": {"open_count": 0, "clear_count": 0, "total": 0, "by_phase": {}},
+            "error": "list_failed",
+        }
+
+    inbox_stems: dict[str, str] = {}
+    for f in inbox_files or []:
+        n = f.get("filename") if isinstance(f, dict) else str(f)
+        if not n or n.endswith(".json"):
+            continue
+        lower = n.lower()
+        if lower.endswith((".mp4", ".mov", ".webm", ".m4v", ".mkv", ".avi")):
+            inbox_stems[_stem_from_master(n)] = n
+
+    proc_stems: dict[str, str] = {}
+    for f in proc_files or []:
+        n = f.get("filename") if isinstance(f, dict) else str(f)
+        if not n or n.endswith(".json"):
+            continue
+        lower = n.lower()
+        if lower.endswith((".mp4", ".mov", ".webm", ".m4v", ".mkv", ".avi")):
+            proc_stems[_stem_from_master(n)] = n
+
+    raw_stems: dict[str, str] = {}
+    for f in raw_files or []:
+        n = f.get("filename") if isinstance(f, dict) else str(f)
+        if not n or n.endswith(".json"):
+            continue
+        lower = n.lower()
+        if lower.endswith((".mp4", ".mov", ".webm", ".m4v", ".mkv", ".avi")):
+            raw_stems[_stem_from_master(n)] = n
+
+    tnames = set()
+    for f in t_files or []:
+        n = f.get("filename") if isinstance(f, dict) else str(f)
+        if n:
+            tnames.add(n)
+    short_names = set()
+    for f in short_files or []:
+        n = f.get("filename") if isinstance(f, dict) else str(f)
+        if n:
+            short_names.add(n)
+
+    transcript_stems: set[str] = set()
+    moments_stems: set[str] = set()
+    edited_stems: set[str] = set()
+    skip_markers: set[str] = set()
+    for n in tnames:
+        if n.endswith("-transcript.json") and not n.endswith("-edited.json"):
+            transcript_stems.add(stem_from_transcript_name(n))
+        elif n.endswith("-moments.json") and not n.endswith("-moments-processed.json"):
+            moments_stems.add(n[: -len("-moments.json")])
+        elif n.endswith("-transcript-edited.json"):
+            edited_stems.add(n[: -len("-transcript-edited.json")])
+        elif n.endswith("-skip-moments.json") or n.endswith("-skip-moments"):
+            skip_markers.add(n.split("-skip-moments")[0])
+
+    # Also treat whole-video processed manifests as skip path when no moments plan
+    for n in short_names:
+        if n.endswith("-moments-processed.json"):
+            s = n[: -len("-moments-processed.json")]
+            # Heuristic: processed manifest with only full/whole clip → skip path
+            # (resolved later when building snapshot if no moments.json)
+
+    all_stems = sorted(
+        set(inbox_stems)
+        | set(proc_stems)
+        | set(raw_stems)
+        | transcript_stems
+        | moments_stems
+    )
+
+    # Queue rows by source_stem (presence-scoped)
+    scope_sql, scope_args = _scope_clause(pid)
+    queue_by_stem: dict[str, list] = {}
+    try:
+        from src.memory.database import get_db
+
+        async with get_db() as conn:
+            result = await conn.execute(
+                f"""SELECT id, title, status, source_stem, file_path, series,
+                          is_short, 'youtube' AS platform
+                   FROM youtube_queue
+                   WHERE status IN (
+                        'draft','queued','uploading','uploaded','failed','published','cancelled'
+                   ){scope_sql}
+                   ORDER BY id DESC
+                   LIMIT 500""",
+                scope_args,
+            )
+            for row in await result.fetchall():
+                stem = _session_stem_from_row(
+                    row.get("source_stem"), row.get("series"), row.get("file_path")
+                )
+                if not stem:
+                    continue
+                queue_by_stem.setdefault(stem, []).append({
+                    "id": row["id"],
+                    "title": row.get("title"),
+                    "status": row.get("status"),
+                    "platform": "youtube",
+                    "session_role": _session_role(is_short=row.get("is_short")),
+                })
+
+            result = await conn.execute(
+                f"""SELECT id, title, status, source_stem, file_path, series,
+                          clip_type, format, duration_seconds, platform
+                   FROM social_queue
+                   WHERE status IN (
+                        'draft','queued','uploading','uploaded','failed','published','cancelled'
+                   ){scope_sql}
+                   ORDER BY id DESC
+                   LIMIT 500""",
+                scope_args,
+            )
+            for row in await result.fetchall():
+                stem = _session_stem_from_row(
+                    row.get("source_stem"), row.get("series"), row.get("file_path")
+                )
+                if not stem:
+                    continue
+                queue_by_stem.setdefault(stem, []).append({
+                    "id": row["id"],
+                    "title": row.get("title"),
+                    "status": row.get("status"),
+                    "platform": row.get("platform") or "social",
+                    "session_role": _session_role(
+                        clip_type=row.get("clip_type"),
+                        format_=row.get("format"),
+                        duration_seconds=row.get("duration_seconds"),
+                    ),
+                })
+    except Exception as e:
+        logger.warning(f"open-work queue read failed: {e}")
+
+    # Stems that only appear on the queue still matter for open work
+    for stem in list(queue_by_stem.keys()):
+        if stem not in all_stems:
+            # Only include if still open (not fully settled-only)
+            rows = queue_by_stem[stem]
+            if any(
+                (r.get("status") or "")
+                in ("draft", "queued", "uploading", "uploaded", "failed")
+                for r in rows
+            ):
+                all_stems.append(stem)
+    all_stems = sorted(set(all_stems))
+
+    sessions = []
+    for stem in all_stems:
+        # Soft cap — Open Work is a management surface, not a full archive
+        if len(sessions) >= 80 and not show_clear:
+            break
+        in_inbox = stem in inbox_stems
+        in_proc = stem in proc_stems
+        in_raw = stem in raw_stems
+        has_t = stem in transcript_stems
+        has_m = stem in moments_stems
+        has_e = stem in edited_stems
+        has_p = has_processed_outputs(stem, short_names)
+        skip = stem in skip_markers
+
+        # Detect whole-video skip path from processed manifest when no plan
+        if not has_m and has_p and not skip:
+            try:
+                man = await _read_video_json(
+                    request, f"shorts/{stem}-moments-processed.json"
+                )
+            except Exception:
+                man = None
+            if isinstance(man, dict):
+                processed = man.get("processed") or []
+                if processed and all(
+                    isinstance(c, dict)
+                    and (
+                        c.get("whole_video") is True
+                        or (c.get("clip_label") or c.get("label") or "") == "Full video"
+                        or c.get("clip_type") == "full"
+                    )
+                    for c in processed
+                ):
+                    skip = True
+
+        mdata = None
+        if has_m:
+            try:
+                mdata = await _read_video_json(
+                    request, f"transcripts/{stem}-moments.json"
+                )
+            except Exception:
+                mdata = None
+
+        snap = build_session_snapshot(
+            stem=stem,
+            in_inbox=in_inbox,
+            in_processing=in_proc,
+            in_raw=in_raw,
+            has_transcript=has_t,
+            has_edits=has_e,
+            has_moments=has_m,
+            skip_moments=skip,
+            moments_data=mdata,
+            has_processed=has_p,
+            queue_rows=queue_by_stem.get(stem) or [],
+        )
+        snap["master"] = (
+            proc_stems.get(stem)
+            or inbox_stems.get(stem)
+            or raw_stems.get(stem)
+        )
+        snap["queue_rows"] = [
+            {
+                "id": r.get("id"),
+                "title": r.get("title"),
+                "status": r.get("status"),
+                "platform": r.get("platform"),
+                "session_role": r.get("session_role"),
+            }
+            for r in (queue_by_stem.get(stem) or [])[:40]
+        ]
+        # Keep dual-stem clean-* products off parent open-work noise
+        if "-clean" in stem and stem not in transcript_stems and not in_inbox and not in_proc:
+            # still allow if it has its own queue rows
+            if not queue_by_stem.get(stem):
+                continue
+        if snap.get("on_open_work") or show_clear:
+            sessions.append(snap)
+
+    # Prefer open sessions first, then by clips_left desc
+    sessions.sort(
+        key=lambda s: (
+            0 if s.get("on_open_work") else 1,
+            -(s.get("clips_left") or 0),
+            s.get("stem") or "",
+        )
+    )
+    if not show_clear:
+        sessions = [s for s in sessions if s.get("on_open_work")]
+
+    summary = summarize_open_work(sessions if show_clear else sessions)
+    # When filtering open-only, summary already matches; when include_clear,
+    # recompute from full list we built before filter — already on sessions.
+    return {
+        "sessions": sessions,
+        "summary": summary,
+        "include_clear": show_clear,
+    }
+
+
 def _summarize_moments_map(moments_data: dict | None, stem: str) -> dict:
     """Flatten transcripts/{stem}-moments.json into session-header + nested rows.
 
