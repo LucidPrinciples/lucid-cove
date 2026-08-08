@@ -242,3 +242,20 @@ def test_voice_no_eager_graduate_on_render():
     assert "graduate_processing_to_raw" not in pm
     # caption-full still has the helper available via graduate-stem route only
     assert '@router.post("/api/video/graduate-stem")' in voice
+
+
+def test_open_work_panel_full_width_css():
+    css = (ROOT / "src/dashboard/static/css/action-board.css").read_text(encoding="utf-8")
+    assert "#ab-act-panel-open-work" in css
+    assert "flex-direction: column" in css
+    js = (ROOT / "src/dashboard/static/js/action-board.js").read_text(encoding="utf-8")
+    assert "ab-open-work-list" in js
+    assert "Crop (" in js or "cropLabel" in js
+
+
+def test_crop_loads_remaining_from_plan():
+    crop = (ROOT / "src/dashboard/static/action-board/video-crop-position.html").read_text(encoding="utf-8")
+    assert "loadRemainingClipsFromPlan" in crop
+    assert "/api/video/moments/" in crop
+    # Must not hard-redirect before attempting plan load
+    assert "Loading remaining clips" in crop

@@ -319,32 +319,52 @@
   max-width: none;
 }
 
-/* #VP-SESS-LIFE1 — Open Work (per-original lifecycle) */
+/* #VP-SESS-LIFE1 — Open Work (per-original lifecycle).
+   Same grid trap as History: .ab-act-panel is auto-fill minmax(280px).
+   Use a flex column panel so session cards span the full board width. */
+#ab-act-panel-open-work.ab-act-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.ab-open-work-hint,
+.ab-open-work-rollup,
+.ab-open-work-list,
+.ab-open-work-empty {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
 .ab-open-work-hint {
-  grid-column: 1 / -1;
   font-size: 0.78rem;
   color: var(--dim);
   margin: 0 0 8px;
   line-height: 1.4;
+  text-align: left;
 }
 .ab-open-work-rollup {
-  grid-column: 1 / -1;
   font-size: 0.75rem;
   color: var(--accent);
   margin: 0 0 10px;
   font-weight: 600;
 }
 .ab-open-work-list {
-  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: 100%;
 }
 .ab-open-work-card {
   width: 100%;
   max-width: none;
   align-items: stretch;
+  box-sizing: border-box;
+}
+.ab-open-work-empty {
+  text-align: center;
+  color: var(--dim);
+  padding: 2rem 1rem;
+  font-size: 0.85rem;
 }
 .ab-ow-info { flex: 1; min-width: 0; }
 .ab-ow-phase {

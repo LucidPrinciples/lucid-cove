@@ -680,13 +680,13 @@ function _renderOpenWorkPanel(sessions) {
     const sum = _openWorkSummary || {};
     const hint = `<div class="ab-open-work-hint">
         One card per original. Shows clips left, queue state, and the next step.
-        Folder moves to raw/ stay gated until the session is fully clear.
+        Masters stay in processing until the session is fully clear.
     </div>`;
     if (!_openWorkLoaded && !list.length) {
-        return `${hint}<div class="ab-empty">Loading open work…</div>`;
+        return `${hint}<div class="ab-open-work-empty">Loading open work…</div>`;
     }
     if (!list.length) {
-        return `${hint}<div class="ab-empty">No open video sessions.
+        return `${hint}<div class="ab-open-work-empty">No open video sessions.
             <div style="margin-top:6px;font-size:0.78rem;color:var(--dim)">
                 Inbox / processing masters and unfinished moments plans show here.
                 Clear sessions belong in History once publish is settled.
@@ -745,12 +745,25 @@ function _renderOpenWorkCard(s) {
     if (edit && (phase === 'needs_moments_plan' || !s.has_edits)) {
         actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(edit)}', 'ab-actions', '${esc(stem)}')">Edit</button>`);
     }
-    if (moments && !s.skip_moments) {
+    // Moments = pick / refine the plan. Crop = set framing on remaining clips
+    // (crop page loads unprocessed clips from the plan — no pre-selection required).
+    if (moments && !s.skip_moments && s.has_moments) {
         actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(moments)}', 'ab-actions', '${esc(stem)}')">Moments</button>`);
     }
-    if (crop && (phase === 'clips_remaining' || phase === 'crop_or_caption' || phase === 'ready_to_crop' || s.has_moments)) {
+    const left = (s.clips_left == null) ? null : Number(s.clips_left);
+    const showCrop = !!(
+        crop && (
+            s.skip_moments
+            || phase === 'ready_to_crop'
+            || phase === 'crop_or_caption'
+            || phase === 'clips_remaining'
+            || (s.has_moments && left !== 0)
+        )
+    );
+    if (showCrop) {
         const cropUrl = (s.skip_moments && links.crop_whole) ? links.crop_whole : crop;
-        actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(cropUrl)}', 'ab-actions', '${esc(stem)}')">Crop</button>`);
+        const cropLabel = (left != null && left > 0) ? `Crop (${left})` : 'Crop';
+        actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(cropUrl)}', 'ab-actions', '${esc(stem)}')">${cropLabel}</button>`);
     }
 
     const mapBitsRaw = (_sessionMapBits(stem) || '').replace(/^ · /, '');
