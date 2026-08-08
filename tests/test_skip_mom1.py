@@ -60,14 +60,16 @@ def test_pipeline_keeps_inbox_masters_with_shorts():
     assert "folder: 'inbox'" in inbox
 
 
-def test_pipeline_hides_has_processed_transcript_only():
-    """Finished stems with no file in inbox/processing still drop off."""
+def test_pipeline_keeps_incomplete_transcript_only():
+    """has_processed alone must not drop transcript-only stems with work left."""
     only = _section_between(
         PIPELINE,
         "// Transcript-only",
         "const bannerHtml",
     )
-    assert "if (t.has_processed) continue" in only
+    assert "if (t.has_processed) continue" not in only
+    assert "moments_complete" in only
+    assert "needs plan" in PIPELINE or "clips_left" in only
 
 
 def test_transcripts_api_exposes_has_processed():
