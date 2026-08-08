@@ -285,9 +285,20 @@ async function loadTuneFlow() {
     // Pick the best tuning to show: today's if available, otherwise most recent from any day
     const tuneToShow = latestTune || mostRecentEver;
 
-    // If tuneNow() set the force flag, always start fresh flow
+    // If tuneNow() set the force flag, start fresh only when the daily limit allows
     if (tuneFlow._forceNewFlow) {
         tuneFlow._forceNewFlow = false;
+        if (!_tfCanTuneAgain(todayCount)) {
+            // Free tier already used today — show last tune + upgrade, never a 2nd flow
+            if (tuneToShow) {
+                tuneFlow.tuningData = tuneToShow;
+                tuneFlow.step = 0;
+                _renderCompletedTuning(container, tuneToShow);
+            } else {
+                _tfUpgrade();
+            }
+            return;
+        }
         tuneFlow.step = 1;
         tuneFlow.context = null;
         tuneFlow.mode = null;
@@ -586,8 +597,21 @@ async function _tfRequestTuning(container) {
             })
         });
 
-        if (!resp.ok) throw new Error(`API ${resp.status}`);
-        const data = await resp.json();
+        const data = await resp.json().catch(() => ({}));
+        if (resp.status === 429 || data.error === 'daily_limit') {
+            // Server enforced free daily limit — treat as used and upsell
+            if (typeof data.today_count === 'number') tuneFlow.todayCount = data.today_count;
+            else tuneFlow.todayCount = Math.max(tuneFlow.todayCount || 0, 1);
+            tuneFlow._apiDone = false;
+            if (tuneFlow._qMsgInterval) clearInterval(tuneFlow._qMsgInterval);
+            _tfUpdateHomeButton();
+            if (tuneFlow.tuningData) {
+                _renderCompletedTuning(container, tuneFlow.tuningData);
+            }
+            _tfUpgrade();
+            return;
+        }
+        if (!resp.ok) throw new Error(data.error || (`API ${resp.status}`));
         tuneFlow.tuningData = data;
         tuneFlow._apiDone = true;
         _tfIncrementCount();
@@ -925,6 +949,8 @@ async function _renderCompletedTuning(container, data) {
                 <div id="tfPlayerMount"></div>
             </div>
 
+            ${!_tfCanTuneAgain(tuneFlow.todayCount) ? `<div class="tf-complete-section tf-limit-gate">${_tfTuneAgainHTML()}</div>` : ''}
+
             <div id="tfHistory"></div>
         </div>
     `;
@@ -1088,6 +1114,12 @@ function _tfStartCountdown() {
 }
 
 function _tfStartNewTune() {
+    // Free tier: never start a second personal tune the same local day.
+    // (Completed view used to call this with no gate — double-tune bug.)
+    if (!_tfCanTuneAgain(tuneFlow.todayCount || 0)) {
+        _tfUpgrade();
+        return;
+    }
     const container = _tfContainer();
     if (!container) return;
     // Stop any playing audio — new Tune Now = new experience
@@ -1120,17 +1152,18 @@ function _tfBack(toStep) {
     if (toStep === 1) _renderStep1(container);
 }
 
-// "Tune Now" from home — Pro always starts fresh flow, Free shows upgrade if gated
+// "Tune Now" from home — unlimited tiers always start fresh; free is 1/day
 function tuneNow() {
     const limit = _tfGetDailyLimit();
+    const used = (tuneFlow.todayCount || 0) > 0 && !_tfCanTuneAgain(tuneFlow.todayCount || 0);
     if (limit === -1) {
         // Pro/Operator+: always start a fresh tune flow
         // Stop any playing audio — new Tune Now = shifting gears
         _tfStopAudio();
         tuneFlow._forceNewFlow = true;
         switchToTab('tune');
-    } else if (!_tfCanTuneAgain(tuneFlow.todayCount) && tuneFlow.todayCount > 0) {
-        // Free tier, daily limit used — show upgrade modal
+    } else if (used) {
+        // Free tier, daily limit used — show upgrade modal; stay on last tune
         _tfUpgrade();
     } else {
         // Free tier, can still tune — go to tune tab (starts flow if none today)

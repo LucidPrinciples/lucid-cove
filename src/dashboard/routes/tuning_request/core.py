@@ -23,8 +23,11 @@ from src.utils.quantum import fetch_quantum_random as _fetch_quantum_random
 
 from .helpers import (
     _get_presence_id,
+    _get_presence_row,
     _load_lt_reference,
     _daily_tuning_cache,
+    _daily_tune_limit_for_tier,
+    _count_tunes_today,
     CONTEXT_SIGNAL_MAP,
 )
 
@@ -189,6 +192,28 @@ async def request_tuning(request: Request):
     excluded_signals = body.get("excluded_signals") or []
     user_id = body.get("user_id")
 
+    # Free Tuner: enforce 1 personal tune per day (server-side). Client UI also
+    # gates, but staying on the Tune tab used to bypass that and mint a 2nd session.
+    presence_row = await _get_presence_row(request)
+    presence_id_early = (presence_row or {}).get("id")
+    tier_name = (presence_row or {}).get("tier") or "free"
+    # Single-mode family Coves are unlimited; public multi free accounts are limited.
+    day_limit = _daily_tune_limit_for_tier(tier_name)
+    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if day_limit != -1 and presence_id_early:
+        used = await _count_tunes_today(presence_id_early, today_utc)
+        if used >= day_limit:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "daily_limit",
+                    "message": "Free tier includes one personal tune per day. Upgrade for unlimited.",
+                    "limit": day_limit,
+                    "today_count": used,
+                    "tier": tier_name,
+                },
+            )
+
     try:
         ref = _load_lt_reference()
     except FileNotFoundError as e:
@@ -275,8 +300,9 @@ async def request_tuning(request: Request):
     time_str = now.strftime("%H:%M:%S")
     day_of_week = now.strftime("%A")
 
-    # Get presence from auth cookie
-    presence_id = await _get_presence_id(request)
+    # Presence + tier (reuse early resolution when available)
+    presence_id = presence_id_early or await _get_presence_id(request)
+    session_tier = tier_name if presence_row else "tuner"
 
     # Entry mode from request (default: Tune)
     entry_mode = (body.get("entry_mode") or "Tune").strip()
@@ -360,7 +386,7 @@ async def request_tuning(request: Request):
                     tuning_key, bpm,
                     method == "quantum", method,
                     ",".join(excluded_signals) if excluded_signals else None,
-                    "tuner", "web",
+                    session_tier, "web",
                 ),
             )
     except Exception:
