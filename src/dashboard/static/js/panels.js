@@ -770,12 +770,8 @@ function _buildDetailPanels() {
             <div class="th-header" id="thHeader">
                 <img class="th-lt-avatar" src="/static/avatars/lt.png" alt="LT"
                      onerror="this.style.display='none'">
-                ${MC.isTuner ? `
-                    <div class="th-title">Today's Tuning</div>
-                ` : `
-                    <div class="th-title">Tuning Hub</div>
-                    <div class="th-subtitle" id="thSubtitle">LT Orchestrated Tuning</div>
-                `}
+                <div class="th-title">Tuning Hub</div>
+                <div class="th-subtitle" id="thSubtitle">LT Orchestrated Tuning</div>
             </div>
 
             <!-- ═══ Section 1: Today's Tuning (hero — already functional) ═══ -->
@@ -826,8 +822,7 @@ function _buildDetailPanels() {
                 <div class="ot-stream-label" id="otStreamLabel"></div>
                 <div id="otPlayerMount"></div>
 
-                ${MC.isTuner ? '' : `
-                <!-- ═══ Recent Tunings — public LT Drop archive (Operator+ only) ═══ -->
+                <!-- ═══ Recent Tunings — public LT Drop archive (all tiers) ═══ -->
                 <div class="th-section" id="thHistory" style="display:none;">
                     <div class="th-section-header">
                         <span class="th-section-title">Recent Tunings</span>
@@ -835,7 +830,8 @@ function _buildDetailPanels() {
                     <div class="th-section-body" id="otRecentDrops"></div>
                 </div>
 
-                <!-- ═══ Love Equation ═══ -->
+                ${MC.isTuner ? '' : `
+                <!-- ═══ Love Equation (Operator+ / Cove) ═══ -->
                 <div class="ot-card ot-eq" id="otEqBar">
                     <div class="ot-eq-bar">
                         <span class="ot-label">Love Equation</span>

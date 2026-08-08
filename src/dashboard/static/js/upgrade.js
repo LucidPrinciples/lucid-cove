@@ -347,48 +347,46 @@ async function _upgradeStartCheckout(tierKey, opts) {
 
 // Render the upgrade CTA card on the home tab (tier-aware)
 // Jules 1353: Build a Cove / upgrade ladder is for the public app (Tuner + Operator only).
-// Presence/Cove members already live inside a Cove — never show the upgrade card there.
+// Presence/Cove members already live inside a family Cove — never show the upgrade card there.
+// Public free/operator accounts still have a presence.id (auth row) — that is NOT "in a Cove".
 function _renderUpgradeCTA() {
-    var currentTier = MC.tier?.current || 'free';
-    // Inside a Cove (multi-presence session) or already on presence/cove — no upgrade CTA.
-    var inCove = !!(MC.presence && (MC.presence.cove_role || MC.presence.id));
-    var appLadderOnly = (currentTier === 'free' || currentTier === 'pro' || currentTier === 'operator');
-    var showCta = appLadderOnly && !inCove && !(MC.adminView || MC.coveAdminView);
-    var info = showCta ? UPGRADE_TIERS[currentTier] : null;
+    var currentTier = (MC.tier && MC.tier.current) || 'free';
+    var level = (MC.tier && typeof MC.tier.level === 'number') ? MC.tier.level : 0;
+    // Real Cove membership: agent tier (presence/cove) or admin/Cove-admin MC surfaces.
+    // Bare presence.id on the public shared app is just the signed-in account row.
+    var inFamilyCove = !!(MC.adminView || MC.coveAdminView)
+        || level >= 20
+        || currentTier === 'presence'
+        || currentTier === 'cove';
+    var appLadderOnly = (currentTier === 'free' || currentTier === 'pro' || currentTier === 'operator' || level < 20);
+    var showCta = appLadderOnly && !inFamilyCove;
+    var info = showCta ? (UPGRADE_TIERS[currentTier] || UPGRADE_TIERS.free) : null;
 
-    // Tuner: dedicated upgrade section
+    var cardHtml = function (compact) {
+        if (!info) return '';
+        var iconSize = compact ? 28 : 36;
+        var margin = compact ? ' style="margin-top:0.75rem"' : '';
+        return '<div class="op-upgrade-card"' + margin + '>' +
+            '<div class="op-upgrade-icon">' +
+                '<svg width="' + iconSize + '" height="' + iconSize + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' +
+            '</div>' +
+            '<div class="op-upgrade-body">' +
+                '<div class="op-upgrade-title">' + info.title + '</div>' +
+                '<div class="op-upgrade-text">' + info.subtitle + '</div>' +
+            '</div>' +
+            '<button class="op-upgrade-btn" onclick="showUpgradeModal()">Upgrade</button>' +
+        '</div>';
+    };
+
+    // Legacy dedicated mount (if present)
     var el = document.getElementById('home-upgrade-cta');
     if (el) {
-        if (!info) { el.innerHTML = ''; }
-        else if (MC.isOperator) {
-            el.innerHTML = '<div class="op-upgrade-card">' +
-                '<div class="op-upgrade-icon">' +
-                    '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' +
-                '</div>' +
-                '<div class="op-upgrade-body">' +
-                    '<div class="op-upgrade-title">' + info.title + '</div>' +
-                    '<div class="op-upgrade-text">' + info.subtitle + '</div>' +
-                '</div>' +
-                '<button class="op-upgrade-btn" onclick="showUpgradeModal()">Upgrade</button>' +
-            '</div>';
-        }
+        el.innerHTML = info ? cardHtml(false) : '';
     }
 
-    // Operator (app): inline upgrade in approvals area — not Presence/Cove members
+    // Home inline mount — Tuner free home and Operator home both use this id
     var inlineEl = document.getElementById('home-upgrade-inline');
     if (inlineEl) {
-        if (!info) { inlineEl.innerHTML = ''; }
-        else {
-            inlineEl.innerHTML = '<div class="op-upgrade-card" style="margin-top:0.75rem">' +
-                '<div class="op-upgrade-icon">' +
-                    '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>' +
-                '</div>' +
-                '<div class="op-upgrade-body">' +
-                    '<div class="op-upgrade-title">' + info.title + '</div>' +
-                    '<div class="op-upgrade-text">' + info.subtitle + '</div>' +
-                '</div>' +
-                '<button class="op-upgrade-btn" onclick="showUpgradeModal()">Upgrade</button>' +
-            '</div>';
-        }
+        inlineEl.innerHTML = info ? cardHtml(true) : '';
     }
 }

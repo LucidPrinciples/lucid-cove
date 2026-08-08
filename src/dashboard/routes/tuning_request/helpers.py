@@ -20,6 +20,27 @@ COVE_MODE = env("COVE_MODE", "single")
 
 _single_mode_account_id: Optional[str] = None
 
+async def _get_presence_row(request: Request) -> Optional[dict]:
+    """Full account/presence row when available (id + tier). Single-mode defaults to cove."""
+    if COVE_MODE != "multi":
+        pid = await _get_presence_id(request)
+        if not pid:
+            return None
+        return {"id": pid, "tier": "cove"}
+
+    try:
+        from src.dashboard.routes.presence import get_current_presence
+        presence = await get_current_presence(request)
+        if not presence:
+            return None
+        return {
+            "id": str(presence["id"]),
+            "tier": (presence.get("tier") or "free"),
+        }
+    except Exception:
+        return None
+
+
 async def _get_presence_id(request: Request) -> Optional[str]:
     """Get the user's account UUID. Works in both single and multi mode.
     Single mode: finds or creates a default operator account.
@@ -75,6 +96,47 @@ async def _get_presence_id(request: Request) -> Optional[str]:
 
 
 # ── Reference Data ──────────────────────────────────────────────────────────
+
+
+# Free Lucid Tuner: 1 personal Tune Now per calendar day (date column on sessions).
+# Operator+ and family Cove tiers are unlimited. Retired "pro" stays unlimited.
+_TIER_DAILY_TUNE_LIMIT = {
+    "free": 1,
+    "pro": -1,
+    "operator": -1,
+    "presence": -1,
+    "cove": -1,
+}
+
+
+def _daily_tune_limit_for_tier(tier: Optional[str]) -> int:
+    """Return max personal tunes/day for tier; -1 = unlimited."""
+    key = (tier or "free").strip().lower()
+    return _TIER_DAILY_TUNE_LIMIT.get(key, 1)
+
+
+async def _count_tunes_today(presence_id: Optional[str], today: str) -> int:
+    """Count user-initiated tuning_sessions for presence_id on date today."""
+    if not presence_id:
+        return 0
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT COUNT(*) AS n FROM tuning_sessions
+                   WHERE presence_id = %s AND date = %s
+                     AND COALESCE(context, '') <> ''""",
+                (presence_id, today),
+            )
+            row = await result.fetchone()
+            if not row:
+                return 0
+            if isinstance(row, dict):
+                return int(row.get("n") or 0)
+            return int(row[0])
+    except Exception:
+        return 0
+
 
 _lt_ref_cache = None
 _lt_ref_mtime = 0
