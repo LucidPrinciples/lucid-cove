@@ -108,10 +108,10 @@ x-wr-timezone==2.0.1
 xxhash==3.7.0
 yarl==1.23.0
 zstandard==0.25.0
-cryptography>=42.0
-pillow>=10.4.0
-pillow-heif>=0.18.0
-qrcode>=7.4
+cryptography==49.0.0
+pillow==12.3.0
+pillow-heif==1.4.0
+qrcode==8.2
 # Dev dependencies (not needed in production)
 # iniconfig==2.3.0
 # pluggy==1.6.0

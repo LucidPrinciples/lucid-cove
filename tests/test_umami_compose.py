@@ -28,7 +28,10 @@ def test_compose_includes_umami_service_and_db_init():
     }
     out = cz.build_compose(cove, deploy, matrix_on=False, voice_local=True, umami_on=True)
     assert "container_name: lucidcove-test-umami" in out
-    assert "ghcr.io/umami-software/umami:postgresql-latest" in out
+    assert (
+        "ghcr.io/umami-software/umami:postgresql-latest@"
+        "sha256:8edfe4beaef13f9d1300619fa264ef250a3688df9cc54d24ca830ca31cb475ec"
+    ) in out
     assert "init-umami-db.sql:/docker-entrypoint-initdb.d/04-umami.sql" in out
     assert "UMAMI_INTERNAL_URL: http://lucidcove-test-umami:3000" in out
     assert "DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD}@postgres:5432/umami" in out
@@ -94,6 +97,10 @@ def test_example_compose_documents_umami():
     ex = (ROOT / "docker/docker-compose.example.yml").read_text(encoding="utf-8")
     assert "cove-umami" in ex
     assert "UMAMI_DB_PASSWORD" in ex
+    assert (
+        "ghcr.io/umami-software/umami:postgresql-latest@"
+        "sha256:8edfe4beaef13f9d1300619fa264ef250a3688df9cc54d24ca830ca31cb475ec"
+    ) in ex
 
 
 def test_bootstrap_sql_present_for_existing_volumes():

@@ -23,7 +23,10 @@ def test_compose_includes_searxng_service_and_app_url():
         cove, deploy, matrix_on=False, voice_local=True, umami_on=True, searx_on=True
     )
     assert "container_name: lucidcove-test-searxng" in out
-    assert "docker.io/searxng/searxng" in out
+    assert (
+        "docker.io/searxng/searxng:latest@"
+        "sha256:f68e460a549631cd0c09f943fc9d7befc4c0ff8c75e38accd734c7ac9f0b537c"
+    ) in out
     assert "./docker/searxng:/etc/searxng" in out
     assert "SEARXNG_URL: http://lucidcove-test-searxng:8080" in out
     assert "8888:8080" in out
@@ -64,6 +67,10 @@ def test_example_compose_documents_searxng():
     ex = (ROOT / "docker/docker-compose.example.yml").read_text(encoding="utf-8")
     assert "cove-searxng" in ex
     assert "SEARXNG_URL" in ex
+    assert (
+        "docker.io/searxng/searxng:latest@"
+        "sha256:f68e460a549631cd0c09f943fc9d7befc4c0ff8c75e38accd734c7ac9f0b537c"
+    ) in ex
 
 
 def test_presence_defaults_include_research_tools():
