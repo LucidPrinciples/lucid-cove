@@ -34,8 +34,9 @@ def test_crop_reads_whole_param():
 
 
 def test_crop_skips_moments_redirect_in_whole_mode():
-    # the "no clips -> go pick moments" redirect must be bypassed for whole video
-    assert "clips.length === 0 && stem && !wholeVideo" in CROP
+    # plan load / empty-plan UI must stay gated off whole-video mode
+    assert "(preferPlan || clips.length === 0) && stem && !wholeVideo" in CROP
+    assert "wholeVideo" in CROP
 
 
 def test_crop_synthesizes_full_video_clip():

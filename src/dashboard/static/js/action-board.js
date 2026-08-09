@@ -745,8 +745,8 @@ function _renderOpenWorkCard(s) {
     if (edit && (phase === 'needs_moments_plan' || !s.has_edits)) {
         actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(edit)}', 'ab-actions', '${esc(stem)}')">Edit</button>`);
     }
-    // Moments = pick / refine the plan. Crop = set framing on remaining clips
-    // (crop page loads unprocessed clips from the plan — no pre-selection required).
+    // Moments = pick / refine the plan (optional). Crop = frame remaining plan
+    // clips directly — links include plan=1 so no Moments Approve is required.
     if (moments && !s.skip_moments && s.has_moments) {
         actions.push(`<button type="button" class="ab-btn ab-ow-btn" onclick="event.stopPropagation(); openFlowOverlay('${esc(moments)}', 'ab-actions', '${esc(stem)}')">Moments</button>`);
     }

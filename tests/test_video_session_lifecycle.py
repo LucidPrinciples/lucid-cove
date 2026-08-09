@@ -254,8 +254,27 @@ def test_open_work_panel_full_width_css():
 
 
 def test_crop_loads_remaining_from_plan():
-    crop = (ROOT / "src/dashboard/static/action-board/video-crop-position.html").read_text(encoding="utf-8")
+    crop = (ROOT / "src/dashboard/static/action-board/video-crop-position.html").read_text(
+        encoding="utf-8"
+    )
     assert "loadRemainingClipsFromPlan" in crop
     assert "/api/video/moments/" in crop
-    # Must not hard-redirect before attempting plan load
+    assert "preferPlan" in crop
+    assert "Clips to cut" in crop
+    # Must not auto-bounce to Moments when plan load is empty
+    assert "window.location.href = momentsUrl" not in crop
+    assert "Open Moments" in crop
     assert "Loading remaining clips" in crop
+
+
+def test_open_work_crop_links_use_plan_flag():
+    src = (ROOT / "src/video_session.py").read_text(encoding="utf-8")
+    assert "video-crop-position.html?{param}&plan=1" in src
+
+
+def test_moments_handoff_is_stem_scoped():
+    moments = (
+        ROOT / "src/dashboard/static/action-board/video-moments-review.html"
+    ).read_text(encoding="utf-8")
+    assert "approved_moments_${stem}" in moments or "approved_moments_${" in moments
+    assert "clips: approved" in moments
