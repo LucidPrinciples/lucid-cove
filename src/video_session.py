@@ -379,7 +379,8 @@ def _next_action_and_links(
     pipeline = f"/static/action-board/full-video-pipeline.html?{param}"
     edit = f"/static/action-board/video-transcript-editor.html?{param}"
     moments = f"/static/action-board/video-moments-review.html?{param}"
-    crop = f"/static/action-board/video-crop-position.html?{param}"
+    # plan=1: Crop loads remaining unprocessed plan clips (no Moments approve gate).
+    crop = f"/static/action-board/video-crop-position.html?{param}&plan=1"
     crop_whole = f"/static/action-board/video-crop-position.html?{param}&whole=1"
 
     links = {

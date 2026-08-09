@@ -585,12 +585,14 @@ async function processApproved() {
         }
     }
 
-    // Store approved clips for the crop positioning page
-    sessionStorage.setItem('approved_moments', JSON.stringify(approved));
+    // Store approved clips for the crop positioning page (stem-scoped + legacy key).
+    const payload = JSON.stringify({ stem, clips: approved });
+    try { sessionStorage.setItem(`approved_moments_${stem}`, payload); } catch (e) { /* ignore */ }
+    try { sessionStorage.setItem('approved_moments', payload); } catch (e) { /* ignore */ }
 
     // Navigate to crop positioning
     const embedded = window.location.search.includes('embedded=1') ? '&embedded=1' : '';
-    window.location.href = `/static/action-board/video-crop-position.html?stem=${stem}${embedded}`;
+    window.location.href = `/static/action-board/video-crop-position.html?stem=${encodeURIComponent(stem)}${embedded}`;
 }
 
 // generatePreview REMOVED (operator decision 2026-07-03): the full-video low-res

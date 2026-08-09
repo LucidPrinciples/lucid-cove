@@ -310,6 +310,8 @@ const stem = params.get('stem') || '';
 // clip once videoInfo (the duration) is known, so the redirect-to-moments guard
 // below is bypassed in this mode.
 const wholeVideo = params.get('whole') === '1';
+// Open Work / direct crop: load remaining plan clips, ignore leftover Moments selection.
+const preferPlan = params.get('plan') === '1' || params.get('from') === 'open-work';
 
 const FRAME_W = 270, FRAME_H = 480;
 
@@ -402,12 +404,34 @@ const FREQ_COLORS = [
     { name: 'White',       hex: '#ffffff' },
 ];
 
-// Load moments: try sessionStorage first (from moments review flow).
-// Open Work / Action Board may open crop with only ?stem= — then we load
-// remaining unprocessed clips from the moments plan API (no bounce required).
-try { clips = JSON.parse(sessionStorage.getItem('approved_moments') || '[]'); } catch(e) { clips = []; }
-// One-shot: do not reuse a prior session's selection on a later Open Work open.
-try { sessionStorage.removeItem('approved_moments'); } catch (e) { /* ignore */ }
+// Load clips: Moments review may hand a one-shot selection (stem-scoped).
+// Open Work uses ?plan=1 so we always take remaining unprocessed plan clips —
+// no Moments "Approve" step required.
+function readApprovedSelection() {
+    if (preferPlan || !stem) return [];
+    const keys = [`approved_moments_${stem}`, 'approved_moments'];
+    for (const key of keys) {
+        try {
+            const raw = sessionStorage.getItem(key);
+            if (!raw) continue;
+            sessionStorage.removeItem(key);
+            const data = JSON.parse(raw);
+            // New shape: { stem, clips: [...] }
+            if (data && typeof data === 'object' && !Array.isArray(data)) {
+                if (data.stem && data.stem !== stem) continue;
+                const list = Array.isArray(data.clips) ? data.clips : [];
+                if (list.length) return list;
+                continue;
+            }
+            if (Array.isArray(data) && data.length) {
+                // Legacy bare array — only accept if every row names this stem or omits stem.
+                if (data.every(c => !c || c.stem == null || c.stem === stem)) return data;
+            }
+        } catch (e) { /* try next key */ }
+    }
+    return [];
+}
+try { clips = readApprovedSelection(); } catch (e) { clips = []; }
 
 // Set back link — to moments review normally, but to the pipeline page in
 // whole-video mode (#D5), which skipped moments entirely.
@@ -442,7 +466,45 @@ function streamUrlFor(filename) {
     return `/api/video/proxy/raw?filename=${encodeURIComponent(filename || '')}`;
 }
 
-/** Remaining clips from moments.json when Open Work opens crop without a selection. */
+/** Parse a start/end window from clip or moment objects (tolerant field names). */
+function windowSeconds(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    const start = Number(
+        obj.start_seconds != null ? obj.start_seconds
+            : (obj.start != null ? obj.start : obj.t0)
+    );
+    const end = Number(
+        obj.end_seconds != null ? obj.end_seconds
+            : (obj.end != null ? obj.end : obj.t1)
+    );
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+    return { start, end, duration: Math.round((end - start) * 10) / 10 };
+}
+
+function clipFromPlan(mid, clip, fallbackLabel) {
+    if (!clip || typeof clip !== 'object') return null;
+    if (clip.processed || clip.skipped) return null;
+    const win = windowSeconds(clip);
+    if (!win) return null;
+    const ctype = clip.type || clip.clip_type || 'thought';
+    return {
+        moment_id: mid,
+        clip_type: ctype,
+        clip_label: clip.label || clip.clip_label || fallbackLabel || ctype || 'Clip',
+        start_seconds: win.start,
+        end_seconds: win.end,
+        duration_seconds: win.duration,
+        platform_fit: clip.platform_fit,
+        hook_line: clip.hook_line,
+        topic: clip.topic,
+        theme_tag: clip.theme_tag,
+        hook: clip.hook,
+        reasoning: clip.reasoning,
+        content_type: clip.content_type,
+    };
+}
+
+/** Remaining clips from moments.json when Crop opens without a Moments selection. */
 async function loadRemainingClipsFromPlan() {
     if (!stem) return [];
     try {
@@ -453,22 +515,39 @@ async function loadRemainingClipsFromPlan() {
         for (const m of (data.moments || [])) {
             if (!m || typeof m !== 'object') continue;
             const mid = m.id != null ? m.id : m.moment_id;
-            for (const clip of (m.clips || [])) {
-                if (!clip || typeof clip !== 'object') continue;
-                if (clip.processed || clip.skipped) continue;
-                const start = Number(clip.start_seconds);
-                const end = Number(clip.end_seconds);
-                if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue;
-                out.push({
-                    moment_id: mid,
-                    clip_type: clip.type || clip.clip_type || 'thought',
-                    clip_label: clip.label || clip.clip_label || clip.type || 'Clip',
-                    start_seconds: start,
-                    end_seconds: end,
-                    duration_seconds: Math.round((end - start) * 10) / 10,
-                    platform_fit: clip.platform_fit,
-                    hook_line: clip.hook_line,
-                });
+            const nested = Array.isArray(m.clips) ? m.clips : [];
+            let added = 0;
+            for (const clip of nested) {
+                const row = clipFromPlan(mid, clip, m.topic || m.theme_tag);
+                if (row) {
+                    // Carry moment-level context for metadata (same keys process path reads).
+                    if (m.topic && !row.topic) row.topic = m.topic;
+                    if (m.theme_tag && !row.theme_tag) row.theme_tag = m.theme_tag;
+                    if (m.hook && !row.hook) row.hook = m.hook;
+                    if (m.reasoning && !row.reasoning) row.reasoning = m.reasoning;
+                    if (m.content_type && !row.content_type) row.content_type = m.content_type;
+                    out.push(row);
+                    added += 1;
+                }
+            }
+            // Plan sometimes only has a moment window (no nested clips yet).
+            if (!added && !m.processed && !m.skipped) {
+                const win = windowSeconds(m);
+                if (win) {
+                    out.push({
+                        moment_id: mid,
+                        clip_type: m.content_type || m.type || 'story',
+                        clip_label: m.topic || m.theme_tag || m.hook || 'Moment',
+                        start_seconds: win.start,
+                        end_seconds: win.end,
+                        duration_seconds: win.duration,
+                        topic: m.topic,
+                        theme_tag: m.theme_tag,
+                        hook: m.hook,
+                        reasoning: m.reasoning,
+                        content_type: m.content_type,
+                    });
+                }
             }
         }
         return out;
@@ -482,15 +561,24 @@ async function init() {
     if (!stem) { container.innerHTML = '<div class="loading">No video stem.</div>'; return; }
 
     // No sessionStorage selection: load remaining unprocessed clips from the plan.
-    // Only bounce to Moments when there is no plan / nothing left to crop
-    // (whole-video mode synthesizes its single clip below).
-    if (clips.length === 0 && stem && !wholeVideo) {
+    // Stay on Crop — never force a Moments approve step. Empty plan gets an
+    // on-page message with an optional Moments link (whole-video synthesizes below).
+    if ((preferPlan || clips.length === 0) && stem && !wholeVideo) {
         container.innerHTML = '<div class="loading">Loading remaining clips…</div>';
-        clips = await loadRemainingClipsFromPlan();
+        const planClips = await loadRemainingClipsFromPlan();
+        if (preferPlan || !clips.length) clips = planClips;
         if (!clips.length) {
-            const momentsUrl = `/static/action-board/video-moments-review.html?stem=${stem}` +
-                (window.location.search.includes('embedded=1') ? '&embedded=1' : '');
-            window.location.href = momentsUrl;
+            const emb = window.location.search.includes('embedded=1') ? '&embedded=1' : '';
+            const momentsUrl = `/static/action-board/video-moments-review.html?stem=${encodeURIComponent(stem)}${emb}`;
+            container.innerHTML = `<div class="loading" style="text-align:left;max-width:420px;line-height:1.5">
+                No remaining clips to cut for <code>${stem}</code>.
+                <div style="margin-top:10px;color:#888;font-size:13px">
+                    Crop does not need a Moments approval. If the plan is missing or every clip is already processed, open Moments to pick or refine, or use whole-video crop from Open Work when skip-moments applies.
+                </div>
+                <div style="margin-top:14px">
+                    <a href="${momentsUrl}" style="color:#5ce1e6">Open Moments</a>
+                </div>
+            </div>`;
             return;
         }
     }
@@ -763,14 +851,14 @@ function buildUI(streamUrl, stillUrl) {
 
             <div class="control-section">
                 <div class="clips-summary">
-                    <h3>Approved Moments (${clips.length})</h3>
+                    <h3>Clips to cut (${clips.length})</h3>
                     ${clips.map(c => `
                         <div class="clip-item">
                             <span><span class="clip-dot ${c.clip_type}"></span>${esc(c.clip_label)}</span>
                             <span style="color:#666">${fmtDuration(c.duration_seconds)} · ${c.duration_seconds<=180?'9:16 + 16:9':'16:9'}</span>
                         </div>
                     `).join('')}
-                    ${clips.length===0?'<div style="color:#555;font-size:11px">No moments. Go back and approve moments first.</div>':''}
+                    ${clips.length===0?'<div style="color:#555;font-size:11px">No remaining clips in the plan. Open Moments to add or refine, then return here.</div>':''}
                 </div>
                 ${wholeVideo ? '' : `<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:#aaa;cursor:pointer">
                     <input type="checkbox" id="chk-caption-full" checked style="accent-color:#5ce1e6">
@@ -781,7 +869,7 @@ function buildUI(streamUrl, stillUrl) {
                     Title-rename full + refresh YouTube/X cards
                 </button>
                 <button class="btn-process" id="btn-cut" onclick="startProcessing()" ${clips.length===0?'disabled':''}>
-                    ${wholeVideo ? 'Process full video' : `Process ${clips.length} Moments`}
+                    ${wholeVideo ? 'Process full video' : `Process ${clips.length} clip${clips.length===1?"":"s"}`}
                 </button>
                 <div class="processing-status" id="status"></div>
             </div>
