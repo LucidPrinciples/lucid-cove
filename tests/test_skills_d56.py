@@ -23,6 +23,7 @@ EXPECTED_SHIPPED = {
     "session-logger",
     "framework-glossary",
     "host-hands",
+    "site-chunk-edit",
 }
 
 
@@ -58,6 +59,15 @@ def test_load_skill_returns_body():
     s = load_skill("research-summary")
     assert s is not None
     assert "Bottom line" in s["body"] or "bottom line" in s["body"].lower()
+
+
+def test_site_chunk_edit_skill_body_patch_first():
+    s = load_skill("site-chunk-edit")
+    assert s is not None
+    body = s["body"]
+    assert "site_patch_file" in body
+    assert "site_edit_file" in body
+    assert "8k" in body or "8000" in body
 
 
 def test_catalog_text_lists_skills():
