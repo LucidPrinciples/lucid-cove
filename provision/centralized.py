@@ -891,11 +891,11 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
         "\n      - ./docker/init-umami-db.sql:/docker-entrypoint-initdb.d/04-umami.sql:ro"
         if umami_on else "")
     umami_port = deploy.get("umami_port", 3000)
-    # Official Umami image — pin major.minor; app runs Prisma migrate on boot.
+    # Official Umami image — digest-pinned (PINHARD1). Tag kept for humans; digest is law.
     # postgresql:// must use the compose service hostname `postgres`.
     umami_services = (f"""
   umami:
-    image: ghcr.io/umami-software/umami:postgresql-latest
+    image: ghcr.io/umami-software/umami:postgresql-latest@sha256:8edfe4beaef13f9d1300619fa264ef250a3688df9cc54d24ca830ca31cb475ec
     container_name: {cid}-umami
     restart: unless-stopped
     depends_on:
@@ -919,7 +919,7 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
     # App uses compose DNS http://{cid}-searxng:8080 — not localhost.
     searx_services = (f"""
   searxng:
-    image: docker.io/searxng/searxng:latest
+    image: docker.io/searxng/searxng:latest@sha256:f68e460a549631cd0c09f943fc9d7befc4c0ff8c75e38accd734c7ac9f0b537c
     container_name: {cid}-searxng
     restart: unless-stopped
     volumes:

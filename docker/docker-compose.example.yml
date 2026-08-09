@@ -78,7 +78,8 @@ services:
   # docker/init-umami-db.sql on fresh install, or umami-bootstrap.sql on an
   # existing volume). Public collect URL is analytics.{domain} via Caddy.
   umami:
-    image: ghcr.io/umami-software/umami:postgresql-latest
+    # Digest-pinned from homebase runtime (PINHARD1) — tag alone floats on :postgresql-latest
+    image: ghcr.io/umami-software/umami:postgresql-latest@sha256:8edfe4beaef13f9d1300619fa264ef250a3688df9cc54d24ca830ca31cb475ec
     container_name: cove-umami
     restart: unless-stopped
     depends_on:
@@ -105,7 +106,8 @@ services:
   # docker/searxng/settings.yml. App reaches it on the compose network as
   # http://searxng:8080 — never rely on localhost:8888 from inside app.
   searxng:
-    image: docker.io/searxng/searxng:latest
+    # Digest-pinned from homebase runtime (PINHARD1) — tag alone floats on :latest
+    image: docker.io/searxng/searxng:latest@sha256:f68e460a549631cd0c09f943fc9d7befc4c0ff8c75e38accd734c7ac9f0b537c
     container_name: cove-searxng
     restart: unless-stopped
     volumes:
