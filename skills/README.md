@@ -33,6 +33,7 @@ Agents only see **name + description** until they call `use_skill("<name>")` (pr
 | `session-logger` | Append-only session / memory logging |
 | `framework-glossary` | Framework + product term definitions |
 | `host-hands` | Operator-runs + paste-back for host/sibling/VPS; Mac-safe commands (no nested heredocs) |
+| `site-chunk-edit` | Large personal-site HTML via small `site_patch_file` chunks (Tier B) |
 
 Repo skills under this tree (and `/cove-core/skills` in the container) are **trusted** — always visible to agents.
 
