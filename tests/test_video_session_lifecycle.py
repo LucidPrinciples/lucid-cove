@@ -277,4 +277,9 @@ def test_moments_handoff_is_stem_scoped():
         ROOT / "src/dashboard/static/action-board/video-moments-review.html"
     ).read_text(encoding="utf-8")
     assert "approved_moments_${stem}" in moments or "approved_moments_${" in moments
-    assert "clips: approved" in moments
+    # MOMSAVE1: handoff may use saved.approved || approved after durable Save
+    assert (
+        "clips: approved" in moments
+        or "clips: saved.approved" in moments
+        or "saved.approved || approved" in moments
+    )

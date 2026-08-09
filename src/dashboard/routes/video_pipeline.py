@@ -2059,6 +2059,7 @@ async def mark_skipped(request: Request):
             if key in skip_keys:
                 clip["processed"] = True
                 clip["skipped"] = True
+                clip["approved"] = False
                 marked += 1
 
     # Write back via pipecat-voice (owns the :rw video mount)
@@ -2070,6 +2071,74 @@ async def mark_skipped(request: Request):
 
     logger.info(f"Marked {marked} clips as skipped in {stem}-moments.json")
     return {"marked": marked}
+
+
+@router.post("/moments/save-plan")
+async def save_moments_plan(request: Request):
+    """Persist Moments editor state into moments.json (MOMSAVE1).
+
+    Body: {
+      stem: str,
+      clips: [
+        {
+          moment_id, clip_type,
+          approved?: bool, skipped?: bool,
+          start_seconds?: number, end_seconds?: number
+        }, ...
+      ]
+    }
+
+    Skipped clips leave the remaining batch (skipped+processed).
+    Approved clips keep approved=true and optional trim windows; not processed yet.
+    Unmentioned clips are left unchanged. Clears approved when skipped.
+    """
+    body = await request.json()
+    stem = (body.get("stem") or "").strip()
+    updates = body.get("clips") or body.get("states") or []
+    if not stem:
+        return JSONResponse({"error": "stem required"}, status_code=400)
+    if not isinstance(updates, list) or not updates:
+        return JSONResponse({"error": "clips required"}, status_code=400)
+
+    moments_data = await _read_video_json(request, f"transcripts/{stem}-moments.json")
+    if moments_data is None:
+        return JSONResponse({"error": "Moments file not found"}, status_code=404)
+
+    from src.video_session import apply_moments_plan_updates, moments_plan_progress
+    valid = 0
+    for row in updates:
+        if not isinstance(row, dict):
+            continue
+        mid = row.get("moment_id", row.get("momentId"))
+        ctype = row.get("clip_type", row.get("type"))
+        if mid is not None and ctype:
+            valid += 1
+    if not valid:
+        return JSONResponse({"error": "no valid clip updates"}, status_code=400)
+    counts = apply_moments_plan_updates(moments_data, updates)
+    changed = int(counts.get("changed") or 0)
+    approved_n = int(counts.get("approved") or 0)
+    skipped_n = int(counts.get("skipped") or 0)
+
+    _nch = await pipecat_nc_headers(request)
+    wrote = await _pipecat_write_json(f"transcripts/{stem}-moments.json", moments_data, _nch)
+    if not wrote:
+        return JSONResponse({"error": "Failed to write via pipecat-voice"}, status_code=500)
+
+    prog = moments_plan_progress(moments_data)
+    logger.info(
+        "Saved moments plan %s: changed=%s approved=%s skipped=%s left=%s",
+        stem, changed, approved_n, skipped_n, prog.get("clips_left"),
+    )
+    return {
+        "ok": True,
+        "stem": stem,
+        "changed": changed,
+        "approved": approved_n,
+        "skipped": skipped_n,
+        "clips_left": prog.get("clips_left"),
+        "clips_skipped": prog.get("clips_skipped"),
+    }
 
 
 # ── Proxy endpoints for pipecat-voice (frame extraction, video info) ──

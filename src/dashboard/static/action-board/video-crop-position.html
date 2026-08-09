@@ -418,14 +418,18 @@ function readApprovedSelection() {
             const data = JSON.parse(raw);
             // New shape: { stem, clips: [...] }
             if (data && typeof data === 'object' && !Array.isArray(data)) {
+                // VPMULTI1: never apply another master's batch to this crop page.
                 if (data.stem && data.stem !== stem) continue;
-                const list = Array.isArray(data.clips) ? data.clips : [];
+                let list = Array.isArray(data.clips) ? data.clips : [];
+                list = list.filter(c => !c || c.stem == null || c.stem === stem);
                 if (list.length) return list;
                 continue;
             }
             if (Array.isArray(data) && data.length) {
-                // Legacy bare array — only accept if every row names this stem or omits stem.
-                if (data.every(c => !c || c.stem == null || c.stem === stem)) return data;
+                const list = data.filter(c => !c || c.stem == null || c.stem === stem);
+                // Reject mixed bare arrays that name a different stem.
+                if (data.some(c => c && c.stem && c.stem !== stem)) continue;
+                if (list.length) return list;
             }
         } catch (e) { /* try next key */ }
     }
@@ -506,12 +510,14 @@ function clipFromPlan(mid, clip, fallbackLabel) {
 
 /** Remaining clips from moments.json when Crop opens without a Moments selection. */
 async function loadRemainingClipsFromPlan() {
+    // MOMSAVE1: Open Work Crop and Moments Process share durable moments.json.
+    // Prefer approved (saved batch); else all remaining unprocessed non-skipped.
     if (!stem) return [];
     try {
         const resp = await fetch(`/api/video/moments/${encodeURIComponent(stem)}`);
         if (!resp.ok) return [];
         const data = await resp.json();
-        const out = [];
+        const candidates = [];
         for (const m of (data.moments || [])) {
             if (!m || typeof m !== 'object') continue;
             const mid = m.id != null ? m.id : m.moment_id;
@@ -520,21 +526,21 @@ async function loadRemainingClipsFromPlan() {
             for (const clip of nested) {
                 const row = clipFromPlan(mid, clip, m.topic || m.theme_tag);
                 if (row) {
-                    // Carry moment-level context for metadata (same keys process path reads).
+                    row.approved = !!(clip && clip.approved);
+                    row.stem = stem;
                     if (m.topic && !row.topic) row.topic = m.topic;
                     if (m.theme_tag && !row.theme_tag) row.theme_tag = m.theme_tag;
                     if (m.hook && !row.hook) row.hook = m.hook;
                     if (m.reasoning && !row.reasoning) row.reasoning = m.reasoning;
                     if (m.content_type && !row.content_type) row.content_type = m.content_type;
-                    out.push(row);
+                    candidates.push(row);
                     added += 1;
                 }
             }
-            // Plan sometimes only has a moment window (no nested clips yet).
             if (!added && !m.processed && !m.skipped) {
                 const win = windowSeconds(m);
                 if (win) {
-                    out.push({
+                    candidates.push({
                         moment_id: mid,
                         clip_type: m.content_type || m.type || 'story',
                         clip_label: m.topic || m.theme_tag || m.hook || 'Moment',
@@ -546,11 +552,14 @@ async function loadRemainingClipsFromPlan() {
                         hook: m.hook,
                         reasoning: m.reasoning,
                         content_type: m.content_type,
+                        approved: !!(m.approved),
+                        stem: stem,
                     });
                 }
             }
         }
-        return out;
+        const approvedOnly = candidates.filter(c => c.approved);
+        return approvedOnly.length ? approvedOnly : candidates;
     } catch (e) {
         return [];
     }
