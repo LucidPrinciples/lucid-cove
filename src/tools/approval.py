@@ -300,7 +300,13 @@ async def execute_approved_tool(request_id: str) -> dict:
 
     Looks up the tool by name, runs it with stored args, saves result to DB.
     Returns {"success": True, "result": "..."} or {"success": False, "error": "..."}.
+
+    Manager/team approvals re-bind Cove admin NC + acting channel the same way
+    chat and delegation do. Without that, WebDAV falls back to the founding
+    operator login and admin-tree paths 404 as "Not found".
     """
+    _nc_tok = None
+    _ch_tok = None
     try:
         from src.memory.database import get_db
 
@@ -316,6 +322,7 @@ async def execute_approved_tool(request_id: str) -> dict:
 
         tool_name = row["tool_name"]
         tool_args = row["args"] if isinstance(row["args"], dict) else json.loads(row["args"] or "{}")
+        channel = (row["channel"] if "channel" in row.keys() else "") or ""
 
         # Find the tool. Build a superset map from every tool pool so ANY approvable
         # tool resolves regardless of which agent raised it (git_push et al. live in
@@ -339,8 +346,36 @@ async def execute_approved_tool(request_id: str) -> dict:
         if not tool_func:
             return {"success": False, "error": f"Tool '{tool_name}' not found"}
 
+        # Bind the same NC identity the raising turn used. Chat/delegation set
+        # team admin creds for manager + team-agent channels; approve used to
+        # re-run unbound and hit founding-operator fallback (404 on admin paths).
+        try:
+            from src.graphs.channels import _is_manager_channel, _team_agent_key
+            from src.tools.nextcloud_tools import (
+                set_team_nc_creds,
+                set_acting_channel,
+                clear_request_nc_creds,
+                clear_acting_channel,
+            )
+            ch = channel or "day"
+            if _is_manager_channel(ch) or _team_agent_key(ch) is not None:
+                _nc_tok = set_team_nc_creds()
+                _ch_tok = set_acting_channel(ch)
+            elif not channel:
+                # Legacy rows with empty channel were almost always steward chat.
+                # Prefer admin NC over founding-operator fallback for those.
+                _nc_tok = set_team_nc_creds()
+                _ch_tok = set_acting_channel("day")
+        except Exception as e:
+            logger.warning(
+                f"Approved tool NC bind skipped for {request_id} channel={channel!r}: {e}"
+            )
+
         # Execute it
-        logger.info(f"Executing approved tool: {tool_name}({tool_args}) [request_id={request_id}]")
+        logger.info(
+            f"Executing approved tool: {tool_name}({tool_args}) "
+            f"[request_id={request_id} channel={channel or 'day'}]"
+        )
         result = await tool_func.ainvoke(tool_args)
         result_str = str(result)
 
@@ -373,6 +408,18 @@ async def execute_approved_tool(request_id: str) -> dict:
         except Exception:
             pass
         return {"success": False, "error": error_msg}
+    finally:
+        try:
+            from src.tools.nextcloud_tools import (
+                clear_request_nc_creds,
+                clear_acting_channel,
+            )
+            if _ch_tok is not None:
+                clear_acting_channel(_ch_tok)
+            if _nc_tok is not None:
+                clear_request_nc_creds(_nc_tok)
+        except Exception:
+            pass
 
 
 # =============================================================================
