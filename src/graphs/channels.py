@@ -1767,8 +1767,13 @@ async def tool_node(state: ChannelState) -> dict:
                         tool_call_id=tool_id,
                     ))
             else:
+                err = str(e)
+                # Pre-approve public hygiene (and similar) returns REFUSED without a card.
+                content = err if err.lstrip().upper().startswith("REFUSED") else (
+                    f"Tool error ({tool_name}): {err}"
+                )
                 tool_messages.append(ToolMessage(
-                    content=f"Tool error ({tool_name}): {str(e)}",
+                    content=content,
                     tool_call_id=tool_id,
                 ))
 

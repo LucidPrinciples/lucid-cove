@@ -227,13 +227,62 @@ def log_notify(tool_name: str, kwargs: dict) -> None:
     })
 
 
+async def precheck_approve_args(tool_name: str, kwargs: dict) -> str | None:
+    """Refuse before the operator card when args cannot succeed after Approve.
+
+    Public GitHub ship tools: title/body and unpushed commit subjects are
+    scanned for ops leaks. Returns a REFUSED message for the model to rewrite,
+    or None to proceed to the approval card. Never creates an approval row.
+    """
+    name = (tool_name or "").strip()
+    if name not in ("ship_branch", "create_github_pr", "git_push"):
+        return None
+    try:
+        from src.tools import dev_tools as dt
+    except Exception:
+        return None
+
+    kwargs = kwargs or {}
+    if name in ("ship_branch", "create_github_pr"):
+        leak = dt._refuse_public_leaks(
+            "PR title/body",
+            kwargs.get("title") or "",
+            kwargs.get("body") or "",
+        )
+        if leak:
+            return leak
+
+    # Unpushed commit subjects (ship + push) — same gate as post-approve path.
+    if name in ("ship_branch", "git_push"):
+        try:
+            project = kwargs.get("project") or ""
+            repo = dt._resolve_repo(project)
+            branch = (kwargs.get("branch") or "").strip()
+            if not branch:
+                branch = (await dt._run_git("branch --show-current", repo)).strip()
+            base = (kwargs.get("base") or "main").strip() or "main"
+            return await dt._refuse_unpushed_commit_leaks(repo, branch, base)
+        except Exception:
+            return None
+    return None
+
+
 async def block_for_approval(tool_name: str, kwargs: dict, channel: str = "") -> None:
     """Block an APPROVE tier tool and raise ApprovalRequired.
 
     Called by the tool_node when executing an APPROVE-tier tool.
     Persists the request to DB so it survives container restarts.
     Also pushes a calendar event with alarm for phone notification.
+
+    Runs a cheap precheck first for public GitHub ship text so the operator
+    never Approves a PR that will only REFUSE on hygiene after the click.
     """
+    refused = await precheck_approve_args(tool_name, kwargs or {})
+    if refused:
+        # Raise a plain Exception so tool_node returns the message to the agent
+        # without creating an approval card. Name stays non-ApprovalRequired.
+        raise RuntimeError(refused)
+
     arg_desc = ', '.join(f'{k}={repr(v)[:100]}' for k, v in kwargs.items())
     description = f"{tool_name}({arg_desc})"
 
