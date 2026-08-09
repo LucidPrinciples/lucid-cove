@@ -431,3 +431,68 @@ def summarize_open_work(sessions: list[dict]) -> dict:
             if s.get("clips_left") is not None
         ),
     }
+
+
+def apply_moments_plan_updates(moments_data: Any, updates: list) -> dict:
+    """Apply Moments editor Save rows onto a moments.json dict (MOMSAVE1).
+
+    Mutates moments_data in place. Returns counts: changed, approved, skipped.
+    """
+    if not isinstance(moments_data, dict):
+        return {"changed": 0, "approved": 0, "skipped": 0}
+    by_key: dict = {}
+    for row in updates or []:
+        if not isinstance(row, dict):
+            continue
+        mid = row.get("moment_id", row.get("momentId"))
+        ctype = row.get("clip_type", row.get("type"))
+        if mid is None or not ctype:
+            continue
+        by_key[(mid, ctype)] = row
+    if not by_key:
+        return {"changed": 0, "approved": 0, "skipped": 0}
+
+    changed = approved_n = skipped_n = 0
+    for moment in moments_data.get("moments") or []:
+        if not isinstance(moment, dict):
+            continue
+        mid = moment.get("id")
+        for clip in moment.get("clips") or []:
+            if not isinstance(clip, dict):
+                continue
+            row = by_key.get((mid, clip.get("type")))
+            if not row:
+                continue
+            if clip.get("processed") and not clip.get("skipped"):
+                continue
+            skipped = bool(row.get("skipped"))
+            approved = bool(row.get("approved")) and not skipped
+            if skipped:
+                clip["skipped"] = True
+                clip["processed"] = True
+                clip["approved"] = False
+                skipped_n += 1
+            else:
+                if clip.get("skipped"):
+                    clip["skipped"] = False
+                    if clip.get("processed") and not row.get("keep_processed"):
+                        clip["processed"] = False
+                clip["approved"] = approved
+                if approved:
+                    approved_n += 1
+            start = row.get("start_seconds", row.get("start"))
+            end = row.get("end_seconds", row.get("end"))
+            try:
+                if start is not None:
+                    clip["start"] = float(start)
+                    clip["start_seconds"] = float(start)
+                if end is not None:
+                    clip["end"] = float(end)
+                    clip["end_seconds"] = float(end)
+                if start is not None and end is not None:
+                    clip["duration_seconds"] = round(float(end) - float(start), 1)
+            except (TypeError, ValueError):
+                pass
+            changed += 1
+    return {"changed": changed, "approved": approved_n, "skipped": skipped_n}
+

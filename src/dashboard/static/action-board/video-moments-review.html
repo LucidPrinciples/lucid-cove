@@ -117,6 +117,15 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 .action-bar { position: sticky; bottom: 0; background: #0a0a0f; border-top: 1px solid #222; padding: 16px 0; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
 .approved-count { font-size: 14px; color: #888; }
 .approved-count strong { color: #5ce1e6; }
+.btn-save {
+    background: transparent; border: 1px solid #5ce1e6; color: #5ce1e6;
+    padding: 10px 18px; border-radius: 8px; cursor: pointer; font-size: 14px;
+}
+.btn-save:hover { background: rgba(92,225,230,0.12); }
+.btn-save:disabled { opacity: 0.45; cursor: default; }
+.save-status { font-size: 13px; color: #888; min-width: 8em; }
+.save-status.ok { color: #8bc48a; }
+.save-status.err { color: #e57373; }
 .btn-process { background: #5ce1e6; color: #0a0a0f; border: none; border-radius: 8px; padding: 10px 24px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.15s; }
 .btn-process:hover { background: #7aeaee; }
 .btn-process:disabled { background: #333; color: #666; cursor: not-allowed; }
@@ -149,8 +158,10 @@ if (window.location.search.includes('embedded=1')) {
 <div id="video-meta" class="video-meta"></div>
 <div id="moments-container" class="loading">Loading moments...</div>
 <div id="action-bar" class="action-bar" style="display:none">
-    <div class="approved-count"><strong id="approved-count">0</strong> moments approved</div>
-    <button class="btn-process" id="btn-process" disabled onclick="processApproved()">Process Approved Moments</button>
+    <div class="approved-count"><strong id="approved-count">0</strong> approved · ready to crop</div>
+    <span class="save-status" id="save-status"></span>
+    <button class="btn-save" id="btn-save" type="button" onclick="savePlan()">Save plan</button>
+    <button class="btn-process" id="btn-process" disabled onclick="processApproved()">Process approved → Crop</button>
 </div>
 
 <script>
@@ -278,17 +289,26 @@ function renderMoments() {
         return;
     }
 
-    // Initialize clip states
+    // Initialize clip states from durable plan (approved/skipped/trims on moments.json)
     moments.forEach(m => {
         (m.clips || []).forEach((clip, ci) => {
             const cid = clipId(m.id, ci);
             if (!clipStates[cid]) {
+                const start = (clip.start_seconds != null) ? clip.start_seconds
+                    : (clip.start != null ? clip.start : null);
+                const end = (clip.end_seconds != null) ? clip.end_seconds
+                    : (clip.end != null ? clip.end : null);
                 clipStates[cid] = {
-                    approved: false,
-                    skipped: false,
-                    start: clip.start_seconds,
-                    end: clip.end_seconds,
+                    approved: !!(clip.approved && !clip.skipped && !clip.processed),
+                    skipped: !!(clip.skipped),
+                    start: start,
+                    end: end,
+                    moment_id: m.id,
+                    clip_type: clip.type,
                 };
+            } else {
+                clipStates[cid].moment_id = m.id;
+                clipStates[cid].clip_type = clip.type;
             }
         });
     });
@@ -542,55 +562,138 @@ function endDrag() {
     renderCaptionStrip(moment);
 }
 
-async function processApproved() {
+function collectPlanUpdates() {
+    const updates = [];
     const approved = [];
-    const skipped = [];
-    momentsData.moments.forEach(m => {
+    (momentsData.moments || []).forEach(m => {
         (m.clips || []).forEach((clip, ci) => {
             const cid = clipId(m.id, ci);
             const state = clipStates[cid];
-            if (state.approved) {
+            if (!state) return;
+            // Already fully processed (cut) — leave alone.
+            if (clip.processed && !clip.skipped && !state.skipped) return;
+            const start = state.start != null ? Math.round(state.start * 10) / 10 : null;
+            const end = state.end != null ? Math.round(state.end * 10) / 10 : null;
+            const row = {
+                moment_id: m.id,
+                clip_type: clip.type,
+                approved: !!state.approved,
+                skipped: !!state.skipped,
+            };
+            if (start != null) row.start_seconds = start;
+            if (end != null) row.end_seconds = end;
+            updates.push(row);
+            if (state.approved && !state.skipped) {
                 approved.push({
                     moment_id: m.id,
                     moment_topic: m.topic,
                     clip_type: clip.type,
                     clip_label: clip.label,
-                    start_seconds: Math.round(state.start * 10) / 10,
-                    end_seconds: Math.round(state.end * 10) / 10,
-                    duration_seconds: Math.round((state.end - state.start) * 10) / 10,
+                    start_seconds: start,
+                    end_seconds: end,
+                    duration_seconds: (start != null && end != null)
+                        ? Math.round((end - start) * 10) / 10 : null,
                     platform_fit: clip.platform_fit,
                     hook_line: clip.hook_line,
-                });
-            } else if (state.skipped) {
-                skipped.push({
-                    moment_id: m.id,
-                    clip_type: clip.type,
+                    stem: stem,
                 });
             }
         });
     });
+    return { updates, approved };
+}
 
-    if (approved.length === 0) return;
+function setSaveStatus(msg, kind) {
+    const el = document.getElementById('save-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.className = 'save-status' + (kind ? ' ' + kind : '');
+}
 
-    // Mark skipped clips as processed in the moments JSON so they don't reappear
-    if (skipped.length > 0) {
-        try {
-            await fetch(`/api/video/moments/mark-skipped`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ stem, skipped }),
-            });
-        } catch (e) {
-            console.warn('Failed to mark skipped clips:', e);
-        }
+async function savePlan(opts) {
+    opts = opts || {};
+    const silent = !!opts.silent;
+    if (!stem || !momentsData) return { ok: false, error: 'no stem' };
+    const { updates, approved } = collectPlanUpdates();
+    if (!updates.length) {
+        if (!silent) setSaveStatus('Nothing to save', '');
+        return { ok: true, approved, changed: 0 };
     }
+    const btn = document.getElementById('btn-save');
+    if (btn) btn.disabled = true;
+    if (!silent) setSaveStatus('Saving…', '');
+    try {
+        const resp = await fetch('/api/video/moments/save-plan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stem, clips: updates }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            const err = data.error || ('HTTP ' + resp.status);
+            if (!silent) setSaveStatus(err, 'err');
+            return { ok: false, error: err, approved };
+        }
+        // Reflect durable flags locally so re-render stays honest.
+        (momentsData.moments || []).forEach(m => {
+            (m.clips || []).forEach((clip, ci) => {
+                const cid = clipId(m.id, ci);
+                const state = clipStates[cid];
+                if (!state) return;
+                if (state.skipped) {
+                    clip.skipped = true;
+                    clip.processed = true;
+                    clip.approved = false;
+                } else if (state.approved) {
+                    clip.approved = true;
+                    clip.skipped = false;
+                } else {
+                    clip.approved = false;
+                }
+                if (state.start != null) {
+                    clip.start_seconds = state.start;
+                    clip.start = state.start;
+                }
+                if (state.end != null) {
+                    clip.end_seconds = state.end;
+                    clip.end = state.end;
+                }
+            });
+        });
+        if (!silent) {
+            const n = data.approved != null ? data.approved : approved.length;
+            setSaveStatus('Saved · ' + n + ' approved', 'ok');
+        }
+        return { ok: true, approved, data };
+    } catch (e) {
+        if (!silent) setSaveStatus(String(e.message || e), 'err');
+        return { ok: false, error: String(e.message || e), approved };
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
 
-    // Store approved clips for the crop positioning page (stem-scoped + legacy key).
-    const payload = JSON.stringify({ stem, clips: approved });
+async function processApproved() {
+    // MOMSAVE1: durable save first, then crop from this stem's approved batch.
+    // Single-stem page only — multi-stem batches stay per-stem (VPMULTI1 folded).
+    const { approved } = collectPlanUpdates();
+    if (approved.length === 0) {
+        setSaveStatus('Approve at least one clip', 'err');
+        return;
+    }
+    const btn = document.getElementById('btn-process');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    const saved = await savePlan({ silent: true });
+    if (!saved.ok) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Process approved → Crop'; }
+        setSaveStatus(saved.error || 'Save failed', 'err');
+        return;
+    }
+    // Hand crop a one-shot selection for this stem only (never mix masters).
+    const payload = JSON.stringify({ stem, clips: saved.approved || approved });
     try { sessionStorage.setItem(`approved_moments_${stem}`, payload); } catch (e) { /* ignore */ }
     try { sessionStorage.setItem('approved_moments', payload); } catch (e) { /* ignore */ }
 
-    // Navigate to crop positioning
     const embedded = window.location.search.includes('embedded=1') ? '&embedded=1' : '';
     window.location.href = `/static/action-board/video-crop-position.html?stem=${encodeURIComponent(stem)}${embedded}`;
 }
