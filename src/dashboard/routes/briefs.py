@@ -87,6 +87,9 @@ def _save_index(data: dict) -> None:
         status = str(d.get("status") or "active").strip().lower()
         if status not in _STATUSES:
             status = "active"
+        proj = str(d.get("project_slug") or "").strip().lower()[:80]
+        if proj and not re.match(r"^[a-z0-9][a-z0-9\-]*$", proj):
+            proj = ""
         clean.append({
             "slug": slug,
             "title": str(d.get("title") or slug).strip()[:200],
@@ -94,6 +97,7 @@ def _save_index(data: dict) -> None:
             "status": status,
             "summary": str(d.get("summary") or "").strip()[:400],
             "source_path": str(d.get("source_path") or "").strip()[:500],
+            "project_slug": proj,
             "created_at": str(d.get("created_at") or "").strip()[:40],
             "updated_at": str(d.get("updated_at") or "").strip()[:40],
             "published_by": str(d.get("published_by") or "").strip()[:80],
@@ -161,6 +165,13 @@ def _unique_slug(title: str, existing: set[str]) -> str:
     return candidate
 
 
+def _norm_project_slug(project_slug: str = "") -> str:
+    s = (project_slug or "").strip().lower()[:80]
+    if s and re.match(r"^[a-z0-9][a-z0-9\-]*$", s):
+        return s
+    return ""
+
+
 def publish_doc(
     *,
     title: str,
@@ -171,6 +182,7 @@ def publish_doc(
     status: str = "active",
     published_by: str = "",
     slug: str | None = None,
+    project_slug: str = "",
 ) -> dict:
     """Create or update a brief/plan/spec. Returns meta dict."""
     _ensure_dirs()
@@ -183,6 +195,7 @@ def publish_doc(
         status = "active"
     summary = (summary or "").strip()[:400]
     source_path = (source_path or "").strip()[:500]
+    project_slug = _norm_project_slug(project_slug)
     if source_path and _safe_vault_path(source_path) is None:
         # Keep the path for display only if invalid — do not read it.
         pass
@@ -196,6 +209,14 @@ def publish_doc(
         slug_l = slug.strip().lower()
         for d in docs:
             if (d.get("slug") or "").lower() == slug_l:
+                target = d
+                break
+    if target is None and project_slug:
+        # One living plan per project: update the linked doc when republishing
+        for d in docs:
+            if _norm_project_slug(d.get("project_slug") or "") == project_slug:
+                if (d.get("status") or "active") == "archived":
+                    continue
                 target = d
                 break
     if target is None:
@@ -217,6 +238,7 @@ def publish_doc(
             "status": status,
             "summary": summary,
             "source_path": source_path,
+            "project_slug": project_slug,
             "created_at": now,
             "updated_at": now,
             "published_by": (published_by or "").strip()[:80],
@@ -230,6 +252,8 @@ def publish_doc(
             target["summary"] = summary
         if source_path:
             target["source_path"] = source_path
+        if project_slug:
+            target["project_slug"] = project_slug
         target["updated_at"] = now
         if published_by:
             target["published_by"] = published_by.strip()[:80]
@@ -246,6 +270,37 @@ def publish_doc(
     data["docs"] = docs
     _save_index(data)
     return dict(target)
+
+
+def brief_for_project(project_slug: str) -> dict | None:
+    """Return the active brief/plan/spec linked to a project slug, if any."""
+    needle = _norm_project_slug(project_slug)
+    if not needle:
+        return None
+    matches = []
+    for d in _load_index().get("docs") or []:
+        if not isinstance(d, dict):
+            continue
+        if _norm_project_slug(d.get("project_slug") or "") != needle:
+            continue
+        if (d.get("status") or "active") == "archived":
+            continue
+        matches.append(dict(d))
+    if not matches:
+        return None
+    # Prefer plan/spec over brief; then newest update
+    kind_rank = {"spec": 0, "plan": 1, "brief": 2}
+    matches.sort(
+        key=lambda x: (
+            kind_rank.get((x.get("kind") or "brief"), 9),
+            x.get("updated_at") or "",
+        ),
+        reverse=False,
+    )
+    # sort kind asc (spec first), then updated_at desc
+    matches.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
+    matches.sort(key=lambda x: kind_rank.get((x.get("kind") or "brief"), 9))
+    return matches[0]
 
 
 def promote_doc(slug_or_title: str, to_kind: str) -> tuple[dict | None, str]:
@@ -338,6 +393,7 @@ async def api_get_brief(slug: str, raw: int = 0):
         "status": meta.get("status"),
         "summary": meta.get("summary") or "",
         "source_path": meta.get("source_path") or "",
+        "project_slug": meta.get("project_slug") or "",
         "created_at": meta.get("created_at") or "",
         "updated_at": meta.get("updated_at") or "",
         "published_by": meta.get("published_by") or "",

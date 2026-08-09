@@ -568,10 +568,32 @@ async def get_project_detail(project_id: int, request: Request = None):
             )
             comments = await result.fetchall()
 
+        proj = _serialize(project)
+        brief_meta = None
+        try:
+            from src.dashboard.routes import briefs as br
+
+            linked = br.brief_for_project(proj.get("slug") or "")
+            if linked:
+                body = br._read_body(linked)
+                brief_meta = {
+                    "slug": linked.get("slug"),
+                    "title": linked.get("title"),
+                    "kind": linked.get("kind"),
+                    "status": linked.get("status"),
+                    "summary": linked.get("summary") or "",
+                    "url": br.reader_url(linked.get("slug") or ""),
+                    "updated_at": linked.get("updated_at") or "",
+                    "html": br._render_html(body),
+                }
+        except Exception:
+            brief_meta = None
+
         return {
-            "project": _serialize(project),
+            "project": proj,
             "tasks": [_serialize(t) for t in tasks],
             "comments": [_serialize(c) for c in comments],
+            "brief": brief_meta,
         }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

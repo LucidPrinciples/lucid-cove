@@ -1283,6 +1283,66 @@ body.has-mini-player .chat-input-area { margin-bottom: 52px; }
 
 .task-sub-count { font-size: 0.6rem; color: var(--dim); background: rgba(255,255,255,0.05); padding: 0 4px; border-radius: 3px; }
 
+/* Project detail — linked plan/brief */
+.pdp-brief-row {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px;
+}
+.pdp-brief-copy { min-width: 0; flex: 1; }
+.pdp-brief-meta { font-size: 0.72rem; margin: 2px 0 6px; color: var(--dim); }
+.pdp-brief-summary {
+  font-size: 0.82rem; color: var(--text); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pdp-brief-kind {
+  display: inline-block; text-transform: uppercase; letter-spacing: 0.06em;
+  font-size: 0.65rem; font-weight: 700; color: var(--accent);
+  background: rgba(92, 225, 230, 0.1); border: 1px solid rgba(92, 225, 230, 0.28);
+  border-radius: 999px; padding: 1px 8px;
+}
+.project-brief-overlay { z-index: 600; }
+.project-brief-modal {
+  max-width: min(720px, 100%); max-height: min(88vh, 900px);
+  display: flex; flex-direction: column; padding: 0;
+}
+.project-brief-header {
+  padding: 14px 16px; margin-bottom: 0;
+  position: sticky; top: 0; background: var(--bg); z-index: 2;
+}
+.project-brief-heading {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1;
+}
+.project-brief-heading .modal-title {
+  font-size: 1.05rem; line-height: 1.3;
+}
+.project-brief-actions {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.project-brief-actions .close-modal {
+  background: none; border: none; color: var(--dim); font-size: 1.4rem;
+  cursor: pointer; line-height: 1; padding: 0 4px;
+}
+.project-brief-actions .close-modal:hover { color: var(--text); }
+.project-brief-body {
+  padding: 8px 18px 24px; overflow-y: auto; flex: 1;
+  font-size: 0.95rem; line-height: 1.65;
+}
+.project-brief-body h1 { font-size: 1.35rem; margin: 0.6em 0 0.4em; }
+.project-brief-body h2 { font-size: 1.12rem; margin: 1em 0 0.4em; color: var(--text); }
+.project-brief-body h3 { font-size: 1rem; margin: 0.9em 0 0.35em; color: var(--text); }
+.project-brief-body p { margin: 0 0 0.85em; }
+.project-brief-body ul, .project-brief-body ol { margin: 0 0 0.9em 1.2em; }
+.project-brief-body a { color: var(--accent); }
+.project-brief-body code {
+  font-size: 0.85em; background: rgba(255,255,255,0.06);
+  padding: 1px 5px; border-radius: 4px;
+}
+.project-brief-body pre {
+  background: rgba(0,0,0,0.35); padding: 10px 12px; border-radius: 8px;
+  overflow-x: auto; margin: 0 0 1em;
+}
+
 @media (min-width: 769px) {
   .bottom-nav { display: none !important; }
   #panel-more { display: none !important; }

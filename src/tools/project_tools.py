@@ -581,6 +581,9 @@ async def create_project(name: str, description: str = "",
     auto-attached (their Projects list + NC share). Personal agent channels:
     project stays that presence only.
 
+    Also publishes a starter plan brief linked to the project so Mission Control
+    can open it as a modal from the project detail view.
+
     Args:
         name: Human-readable project name
         description: What this project is about
@@ -612,10 +615,49 @@ async def create_project(name: str, description: str = "",
             attach_note = " | " + await _attach_presence_to_project(
                 int(row["id"]), str(viewer), "work", name
             )
+        brief_note = ""
+        try:
+            from src.dashboard.routes import briefs as br
+
+            goals_block = (goals or "").strip()
+            desc_block = (description or "").strip()
+            body_parts = [
+                f"# {name}",
+                "",
+                desc_block or "_No description yet._",
+                "",
+            ]
+            if goals_block:
+                body_parts.extend(["## Goals", "", goals_block, ""])
+            body_parts.extend(
+                [
+                    "## Plan",
+                    "",
+                    "_Living plan for this project. Update via publish_brief "
+                    f"with project=`{row['slug']}`._",
+                    "",
+                    f"NC folder: `Projects/{name}/`",
+                    "",
+                ]
+            )
+            meta = br.publish_doc(
+                title=f"{name} plan",
+                content_markdown="\n".join(body_parts),
+                kind="plan",
+                summary=(desc_block[:400] if desc_block else f"Plan for {name}"),
+                project_slug=row["slug"],
+                published_by="create_project",
+            )
+            brief_note = (
+                f" | Plan brief: {br.reader_url(meta['slug'])} "
+                f"(linked — opens from project detail)"
+            )
+        except Exception as e:
+            brief_note = f" | Plan brief skipped: {e}"
         scope_label = "Cove" if presence_id is None else "personal"
         return (
             f"Project created ({scope_label}): {row['slug']} (ID: {row['id']}) — {name}"
-            f"{nc_note}{attach_note}. "
+            f"{nc_note}{attach_note}{brief_note}. "
             f"Operator-facing files: Projects/{name}/"
         )
     except Exception as e:
