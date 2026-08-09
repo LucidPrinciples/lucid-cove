@@ -2502,8 +2502,8 @@ async def regen_draft_meta(request: Request):
 def _default_links() -> list:
     """Primary links every Cove starts with (the operator can edit/remove).
 
-    Product doors (not local seeds): Backlog, jules, Cloud, Briefs. Same set for
-    every family Cove — empty boards get the full list; existing boards merge
+    Product doors (not local seeds): Backlog, jules, Cloud, Briefs, Ops. Same set
+    for every family Cove — empty boards get the full list; existing boards merge
     missing doors via _ensure_product_doors so upgrades do not wait on re-install.
     """
     try:
@@ -2520,6 +2520,8 @@ def _default_links() -> list:
          "note": "Your files", "icon": "☁", "group": "", "items": []},
         {"id": "briefs", "type": "link", "title": "Briefs", "url": "/briefs",
          "note": "Readable plans and specs", "icon": "📄", "group": "", "items": []},
+        {"id": "ops", "type": "link", "title": "Ops", "url": "/ops",
+         "note": "Dev-loop honesty — board vs queue vs GitHub", "icon": "🛠", "group": "", "items": []},
     ]
 
 
@@ -2561,9 +2563,9 @@ def _ensure_product_doors(cards: list | None) -> list:
         if durl and durl in have_urls:
             continue
         # Only auto-merge doors that are true product fundamentals on upgrade.
-        # Backlog/jules/cloud already shipped in older defaults; Briefs is the
-        # door existing boards lack after the Briefs feature lands.
-        if did != "briefs":
+        # Backlog/jules/cloud already shipped in older defaults; Briefs and Ops
+        # are the doors existing boards lack after those features land.
+        if did not in ("briefs", "ops"):
             continue
         out.append(dict(door))
         have_ids.add(did)

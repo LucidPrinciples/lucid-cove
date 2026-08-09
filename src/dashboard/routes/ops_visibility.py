@@ -537,8 +537,10 @@ async def ops_state(request: Request):
 
 
 @router.get("/ops")
-async def serve_ops_page():
-    """Serve the Ops-Visibility page."""
+async def serve_ops_page(request: Request):
+    """Serve the Ops-Visibility page (admin/operator only, same gate as state)."""
+    if not await _require_operator(request):
+        return HTMLResponse("Admin/operator only.", status_code=403)
     static = Path(__file__).parent.parent / "static" / "action-board" / "ops-visibility.html"
     if not static.exists():
         return HTMLResponse("Ops-Visibility page not found", status_code=404)
