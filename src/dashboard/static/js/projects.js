@@ -209,6 +209,76 @@ async function saveProjTask(taskId, projectId) {
 // Project Detail
 // =============================================================================
 let currentProjectId = null;
+let currentProjectBrief = null;
+
+function _hideProjectBriefCard() {
+    currentProjectBrief = null;
+    const card = document.getElementById('pdp-brief-card');
+    if (card) card.style.display = 'none';
+}
+
+function _renderProjectBriefCard(brief) {
+    const card = document.getElementById('pdp-brief-card');
+    if (!card) return;
+    if (!brief || !brief.slug) {
+        _hideProjectBriefCard();
+        return;
+    }
+    currentProjectBrief = brief;
+    card.style.display = '';
+    const kind = (brief.kind || 'plan').toLowerCase();
+    const metaEl = document.getElementById('pdp-brief-meta');
+    const sumEl = document.getElementById('pdp-brief-summary');
+    if (metaEl) {
+        metaEl.innerHTML =
+            `<span class="pdp-brief-kind">${ESC(kind)}</span>` +
+            (brief.updated_at
+                ? `<span class="dim"> · updated ${ESC(formatDateOnly(brief.updated_at))}</span>`
+                : '');
+    }
+    if (sumEl) {
+        sumEl.textContent = brief.summary || brief.title || '';
+    }
+}
+
+function closeProjectBriefModal() {
+    const overlay = document.getElementById('project-brief-modal');
+    if (overlay) overlay.remove();
+}
+
+function openProjectBriefModal(brief) {
+    const b = brief || currentProjectBrief;
+    if (!b || !b.html) {
+        if (b && b.url) window.open(b.url, '_blank');
+        return;
+    }
+    closeProjectBriefModal();
+    const overlay = document.createElement('div');
+    overlay.id = 'project-brief-modal';
+    overlay.className = 'modal-overlay project-brief-overlay';
+    overlay.style.display = 'flex';
+    overlay.onclick = (e) => {
+        if (e.target === overlay) closeProjectBriefModal();
+    };
+    const kind = ESC((b.kind || 'plan').toLowerCase());
+    const title = ESC(b.title || 'Plan');
+    const fullUrl = b.url ? ESC(b.url) : '';
+    overlay.innerHTML = `
+      <div class="modal-content project-brief-modal" onclick="event.stopPropagation()">
+        <div class="modal-header project-brief-header">
+          <div class="project-brief-heading">
+            <span class="pdp-brief-kind">${kind}</span>
+            <span class="modal-title">${title}</span>
+          </div>
+          <div class="project-brief-actions">
+            ${fullUrl ? `<a class="btn-small" href="${fullUrl}" target="_blank" rel="noopener">Full page</a>` : ''}
+            <button type="button" class="close-modal" onclick="closeProjectBriefModal()" aria-label="Close">×</button>
+          </div>
+        </div>
+        <div class="modal-body project-brief-body prose">${b.html}</div>
+      </div>`;
+    document.body.appendChild(overlay);
+}
 
 async function showProjectDetail(projectId) {
     currentProjectId = projectId;
@@ -227,6 +297,8 @@ async function showProjectDetail(projectId) {
     document.getElementById('pdp-desc').textContent = '';
     document.getElementById('pdp-tasks').innerHTML = '<span class="empty">Loading...</span>';
     document.getElementById('pdp-comments').innerHTML = '<span class="empty">Loading...</span>';
+    _hideProjectBriefCard();
+    closeProjectBriefModal();
 
     try {
         const res = await fetch(`/api/projects/${projectId}`);
@@ -268,6 +340,9 @@ async function showProjectDetail(projectId) {
         } else {
             goalsEl.innerHTML = '<span class="empty">No goals set</span>';
         }
+
+        // Linked plan / brief — open in-modal on this project
+        _renderProjectBriefCard(data.brief || null);
 
         // Team — agent initial circles
         const teamEl = document.getElementById('pdp-team');

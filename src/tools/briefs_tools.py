@@ -58,12 +58,15 @@ async def publish_brief(
     source_path: str = "",
     slug: str = "",
     pin_to_links: str = "true",
+    project: str = "",
 ) -> str:
     """Publish an operator-facing brief, plan, or spec to the readable Briefs reader.
 
     Use when you have a plan, discovery pack, or spec the operator should review
     in the browser (not as a raw .md path). Returns a /briefs/{slug} URL you
     should paste in chat. Optionally pins a card under the Briefs group on Links.
+    Pass project (slug) to attach the doc to a Mission Control project so it
+    opens as a modal from that project's detail view.
 
     Args:
         title: Document title shown in the reader and library.
@@ -75,6 +78,7 @@ async def publish_brief(
                      still open (e.g. AgentSkills/Working/Specs/foo.md).
         slug: Optional stable slug to update an existing doc in place.
         pin_to_links: 'true' (default) pins/updates Links under group Briefs.
+        project: Optional project slug to link this doc on the Projects tab.
     """
     try:
         from src.dashboard.routes import briefs as br
@@ -87,6 +91,7 @@ async def publish_brief(
         if not (content_markdown or "").strip() and not (source_path or "").strip():
             return "Provide content_markdown and/or a readable source_path."
 
+        project_slug = (project or "").strip()
         meta = br.publish_doc(
             title=title,
             content_markdown=content_markdown or "",
@@ -95,6 +100,7 @@ async def publish_brief(
             source_path=source_path or "",
             slug=(slug or "").strip() or None,
             published_by="agent",
+            project_slug=project_slug,
         )
         url = br.reader_url(meta["slug"])
         pin_msg = ""
@@ -110,6 +116,11 @@ async def publish_brief(
             f"Open: {url}",
             f"Library: /briefs",
         ]
+        if meta.get("project_slug"):
+            lines.append(
+                f"Linked project: {meta['project_slug']} "
+                "(opens from Projects → project detail)"
+            )
         if meta.get("source_path"):
             lines.append(f"Source path (power user): {meta['source_path']}")
         if pin_msg:

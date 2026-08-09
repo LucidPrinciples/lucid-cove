@@ -898,6 +898,16 @@ function _buildDetailPanels() {
                 </div>
             </div>
             <div class="card" id="pdp-goals-card"><h2>Goals</h2><div id="pdp-goals"><span class="empty">No goals set</span></div></div>
+            <div class="card" id="pdp-brief-card" style="display:none;">
+                <div class="pdp-brief-row">
+                    <div class="pdp-brief-copy">
+                        <h2>Plan</h2>
+                        <div id="pdp-brief-meta" class="pdp-brief-meta"></div>
+                        <div id="pdp-brief-summary" class="pdp-brief-summary"></div>
+                    </div>
+                    <button type="button" class="btn-small btn-save" id="pdp-brief-open" onclick="openProjectBriefModal()">Open</button>
+                </div>
+            </div>
             <div class="card">
                 <div class="pdp-tasks-header">
                     <h2>Tasks <span id="pdp-task-count" class="pdp-task-fraction"></span></h2>
