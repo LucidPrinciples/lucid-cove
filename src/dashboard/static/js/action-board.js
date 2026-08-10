@@ -2270,7 +2270,7 @@ function _abLinksWithReturn(url) {
         const u = new URL(String(url), window.location.origin);
         if (u.origin !== window.location.origin) return url;
         const path = u.pathname.replace(/\/+$/, '') || '/';
-        if (path !== '/backlog' && path !== '/jules' && path !== '/gabs') return url;
+        if (path !== '/backlog' && path !== '/jules' && path !== '/gabs' && path !== '/tables' && path !== '/briefs') return url;
         if (!u.searchParams.has('return')) u.searchParams.set('return', 'links');
         // Keep relative form for in-Cove paths so host/presence doors stay correct.
         if (String(url).startsWith('/') || !/^[a-z][a-z0-9+.-]*:/i.test(String(url))) {

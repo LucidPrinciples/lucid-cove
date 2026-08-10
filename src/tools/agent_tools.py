@@ -32,6 +32,7 @@ from src.tools.memory_tools import ALL_MEMORY_TOOLS
 from src.tools.monitoring_tools import ALL_MONITORING_TOOLS
 from src.tools.links_tools import ALL_LINKS_TOOLS
 from src.tools.briefs_tools import ALL_BRIEFS_TOOLS
+from src.tools.table_tools import ALL_TABLE_TOOLS
 from src.tools.steward_queue_tools import ALL_STEWARD_QUEUE_TOOLS
 from src.tools.delegation_tools import ALL_DELEGATION_TOOLS
 
@@ -96,6 +97,7 @@ def get_stuart_tools() -> list:
         + ALL_MEMORY_TOOLS
         + ALL_LINKS_TOOLS
         + ALL_BRIEFS_TOOLS
+        + ALL_TABLE_TOOLS
         + ALL_STEWARD_QUEUE_TOOLS
         + ALL_DELEGATION_TOOLS
     )
@@ -118,6 +120,7 @@ def get_mercer_tools() -> list:
         + ALL_MEMORY_TOOLS
         + ALL_LINKS_TOOLS
         + ALL_BRIEFS_TOOLS
+        + ALL_TABLE_TOOLS
     )
 
 
@@ -134,6 +137,7 @@ def get_builder_tools() -> list:
         + ALL_PROJECT_TOOLS
         + ALL_MEMORY_TOOLS
         + ALL_BRIEFS_TOOLS
+        + ALL_TABLE_TOOLS
     )
 
 
