@@ -338,6 +338,62 @@ def brief_for_project(project_slug: str) -> dict | None:
     return matches[0]
 
 
+
+def ensure_project_plan(
+    *,
+    name: str,
+    project_slug: str,
+    description: str = "",
+    goals: str = "",
+    published_by: str = "ensure_project_plan",
+) -> tuple[dict | None, str]:
+    """Create a starter plan linked to project_slug if none exists.
+
+    Returns (meta, note). meta is the linked brief row; note is short status.
+    Idempotent: existing linked plan/brief/spec is left alone.
+    """
+    slug = _norm_project_slug(project_slug)
+    if not slug:
+        return None, "invalid project_slug"
+    existing = brief_for_project(slug)
+    if existing:
+        return existing, "exists"
+    display = (name or slug).strip() or slug
+    goals_block = (goals or "").strip()
+    desc_block = (description or "").strip()
+    body_parts = [
+        f"# {display}",
+        "",
+        desc_block or "_No description yet._",
+        "",
+    ]
+    if goals_block:
+        body_parts.extend(["## Goals", "", goals_block, ""])
+    body_parts.extend(
+        [
+            "## Plan",
+            "",
+            "_Living plan for this project. Update via publish_brief "
+            f"with project=`{slug}`._",
+            "",
+            f"NC folder: `Projects/{display}/`",
+            "",
+        ]
+    )
+    try:
+        meta = publish_doc(
+            title=f"{display} plan",
+            content_markdown="\n".join(body_parts),
+            kind="plan",
+            summary=(desc_block[:400] if desc_block else f"Plan for {display}"),
+            project_slug=slug,
+            published_by=(published_by or "ensure_project_plan")[:80],
+        )
+        return meta, "created"
+    except Exception as e:
+        return None, f"error: {e}"
+
+
 def promote_doc(slug_or_title: str, to_kind: str) -> tuple[dict | None, str]:
     to_kind = (to_kind or "").strip().lower()
     if to_kind not in _KINDS:

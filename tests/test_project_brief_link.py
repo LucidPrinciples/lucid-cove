@@ -66,7 +66,7 @@ def test_publish_brief_tool_accepts_project_arg():
 
 def test_create_project_publishes_linked_plan():
     src = (ROOT / "src/tools/project_tools.py").read_text()
-    assert "publish_doc" in src
+    assert "ensure_project_plan" in src
     assert "project_slug=row" in src or 'project_slug=row["slug"]' in src
     assert "Plan brief" in src
 
@@ -85,3 +85,40 @@ def test_project_ui_has_brief_modal():
     assert "openProjectBriefModal" in projects
     assert "project-brief-modal" in projects
     assert "project-brief-modal" in css
+
+
+def test_ensure_project_plan_creates_once(briefs_env):
+    br = briefs_env
+    meta, status = br.ensure_project_plan(
+        name="Jeff Job",
+        project_slug="jeff-job",
+        description="Shared work",
+        goals="Ship it",
+        published_by="test",
+    )
+    assert status == "created"
+    assert meta is not None
+    assert meta["project_slug"] == "jeff-job"
+    assert meta["kind"] == "plan"
+    body = br._read_body(meta)
+    assert "Shared work" in body
+    assert "Ship it" in body
+    meta2, status2 = br.ensure_project_plan(
+        name="Jeff Job",
+        project_slug="jeff-job",
+        published_by="test",
+    )
+    assert status2 == "exists"
+    assert meta2["slug"] == meta["slug"]
+
+
+def test_create_project_uses_ensure_helper():
+    src = (ROOT / "src/tools/project_tools.py").read_text()
+    assert "ensure_project_plan" in src
+
+
+def test_ui_create_project_ensures_plan():
+    src = (ROOT / "src/dashboard/routes/projects.py").read_text()
+    assert "ensure_project_plan" in src
+    assert "ui_create_project" in src
+    assert "project_detail_backfill" in src

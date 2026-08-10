@@ -454,19 +454,48 @@ async def create_project(request: Request):
                 (insert_presence, slug, name, description, owner, goals),
             )
             row = await result.fetchone()
-            # Seed folder + auto-attach member when they somehow create cove (n/a)
-            # Admin cove folder is created by agent tools; UI create is best-effort.
+
+        # Parity with agent create_project: every project gets a linked Plan.
         try:
-            from src.tools.project_tools import (
-                _ensure_project_nc_folder,
-                _attach_presence_to_project,
+            from src.dashboard.routes import briefs as br
+
+            br.ensure_project_plan(
+                name=name,
+                project_slug=slug,
+                description=description or "",
+                goals=goals or "",
+                published_by="ui_create_project",
             )
-            # Only seed when we can bind admin NC (manager path); skip if no env
-            if insert_presence is None:
-                # folder ensure uses bound NC — may no-op without chat ctx
-                pass
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("ui create_project plan ensure failed: %s", e)
+
+        # Cove-board creates: seed NC folder + attach the signed-in presence.
+        if insert_presence is None:
+            try:
+                from src.tools.nextcloud_tools import (
+                    set_team_nc_creds,
+                    clear_request_nc_creds,
+                )
+                from src.tools.project_tools import (
+                    _ensure_project_nc_folder,
+                    _attach_presence_to_project,
+                )
+
+                nc_tok = set_team_nc_creds()
+                try:
+                    await _ensure_project_nc_folder(name)
+                    if presence_id:
+                        await _attach_presence_to_project(
+                            int(row["id"]), str(presence_id), "work", name
+                        )
+                finally:
+                    try:
+                        clear_request_nc_creds(nc_tok)
+                    except Exception:
+                        pass
+            except Exception as e:
+                log.warning("ui create_project NC side effects: %s", e)
+
         return _serialize(row)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -574,6 +603,23 @@ async def get_project_detail(project_id: int, request: Request = None):
             from src.dashboard.routes import briefs as br
 
             linked = br.brief_for_project(proj.get("slug") or "")
+            if not linked:
+                # Backfill starter plan for projects created before plan-on-create
+                # or when publish failed silently (agent/UI paths now share ensure).
+                meta, status = br.ensure_project_plan(
+                    name=proj.get("name") or proj.get("slug") or "",
+                    project_slug=proj.get("slug") or "",
+                    description=proj.get("description") or "",
+                    goals=proj.get("goals") or "",
+                    published_by="project_detail_backfill",
+                )
+                if meta:
+                    linked = meta
+                    log.info(
+                        "backfilled plan for project %s (%s)",
+                        proj.get("slug"),
+                        status,
+                    )
             if linked:
                 body = br._read_body(linked)
                 brief_meta = {
