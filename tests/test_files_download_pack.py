@@ -141,6 +141,8 @@ def test_files_js_pack_ui_newest_resume_and_direct_cloud():
     # Primary download is Cloud-direct
     assert "packDownloadDirectCloud" in js
     assert "packTriggerBrowserDownload" in js
+    assert "Download next only" in js
+    assert "one-at-a-time" in js
     assert "Via Mission Control" in js
     assert "download shelf" in js or "Downloads folder" in js
 
