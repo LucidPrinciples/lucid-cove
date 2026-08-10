@@ -293,3 +293,43 @@ def apply_row_update(
     else:
         updated[row_index] = _row_from_values(values)
     return headers, updated
+
+
+def extract_table_paths_from_markdown(md: str) -> list[str]:
+    """Return ordered unique .csv paths referenced in plan/brief markdown.
+
+    Recognizes ```csv path fences and [[csv:path]] inline refs — same grammar
+    as expand_csv_refs_in_markdown. Invalid paths are skipped.
+    """
+    if not md:
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+    for rx in (_CSV_FENCE_RE, _CSV_INLINE_RE):
+        for m in rx.finditer(md):
+            raw = (m.group(1) or "").strip().strip("'\"")
+            clean, err = normalize_table_path(raw)
+            if err or not clean or clean in seen:
+                continue
+            seen.add(clean)
+            found.append(clean)
+    return found
+
+
+def table_link_entries(paths: list[str]) -> list[dict[str, str]]:
+    """Operator-facing {path, title, viewer_url} rows for project detail."""
+    out: list[dict[str, str]] = []
+    for p in paths or []:
+        clean, err = normalize_table_path(p)
+        if err or not clean:
+            continue
+        title = clean.rsplit("/", 1)[-1]
+        if title.lower().endswith(".csv"):
+            title = title[:-4]
+        title = title.replace("-", " ").replace("_", " ").strip() or clean
+        out.append({
+            "path": clean,
+            "title": title,
+            "viewer_url": viewer_url(clean),
+        })
+    return out

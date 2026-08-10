@@ -120,3 +120,26 @@ def test_tables_path_is_cove_shared():
     assert fr._is_cove_shared_path("AgentSkills/Knowledge Base/x.md")
     assert not fr._is_tables_path("Documents/Tables/x.csv")
     assert not fr._is_cove_shared_path("Documents/foo.csv")
+
+
+def test_extract_table_paths_from_markdown():
+    from src.dashboard import csv_tables as ct
+
+    md = """# Plan
+
+```csv
+Tables/warehouse-inventory.csv
+```
+
+Also [[csv:Tables/other.csv]] and [[csv:bad.txt]] and dupe
+[[csv:Tables/warehouse-inventory.csv]]
+"""
+    paths = ct.extract_table_paths_from_markdown(md)
+    assert paths == [
+        "Tables/warehouse-inventory.csv",
+        "Tables/other.csv",
+    ]
+    entries = ct.table_link_entries(paths)
+    assert entries[0]["path"] == "Tables/warehouse-inventory.csv"
+    assert "warehouse" in entries[0]["title"].lower()
+    assert entries[0]["viewer_url"].startswith("/tables?path=")
