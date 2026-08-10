@@ -35,7 +35,7 @@
   .spacer { flex: 1; }
   .path {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.78rem; color: var(--text-dim); max-width: 48vw;
+    font-size: 0.78rem; color: var(--text-dim); max-width: 42vw;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .btn {
@@ -61,25 +61,54 @@
     background: var(--surface);
   }
   table {
-    width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 480px;
+    width: 100%; border-collapse: collapse; font-size: 0.9rem;
+    table-layout: auto;
   }
   th, td {
-    border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: left;
+    border-bottom: 1px solid var(--border); padding: 10px 12px; text-align: left;
     vertical-align: top;
   }
   th {
     position: sticky; top: 0; background: #16161f; color: var(--text-dim);
-    font-weight: 600; z-index: 1;
+    font-weight: 600; z-index: 1; white-space: nowrap;
   }
   tr:hover td { background: rgba(92, 225, 230, 0.04); }
-  td input {
+
+  /* View mode: fluid text cells that wrap */
+  td.cell-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.45;
+    min-width: 6rem;
+    max-width: 28rem;
+  }
+  td.cell-text.is-empty {
+    color: var(--text-faint);
+  }
+
+  /* Edit mode: input grid (previous behavior) */
+  table.is-editing {
+    min-width: 480px;
+  }
+  td.cell-edit {
+    min-width: 7rem;
+  }
+  td.cell-edit input {
     width: 100%; min-width: 4rem; background: #0e0e16; border: 1px solid var(--border);
     color: var(--text); border-radius: 6px; padding: 6px 8px; font: inherit;
   }
-  td input:focus { outline: none; border-color: var(--accent); }
+  td.cell-edit input:focus { outline: none; border-color: var(--accent); }
+
   .empty { padding: 48px 20px; text-align: center; color: var(--text-dim); }
   .row-actions { white-space: nowrap; width: 1%; }
   .hint { color: var(--text-faint); font-size: 0.8rem; margin-top: 12px; }
+  .mode-pill {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-faint);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px;
+  }
+  .mode-pill.editing { color: var(--accent); border-color: rgba(92,225,230,0.35); }
 </style>
 </head>
 <body>
@@ -89,7 +118,10 @@
     <a href="/files">Files</a>
     <span class="spacer"></span>
     <span class="path" id="path-label"></span>
+    <span class="mode-pill" id="mode-pill" hidden>View</span>
     <button type="button" class="btn" id="reload-btn">Reload</button>
+    <button type="button" class="btn" id="edit-btn" hidden>Edit</button>
+    <button type="button" class="btn" id="done-btn" hidden>Done</button>
     <button type="button" class="btn" id="add-row-btn" hidden>+ Row</button>
     <button type="button" class="btn primary" id="save-btn" hidden disabled>Save</button>
   </div>
@@ -102,11 +134,24 @@
   const path = (params.get("path") || "").trim();
   const root = document.getElementById("root");
   const pathLabel = document.getElementById("path-label");
+  const modePill = document.getElementById("mode-pill");
   const saveBtn = document.getElementById("save-btn");
   const addRowBtn = document.getElementById("add-row-btn");
+  const editBtn = document.getElementById("edit-btn");
+  const doneBtn = document.getElementById("done-btn");
   const reloadBtn = document.getElementById("reload-btn");
 
-  let state = { headers: [], rows: [], dirty: false, editable: false };
+  // canEdit = server allows writes. editing = operator chose Edit mode.
+  // dirty = local rows differ from last loaded/saved snapshot.
+  let state = {
+    headers: [],
+    rows: [],
+    canEdit: false,
+    editing: false,
+    dirty: false,
+    truncated: false,
+  };
+  let baseline = { headers: [], rows: [] };
 
   function esc(s) {
     return String(s == null ? "" : s)
@@ -114,49 +159,129 @@
       .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  function setDirty(v) {
-    state.dirty = !!v;
+  function cloneGrid(headers, rows) {
+    return {
+      headers: (headers || []).slice(),
+      rows: (rows || []).map(r => (r || []).slice()),
+    };
+  }
+
+  function gridsEqual(a, b) {
+    if (!a || !b) return false;
+    if (a.headers.length !== b.headers.length) return false;
+    for (let i = 0; i < a.headers.length; i++) {
+      if (String(a.headers[i]) !== String(b.headers[i])) return false;
+    }
+    if (a.rows.length !== b.rows.length) return false;
+    for (let r = 0; r < a.rows.length; r++) {
+      const ar = a.rows[r] || [];
+      const br = b.rows[r] || [];
+      const width = Math.max(ar.length, br.length, a.headers.length);
+      for (let c = 0; c < width; c++) {
+        if (String(ar[c] == null ? "" : ar[c]) !== String(br[c] == null ? "" : br[c])) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function syncChrome() {
+    const showEditChrome = state.canEdit && state.editing;
+    modePill.hidden = !state.headers.length && !state.rows.length && !state.canEdit;
+    modePill.textContent = state.editing ? "Editing" : "View";
+    modePill.classList.toggle("editing", !!state.editing);
+
+    editBtn.hidden = !state.canEdit || state.editing;
+    doneBtn.hidden = !showEditChrome;
+    addRowBtn.hidden = !showEditChrome;
+    // Save is visible in edit mode, enabled only when dirty.
+    saveBtn.hidden = !showEditChrome;
     saveBtn.disabled = !state.dirty;
-    saveBtn.hidden = !state.editable;
-    addRowBtn.hidden = !state.editable;
+  }
+
+  function setDirtyFromState() {
+    state.dirty = !gridsEqual(
+      { headers: state.headers, rows: state.rows },
+      baseline
+    );
+    syncChrome();
+  }
+
+  function enterEdit() {
+    if (!state.canEdit) return;
+    state.editing = true;
+    syncChrome();
+    render();
+  }
+
+  function leaveEdit() {
+    if (state.dirty) {
+      const ok = window.confirm("Discard unsaved changes and return to view?");
+      if (!ok) return;
+      // Restore last saved/loaded snapshot
+      state.headers = baseline.headers.slice();
+      state.rows = baseline.rows.map(r => r.slice());
+      state.dirty = false;
+    }
+    state.editing = false;
+    syncChrome();
+    render();
   }
 
   function render() {
     pathLabel.textContent = path || "(no path)";
+    syncChrome();
+
     if (!path) {
       root.innerHTML = '<div class="err">Add <code>?path=Tables/example.csv</code> to the URL.</div>';
       return;
     }
     if (!state.headers.length && !state.rows.length) {
-      root.innerHTML = '<div class="empty">Empty table — use + Row or ask your agent to add headers.</div>';
+      const emptyHint = state.canEdit
+        ? "Empty table — press Edit, then + Row (or ask your agent to add headers)."
+        : "Empty table.";
+      root.innerHTML = '<div class="empty">' + emptyHint + "</div>";
       return;
     }
+
+    const editing = state.canEdit && state.editing;
     let html = '<div class="meta">' + state.rows.length + " row"
       + (state.rows.length === 1 ? "" : "s") + " · " + state.headers.length + " column"
       + (state.headers.length === 1 ? "" : "s")
       + (state.truncated ? " · truncated preview" : "")
-      + '</div><div id="msg"></div><div class="scroll"><table><thead><tr>';
+      + (editing ? " · edit mode" : "")
+      + '</div><div id="msg"></div><div class="scroll"><table class="'
+      + (editing ? "is-editing" : "is-viewing") + '"><thead><tr>';
+
     state.headers.forEach(h => { html += "<th>" + esc(h) + "</th>"; });
-    if (state.editable) html += '<th class="row-actions"></th>';
+    if (editing) html += '<th class="row-actions"></th>';
     html += "</tr></thead><tbody>";
+
     state.rows.forEach((row, ri) => {
-      html += "<tr data-ri=\"" + ri + "\">";
+      html += '<tr data-ri="' + ri + '">';
       state.headers.forEach((h, ci) => {
-        const val = row[ci] == null ? "" : row[ci];
-        if (state.editable) {
-          html += '<td><input data-ri="' + ri + '" data-ci="' + ci + '" value="' + esc(val) + '"></td>';
+        const val = row[ci] == null ? "" : String(row[ci]);
+        if (editing) {
+          html += '<td class="cell-edit"><input data-ri="' + ri + '" data-ci="' + ci
+            + '" value="' + esc(val) + '"></td>';
         } else {
-          html += "<td>" + esc(val) + "</td>";
+          const empty = !val;
+          html += '<td class="cell-text' + (empty ? " is-empty" : "") + '">'
+            + (empty ? "—" : esc(val)) + "</td>";
         }
       });
-      if (state.editable) {
-        html += '<td class="row-actions"><button type="button" class="btn del-row" data-ri="' + ri + '">✕</button></td>';
+      if (editing) {
+        html += '<td class="row-actions"><button type="button" class="btn del-row" data-ri="'
+          + ri + '">✕</button></td>';
       }
       html += "</tr>";
     });
     html += "</tbody></table></div>";
-    html += '<p class="hint">Source of truth is the CSV file. Agents and operators edit the same object. No spreadsheet stack.</p>';
+    html += '<p class="hint">Source of truth is the CSV file. View wraps long fields; Edit unlocks the input grid. Save stays off until something changes.</p>';
     root.innerHTML = html;
+
+    if (!editing) return;
 
     root.querySelectorAll("input").forEach(inp => {
       inp.addEventListener("input", () => {
@@ -164,14 +289,14 @@
         const ci = +inp.getAttribute("data-ci");
         if (!state.rows[ri]) return;
         state.rows[ri][ci] = inp.value;
-        setDirty(true);
+        setDirtyFromState();
       });
     });
     root.querySelectorAll(".del-row").forEach(btn => {
       btn.addEventListener("click", () => {
         const ri = +btn.getAttribute("data-ri");
         state.rows.splice(ri, 1);
-        setDirty(true);
+        setDirtyFromState();
         render();
       });
     });
@@ -185,23 +310,32 @@
       const data = await res.json();
       if (!data.ok) {
         root.innerHTML = '<div class="err">' + esc(data.error || "Failed to load") + "</div>";
-        setDirty(false);
+        state.canEdit = false;
+        state.editing = false;
+        state.dirty = false;
+        syncChrome();
         return;
       }
       state.headers = data.headers || [];
       state.rows = (data.rows || []).map(r => r.slice());
       state.truncated = !!data.truncated;
-      state.editable = data.editable !== false;
+      state.canEdit = data.editable !== false;
+      // Always open in view mode after load/reload.
+      state.editing = false;
+      state.dirty = false;
+      baseline = cloneGrid(state.headers, state.rows);
       document.title = (path.split("/").pop() || "Table") + " — Lucid Cove";
-      setDirty(false);
       render();
     } catch (e) {
       root.innerHTML = '<div class="err">Failed to load table.</div>';
+      state.canEdit = false;
+      state.editing = false;
+      syncChrome();
     }
   }
 
   async function save() {
-    if (!state.editable || !state.dirty) return;
+    if (!state.canEdit || !state.editing || !state.dirty) return;
     saveBtn.disabled = true;
     try {
       const res = await fetch("/api/tables", {
@@ -219,7 +353,9 @@
       }
       state.headers = data.headers || state.headers;
       state.rows = (data.rows || state.rows).map(r => r.slice());
-      setDirty(false);
+      baseline = cloneGrid(state.headers, state.rows);
+      state.dirty = false;
+      // Stay in edit mode after save so multi-pass edits are easy; Save disables again.
       render();
       const m2 = document.getElementById("msg");
       if (m2) m2.innerHTML = '<div class="okmsg">Saved.</div>';
@@ -230,7 +366,10 @@
     }
   }
 
+  editBtn.addEventListener("click", enterEdit);
+  doneBtn.addEventListener("click", leaveEdit);
   addRowBtn.addEventListener("click", () => {
+    if (!state.canEdit || !state.editing) return;
     if (!state.headers.length) {
       const raw = window.prompt("Column headers (comma-separated)", "item,who,notes");
       if (!raw) return;
@@ -238,11 +377,17 @@
       if (!state.headers.length) return;
     }
     state.rows.push(state.headers.map(() => ""));
-    setDirty(true);
+    setDirtyFromState();
     render();
   });
   saveBtn.addEventListener("click", save);
-  reloadBtn.addEventListener("click", load);
+  reloadBtn.addEventListener("click", () => {
+    if (state.dirty) {
+      const ok = window.confirm("Reload and discard unsaved changes?");
+      if (!ok) return;
+    }
+    load();
+  });
   load();
 })();
 </script>

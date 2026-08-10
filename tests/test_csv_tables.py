@@ -143,3 +143,18 @@ Also [[csv:Tables/other.csv]] and [[csv:bad.txt]] and dupe
     assert entries[0]["path"] == "Tables/warehouse-inventory.csv"
     assert "warehouse" in entries[0]["title"].lower()
     assert entries[0]["viewer_url"].startswith("/tables?path=")
+
+
+def test_table_viewer_view_edit_mode():
+    """Viewer opens as wrapping text cells; Edit unlocks inputs; Save is dirty-only."""
+    html = (ROOT / "src/dashboard/static/tables/viewer.html").read_text(encoding="utf-8")
+    assert 'id="edit-btn"' in html
+    assert 'id="done-btn"' in html
+    assert 'id="save-btn"' in html
+    assert "cell-text" in html
+    assert "overflow-wrap: anywhere" in html or "overflow-wrap:anywhere" in html
+    assert "state.editing" in html
+    assert "gridsEqual" in html
+    assert "saveBtn.disabled = !state.dirty" in html
+    # Default path is view, not always-on inputs
+    assert "Always open in view mode" in html or "state.editing = false" in html
