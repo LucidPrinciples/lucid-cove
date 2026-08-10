@@ -912,6 +912,10 @@ function _buildDetailPanels() {
                     <button type="button" class="btn-small btn-save" id="pdp-brief-open" onclick="openProjectBriefModal()">Open</button>
                 </div>
             </div>
+            <div class="card" id="pdp-tables-card" style="display:none;">
+                <h2>Tables</h2>
+                <div id="pdp-tables-list" class="pdp-tables-list"></div>
+            </div>
             <div class="card">
                 <div class="pdp-tasks-header">
                     <h2>Tasks <span id="pdp-task-count" class="pdp-task-fraction"></span></h2>

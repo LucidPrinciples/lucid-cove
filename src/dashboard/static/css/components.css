@@ -1355,3 +1355,33 @@ body.has-mini-player .chat-input-area { margin-bottom: 52px; }
   .metrics-grid { grid-template-columns: 1fr; }
 }
 
+
+
+.pdp-tables-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.pdp-table-link {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    text-decoration: none;
+    color: var(--text);
+    background: rgba(92, 225, 230, 0.04);
+}
+.pdp-table-link:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.pdp-table-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+.pdp-table-path {
+    font-size: 0.72rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

@@ -68,7 +68,7 @@ async def deck_manifest():
         {
             "name": f"{label} — Lucid Cove",
             "short_name": label,
-            "start_url": "/static/action-board/links.html",
+            "start_url": "/?tab=ab-links",
             "display": "standalone",
             "background_color": "#0a0a0f",
             "theme_color": "#0a0a0f",

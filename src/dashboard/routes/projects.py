@@ -599,6 +599,7 @@ async def get_project_detail(project_id: int, request: Request = None):
 
         proj = _serialize(project)
         brief_meta = None
+        tables_meta = []
         try:
             from src.dashboard.routes import briefs as br
 
@@ -632,14 +633,25 @@ async def get_project_detail(project_id: int, request: Request = None):
                     "updated_at": linked.get("updated_at") or "",
                     "html": br._render_html(body),
                 }
+                # Optional living tables: paths referenced in the plan markdown.
+                # Not every project has one — Plan is standard; tables are project choice.
+                try:
+                    from src.dashboard import csv_tables as ct
+
+                    table_paths = ct.extract_table_paths_from_markdown(body or "")
+                    tables_meta = ct.table_link_entries(table_paths)
+                except Exception:
+                    tables_meta = []
         except Exception:
             brief_meta = None
+            tables_meta = []
 
         return {
             "project": proj,
             "tasks": [_serialize(t) for t in tasks],
             "comments": [_serialize(c) for c in comments],
             "brief": brief_meta,
+            "tables": tables_meta,
         }
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

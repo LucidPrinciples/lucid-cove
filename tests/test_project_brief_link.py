@@ -122,3 +122,27 @@ def test_ui_create_project_ensures_plan():
     assert "ensure_project_plan" in src
     assert "ui_create_project" in src
     assert "project_detail_backfill" in src
+
+
+
+def test_project_detail_api_includes_tables_from_plan():
+    src = (ROOT / "src/dashboard/routes/projects.py").read_text()
+    assert "extract_table_paths_from_markdown" in src
+    assert '"tables": tables_meta' in src or "'tables': tables_meta" in src
+
+
+def test_project_ui_has_tables_card():
+    panels = (ROOT / "src/dashboard/static/js/panels.js").read_text()
+    projects = (ROOT / "src/dashboard/static/js/projects.js").read_text()
+    assert "pdp-tables-card" in panels
+    assert "_renderProjectTablesCard" in projects
+
+
+def test_table_and_briefs_nav_use_mc_links_tab():
+    viewer = (ROOT / "src/dashboard/static/tables/viewer.html").read_text()
+    reader = (ROOT / "src/dashboard/static/briefs/reader.html").read_text()
+    library = (ROOT / "src/dashboard/static/briefs/library.html").read_text()
+    assert "/?tab=ab-links" in viewer
+    assert "/static/action-board/links.html" not in viewer
+    assert "/?tab=ab-links" in reader
+    assert "/?tab=ab-links" in library

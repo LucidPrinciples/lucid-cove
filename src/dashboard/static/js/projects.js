@@ -217,6 +217,35 @@ function _hideProjectBriefCard() {
     if (card) card.style.display = 'none';
 }
 
+
+function _hideProjectTablesCard() {
+    const card = document.getElementById('pdp-tables-card');
+    if (card) card.style.display = 'none';
+    const list = document.getElementById('pdp-tables-list');
+    if (list) list.innerHTML = '';
+}
+
+function _renderProjectTablesCard(tables) {
+    const card = document.getElementById('pdp-tables-card');
+    const list = document.getElementById('pdp-tables-list');
+    if (!card || !list) return;
+    const rows = Array.isArray(tables) ? tables.filter(t => t && t.viewer_url) : [];
+    if (!rows.length) {
+        _hideProjectTablesCard();
+        return;
+    }
+    card.style.display = '';
+    list.innerHTML = rows.map(t => {
+        const title = ESC(t.title || t.path || 'Table');
+        const path = ESC(t.path || '');
+        const url = ESC(t.viewer_url);
+        return `<a class="pdp-table-link" href="${url}">` +
+            `<span class="pdp-table-title">${title}</span>` +
+            (path ? `<span class="pdp-table-path dim">${path}</span>` : '') +
+            `</a>`;
+    }).join('');
+}
+
 function _renderProjectBriefCard(brief) {
     const card = document.getElementById('pdp-brief-card');
     if (!card) return;
@@ -298,6 +327,7 @@ async function showProjectDetail(projectId) {
     document.getElementById('pdp-tasks').innerHTML = '<span class="empty">Loading...</span>';
     document.getElementById('pdp-comments').innerHTML = '<span class="empty">Loading...</span>';
     _hideProjectBriefCard();
+    _hideProjectTablesCard();
     closeProjectBriefModal();
 
     try {
@@ -343,6 +373,9 @@ async function showProjectDetail(projectId) {
 
         // Linked plan / brief — open in-modal on this project
         _renderProjectBriefCard(data.brief || null);
+
+        // Optional CSV tables linked from the plan
+        _renderProjectTablesCard(data.tables || []);
 
         // Team — agent initial circles
         const teamEl = document.getElementById('pdp-team');
