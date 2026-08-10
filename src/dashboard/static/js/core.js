@@ -508,6 +508,11 @@ async function boot() {
         // Shell + first-tab scripts only (parallel). Remaining tabs load on switch
         // or idle-prefetch after first paint — DERP/hotspot paths die on full fan-out.
         await loadBootShellScripts(firstTab);
+        // Display prefs: local already applied in <head>; merge server account prefs
+        if (typeof syncDisplayPrefsFromServer === 'function') {
+            try { await syncDisplayPrefsFromServer(); } catch (e) { /* non-fatal */ }
+        }
+
         await ensureTabScripts(firstTab);
 
         if (_abTabIds.indexOf(firstTab) !== -1 && typeof switchBoard === 'function') {
@@ -1399,7 +1404,8 @@ function _shellScriptBasenames(firstTab) {
     // action-board (~127KB) loads when the operator opens Action board (or lands
     // on an ab-* tab). onboarding/upgrade load with Tuners or on first use.
     // morning-alert: tiny habit scheduler — always on shell so prefs arm after boot.
-    const shell = ['quick-list', 'morning-alert'];
+    // display-prefs: text size/font/contrast — shell so Settings + boot sync always exist.
+    const shell = ['quick-list', 'morning-alert', 'display-prefs'];
     const id = firstTab || 'home';
     if (typeof id === 'string' && id.indexOf('ab-') === 0) {
         shell.push('action-board');

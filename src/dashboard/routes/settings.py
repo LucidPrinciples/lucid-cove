@@ -685,3 +685,121 @@ async def set_model_override(request: Request, body: ModelOverrideUpdate):
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ── Display prefs (MC text size / font / contrast) ────────────────────────────
+# Per-presence in multi (accounts.preferences.display); feature overrides in single.
+# Dark LP palette stays locked — these only scale type and lift contrast tokens.
+
+_DEFAULT_DISPLAY = {
+    "text_size": "md",   # sm | md | lg | xl
+    "font": "mono",      # mono | sans | serif
+    "contrast": "standard",  # standard | high
+}
+
+_DISPLAY_TEXT_SIZES = frozenset({"sm", "md", "lg", "xl"})
+_DISPLAY_FONTS = frozenset({"mono", "sans", "serif"})
+_DISPLAY_CONTRASTS = frozenset({"standard", "high"})
+
+
+def _normalize_display_prefs(raw) -> dict:
+    out = dict(_DEFAULT_DISPLAY)
+    if not isinstance(raw, dict):
+        return out
+    ts = raw.get("text_size") or raw.get("textSize")
+    if isinstance(ts, str) and ts.strip().lower() in _DISPLAY_TEXT_SIZES:
+        out["text_size"] = ts.strip().lower()
+    font = raw.get("font") or raw.get("font_family") or raw.get("fontFamily")
+    if isinstance(font, str) and font.strip().lower() in _DISPLAY_FONTS:
+        out["font"] = font.strip().lower()
+    contrast = raw.get("contrast")
+    if isinstance(contrast, str) and contrast.strip().lower() in _DISPLAY_CONTRASTS:
+        out["contrast"] = contrast.strip().lower()
+    return out
+
+
+async def _read_display_prefs(request: Request) -> dict:
+    import json
+    cove_mode = env("COVE_MODE", "single")
+    if cove_mode == "multi":
+        try:
+            from src.dashboard.routes.presence import get_current_presence
+            presence = await get_current_presence(request)
+            if presence:
+                prefs = presence.get("preferences") or {}
+                if isinstance(prefs, str):
+                    prefs = json.loads(prefs) if prefs else {}
+                if not isinstance(prefs, dict):
+                    prefs = {}
+                return _normalize_display_prefs(prefs.get("display"))
+        except Exception:
+            pass
+        return dict(_DEFAULT_DISPLAY)
+    try:
+        flags = get_feature_flags() or {}
+        return _normalize_display_prefs(flags.get("display"))
+    except Exception:
+        return dict(_DEFAULT_DISPLAY)
+
+
+async def _write_display_prefs(request: Request, display: dict) -> bool:
+    import json
+    cove_mode = env("COVE_MODE", "single")
+    display = _normalize_display_prefs(display)
+    if cove_mode == "multi":
+        from src.dashboard.routes.presence import get_current_presence
+        presence = await get_current_presence(request)
+        if not presence:
+            return False
+        try:
+            from src.memory.database import get_db
+            async with get_db() as conn:
+                prefs = presence.get("preferences") or {}
+                if isinstance(prefs, str):
+                    prefs = json.loads(prefs) if prefs else {}
+                if not isinstance(prefs, dict):
+                    prefs = {}
+                prefs["display"] = display
+                await conn.execute(
+                    "UPDATE accounts SET preferences = %s, updated_at = NOW() WHERE id = %s",
+                    (json.dumps(prefs), presence["id"]),
+                )
+            return True
+        except Exception:
+            return False
+    from src.config import save_feature_overrides
+    return bool(save_feature_overrides({"display": display}))
+
+
+@router.get("/api/settings/display")
+async def get_display_prefs(request: Request):
+    """Read Mission Control display prefs (text size, font, contrast)."""
+    return {"ok": True, "display": await _read_display_prefs(request)}
+
+
+@router.put("/api/settings/display")
+async def put_display_prefs(request: Request):
+    """Save display prefs. Body: {text_size?, font?, contrast?}."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    current = await _read_display_prefs(request)
+    for key in ("text_size", "font", "contrast"):
+        if key in body:
+            current[key] = body[key]
+    # Also accept camelCase from older clients
+    if "textSize" in body:
+        current["text_size"] = body["textSize"]
+    if "fontFamily" in body:
+        current["font"] = body["fontFamily"]
+    current = _normalize_display_prefs(current)
+    ok = await _write_display_prefs(request, current)
+    if not ok:
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "Could not save display preferences"},
+        )
+    return {"ok": True, "display": current}

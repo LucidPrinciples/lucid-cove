@@ -16,6 +16,21 @@
 <link rel="stylesheet" href="/static/css/chat.css">
 <link rel="stylesheet" href="/static/css/action-board.css">
 <link rel="stylesheet" href="/static/css/tune-flow.css">
+<script>
+/* Display prefs: apply before paint so text size/font/contrast don't flash */
+(function () {
+  try {
+    var raw = localStorage.getItem('mc.displayPrefs');
+    if (!raw) return;
+    var p = JSON.parse(raw);
+    if (!p || typeof p !== 'object') return;
+    var h = document.documentElement;
+    if (p.text_size) h.setAttribute('data-text-size', String(p.text_size));
+    if (p.font) h.setAttribute('data-font', String(p.font));
+    if (p.contrast) h.setAttribute('data-contrast', String(p.contrast));
+  } catch (e) { /* ignore */ }
+})();
+</script>
 <script defer src="https://analytics.lucidcove.org/script.js" data-website-id="9e5cc04a-7136-44f0-948e-d3889457ddfd" data-domains="app.lucidcove.org" data-performance="true"></script>
 </head>
 <body>

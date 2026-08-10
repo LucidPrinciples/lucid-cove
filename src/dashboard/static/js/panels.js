@@ -333,6 +333,10 @@ function _defaultPanelHTML(tabId) {
                 <span class="panel-title">Settings</span>
             </div>
             <div class="panel-scroll">
+                <div class="settings-group">
+                    <div class="settings-group-title">Display</div>
+                    <div id="settings-display" class="settings-row-list"></div>
+                </div>
                 ${!(MC.adminView || MC.coveAdminView) ? (() => {
                   // Tier gating: an Agent + Voice + voice Tools only exist once you
                   // HAVE an agent (Presence/Cove). Cloud Storage starts at Operator.

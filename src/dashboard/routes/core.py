@@ -248,9 +248,20 @@ async def frontend_config(request: Request):
                                 config["agents"] = [_agent_entry]
                 # Merge per-account feature preferences
                 prefs = account.get("preferences") or {}
+                if isinstance(prefs, str):
+                    import json as _json
+                    try:
+                        prefs = _json.loads(prefs) if prefs else {}
+                    except Exception:
+                        prefs = {}
+                if not isinstance(prefs, dict):
+                    prefs = {}
                 account_features = prefs.get("features", {})
                 if account_features:
                     config["features"] = {**config["features"], **account_features}
+                # Display prefs (text size / font / contrast) for MC chrome
+                if prefs.get("display"):
+                    config["display"] = prefs.get("display")
                 # Admin check — is this Presence in the admin_ids list?
                 from src.config import get_admin_ids
                 admin_ids = get_admin_ids()
