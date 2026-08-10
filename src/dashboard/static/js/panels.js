@@ -526,9 +526,11 @@ function _defaultPanelHTML(tabId) {
                     <span class="breadcrumb-item active" data-path="/">Home</span>
                 </div>
                 <div class="toolbar-right" id="file-toolbar">
+                    <button class="btn-sm" type="button" onclick="openDownloadPack()" title="Bulk download over HTTPS">Download pack</button>
                     <button class="btn-sm" onclick="loadFiles(currentFilePath)">&#8635;</button>
                 </div>
             </div>
+            <div id="download-pack-panel" class="download-pack-panel hidden"></div>
             <div id="file-list" class="file-list"><div class="loading">Loading files...</div></div>`;
 
         case 'tasks':
