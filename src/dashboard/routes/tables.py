@@ -28,7 +28,11 @@ STATIC_VIEWER = (
 
 
 async def _webdav_for_path(request: Request, path: str):
-    """Reuse Files route WebDAV resolution (KB/admin + presence space)."""
+    """Reuse Files WebDAV resolution.
+
+    Tables/ is Cove-level (steward/admin NC), same single-object rule as KB —
+    so the browser session and agents see one file, not a per-presence 404.
+    """
     from src.dashboard.routes.files import _resolve_webdav
 
     return await _resolve_webdav(request, path)

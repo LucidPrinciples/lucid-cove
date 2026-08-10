@@ -23,6 +23,10 @@ COVE_MODE = env("COVE_MODE", "single")
 # the CURRENT presence's own space PROPFINDs a folder that doesn't exist there →
 # the "WebDAV error: 404" a non-steward presence hit on the Knowledge Base.
 KB_PREFIX = "AgentSkills/Knowledge Base"
+# Cove-level CSV tables (familiar-tools). Same single-object rule as KB:
+# agents write Tables/ in the steward/admin NC space; every presence's
+# /tables viewer must resolve there — not a per-presence shadow copy.
+TABLES_PREFIX = "Tables"
 # #CF-113 — operator-only handoff folder (canonical on admin for OCS only;
 # each operator sees RW share at their NC root). Agents + steward/manager Files
 # (admin creds) must not list or open it — video line: operators only.
@@ -65,6 +69,19 @@ def _is_kb_path(path: str) -> bool:
     return p == KB_PREFIX or p.startswith(KB_PREFIX + "/")
 
 
+def _is_tables_path(path: str) -> bool:
+    """True if path is under Cove-level Tables/ (household CSV grids)."""
+    p, err = _clean_webdav_path(path)
+    if err is not None:
+        return False
+    return p == TABLES_PREFIX or p.startswith(TABLES_PREFIX + "/")
+
+
+def _is_cove_shared_path(path: str) -> bool:
+    """Paths that resolve to steward/admin NC for every presence (KB + Tables)."""
+    return _is_kb_path(path) or _is_tables_path(path)
+
+
 def _is_operator_shared_path(path: str) -> bool:
     """True if path is OperatorShared (or legacy CoveShared) after normalize."""
     p, err = _clean_webdav_path(path)
@@ -84,9 +101,9 @@ def _item_is_operator_shared_name(name: str) -> bool:
 async def _resolve_webdav(request: Request = None, path: str = ""):
     """Get WebDAV base URL and auth tuple for the current user.
 
-    KB paths resolve to the SINGLE Cove copy (the steward/NC-admin space) no matter
-    which presence is asking — the same source kb_sync writes. Everything else
-    resolves to the current presence's own space as before.
+    KB and Tables/ paths resolve to the SINGLE Cove copy (the steward/NC-admin
+    space) no matter which presence is asking — same object agents write.
+    Everything else resolves to the current presence's own space as before.
 
     #SEC4 H3: path is normalized first so ``KB/../../x`` cannot keep admin creds.
     """
@@ -95,7 +112,7 @@ async def _resolve_webdav(request: Request = None, path: str = ""):
     clean, err = _clean_webdav_path(path)
     if err is not None:
         return None, None, None, err
-    if _is_kb_path(clean) and NC_ADMIN_PASSWORD:
+    if _is_cove_shared_path(clean) and NC_ADMIN_PASSWORD:
         nc_url = env("NEXTCLOUD_URL")
         webdav_base = f"{nc_url}/remote.php/dav/files/{NC_ADMIN_USER}"
         return webdav_base, NC_ADMIN_USER, (NC_ADMIN_USER, NC_ADMIN_PASSWORD), None
