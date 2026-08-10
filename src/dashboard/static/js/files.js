@@ -222,8 +222,8 @@ function renderPackShell() {
         <button type="button" class="btn-sm" id="pack-dl-zip" onclick="packDownloadZip()">Zip selected</button>
       </div>
       <p class="download-pack-fine">
-        <strong>Download selected</strong> opens short-lived Cloud links so multi‑GB files go browser → Cloud (fast path for every Cove).
-        <strong>Via Mission Control</strong> is the slow fallback if Cloud links fail.
+        <strong>Download selected</strong> hands each file to the browser via a short-lived Cloud link (fast path). Watch the browser download shelf — this panel will not show a finish percent.
+        <strong>Via Mission Control</strong> is the slow fallback if Cloud links fail or the browser blocks the handoff.
         ${dirPicker ? '<strong>Save via app</strong> still hairpins through MC — only for small sets or when Cloud is blocked. ' : ''}
         <strong>Zip</strong> is for smaller batches only.
       </p>
@@ -415,7 +415,7 @@ async function packDownloadDirectCloud() {
   }
   if (_packState.busy) return;
   _packState.busy = true;
-  packSetProgress(`Minting Cloud links for ${paths.length} file(s)…`);
+  packSetProgress(`Asking Cloud for ${paths.length} download link(s)…`);
   try {
     const res = await fetch('/api/files/pack/direct-urls', {
       method: 'POST',
@@ -433,25 +433,50 @@ async function packDownloadDirectCloud() {
       const detail = errors[0] && (errors[0].error || errors[0].detail);
       throw new Error(detail || 'No Cloud links returned — try Via Mission Control.');
     }
-    if (errors.length) {
-      packSetProgress(`Got ${items.length} link(s); ${errors.length} failed. Starting good ones…`);
-    }
+
+    const started = [];
+    const failed = [];
+    // One file at a time, same-tab navigation-style download (no _blank popup tabs).
+    // Cross-origin Cloud URLs ignore the download= attribute; the browser should
+    // still treat /s/{token}/download/... as a file save if NC sends Content-Disposition.
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      const name = item.name || (item.path || '').split('/').pop();
-      packSetProgress(`Cloud download ${i + 1}/${items.length}: ${name}`);
-      const a = document.createElement('a');
-      a.href = item.download_url;
-      a.download = name || 'download';
-      a.rel = 'noopener';
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      packMarkDoneThrough(item.path);
-      await new Promise(r => setTimeout(r, 1100));
+      const name = item.name || (item.path || '').split('/').pop() || 'download';
+      const url = item.download_url;
+      if (!url) {
+        failed.push(name);
+        continue;
+      }
+      packSetProgress(`Browser download ${i + 1}/${items.length}: ${name} — watch the download shelf / Downloads folder`);
+      try {
+        await packTriggerBrowserDownload(url, name);
+        started.push(name);
+        // Watermark only after we successfully handed the URL to the browser.
+        packMarkDoneThrough(item.path);
+      } catch (e) {
+        failed.push(name);
+      }
+      // Give the browser time to register each download before the next.
+      await new Promise(r => setTimeout(r, 1500));
     }
-    packSetProgress(`Started ${items.length} Cloud download(s). Watermark saved — reopen pack later to continue below last pull.`);
+
+    const names = started.slice(0, 6).join(', ') + (started.length > 6 ? '…' : '');
+    let msg = '';
+    if (started.length) {
+      msg = `Handed ${started.length} file(s) to the browser: ${names}. `;
+      msg += 'This screen does not see percent-complete — check the browser download bar or your Downloads folder. ';
+      msg += 'If nothing appeared, allow downloads/popups for this site and try again, or use Via Mission Control.';
+    } else {
+      msg = 'Cloud links were created but the browser did not start any downloads. ';
+      msg += 'Allow downloads for this site, or use Via Mission Control.';
+    }
+    if (failed.length || errors.length) {
+      msg += ` (${failed.length + errors.length} file(s) did not start)`;
+    }
+    if (started.length) {
+      msg += ' Pull mark updated for files that were handed off — reopen later for anything still above the last-pull line.';
+    }
+    packSetProgress(msg);
     renderPackList();
   } catch (err) {
     packSetProgress(err.message || String(err));
@@ -459,6 +484,30 @@ async function packDownloadDirectCloud() {
     _packState.busy = false;
   }
 }
+
+/** Start a single browser download without opening a visible tab when possible. */
+async function packTriggerBrowserDownload(url, filename) {
+  // Hidden iframe keeps focus in MC and avoids four Cloud tabs.
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px;top:-9999px;';
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  // Also fire a same-window <a> click as a second signal (some browsers ignore iframe downloads).
+  const a = document.createElement('a');
+  a.href = url;
+  a.rel = 'noopener';
+  // download attr is a hint only for same-origin; harmless on cross-origin.
+  if (filename) a.setAttribute('download', filename);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Cleanup iframe after the browser has had time to bind the transfer.
+  setTimeout(() => {
+    try { iframe.remove(); } catch (_) {}
+  }, 60000);
+}
+
 
 async function packDownloadSequential() {
   const paths = packSelectedPaths();

@@ -140,7 +140,9 @@ def test_files_js_pack_ui_newest_resume_and_direct_cloud():
     assert "await res.blob()" not in chunk
     # Primary download is Cloud-direct
     assert "packDownloadDirectCloud" in js
+    assert "packTriggerBrowserDownload" in js
     assert "Via Mission Control" in js
+    assert "download shelf" in js or "Downloads folder" in js
 
 
 def test_panels_has_download_pack_button():
