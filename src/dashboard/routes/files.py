@@ -7,10 +7,18 @@ In single mode, uses NEXTCLOUD_USER/NEXTCLOUD_PASSWORD env vars.
 """
 
 import os
+from pathlib import PurePosixPath
 from src.env import env
 from fastapi import APIRouter, Request, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
+
+from src.dashboard.routes.files_pack import (
+    filter_pack_items,
+    format_size_label,
+    iter_zip_stored,
+    pack_name_excluded,
+)
 
 router = APIRouter()
 
@@ -277,39 +285,241 @@ async def list_files(request: Request, path: str = "/"):
         return {"items": [], "error": str(e)}
 
 
+async def _webdav_stream_file(auth, url: str, timeout: float = 3600.0):
+    """Open a streaming GET to WebDAV; caller must aclose the client/response.
+
+    Returns (client, response) on HTTP 200, or (None, error_json_response).
+    """
+    client = httpx.AsyncClient(auth=auth, timeout=timeout)
+    try:
+        req = client.build_request("GET", url)
+        response = await client.send(req, stream=True)
+    except Exception as e:
+        await client.aclose()
+        return None, JSONResponse({"error": str(e)}, status_code=502)
+    if response.status_code != 200:
+        body = (await response.aread())[:300]
+        await response.aclose()
+        await client.aclose()
+        return None, JSONResponse(
+            {"error": f"File not found: {response.status_code}", "detail": body.decode("utf-8", "replace")},
+            status_code=404 if response.status_code == 404 else 502,
+        )
+    return (client, response), None
+
+
+def _content_disposition(filename: str) -> str:
+    # Keep header simple ASCII filename; UTF-8 names fall back to basename slug.
+    safe = "".join(ch if 32 <= ord(ch) < 127 and ch not in "\"" else "_" for ch in (filename or "download"))
+    if not safe.strip("._"):
+        safe = "download"
+    return f'attachment; filename="{safe}"'
+
+
 @router.get("/api/files/download")
 async def download_file(request: Request, path: str):
-    """Stream a file from Nextcloud WebDAV."""
+    """Stream a file from Nextcloud WebDAV (chunked — safe for multi-GB)."""
+    from urllib.parse import quote
+
     clean_path, path_err = _clean_webdav_path(path)
     if path_err is not None:
-        return {"error": path_err}
+        return JSONResponse({"error": path_err}, status_code=400)
 
     webdav_base, nc_user, auth, error = await _resolve_webdav(request, clean_path)
     if error:
-        return {"error": error}
+        return JSONResponse({"error": error}, status_code=400)
 
     denied = await _operator_shared_agent_guard(request, clean_path or "", nc_user or "")
     if denied:
-        return {"error": denied}
+        return JSONResponse({"error": denied}, status_code=403)
 
-    url = f"{webdav_base}/{clean_path}"
+    url = f"{webdav_base}/{quote(clean_path, safe='/')}"
+    opened, err = await _webdav_stream_file(auth, url)
+    if err is not None:
+        return err
+    client, response = opened
+    filename = clean_path.split("/")[-1] if clean_path else "download"
+    content_type = response.headers.get("content-type", "application/octet-stream")
+    content_length = response.headers.get("content-length")
+
+    async def body():
+        try:
+            async for chunk in response.aiter_bytes(1024 * 1024):
+                yield chunk
+        finally:
+            await response.aclose()
+            await client.aclose()
+
+    headers = {"Content-Disposition": _content_disposition(filename)}
+    if content_length:
+        headers["Content-Length"] = content_length
+    return StreamingResponse(body(), media_type=content_type, headers=headers)
+
+
+DEFAULT_VIDEO_SHORTS = "AgentSkills/Content/video/shorts"
+# Soft cap on zip members (not total bytes). Very large single files should use
+# single-file download; browsers handle one stream better than a 30G zip.
+PACK_ZIP_MAX_FILES = 80
+PACK_ZIP_MAX_TOTAL_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB soft warn/reject for zip
+
+
+@router.get("/api/files/pack")
+async def list_download_pack(
+    request: Request,
+    path: str = DEFAULT_VIDEO_SHORTS,
+    exclude_preview: bool = True,
+    q: str = "",
+):
+    """List files in a folder as a download pack (presence NC via same WebDAV as Files).
+
+    Defaults to video shorts. Excludes *preview* names unless exclude_preview=false.
+    """
+    clean_path, path_err = _clean_webdav_path(path or DEFAULT_VIDEO_SHORTS)
+    if path_err is not None:
+        return {"path": path, "items": [], "error": path_err}
+
+    listing = await list_files(request, path=clean_path or "/")
+    if listing.get("error"):
+        return {
+            "path": clean_path,
+            "items": [],
+            "error": listing["error"],
+            "exclude_preview": exclude_preview,
+        }
+
+    items = filter_pack_items(
+        listing.get("items") or [],
+        exclude_preview=exclude_preview,
+        query=q or "",
+        files_only=True,
+    )
+    total = sum(int(it.get("size") or 0) for it in items)
+    return {
+        "path": clean_path,
+        "items": items,
+        "count": len(items),
+        "total_bytes": total,
+        "total_label": format_size_label(total),
+        "exclude_preview": exclude_preview,
+        "zip_max_files": PACK_ZIP_MAX_FILES,
+        "zip_max_total_bytes": PACK_ZIP_MAX_TOTAL_BYTES,
+        "default_path": DEFAULT_VIDEO_SHORTS,
+    }
+
+
+@router.post("/api/files/pack/zip")
+async def download_pack_zip(request: Request):
+    """Stream a ZIP (store-only) of selected paths over presence WebDAV.
+
+    Body JSON: { "paths": ["AgentSkills/.../a.mp4", ...], "exclude_preview": true }
+    Or { "path": "AgentSkills/Content/video/shorts", "names": ["a.mp4"] }.
+    Prefer modest packs; multi-GB single files should use /api/files/download.
+    """
+    from urllib.parse import quote
 
     try:
-        async with httpx.AsyncClient(auth=auth, timeout=30) as client:
-            response = await client.get(url)
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    exclude_preview = body.get("exclude_preview", True)
+    if isinstance(exclude_preview, str):
+        exclude_preview = exclude_preview.strip().lower() not in ("0", "false", "no")
+
+    paths = body.get("paths") or []
+    if not paths and body.get("path"):
+        base = (body.get("path") or "").strip().strip("/")
+        names = body.get("names") or body.get("files") or []
+        paths = [f"{base}/{n}".replace("//", "/") for n in names if n]
+
+    if not isinstance(paths, list) or not paths:
+        return JSONResponse({"error": "paths required"}, status_code=400)
+
+    cleaned = []
+    for raw in paths:
+        c, err = _clean_webdav_path(str(raw or ""))
+        if err or not c:
+            return JSONResponse({"error": err or "Invalid path"}, status_code=400)
+        base = c.split("/")[-1]
+        if pack_name_excluded(base, exclude_preview=bool(exclude_preview)):
+            continue
+        cleaned.append(c)
+
+    # de-dupe preserve order
+    seen = set()
+    uniq = []
+    for c in cleaned:
+        if c in seen:
+            continue
+        seen.add(c)
+        uniq.append(c)
+
+    if not uniq:
+        return JSONResponse({"error": "No files to pack after filters"}, status_code=400)
+    if len(uniq) > PACK_ZIP_MAX_FILES:
+        return JSONResponse(
+            {
+                "error": f"Too many files for zip (max {PACK_ZIP_MAX_FILES}). "
+                "Download large sets as individual files or smaller batches.",
+                "count": len(uniq),
+            },
+            status_code=400,
+        )
+
+    # Resolve auth from first path (all must be same presence space)
+    webdav_base, nc_user, auth, error = await _resolve_webdav(request, uniq[0])
+    if error:
+        return JSONResponse({"error": error}, status_code=400)
+    denied = await _operator_shared_agent_guard(request, uniq[0], nc_user or "")
+    if denied:
+        return JSONResponse({"error": denied}, status_code=403)
+
+    # Soft total size check via HEAD/list would be ideal; skip if unknown.
+    # Reject OperatorShared / path escape already handled by clean.
+
+    async def member_stream(rel: str):
+        url = f"{webdav_base}/{quote(rel, safe='/')}"
+        client = httpx.AsyncClient(auth=auth, timeout=3600.0)
+        response = None
+        try:
+            req = client.build_request("GET", url)
+            response = await client.send(req, stream=True)
             if response.status_code != 200:
-                return {"error": f"File not found: {response.status_code}"}
+                raise RuntimeError(f"WebDAV {response.status_code} for {rel}")
+            async for chunk in response.aiter_bytes(1024 * 1024):
+                yield chunk
+        finally:
+            if response is not None:
+                await response.aclose()
+            await client.aclose()
 
-            filename = clean_path.split("/")[-1] if clean_path else "download"
-            content_type = response.headers.get("content-type", "application/octet-stream")
+    members = []
+    for rel in uniq:
+        arc = PurePosixPath(rel).name
+        # closure binding
+        async def _gen(r=rel):
+            async for chunk in member_stream(r):
+                yield chunk
+        members.append((arc, _gen()))
 
-            return StreamingResponse(
-                iter([response.content]),
-                media_type=content_type,
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-            )
-    except Exception as e:
-        return {"error": str(e)}
+    zip_name = "cove-download-pack.zip"
+    if len(uniq) == 1:
+        zip_name = PurePosixPath(uniq[0]).stem + ".zip"
+    elif body.get("path"):
+        zip_name = PurePosixPath(str(body.get("path")).rstrip("/")).name or zip_name
+        if not zip_name.endswith(".zip"):
+            zip_name = f"{zip_name}.zip"
+
+    return StreamingResponse(
+        iter_zip_stored(members),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": _content_disposition(zip_name),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.post("/api/files/upload")
