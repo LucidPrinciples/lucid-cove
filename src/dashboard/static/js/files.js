@@ -2,14 +2,6 @@
 
 let currentFilePath = '/';
 const PACK_DEFAULT = 'AgentSkills/Content/video/shorts';
-let _packState = {
-  path: PACK_DEFAULT,
-  items: [],
-  selected: new Set(),
-  excludePreview: true,
-  busy: false,
-};
-
 async function loadFiles(path) {
   currentFilePath = path || '/';
   const container = document.getElementById('file-list');
@@ -112,13 +104,73 @@ function downloadFile(path) {
 }
 
 // ── Download pack (HTTPS bulk, presence-scoped) ───────────────────────────
+// Product process for every Cove: list newest→oldest, track last pull, stream
+// multi-GB media direct from Cloud (not hairpinned through Mission Control).
+
+let _packState = {
+  path: PACK_DEFAULT,
+  items: [],
+  selected: new Set(),
+  excludePreview: true,
+  busy: false,
+  progressKey: '',
+  storageKey: '',
+  lastDownloadedPath: '',
+  lastModified: '',
+  sort: 'newest_first',
+};
+
+function packItemPath(it, folder) {
+  const base = (folder || _packState.path || '').replace(/^\/+|\/+$/g, '');
+  if (it && it.path) return String(it.path).replace(/^\/+/, '');
+  return `${base}/${it && it.name ? it.name : ''}`.replace(/^\/+/, '');
+}
+
+function packLoadLocalProgress() {
+  const key = _packState.storageKey;
+  if (!key) return;
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      _packState.lastDownloadedPath = '';
+      _packState.lastModified = '';
+      return;
+    }
+    const parsed = JSON.parse(raw);
+    _packState.lastDownloadedPath = parsed.lastDownloadedPath || parsed.path || '';
+    _packState.lastModified = parsed.lastModified || '';
+  } catch (e) {
+    _packState.lastDownloadedPath = '';
+    _packState.lastModified = '';
+  }
+}
+
+function packSaveLocalProgress(path, modified) {
+  const key = _packState.storageKey;
+  if (!key || !path) return;
+  try {
+    localStorage.setItem(key, JSON.stringify({
+      lastDownloadedPath: path,
+      lastModified: modified || '',
+      updatedAt: new Date().toISOString(),
+      folder: _packState.path,
+    }));
+    _packState.lastDownloadedPath = path;
+    _packState.lastModified = modified || '';
+  } catch (e) { /* quota / private mode */ }
+}
+
+function packMarkDoneThrough(path) {
+  // Keep watermark at the last successfully started file (resume from below it).
+  const it = (_packState.items || []).find(x => packItemPath(x) === path);
+  packSaveLocalProgress(path, it && it.modified);
+}
 
 function openDownloadPack() {
   const panel = document.getElementById('download-pack-panel');
   if (!panel) return;
-  // Prefer current folder if already under video/shorts; else default shorts.
   const cur = String(currentFilePath || '').replace(/^\/+/, '');
-  if (cur && /Content\/video/i.test(cur)) {
+  if (cur && cur.indexOf('AgentSkills/Content/video') === 0) {
     _packState.path = cur;
   } else if (!_packState.path) {
     _packState.path = PACK_DEFAULT;
@@ -144,8 +196,8 @@ function renderPackShell() {
         <button type="button" class="btn-sm" onclick="closeDownloadPack()">Close</button>
       </div>
       <p class="download-pack-help">
-        Pull files over the same HTTPS path Mission Control already uses — no SSH, works off-site and on VPS Coves.
-        Previews are skipped by default. Captioned and full masters stay selected.
+        Pull publish-ready video off this Cove over HTTPS — works the same on home hosts and VPS.
+        Listed <strong>newest first</strong>. Resume picks up below your last pull. Previews skipped by default.
       </p>
       <div class="download-pack-row">
         <label class="download-pack-label">Folder</label>
@@ -163,14 +215,17 @@ function renderPackShell() {
       <div class="download-pack-actions">
         <button type="button" class="btn-sm" onclick="packSelectAll(true)">Select all</button>
         <button type="button" class="btn-sm" onclick="packSelectAll(false)">Select none</button>
-        <button type="button" class="btn-primary btn-sm" id="pack-dl-seq" onclick="packDownloadSequential()">Download selected</button>
-        ${dirPicker ? '<button type="button" class="btn-primary btn-sm" id="pack-dl-dir" onclick="packDownloadToFolder()">Save to folder…</button>' : ''}
+        <button type="button" class="btn-sm" onclick="packSelectNewerThanLast()">Select newer than last pull</button>
+        <button type="button" class="btn-primary btn-sm" id="pack-dl-direct" onclick="packDownloadDirectCloud()">Download selected</button>
+        ${dirPicker ? '<button type="button" class="btn-sm" id="pack-dl-dir" onclick="packDownloadToFolder()">Save via app…</button>' : ''}
+        <button type="button" class="btn-sm" id="pack-dl-proxy" onclick="packDownloadSequential()">Via Mission Control</button>
         <button type="button" class="btn-sm" id="pack-dl-zip" onclick="packDownloadZip()">Zip selected</button>
       </div>
       <p class="download-pack-fine">
-        <strong>Download selected</strong> streams one file at a time (best for multi‑GB).
-        ${dirPicker ? '<strong>Save to folder</strong> uses the browser folder picker and writes each file there (Chrome/Edge). ' : ''}
-        <strong>Zip</strong> is for smaller batches only (not a 30 GB archive).
+        <strong>Download selected</strong> opens short-lived Cloud links so multi‑GB files go browser → Cloud (fast path for every Cove).
+        <strong>Via Mission Control</strong> is the slow fallback if Cloud links fail.
+        ${dirPicker ? '<strong>Save via app</strong> still hairpins through MC — only for small sets or when Cloud is blocked. ' : ''}
+        <strong>Zip</strong> is for smaller batches only.
       </p>
       <div id="pack-progress" class="download-pack-progress"></div>
     </div>`;
@@ -202,16 +257,56 @@ async function loadDownloadPack() {
   if (list) list.innerHTML = '';
   try {
     const url = `/api/files/pack?path=${encodeURIComponent(_packState.path)}&exclude_preview=${_packState.excludePreview ? 'true' : 'false'}`;
-    const data = await fetch(url).then(r => r.json());
+    const data = await fetch(url, { credentials: 'same-origin' }).then(r => r.json());
     if (data.error) {
       if (status) status.textContent = data.error;
       _packState.items = [];
       return;
     }
     _packState.items = data.items || [];
-    _packState.selected = new Set(_packState.items.map(it => it.path || `${data.path}/${it.name}`));
+    _packState.sort = data.sort || 'newest_first';
+    _packState.progressKey = data.progress_key || _packState.path;
+
+    // Resolve durable storage key for this presence + folder
+    try {
+      const prog = await fetch(
+        `/api/files/pack/progress?path=${encodeURIComponent(_packState.path)}`,
+        { credentials: 'same-origin' }
+      ).then(r => r.json());
+      if (prog && prog.storage_key) {
+        _packState.storageKey = prog.storage_key;
+      } else {
+        const pid = (MC.presence && (MC.presence.id || MC.presence.presence_id)) || 'local';
+        _packState.storageKey = `cove.packProgress.${pid}.${_packState.progressKey}`;
+      }
+    } catch (_) {
+      const pid = (MC.presence && (MC.presence.id || MC.presence.presence_id)) || 'local';
+      _packState.storageKey = `cove.packProgress.${pid}.${_packState.progressKey}`;
+    }
+    packLoadLocalProgress();
+
+    // Default selection: files newer than last pull (or none if watermark missing → operator chooses)
+    _packState.selected = new Set();
+    const last = _packState.lastDownloadedPath;
+    if (last) {
+      let seenLast = false;
+      for (const it of _packState.items) {
+        const p = packItemPath(it, data.path);
+        if (p === last) { seenLast = true; break; }
+        _packState.selected.add(p);
+      }
+      // If watermark not in list (deleted/moved), leave selection empty — safer than all
+      if (!seenLast && _packState.selected.size === _packState.items.length) {
+        _packState.selected = new Set();
+      }
+    }
+
+    const newerN = _packState.selected.size;
+    const watermark = last
+      ? ` · last pull: ${ESC(last.split('/').pop())}${newerN ? ` · ${newerN} newer selected` : ' · caught up'}`
+      : ' · no pull mark yet — select what you need';
     if (status) {
-      status.textContent = `${data.count || 0} files · ${data.total_label || formatSize(data.total_bytes || 0)} (previews ${data.exclude_preview ? 'excluded' : 'included'})`;
+      status.textContent = `${data.count || 0} files · newest first · ${data.total_label || formatSize(data.total_bytes || 0)} (previews ${data.exclude_preview ? 'excluded' : 'included'})${last ? ` · last pull: ${last.split('/').pop()}${newerN ? ` · ${newerN} newer selected` : ' · caught up'}` : ' · no pull mark yet — select what you need'}`;
     }
     renderPackList();
   } catch (err) {
@@ -233,15 +328,31 @@ function renderPackList() {
     return;
   }
   list.innerHTML = items.map(it => {
-    const path = it.path || `${_packState.path}/${it.name}`;
+    const path = packItemPath(it);
     const checked = _packState.selected.has(path) ? 'checked' : '';
     const pathJs = path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    return `<label class="download-pack-item">
+    const isLast = path === _packState.lastDownloadedPath;
+    const lastCls = isLast ? ' download-pack-last-downloaded' : '';
+    const lastLbl = isLast ? '<span class="download-pack-last-label">last pull</span>' : '';
+    const mod = it.modified ? `<span class="file-mod" title="${ESC(it.modified)}">${ESC(packFormatMod(it.modified))}</span>` : '';
+    return `<label class="download-pack-item${lastCls}">
       <input type="checkbox" ${checked} onchange="packToggle('${pathJs}', this.checked)">
-      <span class="file-name">${ESC(it.name)}</span>
+      <span class="file-name">${ESC(it.name)}${lastLbl}</span>
+      ${mod}
       <span class="file-size">${formatSize(it.size)}</span>
     </label>`;
   }).join('');
+}
+
+function packFormatMod(s) {
+  if (!s) return '';
+  try {
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return String(s).slice(0, 16);
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch (_) {
+    return String(s).slice(0, 16);
+  }
 }
 
 function packToggle(path, on) {
@@ -252,7 +363,7 @@ function packToggle(path, on) {
 function packSelectAll(on) {
   const filter = (document.getElementById('pack-filter')?.value || '').trim().toLowerCase();
   _packState.items.forEach(it => {
-    const path = it.path || `${_packState.path}/${it.name}`;
+    const path = packItemPath(it);
     if (filter && !String(it.name || '').toLowerCase().includes(filter)
         && !String(it.path || '').toLowerCase().includes(filter)) return;
     if (on) _packState.selected.add(path);
@@ -261,13 +372,92 @@ function packSelectAll(on) {
   renderPackList();
 }
 
+function packSelectNewerThanLast() {
+  const last = _packState.lastDownloadedPath;
+  _packState.selected = new Set();
+  if (!last) {
+    packSetProgress('No last-pull mark yet — pick files manually or Select all.');
+    renderPackList();
+    return;
+  }
+  for (const it of _packState.items) {
+    const p = packItemPath(it);
+    if (p === last) break;
+    _packState.selected.add(p);
+  }
+  packSetProgress(`${_packState.selected.size} file(s) newer than last pull selected.`);
+  renderPackList();
+}
+
 function packSelectedPaths() {
-  return Array.from(_packState.selected);
+  // Preserve newest-first order from items list
+  const sel = _packState.selected;
+  const ordered = [];
+  for (const it of _packState.items) {
+    const p = packItemPath(it);
+    if (sel.has(p)) ordered.push(p);
+  }
+  // Any selected not in items (shouldn't happen)
+  sel.forEach(p => { if (!ordered.includes(p)) ordered.push(p); });
+  return ordered;
 }
 
 function packSetProgress(msg) {
   const el = document.getElementById('pack-progress');
   if (el) el.textContent = msg || '';
+}
+
+async function packDownloadDirectCloud() {
+  const paths = packSelectedPaths();
+  if (!paths.length) {
+    packSetProgress('Select at least one file.');
+    return;
+  }
+  if (_packState.busy) return;
+  _packState.busy = true;
+  packSetProgress(`Minting Cloud links for ${paths.length} file(s)…`);
+  try {
+    const res = await fetch('/api/files/pack/direct-urls', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paths, expire_days: 2 }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `Direct URLs failed (${res.status})`);
+    }
+    const items = data.items || [];
+    const errors = data.errors || [];
+    if (!items.length) {
+      const detail = errors[0] && (errors[0].error || errors[0].detail);
+      throw new Error(detail || 'No Cloud links returned — try Via Mission Control.');
+    }
+    if (errors.length) {
+      packSetProgress(`Got ${items.length} link(s); ${errors.length} failed. Starting good ones…`);
+    }
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const name = item.name || (item.path || '').split('/').pop();
+      packSetProgress(`Cloud download ${i + 1}/${items.length}: ${name}`);
+      const a = document.createElement('a');
+      a.href = item.download_url;
+      a.download = name || 'download';
+      a.rel = 'noopener';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      packMarkDoneThrough(item.path);
+      await new Promise(r => setTimeout(r, 1100));
+    }
+    packSetProgress(`Started ${items.length} Cloud download(s). Watermark saved — reopen pack later to continue below last pull.`);
+    renderPackList();
+  } catch (err) {
+    packSetProgress(err.message || String(err));
+  } finally {
+    _packState.busy = false;
+  }
 }
 
 async function packDownloadSequential() {
@@ -282,11 +472,12 @@ async function packDownloadSequential() {
     for (let i = 0; i < paths.length; i++) {
       const path = paths[i];
       const name = path.split('/').pop();
-      packSetProgress(`Downloading ${i + 1}/${paths.length}: ${name}`);
-      // Navigate-style download keeps cookies; sequential avoids browser parallel choke.
+      packSetProgress(`Via MC ${i + 1}/${paths.length}: ${name} (slow path)`);
       await packFetchToDisk(path, name);
+      packMarkDoneThrough(path);
     }
-    packSetProgress(`Done — ${paths.length} file(s).`);
+    packSetProgress(`Done — ${paths.length} file(s) via Mission Control. Watermark saved.`);
+    renderPackList();
   } catch (err) {
     packSetProgress(err.message || String(err));
   } finally {
@@ -354,8 +545,10 @@ async function packDownloadToFolder() {
         await writable.write(await res.blob());
       }
       await writable.close();
+      packMarkDoneThrough(path);
     }
-    packSetProgress(`Saved ${paths.length} file(s) to the folder you chose.`);
+    packSetProgress(`Saved ${paths.length} file(s) to the folder you chose. Watermark saved.`);
+    renderPackList();
   } catch (err) {
     packSetProgress(err.message || String(err));
   } finally {
@@ -372,11 +565,11 @@ async function packDownloadZip() {
   // Guard multi-GB zip in the client
   let total = 0;
   _packState.items.forEach(it => {
-    const p = it.path || `${_packState.path}/${it.name}`;
+    const p = packItemPath(it);
     if (_packState.selected.has(p)) total += Number(it.size || 0);
   });
   if (total > 2 * 1024 * 1024 * 1024) {
-    packSetProgress('Selection is over 2 GB — use Download selected or Save to folder instead of zip.');
+    packSetProgress('Selection is over 2 GB — use Download selected (Cloud) instead of zip.');
     return;
   }
   if (_packState.busy) return;
@@ -403,7 +596,8 @@ async function packDownloadZip() {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    packSetProgress('Zip download started.');
+    if (paths.length) packMarkDoneThrough(paths[paths.length - 1]);
+    packSetProgress('Zip download started. Watermark updated to last file in selection.');
   } catch (err) {
     packSetProgress(err.message || String(err));
   } finally {

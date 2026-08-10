@@ -18,6 +18,8 @@ from src.dashboard.routes.files_pack import (
     format_size_label,
     iter_zip_stored,
     pack_name_excluded,
+    pack_progress_key,
+    sort_pack_items_newest_first,
 )
 
 router = APIRouter()
@@ -393,6 +395,7 @@ async def list_download_pack(
         query=q or "",
         files_only=True,
     )
+    items = sort_pack_items_newest_first(items)
     total = sum(int(it.get("size") or 0) for it in items)
     return {
         "path": clean_path,
@@ -404,6 +407,8 @@ async def list_download_pack(
         "zip_max_files": PACK_ZIP_MAX_FILES,
         "zip_max_total_bytes": PACK_ZIP_MAX_TOTAL_BYTES,
         "default_path": DEFAULT_VIDEO_SHORTS,
+        "sort": "newest_first",
+        "progress_key": pack_progress_key(clean_path or DEFAULT_VIDEO_SHORTS),
     }
 
 
@@ -637,4 +642,318 @@ async def delete_file(request: Request, path: str):
             }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+
+# ── Direct Cloud pull + pack progress ──────────────────────────────────────
+# Multi-GB social uploads must not hairpin Mac → MC → Nextcloud → MC → Mac.
+# MC keeps list/filter/select; the browser GETs short-lived public share links
+# on the Cove's public Cloud host (cloud.{domain}) so bytes never re-enter the app.
+
+
+def _public_cloud_base() -> str:
+    """Browser-reachable Nextcloud origin for this Cove."""
+    try:
+        from src.config import _cloud_public_url
+        url = (_cloud_public_url() or "").rstrip("/")
+        if url:
+            return url
+    except Exception:
+        pass
+    return (env("NEXTCLOUD_PUBLIC_URL") or env("NEXTCLOUD_URL") or "").rstrip("/")
+
+
+def _parse_ocs_share_payload(body: str | dict | None) -> dict:
+    """Best-effort parse of OCS share create/list (JSON preferred, XML fallback)."""
+    import re as _re
+    import json as _json
+    out: dict = {}
+    if isinstance(body, dict):
+        data = body
+    else:
+        raw = body or ""
+        try:
+            data = _json.loads(raw) if raw and raw.lstrip().startswith("{") else None
+        except Exception:
+            data = None
+        if data is None:
+            for key in ("id", "token", "url", "share_type", "path", "expiration"):
+                m = _re.search(rf"<{key}>([^<]*)</{key}>", raw, _re.I)
+                if m:
+                    out[key] = m.group(1)
+            m = _re.search(r"<statuscode>(\d+)</statuscode>", raw)
+            if m:
+                out["statuscode"] = int(m.group(1))
+            return out
+    # JSON OCS shape: {ocs:{meta:{statuscode}, data:{...} or [..]}}
+    try:
+        ocs = data.get("ocs") if isinstance(data, dict) else None
+        if isinstance(ocs, dict):
+            meta = ocs.get("meta") or {}
+            if "statuscode" in meta:
+                out["statuscode"] = int(meta["statuscode"])
+            payload = ocs.get("data")
+            if isinstance(payload, list):
+                out["_list"] = payload
+            elif isinstance(payload, dict):
+                for key in ("id", "token", "url", "share_type", "path", "expiration"):
+                    if key in payload and payload[key] is not None:
+                        out[key] = payload[key]
+    except Exception:
+        pass
+    return out
+
+
+async def _mint_public_file_share(
+    *,
+    nc_url: str,
+    nc_user: str,
+    nc_pass: str,
+    file_path: str,
+    expire_days: int = 1,
+) -> dict:
+    """Create (or reuse) a read-only public link share for one file.
+
+    Returns {url, token, id, download_url} where download_url forces attachment.
+    shareType 3 = public link. permissions 1 = read.
+    """
+    from urllib.parse import quote
+
+    base = (nc_url or "").rstrip("/")
+    if not base or not nc_user or not nc_pass:
+        return {"error": "Nextcloud credentials missing"}
+
+    rel = "/" + (file_path or "").lstrip("/")
+    share_api = f"{base}/ocs/v2.php/apps/files_sharing/api/v1/shares"
+    headers = {"OCS-APIRequest": "true", "Accept": "application/json"}
+
+    # Prefer the browser-public origin for the link host when internal NC differs.
+    public_base = _public_cloud_base() or base
+
+    async with httpx.AsyncClient(auth=(nc_user, nc_pass), timeout=45.0) as client:
+        # Look for an existing public link on this exact path (avoid share spam).
+        try:
+            listed = await client.get(
+                share_api,
+                params={"path": rel, "reshares": "true"},
+                headers=headers,
+            )
+            if listed.status_code == 200:
+                parsed = _parse_ocs_share_payload(listed.text)
+                candidates = parsed.get("_list") or []
+                if not candidates and parsed.get("token"):
+                    candidates = [parsed]
+                if not candidates:
+                    # XML multi-element fallback
+                    for chunk in (listed.text or "").split("<element>")[1:]:
+                        candidates.append(_parse_ocs_share_payload(chunk))
+                for meta in candidates:
+                    if not isinstance(meta, dict):
+                        continue
+                    # JSON entries are raw share dicts
+                    st = str(meta.get("share_type") or meta.get("shareType") or "")
+                    token = str(meta.get("token") or "")
+                    share_url = str(meta.get("url") or "")
+                    if st not in ("3", "3.0") and not (token and share_url):
+                        # public links are type 3; skip user/group shares
+                        if st and st not in ("3", "3.0"):
+                            continue
+                    if st in ("3", "3.0") or (token and "/s/" in share_url):
+                        if public_base and share_url.startswith(base):
+                            share_url = public_base + share_url[len(base):]
+                        elif public_base and token:
+                            share_url = f"{public_base}/s/{token}"
+                        name = PurePosixPath(rel).name
+                        dl = f"{public_base}/s/{token}/download/{quote(name)}" if token else share_url
+                        return {
+                            "url": share_url,
+                            "token": token,
+                            "id": meta.get("id"),
+                            "download_url": dl,
+                            "reused": True,
+                        }
+        except Exception:
+            pass
+
+        data = {
+            "path": rel,
+            "shareType": 3,  # public link
+            "permissions": 1,  # read
+        }
+        # Optional expiry (days). NC accepts expireDate YYYY-MM-DD.
+        if expire_days and expire_days > 0:
+            from datetime import datetime, timedelta, timezone
+            exp = (datetime.now(timezone.utc) + timedelta(days=int(expire_days))).date()
+            data["expireDate"] = exp.isoformat()
+
+        resp = await client.post(share_api, headers=headers, data=data)
+        body = resp.text or ""
+        meta = _parse_ocs_share_payload(body)
+        code = meta.get("statuscode")
+        if resp.status_code not in (200, 201) or (code is not None and code not in (100, 200)):
+            return {
+                "error": f"Share create failed HTTP {resp.status_code} OCS {code}",
+                "detail": body[:300],
+            }
+        token = meta.get("token") or ""
+        share_url = meta.get("url") or ""
+        if token and not share_url:
+            share_url = f"{public_base}/s/{token}"
+        if public_base and share_url.startswith(base):
+            share_url = public_base + share_url[len(base):]
+        if token and public_base and "/s/" not in share_url:
+            share_url = f"{public_base}/s/{token}"
+        name = PurePosixPath(rel).name
+        download_url = f"{public_base}/s/{token}/download/{quote(name)}" if token else share_url
+        return {
+            "url": share_url,
+            "token": token,
+            "id": meta.get("id"),
+            "download_url": download_url,
+            "reused": False,
+            "expire_days": expire_days,
+        }
+
+
+@router.post("/api/files/pack/direct-urls")
+async def pack_direct_urls(request: Request):
+    """Mint short-lived public Cloud download URLs for selected pack paths.
+
+    Body: { "paths": ["AgentSkills/.../a.mp4", ...], "expire_days": 1 }
+    Returns items with download_url pointing at cloud.{domain} so the browser
+    streams multi-GB files without proxying through Mission Control.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    paths = body.get("paths") or []
+    if not isinstance(paths, list) or not paths:
+        return JSONResponse({"error": "paths required"}, status_code=400)
+
+    expire_days = body.get("expire_days", 1)
+    try:
+        expire_days = max(1, min(14, int(expire_days)))
+    except (TypeError, ValueError):
+        expire_days = 1
+
+    cleaned = []
+    for raw in paths:
+        c, err = _clean_webdav_path(str(raw or ""))
+        if err or not c:
+            return JSONResponse({"error": err or "Invalid path"}, status_code=400)
+        if pack_name_excluded(PurePosixPath(c).name, exclude_preview=True):
+            # still allow if operator explicitly selected; don't hard-block here
+            pass
+        cleaned.append(c)
+
+    # de-dupe preserve order
+    seen = set()
+    uniq = []
+    for c in cleaned:
+        if c in seen:
+            continue
+        seen.add(c)
+        uniq.append(c)
+
+    if len(uniq) > 40:
+        return JSONResponse(
+            {"error": "Select at most 40 files per direct-URL batch."},
+            status_code=400,
+        )
+
+    webdav_base, nc_user, auth, error = await _resolve_webdav(request, uniq[0])
+    if error:
+        return JSONResponse({"error": error}, status_code=400)
+    denied = await _operator_shared_agent_guard(request, uniq[0], nc_user or "")
+    if denied:
+        return JSONResponse({"error": denied}, status_code=403)
+
+    nc_url = env("NEXTCLOUD_URL") or ""
+    # Prefer public origin for OCS when possible — shares still created with
+    # presence credentials against the in-network NC, then URL host rewritten.
+    if not nc_url and webdav_base:
+        # webdav_base like http://nc/remote.php/dav/files/user
+        nc_url = webdav_base.split("/remote.php/")[0]
+
+    nc_pass = auth[1] if auth and len(auth) > 1 else ""
+    public_base = _public_cloud_base()
+
+    results = []
+    errors = []
+    for rel in uniq:
+        # re-check guard per path
+        denied_p = await _operator_shared_agent_guard(request, rel, nc_user or "")
+        if denied_p:
+            errors.append({"path": rel, "error": denied_p})
+            continue
+        minted = await _mint_public_file_share(
+            nc_url=nc_url,
+            nc_user=nc_user or "",
+            nc_pass=nc_pass or "",
+            file_path=rel,
+            expire_days=expire_days,
+        )
+        if minted.get("error"):
+            errors.append({"path": rel, **minted})
+            continue
+        results.append({
+            "path": rel,
+            "name": PurePosixPath(rel).name,
+            "download_url": minted.get("download_url"),
+            "share_url": minted.get("url"),
+            "token": minted.get("token"),
+            "reused": bool(minted.get("reused")),
+        })
+
+    return {
+        "ok": len(results) > 0,
+        "items": results,
+        "errors": errors,
+        "count": len(results),
+        "cloud_base": public_base,
+        "expire_days": expire_days,
+        "mode": "direct_cloud",
+    }
+
+
+@router.get("/api/files/pack/progress")
+async def get_pack_progress(request: Request, path: str = DEFAULT_VIDEO_SHORTS):
+    """Return last-pulled watermark for this presence + pack folder.
+
+    Stored in the operator browser primarily; this endpoint is a thin optional
+    server mirror when we later persist — for now reads nothing durable and
+    returns the key the client should use in localStorage.
+    """
+    clean_path, path_err = _clean_webdav_path(path or DEFAULT_VIDEO_SHORTS)
+    if path_err is not None:
+        return JSONResponse({"error": path_err}, status_code=400)
+    key = pack_progress_key(clean_path or DEFAULT_VIDEO_SHORTS)
+    # Presence id if available
+    presence_id = ""
+    try:
+        from src.dashboard.routes.presence import get_current_presence
+        p = await get_current_presence(request)
+        if isinstance(p, dict):
+            presence_id = str(p.get("id") or p.get("presence_id") or "")
+    except Exception:
+        presence_id = ""
+    if not presence_id:
+        try:
+            from src.dashboard.routes.nextcloud import get_nc_creds
+            _, u, _ = await get_nc_creds(request)
+            presence_id = (u or "")
+        except Exception:
+            presence_id = ""
+    storage_key = f"cove.packProgress.{presence_id or 'local'}.{key}"
+    return {
+        "path": clean_path,
+        "progress_key": key,
+        "storage_key": storage_key,
+        "presence_id": presence_id,
+        "note": "Client stores last_downloaded_path + last_modified in localStorage under storage_key.",
+    }
 
