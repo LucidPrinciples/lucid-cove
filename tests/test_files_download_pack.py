@@ -1,4 +1,4 @@
-"""Download pack helpers + Files API surface (HTTPS bulk pull)."""
+"""Download pack helpers + Files API surface (HTTPS bulk pull for every Cove)."""
 import asyncio
 import zipfile
 from io import BytesIO
@@ -27,6 +27,63 @@ def test_pack_name_excluded_preview_and_junk():
     assert names == ["a.mp4", "b-captioned.mp4"]
     kept_all = filter_pack_items(items, exclude_preview=False)
     assert any("preview" in k["name"] for k in kept_all)
+
+
+def test_sort_pack_items_newest_first():
+    from src.dashboard.routes.files_pack import sort_pack_items_newest_first, parse_modified_ts
+
+    assert parse_modified_ts("Mon, 10 Aug 2026 18:00:00 GMT") > parse_modified_ts(
+        "Sun, 09 Aug 2026 18:00:00 GMT"
+    )
+    items = [
+        {"name": "old.mp4", "modified": "Sun, 09 Aug 2026 12:00:00 GMT"},
+        {"name": "new.mp4", "modified": "Mon, 10 Aug 2026 18:00:00 GMT"},
+        {"name": "mid.mp4", "modified": "Mon, 10 Aug 2026 09:00:00 GMT"},
+        {"name": "unknown.mp4", "modified": ""},
+    ]
+    ordered = sort_pack_items_newest_first(items)
+    assert [x["name"] for x in ordered] == ["new.mp4", "mid.mp4", "old.mp4", "unknown.mp4"]
+
+
+def test_pack_progress_key():
+    from src.dashboard.routes.files_pack import pack_progress_key
+
+    assert pack_progress_key("AgentSkills/Content/video/shorts") == "AgentSkills/Content/video/shorts"
+    assert pack_progress_key("/a/b/") == "a/b"
+    assert pack_progress_key("") == "root"
+
+
+def test_parse_ocs_share_payload_json_and_xml():
+    from src.dashboard.routes.files import _parse_ocs_share_payload
+
+    j = {
+        "ocs": {
+            "meta": {"statuscode": 200},
+            "data": {"id": 9, "token": "abcTOKEN", "url": "https://cloud.example/s/abcTOKEN", "share_type": 3},
+        }
+    }
+    meta = _parse_ocs_share_payload(j)
+    assert meta.get("token") == "abcTOKEN"
+    assert meta.get("statuscode") == 200
+
+    listed = {
+        "ocs": {
+            "meta": {"statuscode": 200},
+            "data": [
+                {"share_type": 0, "token": ""},
+                {"share_type": 3, "token": "pub1", "url": "https://cloud.example/s/pub1"},
+            ],
+        }
+    }
+    meta2 = _parse_ocs_share_payload(listed)
+    assert isinstance(meta2.get("_list"), list)
+    assert meta2["_list"][1]["token"] == "pub1"
+
+    xml = """<?xml version="1.0"?><ocs><meta><statuscode>100</statuscode></meta>
+    <data><token>xmlTok</token><url>https://cloud.example/s/xmlTok</url><share_type>3</share_type></data></ocs>"""
+    meta3 = _parse_ocs_share_payload(xml)
+    assert meta3.get("token") == "xmlTok"
+    assert meta3.get("statuscode") == 100
 
 
 def test_iter_zip_stored_roundtrip():
@@ -58,20 +115,32 @@ def test_files_py_has_pack_routes_and_streaming_download():
     src = (ROOT / "src/dashboard/routes/files.py").read_text()
     assert '@router.get("/api/files/pack")' in src
     assert '@router.post("/api/files/pack/zip")' in src
+    assert '@router.post("/api/files/pack/direct-urls")' in src
+    assert '@router.get("/api/files/pack/progress")' in src
     assert "aiter_bytes" in src
     assert "iter([response.content])" not in src
     assert "stream=True" in src
+    assert "sort_pack_items_newest_first" in src
+    assert "_mint_public_file_share" in src
+    assert "shareType" in src
 
 
-def test_files_js_pack_ui_and_no_blob_bulk():
+def test_files_js_pack_ui_newest_resume_and_direct_cloud():
     js = (ROOT / "src/dashboard/static/js/files.js").read_text()
     assert "openDownloadPack" in js
-    assert "packDownloadToFolder" in js
-    assert "/api/files/pack" in js
+    assert "packDownloadDirectCloud" in js
+    assert "packSelectNewerThanLast" in js
+    assert "packMarkDoneThrough" in js
+    assert "/api/files/pack/direct-urls" in js
+    assert "newest first" in js
+    assert "localStorage" in js
     assert "showDirectoryPicker" in js
-    # Sequential bulk must not buffer whole files via res.blob()
+    # Sequential bulk must not buffer whole files via res.blob() in the click path
     chunk = js.split("async function packFetchToDisk")[1].split("async function packDownloadToFolder")[0]
     assert "await res.blob()" not in chunk
+    # Primary download is Cloud-direct
+    assert "packDownloadDirectCloud" in js
+    assert "Via Mission Control" in js
 
 
 def test_panels_has_download_pack_button():

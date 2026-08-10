@@ -1,10 +1,13 @@
-"""Download pack helpers — presence-scoped bulk pull over the same WebDAV path MC uses.
+"""Download pack helpers — presence-scoped bulk pull for every Cove.
 
-Slice 1: list a folder as a pack (exclude previews by default), stream one file,
-and stream a ZIP_STORED archive without buffering whole multi-GB members.
+List a folder as a pack (exclude previews by default), newest-first ordering for
+resume workflows, stream one file or a ZIP_STORED archive without buffering whole
+multi-GB members, and mint short-lived Cloud download URLs so browsers pull media
+straight from Nextcloud instead of hairpinning through the app.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import struct
 import time
 import zlib
@@ -61,6 +64,51 @@ def filter_pack_items(
         out.append(it)
     return out
 
+
+
+def parse_modified_ts(modified: str | None) -> float:
+    """Parse WebDAV getlastmodified (RFC 1123) to a unix timestamp; 0 if unknown."""
+    s = (modified or "").strip()
+    if not s:
+        return 0.0
+    # Common: "Mon, 10 Aug 2026 18:22:01 GMT"
+    for fmt in (
+        "%a, %d %b %Y %H:%M:%S %Z",
+        "%a, %d %b %Y %H:%M:%S GMT",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%d %H:%M:%S",
+    ):
+        try:
+            dt = datetime.strptime(s.replace("Z", "+0000") if fmt.endswith("%z") and s.endswith("Z") else s, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            continue
+    # Last-ditch: already a numeric string
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def sort_pack_items_newest_first(items: Iterable[dict]) -> List[dict]:
+    """Newest modified first, then name — so operators work down from the top."""
+    rows = list(items or [])
+    rows.sort(
+        key=lambda it: (
+            -parse_modified_ts(it.get("modified") if isinstance(it, dict) else None),
+            (it.get("name") or "").lower() if isinstance(it, dict) else "",
+        )
+    )
+    return rows
+
+
+def pack_progress_key(path: str) -> str:
+    """Stable client/server key fragment for a pack folder path."""
+    p = (path or "").strip().strip("/")
+    return p or "root"
 
 def _dos_time(ts: Optional[float] = None) -> Tuple[int, int]:
     t = time.localtime(ts if ts is not None else time.time())
