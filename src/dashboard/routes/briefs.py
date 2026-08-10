@@ -147,10 +147,45 @@ def _read_body(meta: dict) -> str:
     return ""
 
 
+def _expand_csv_embeds(md: str) -> str:
+    """Turn ```csv path``` / [[csv:path]] into markdown tables when readable.
+
+    Best-effort: reads from VAULT_DIR only (same confinement as source_path).
+    Live NC-backed tables still open via /tables?path=… link in the embed.
+    """
+    from src.dashboard import csv_tables as ct
+
+    def resolve(path: str):
+        # Prefer vault-relative file for published docs that snapshot CSVs
+        src = _safe_vault_path(path)
+        if src is None:
+            # Allow .csv under vault even though _safe_vault_path is md-only
+            rel = (path or "").strip().lstrip("/")
+            if not rel or ".." in rel.split("/"):
+                return None
+            root = VAULT_ROOT.resolve()
+            candidate = (root / rel).resolve()
+            try:
+                candidate.relative_to(root)
+            except ValueError:
+                return None
+            if candidate.is_file() and candidate.suffix.lower() == ".csv":
+                src = candidate
+            else:
+                return None
+        try:
+            return ct.parse_csv_text(src.read_text(encoding="utf-8-sig"))
+        except Exception:
+            return None
+
+    return ct.expand_csv_refs_in_markdown(md or "", resolve)
+
+
 def _render_html(md: str) -> str:
     from src.dashboard.routes.vault import _md_to_html
 
-    return _md_to_html(md or "")
+    expanded = _expand_csv_embeds(md or "")
+    return _md_to_html(expanded)
 
 
 def _unique_slug(title: str, existing: set[str]) -> str:

@@ -568,7 +568,7 @@ def _channel_tool_modules(channel: str):
                     # links_tools (#LNK2): Action Board Links — same upgrade class.
                     for m in ("tools.steward_queue_tools", "tools.delegation_tools",
                               "tools.backlog_tools", "tools.links_tools",
-                              "tools.briefs_tools"):
+                              "tools.briefs_tools", "tools.table_tools"):
                         if m not in mods:
                             mods.append(m)
                 # #D17: the merchant's release lane needs READ-ONLY repo access (the
@@ -587,6 +587,8 @@ def _channel_tool_modules(channel: str):
                     # Briefs — same upgrade class as links (plans/specs for commerce lane)
                     if "tools.briefs_tools" not in mods:
                         mods.append("tools.briefs_tools")
+                    if "tools.table_tools" not in mods:
+                        mods.append("tools.table_tools")
                 return mods
     except Exception:
         pass

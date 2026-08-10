@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Table — Lucid Cove</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<meta name="theme-color" content="#0a0a0f">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --border: #2a2a3a;
+    --text: #e8e8f0;
+    --text-dim: #9898b0;
+    --text-faint: #6a6a80;
+    --accent: #5ce1e6;
+    --danger: #f87171;
+    --ok: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface); position: sticky; top: 0; z-index: 5;
+  }
+  .topbar a {
+    color: var(--accent); text-decoration: none; font-size: 0.9rem;
+  }
+  .topbar a:hover { text-decoration: underline; }
+  .spacer { flex: 1; }
+  .path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.78rem; color: var(--text-dim); max-width: 48vw;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 6px 12px; font-size: 0.82rem; cursor: pointer;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary {
+    background: rgba(92, 225, 230, 0.12); border-color: var(--accent); color: var(--accent);
+  }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .wrap { padding: 16px; max-width: 1200px; margin: 0 auto; }
+  .meta { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 12px; }
+  .err {
+    background: rgba(248, 113, 113, 0.08); border: 1px solid rgba(248, 113, 113, 0.35);
+    color: var(--danger); padding: 14px 16px; border-radius: 10px; margin: 16px 0;
+  }
+  .okmsg {
+    color: var(--ok); font-size: 0.85rem; margin: 8px 0 12px;
+  }
+  .scroll {
+    overflow: auto; border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface);
+  }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 480px;
+  }
+  th, td {
+    border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: left;
+    vertical-align: top;
+  }
+  th {
+    position: sticky; top: 0; background: #16161f; color: var(--text-dim);
+    font-weight: 600; z-index: 1;
+  }
+  tr:hover td { background: rgba(92, 225, 230, 0.04); }
+  td input {
+    width: 100%; min-width: 4rem; background: #0e0e16; border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 6px 8px; font: inherit;
+  }
+  td input:focus { outline: none; border-color: var(--accent); }
+  .empty { padding: 48px 20px; text-align: center; color: var(--text-dim); }
+  .row-actions { white-space: nowrap; width: 1%; }
+  .hint { color: var(--text-faint); font-size: 0.8rem; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <a href="/static/action-board/links.html">← Links</a>
+    <a href="/briefs">Briefs</a>
+    <a href="/files">Files</a>
+    <span class="spacer"></span>
+    <span class="path" id="path-label"></span>
+    <button type="button" class="btn" id="reload-btn">Reload</button>
+    <button type="button" class="btn" id="add-row-btn" hidden>+ Row</button>
+    <button type="button" class="btn primary" id="save-btn" hidden disabled>Save</button>
+  </div>
+  <div class="wrap" id="root">
+    <div class="empty">Loading…</div>
+  </div>
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const path = (params.get("path") || "").trim();
+  const root = document.getElementById("root");
+  const pathLabel = document.getElementById("path-label");
+  const saveBtn = document.getElementById("save-btn");
+  const addRowBtn = document.getElementById("add-row-btn");
+  const reloadBtn = document.getElementById("reload-btn");
+
+  let state = { headers: [], rows: [], dirty: false, editable: false };
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function setDirty(v) {
+    state.dirty = !!v;
+    saveBtn.disabled = !state.dirty;
+    saveBtn.hidden = !state.editable;
+    addRowBtn.hidden = !state.editable;
+  }
+
+  function render() {
+    pathLabel.textContent = path || "(no path)";
+    if (!path) {
+      root.innerHTML = '<div class="err">Add <code>?path=Tables/example.csv</code> to the URL.</div>';
+      return;
+    }
+    if (!state.headers.length && !state.rows.length) {
+      root.innerHTML = '<div class="empty">Empty table — use + Row or ask your agent to add headers.</div>';
+      return;
+    }
+    let html = '<div class="meta">' + state.rows.length + " row"
+      + (state.rows.length === 1 ? "" : "s") + " · " + state.headers.length + " column"
+      + (state.headers.length === 1 ? "" : "s")
+      + (state.truncated ? " · truncated preview" : "")
+      + '</div><div id="msg"></div><div class="scroll"><table><thead><tr>';
+    state.headers.forEach(h => { html += "<th>" + esc(h) + "</th>"; });
+    if (state.editable) html += '<th class="row-actions"></th>';
+    html += "</tr></thead><tbody>";
+    state.rows.forEach((row, ri) => {
+      html += "<tr data-ri=\"" + ri + "\">";
+      state.headers.forEach((h, ci) => {
+        const val = row[ci] == null ? "" : row[ci];
+        if (state.editable) {
+          html += '<td><input data-ri="' + ri + '" data-ci="' + ci + '" value="' + esc(val) + '"></td>';
+        } else {
+          html += "<td>" + esc(val) + "</td>";
+        }
+      });
+      if (state.editable) {
+        html += '<td class="row-actions"><button type="button" class="btn del-row" data-ri="' + ri + '">✕</button></td>';
+      }
+      html += "</tr>";
+    });
+    html += "</tbody></table></div>";
+    html += '<p class="hint">Source of truth is the CSV file. Agents and operators edit the same object. No spreadsheet stack.</p>';
+    root.innerHTML = html;
+
+    root.querySelectorAll("input").forEach(inp => {
+      inp.addEventListener("input", () => {
+        const ri = +inp.getAttribute("data-ri");
+        const ci = +inp.getAttribute("data-ci");
+        if (!state.rows[ri]) return;
+        state.rows[ri][ci] = inp.value;
+        setDirty(true);
+      });
+    });
+    root.querySelectorAll(".del-row").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const ri = +btn.getAttribute("data-ri");
+        state.rows.splice(ri, 1);
+        setDirty(true);
+        render();
+      });
+    });
+  }
+
+  async function load() {
+    if (!path) { render(); return; }
+    root.innerHTML = '<div class="empty">Loading…</div>';
+    try {
+      const res = await fetch("/api/tables?path=" + encodeURIComponent(path), { credentials: "same-origin" });
+      const data = await res.json();
+      if (!data.ok) {
+        root.innerHTML = '<div class="err">' + esc(data.error || "Failed to load") + "</div>";
+        setDirty(false);
+        return;
+      }
+      state.headers = data.headers || [];
+      state.rows = (data.rows || []).map(r => r.slice());
+      state.truncated = !!data.truncated;
+      state.editable = data.editable !== false;
+      document.title = (path.split("/").pop() || "Table") + " — Lucid Cove";
+      setDirty(false);
+      render();
+    } catch (e) {
+      root.innerHTML = '<div class="err">Failed to load table.</div>';
+    }
+  }
+
+  async function save() {
+    if (!state.editable || !state.dirty) return;
+    saveBtn.disabled = true;
+    try {
+      const res = await fetch("/api/tables", {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: path, headers: state.headers, rows: state.rows }),
+      });
+      const data = await res.json();
+      const msg = document.getElementById("msg");
+      if (!data.ok) {
+        if (msg) msg.innerHTML = '<div class="err">' + esc(data.error || "Save failed") + "</div>";
+        saveBtn.disabled = false;
+        return;
+      }
+      state.headers = data.headers || state.headers;
+      state.rows = (data.rows || state.rows).map(r => r.slice());
+      setDirty(false);
+      render();
+      const m2 = document.getElementById("msg");
+      if (m2) m2.innerHTML = '<div class="okmsg">Saved.</div>';
+    } catch (e) {
+      const msg = document.getElementById("msg");
+      if (msg) msg.innerHTML = '<div class="err">Save failed.</div>';
+      saveBtn.disabled = false;
+    }
+  }
+
+  addRowBtn.addEventListener("click", () => {
+    if (!state.headers.length) {
+      const raw = window.prompt("Column headers (comma-separated)", "item,who,notes");
+      if (!raw) return;
+      state.headers = raw.split(",").map(s => s.trim()).filter(Boolean);
+      if (!state.headers.length) return;
+    }
+    state.rows.push(state.headers.map(() => ""));
+    setDirty(true);
+    render();
+  });
+  saveBtn.addEventListener("click", save);
+  reloadBtn.addEventListener("click", load);
+  load();
+})();
+</script>
+</body>
+</html>
