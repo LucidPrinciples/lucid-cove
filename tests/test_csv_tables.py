@@ -109,3 +109,14 @@ def test_viewer_url():
     from src.dashboard import csv_tables as ct
 
     assert ct.viewer_url("Tables/x.csv").startswith("/tables?path=")
+
+
+def test_tables_path_is_cove_shared():
+    from src.dashboard.routes import files as fr
+
+    assert fr._is_tables_path("Tables/warehouse-inventory.csv")
+    assert fr._is_tables_path("Tables")
+    assert fr._is_cove_shared_path("Tables/a.csv")
+    assert fr._is_cove_shared_path("AgentSkills/Knowledge Base/x.md")
+    assert not fr._is_tables_path("Documents/Tables/x.csv")
+    assert not fr._is_cove_shared_path("Documents/foo.csv")
