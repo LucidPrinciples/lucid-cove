@@ -78,6 +78,7 @@ async function loadSettings() {
     // profile/agent/voice/tuning live in their own presence MC, never here.
     if (MC.adminView || MC.coveAdminView) {
         const tasks = [
+            (typeof loadSettingsDisplay === 'function' ? loadSettingsDisplay() : Promise.resolve()),
             loadSettingsStatus(),
             loadSettingsBackup(),
             loadSettingsNextcloud(),
@@ -113,6 +114,7 @@ async function loadSettings() {
     const hasCloud = !!(MC.tier && MC.tier.level >= 10);
     const personal = [
         loadSettingsProfile(),
+        (typeof loadSettingsDisplay === 'function' ? loadSettingsDisplay() : Promise.resolve()),
         loadSettingsFeatures(),
         loadSettingsSignalFilter(),
         loadSettingsMorningAlert(),
