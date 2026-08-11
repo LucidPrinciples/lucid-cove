@@ -18,7 +18,7 @@ URL, which a quick tunnel can't give (its URL changes every restart).
 
 This module is the Cloudflare API half (create/lookup the tunnel, its token, and its
 ingress config). `enable_tunnel.py` is the host-side orchestrator that runs cloudflared
-and repoints DNS. Everything is OFF by default — nothing here runs unless the owner opts
+and repoints DNS. Connectors default to **HTTP/2** edge transport (see enable_tunnel / pin_cloudflared_http2); QUIC is optional. Everything is OFF by default — nothing here runs unless the owner opts
 in and the CF env is present.
 
 Env:

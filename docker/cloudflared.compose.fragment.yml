@@ -1,0 +1,29 @@
+# Optional fragment: Cloudflare tunnel connector for a self-host Cove.
+# Merge into the Cove compose (or run as a one-service stack) when the host
+# uses docker compose for cloudflared instead of enable_tunnel.py docker run.
+#
+# Required in .env (never commit real values):
+#   TUNNEL_TOKEN=...   from Cloudflare Zero Trust / ensure_tunnel
+#
+# Product default transport is HTTP/2. QUIC often fails or crawls on dual-stack
+# home hosts (UDP 7844 unreachable); bulk Download pack egress then drops to KB/s
+# while plain host uplink is fine. Override only after measuring:
+#   TUNNEL_TRANSPORT_PROTOCOL=quic
+#
+# Example:
+#   docker compose -f docker-compose.yml -f docker/cloudflared.compose.fragment.yml up -d cloudflared
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN in .env}
+      TUNNEL_TRANSPORT_PROTOCOL: ${TUNNEL_TRANSPORT_PROTOCOL:-http2}
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --protocol
+      - ${TUNNEL_TRANSPORT_PROTOCOL:-http2}
+      - run
