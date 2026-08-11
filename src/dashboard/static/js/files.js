@@ -223,7 +223,7 @@ function renderPackShell() {
         <button type="button" class="btn-sm" id="pack-dl-zip" onclick="packDownloadZip()">Zip selected</button>
       </div>
       <p class="download-pack-fine">
-        <strong>Download selected</strong> hands files to the browser one-at-a-time via short-lived Cloud links (no Mission Control byte proxy). Watch the download shelf for real speed — off-site that is your host’s upload path; on the home LAN it should be much faster. Keep one active transfer when the link is thin.
+        <strong>Download selected</strong> hands files to the browser one-at-a-time via short-lived, read-only Cloud links (no Mission Control byte proxy). Links expire; they are not open access to your whole Cloud. Remote speed needs a public Cloud base (tunnel or VPS HTTPS) — mesh-only hosts stay slow off-site. Keep one active transfer when the link is thin.
         <strong>Via Mission Control</strong> if Cloud links fail or the browser blocks the handoff (usually slower).
         ${dirPicker ? '<strong>Save via app</strong> still hairpins through MC. ' : ''}
         <strong>Zip</strong> is for smaller batches only.
@@ -437,6 +437,8 @@ async function packDownloadDirectCloud(onlyFirst) {
     }
     const items = data.items || [];
     const errors = data.errors || [];
+    const cloudBase = data.cloud_base || '';
+    const egress = data.egress || 'ok';
     if (!items.length) {
       const detail = errors[0] && (errors[0].error || errors[0].detail);
       throw new Error(detail || 'No Cloud links returned — try Via Mission Control.');
@@ -475,9 +477,13 @@ async function packDownloadDirectCloud(onlyFirst) {
     let msg = '';
     if (started.length) {
       msg = `Queued ${started.length} Cloud download(s) one-at-a-time: ${names}. `;
-      msg += 'Speed is host egress to you (often slow off-LAN) — this panel cannot raise remote uplink. ';
-      msg += 'Prefer a single active transfer in the download shelf; pause/cancel extras. ';
-      msg += 'On the home LAN, bulk pulls are much faster. Watermark saved for handoff files.';
+      if (cloudBase) msg += `Base ${cloudBase}. `;
+      if (egress === 'mesh_base' || egress === 'loopback_base' || egress === 'missing_public_base') {
+        msg += 'This Cloud base is not a public tunnel/VPS origin — remote pulls will stay slow until NEXTCLOUD_PUBLIC_URL points at a public hostname. ';
+      } else {
+        msg += 'Remote speed follows public HTTPS egress (tunnel or VPS), not mesh. ';
+      }
+      msg += 'One active transfer in the download shelf. Watermark saved for handoff files.';
     } else {
       msg = 'Cloud links were created but the browser did not start any downloads. ';
       msg += 'Allow downloads for this site, or use Via Mission Control.';

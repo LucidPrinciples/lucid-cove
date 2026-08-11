@@ -111,7 +111,12 @@ def put_ingress(tunnel_id: str, domain: str, origin: str = "https://localhost:44
     default `https://localhost:443` works when cloudflared runs on the host network.
 
     originRequest.originServerName = {domain} so Caddy serves the right vhost/cert; the
-    apex + `*.{domain}` cover MC, cloud., voice., matrix., and every {handle}. subdomain."""
+    apex + `*.{domain}` cover MC, cloud., voice., matrix., and every {handle}. subdomain.
+
+    WARNING: this REPLACES the entire tunnel ingress config. Prefer
+    ``ensure_public_hostname`` when adding a single bulk-egress hostname onto an
+    existing multi-service tunnel (analytics, etc.) without wiping other routes.
+    """
     domain = (domain or "").strip().rstrip(".")
     if not tunnel_id or not domain:
         raise ValueError("tunnel_id and domain are required")
@@ -127,3 +132,93 @@ def put_ingress(tunnel_id: str, domain: str, origin: str = "https://localhost:44
                        json={"config": {"ingress": ingress}})
         r.raise_for_status()
     return {"ok": True, "tunnel_id": tunnel_id, "ingress": ingress}
+
+
+def get_ingress(tunnel_id: str) -> list:
+    """Return the tunnel's current ingress rule list (may be empty)."""
+    tunnel_id = (tunnel_id or "").strip()
+    if not tunnel_id:
+        raise ValueError("tunnel_id is required")
+    acct = _account_id()
+    with _client() as client:
+        r = client.get(f"{CF_API}/accounts/{acct}/cfd_tunnel/{tunnel_id}/configurations")
+        r.raise_for_status()
+        result = r.json().get("result") or {}
+        cfg = result.get("config") if isinstance(result, dict) else None
+        if not isinstance(cfg, dict):
+            # Some API shapes nest under result.config; others return config at top
+            cfg = result if isinstance(result, dict) else {}
+        ingress = cfg.get("ingress") if isinstance(cfg, dict) else None
+        return list(ingress) if isinstance(ingress, list) else []
+
+
+def ensure_public_hostname(
+    tunnel_id: str,
+    hostname: str,
+    service: str,
+    *,
+    origin_server_name: str = "",
+    no_tls_verify: bool = True,
+) -> dict:
+    """Merge one public hostname into an existing tunnel without wiping other routes.
+
+    Used for Download-pack bulk egress: publish e.g. ``files.example.org`` → local
+    Nextcloud (``http://127.0.0.1:8082``) on a tunnel that already serves analytics
+    or other hostnames. Catch-all ``http_status:*`` rules stay last.
+
+    Does not touch DNS — pair with ``cloudflare_dns.ensure_hostname_dns_tunnel``.
+    """
+    tunnel_id = (tunnel_id or "").strip()
+    hostname = (hostname or "").strip().rstrip(".").lower()
+    service = (service or "").strip()
+    if not tunnel_id or not hostname or not service:
+        raise ValueError("tunnel_id, hostname, and service are required")
+
+    origin_req: dict = {}
+    osn = (origin_server_name or "").strip().rstrip(".")
+    if osn:
+        origin_req["originServerName"] = osn
+    if service.startswith("https://") and no_tls_verify:
+        origin_req["noTLSVerify"] = True
+
+    new_rule: dict = {"hostname": hostname, "service": service}
+    if origin_req:
+        new_rule["originRequest"] = origin_req
+
+    existing = get_ingress(tunnel_id)
+    catch_all: list = []
+    kept: list = []
+    replaced = False
+    for rule in existing:
+        if not isinstance(rule, dict):
+            continue
+        # Catch-all: no hostname (CF requires last)
+        if not (rule.get("hostname") or "").strip():
+            catch_all.append(rule)
+            continue
+        if (rule.get("hostname") or "").strip().rstrip(".").lower() == hostname:
+            kept.append(new_rule)
+            replaced = True
+        else:
+            kept.append(rule)
+    if not replaced:
+        kept.append(new_rule)
+    if not catch_all:
+        catch_all = [{"service": "http_status:404"}]
+    ingress = kept + catch_all
+
+    acct = _account_id()
+    with _client() as client:
+        r = client.put(
+            f"{CF_API}/accounts/{acct}/cfd_tunnel/{tunnel_id}/configurations",
+            json={"config": {"ingress": ingress}},
+        )
+        r.raise_for_status()
+    return {
+        "ok": True,
+        "tunnel_id": tunnel_id,
+        "hostname": hostname,
+        "service": service,
+        "replaced": replaced,
+        "ingress": ingress,
+    }

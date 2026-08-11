@@ -909,6 +909,22 @@ async def pack_direct_urls(request: Request):
             "reused": bool(minted.get("reused")),
         })
 
+    # Hint the UI when mint host is missing or still looks like an internal-only origin.
+    egress = "ok"
+    if not public_base:
+        egress = "missing_public_base"
+    else:
+        try:
+            from urllib.parse import urlparse
+
+            host = (urlparse(public_base).hostname or "").lower()
+        except Exception:
+            host = ""
+        if host in ("localhost", "nextcloud") or host.startswith("127."):
+            egress = "loopback_base"
+        elif host.endswith(".mesh.lucidcove.org"):
+            egress = "mesh_base"
+
     return {
         "ok": len(results) > 0,
         "items": results,
@@ -917,6 +933,7 @@ async def pack_direct_urls(request: Request):
         "cloud_base": public_base,
         "expire_days": expire_days,
         "mode": "direct_cloud",
+        "egress": egress,
     }
 
 

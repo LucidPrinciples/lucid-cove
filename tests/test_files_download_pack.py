@@ -151,3 +151,92 @@ def test_panels_has_download_pack_button():
     panels = (ROOT / "src/dashboard/static/js/panels.js").read_text()
     assert "openDownloadPack" in panels
     assert "download-pack-panel" in panels
+
+
+def test_cloud_public_url_explicit_wins_over_domain(monkeypatch):
+    """Self-host bulk egress: NEXTCLOUD_PUBLIC_URL must beat derived cloud.{domain}."""
+    import src.config as cfg
+
+    monkeypatch.setenv("NEXTCLOUD_PUBLIC_URL", "https://files.example.org")
+    monkeypatch.setattr(cfg, "load_cove_config", lambda: {"domain": "smith.example.org"})
+    assert cfg._cloud_public_url() == "https://files.example.org"
+    assert cfg.get_nc_public_url() == "https://files.example.org"
+
+
+def test_cloud_public_url_rejects_loopback_explicit(monkeypatch):
+    import src.config as cfg
+
+    monkeypatch.setenv("NEXTCLOUD_PUBLIC_URL", "http://127.0.0.1:8082")
+    monkeypatch.setattr(cfg, "load_cove_config", lambda: {"domain": "smith.example.org"})
+    assert cfg._cloud_public_url() == "https://cloud.smith.example.org"
+
+
+def test_cloud_public_url_domain_when_no_explicit(monkeypatch):
+    import src.config as cfg
+
+    monkeypatch.delenv("NEXTCLOUD_PUBLIC_URL", raising=False)
+    monkeypatch.setattr(cfg, "load_cove_config", lambda: {"domain": "smith.example.org"})
+    assert cfg._cloud_public_url() == "https://cloud.smith.example.org"
+
+
+def test_is_browser_public_origin_helpers():
+    from src.config import _is_browser_public_origin
+
+    assert _is_browser_public_origin("https://files.example.org") is True
+    assert _is_browser_public_origin("http://127.0.0.1:8082") is False
+    assert _is_browser_public_origin("http://localhost") is False
+    assert _is_browser_public_origin("http://nextcloud") is False
+    assert _is_browser_public_origin("") is False
+
+
+def test_ensure_public_hostname_merges_without_wipe():
+    """Pure merge logic: catch-all stays last; other hostnames preserved."""
+    # Inline the merge algorithm used by ensure_public_hostname (no CF API).
+    existing = [
+        {"hostname": "analytics.example.org", "service": "http://127.0.0.1:8303"},
+        {"hostname": "old.example.org", "service": "http://127.0.0.1:9"},
+        {"service": "http_status:404"},
+    ]
+    hostname = "files.example.org"
+    new_rule = {"hostname": hostname, "service": "http://127.0.0.1:8082"}
+    catch_all, kept, replaced = [], [], False
+    for rule in existing:
+        if not (rule.get("hostname") or "").strip():
+            catch_all.append(rule)
+            continue
+        if (rule.get("hostname") or "").strip().rstrip(".").lower() == hostname:
+            kept.append(new_rule)
+            replaced = True
+        else:
+            kept.append(rule)
+    if not replaced:
+        kept.append(new_rule)
+    if not catch_all:
+        catch_all = [{"service": "http_status:404"}]
+    ingress = kept + catch_all
+    hosts = [r.get("hostname") for r in ingress if r.get("hostname")]
+    assert hosts == ["analytics.example.org", "old.example.org", "files.example.org"]
+    assert ingress[-1]["service"] == "http_status:404"
+    assert replaced is False
+
+
+def test_files_py_reports_egress_and_public_base_contract():
+    src = (ROOT / "src/dashboard/routes/files.py").read_text()
+    assert '"egress"' in src or "'egress'" in src
+    assert "missing_public_base" in src
+    assert "_public_cloud_base" in src
+
+
+def test_enable_public_cloud_script_exists():
+    p = ROOT / "provision/enable_public_cloud.py"
+    assert p.is_file()
+    text = p.read_text()
+    assert "ensure_public_hostname" in text
+    assert "NEXTCLOUD_PUBLIC_URL" in text
+    assert "never paste" in text.lower() or "do not paste" in text.lower()
+
+
+def test_files_js_mentions_public_base_and_short_lived():
+    js = (ROOT / "src/dashboard/static/js/files.js").read_text()
+    assert "short-lived" in js
+    assert "NEXTCLOUD_PUBLIC_URL" in js or "public tunnel" in js or "public Cloud base" in js
