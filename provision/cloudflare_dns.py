@@ -242,6 +242,32 @@ def ensure_cove_dns_tunnel(cove_domain: str, tunnel_id: str, wildcard: bool = Fa
     return {"ok": True, "target": target, "zone_id": zid, "actions": actions}
 
 
+def ensure_hostname_dns_tunnel(hostname: str, tunnel_id: str) -> dict:
+    """Point one FQDN at a Cloudflare tunnel (proxied CNAME), idempotent.
+
+    For bulk file egress hostnames (e.g. files.example.org) without repointing the
+    whole Cove apex or mesh ``cloud.*`` records. Zone is inferred from the hostname
+    the same way as other helpers in this module.
+    """
+    hostname = (hostname or "").strip().rstrip(".").lower()
+    tunnel_id = (tunnel_id or "").strip()
+    if not hostname or not tunnel_id:
+        raise ValueError("hostname and tunnel_id are required")
+    if hostname.startswith("*.") or hostname.count(".") < 1:
+        raise ValueError("hostname must be a concrete FQDN (not a wildcard)")
+    target = f"{tunnel_id}.cfargotunnel.com"
+    with _client() as client:
+        zid = _zone_id(client, hostname)
+        action = _ensure_cname_proxied(client, zid, hostname, target)
+    return {
+        "ok": True,
+        "hostname": hostname,
+        "target": target,
+        "zone_id": zid,
+        "actions": [action],
+    }
+
+
 def _delete_conflicts(client: httpx.Client, zone_id: str, name: str, keep_type: str) -> None:
     """Delete any records at `name` whose type conflicts with `keep_type`. CNAME can't
     coexist with A/AAAA (and vice-versa), so repointing A<->CNAME must purge the other."""

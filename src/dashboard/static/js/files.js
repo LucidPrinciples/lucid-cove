@@ -216,15 +216,16 @@ function renderPackShell() {
         <button type="button" class="btn-sm" onclick="packSelectAll(true)">Select all</button>
         <button type="button" class="btn-sm" onclick="packSelectAll(false)">Select none</button>
         <button type="button" class="btn-sm" onclick="packSelectNewerThanLast()">Select newer than last pull</button>
-        <button type="button" class="btn-primary btn-sm" id="pack-dl-direct" onclick="packDownloadDirectCloud()">Download selected</button>
+        <button type="button" class="btn-primary btn-sm" id="pack-dl-next" onclick="packDownloadDirectCloud(true)">Download next only</button>
+        <button type="button" class="btn-sm" id="pack-dl-direct" onclick="packDownloadDirectCloud(false)">Download selected</button>
         ${dirPicker ? '<button type="button" class="btn-sm" id="pack-dl-dir" onclick="packDownloadToFolder()">Save via app…</button>' : ''}
         <button type="button" class="btn-sm" id="pack-dl-proxy" onclick="packDownloadSequential()">Via Mission Control</button>
         <button type="button" class="btn-sm" id="pack-dl-zip" onclick="packDownloadZip()">Zip selected</button>
       </div>
       <p class="download-pack-fine">
-        <strong>Download selected</strong> opens short-lived Cloud links so multi‑GB files go browser → Cloud (fast path for every Cove).
-        <strong>Via Mission Control</strong> is the slow fallback if Cloud links fail.
-        ${dirPicker ? '<strong>Save via app</strong> still hairpins through MC — only for small sets or when Cloud is blocked. ' : ''}
+        <strong>Download selected</strong> hands files to the browser one-at-a-time via short-lived, read-only Cloud links (no Mission Control byte proxy). Links expire; they are not open access to your whole Cloud. Remote speed needs a public Cloud base (tunnel or VPS HTTPS) — mesh-only hosts stay slow off-site. Keep one active transfer when the link is thin.
+        <strong>Via Mission Control</strong> if Cloud links fail or the browser blocks the handoff (usually slower).
+        ${dirPicker ? '<strong>Save via app</strong> still hairpins through MC. ' : ''}
         <strong>Zip</strong> is for smaller batches only.
       </p>
       <div id="pack-progress" class="download-pack-progress"></div>
@@ -407,15 +408,22 @@ function packSetProgress(msg) {
   if (el) el.textContent = msg || '';
 }
 
-async function packDownloadDirectCloud() {
-  const paths = packSelectedPaths();
+async function packDownloadDirectCloud(onlyFirst) {
+  let paths = packSelectedPaths();
   if (!paths.length) {
     packSetProgress('Select at least one file.');
     return;
   }
+  if (onlyFirst) {
+    paths = paths.slice(0, 1);
+  }
   if (_packState.busy) return;
   _packState.busy = true;
-  packSetProgress(`Minting Cloud links for ${paths.length} file(s)…`);
+  packSetProgress(
+    onlyFirst
+      ? `Asking Cloud for 1 download link (next only — keeps the full remote pipe on one file)…`
+      : `Asking Cloud for ${paths.length} download link(s), queued one-at-a-time…`
+  );
   try {
     const res = await fetch('/api/files/pack/direct-urls', {
       method: 'POST',
@@ -429,29 +437,61 @@ async function packDownloadDirectCloud() {
     }
     const items = data.items || [];
     const errors = data.errors || [];
+    const cloudBase = data.cloud_base || '';
+    const egress = data.egress || 'ok';
     if (!items.length) {
       const detail = errors[0] && (errors[0].error || errors[0].detail);
       throw new Error(detail || 'No Cloud links returned — try Via Mission Control.');
     }
-    if (errors.length) {
-      packSetProgress(`Got ${items.length} link(s); ${errors.length} failed. Starting good ones…`);
-    }
+
+    const started = [];
+    const failed = [];
+    // STRICTLY one file at a time. Parallel multi-GB GETs on remote/mesh egress
+    // split a thin uplink into KB/s slices (four at ~8 KB/s each). One stream
+    // takes the full pipe; operator resumes the rest via last-pull watermark.
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
-      const name = item.name || (item.path || '').split('/').pop();
-      packSetProgress(`Cloud download ${i + 1}/${items.length}: ${name}`);
-      const a = document.createElement('a');
-      a.href = item.download_url;
-      a.download = name || 'download';
-      a.rel = 'noopener';
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      packMarkDoneThrough(item.path);
-      await new Promise(r => setTimeout(r, 1100));
+      const name = item.name || (item.path || '').split('/').pop() || 'download';
+      const url = item.download_url;
+      if (!url) {
+        failed.push(name);
+        continue;
+      }
+      packSetProgress(
+        `Queue ${i + 1}/${items.length}: starting ${name} alone (one-at-a-time so remote links are not split). ` +
+        `Watch the download shelf — cancel any older parallel copies of the same file.`
+      );
+      try {
+        await packTriggerBrowserDownload(url, name);
+        started.push(name);
+        packMarkDoneThrough(item.path);
+      } catch (e) {
+        failed.push(name);
+      }
+      // Wait long enough that the browser has bound ONE transfer before the next
+      // URL is offered. Still does not wait for multi-GB completion (browser-owned).
+      await new Promise(r => setTimeout(r, 4000));
     }
-    packSetProgress(`Started ${items.length} Cloud download(s). Watermark saved — reopen pack later to continue below last pull.`);
+
+    const names = started.slice(0, 4).join(', ') + (started.length > 4 ? '…' : '');
+    let msg = '';
+    if (started.length) {
+      msg = `Queued ${started.length} Cloud download(s) one-at-a-time: ${names}. `;
+      if (cloudBase) msg += `Base ${cloudBase}. `;
+      if (egress === 'mesh_base' || egress === 'loopback_base' || egress === 'missing_public_base') {
+        msg += 'This Cloud base is not a public tunnel/VPS origin — remote pulls will stay slow until NEXTCLOUD_PUBLIC_URL points at a public hostname. ';
+      } else {
+        msg += 'Remote speed follows public HTTPS egress (tunnel or VPS), not mesh. ';
+      }
+      msg += 'One active transfer in the download shelf. Watermark saved for handoff files.';
+    } else {
+      msg = 'Cloud links were created but the browser did not start any downloads. ';
+      msg += 'Allow downloads for this site, or use Via Mission Control.';
+    }
+    if (failed.length || errors.length) {
+      msg += ` (${failed.length + errors.length} file(s) did not start)`;
+    }
+    packSetProgress(msg);
     renderPackList();
   } catch (err) {
     packSetProgress(err.message || String(err));
@@ -459,6 +499,22 @@ async function packDownloadDirectCloud() {
     _packState.busy = false;
   }
 }
+
+/** Start ONE browser download (single request — never iframe+click double-fetch). */
+async function packTriggerBrowserDownload(url, filename) {
+  // One hidden iframe only. A second <a click> would open a parallel GET of the
+  // same multi-GB object and cut effective speed in half on thin remote pipes.
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px;top:-9999px;';
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.title = filename || 'download';
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  setTimeout(() => {
+    try { iframe.remove(); } catch (_) {}
+  }, 120000);
+}
+
 
 async function packDownloadSequential() {
   const paths = packSelectedPaths();

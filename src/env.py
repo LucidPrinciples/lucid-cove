@@ -137,7 +137,14 @@ REGISTRY: list[EnvVar] = [
     EnvVar("NEXTCLOUD_ADMIN_USER", "admin", "str", "Nextcloud",
            desc="NC admin user. (was: '' vs 'admin' vs NEXTCLOUD_USER fallback — canonical 'admin')."),
     EnvVar("NEXTCLOUD_ADMIN_PASSWORD", "", "str", "Nextcloud", secret=True, desc="NC admin password."),
-    EnvVar("NEXTCLOUD_PUBLIC_URL", "", "str", "Nextcloud", desc="Public NC URL (for share links)."),
+    EnvVar(
+        "NEXTCLOUD_PUBLIC_URL",
+        "",
+        "str",
+        "Nextcloud",
+        desc="Browser-facing NC origin for share links and Download pack. "
+        "Non-loopback URL wins over derived https://cloud.{domain}.",
+    ),
     EnvVar("NC_PIPECAT_URL", "", "str", "Nextcloud", desc="NC URL pipecat uses for WebDAV."),
 
     # ── Matrix / Connect ──

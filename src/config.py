@@ -87,8 +87,12 @@ def get_nc_url() -> str:
 
 
 def get_nc_public_url() -> str:
-    """Public-facing NC URL for browser links."""
-    return env("NEXTCLOUD_PUBLIC_URL")
+    """Browser-facing NC origin for share links and Download pack.
+
+    Same resolution as ``_cloud_public_url``: explicit ``NEXTCLOUD_PUBLIC_URL``
+    wins when set (public tunnel or VPS HTTPS), else ``https://cloud.{domain}``.
+    """
+    return _cloud_public_url()
 
 
 def get_nc_admin_user() -> str:
@@ -503,16 +507,61 @@ def save_models_registry(models: list[dict]) -> None:
     load_models_registry.cache_clear()
 
 
+def _is_browser_public_origin(url: str) -> bool:
+    """True when *url* is usable as a remote browser origin (not loopback / Docker-only).
+
+    Mesh CGNAT (100.64/10) still counts as "browser-shaped" for on-mesh clients; remote
+    bulk egress needs a real public hostname in NEXTCLOUD_PUBLIC_URL (tunnel or VPS).
+    """
+    from urllib.parse import urlparse
+
+    raw = (url or "").strip()
+    if not raw:
+        return False
+    try:
+        parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    except Exception:
+        return False
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    if host in ("localhost", "nextcloud", "host.docker.internal"):
+        return False
+    if host.endswith(".local") or host.endswith(".internal"):
+        return False
+    # IPv4 loopback / link-local / unspecified
+    if host.startswith("127.") or host.startswith("0."):
+        return False
+    if host == "::1":
+        return False
+    return parsed.scheme in ("http", "https")
+
+
 def _cloud_public_url() -> str:
-    """Browser URL for this Cove's Nextcloud — derived from the LIVE Cove domain
-    (cloud.{domain}) so it tracks a domain set at runtime, exactly like admin_url and
-    voice. Falls back to the baked NEXTCLOUD_PUBLIC_URL env (localhost for a domainless
-    Cove) when no domain is set."""
+    """Browser URL for this Cove's Nextcloud (share links, Download pack, Open Cloud).
+
+    Precedence:
+      1. ``NEXTCLOUD_PUBLIC_URL`` when set to a non-loopback origin — product override
+         for public tunnel hostnames (e.g. https://files.example.org) or VPS HTTPS.
+         Must win over derived ``cloud.{domain}`` so self-host can keep mesh DNS on
+         cloud.* while bulk egress uses a tunneled name.
+      2. ``https://cloud.{live domain}`` when a Cove domain is configured.
+      3. Empty string when neither is available.
+
+    Download pack mints read-only, expiring per-file public links on this origin;
+    it does not weaken Nextcloud account auth for the rest of the tree.
+    """
+    explicit = (env("NEXTCLOUD_PUBLIC_URL") or "").strip().rstrip("/")
+    if explicit and _is_browser_public_origin(explicit):
+        return explicit
     try:
         dom = (load_cove_config().get("domain") or "").strip().lstrip("*").lstrip(".")
     except Exception:
         dom = ""
-    return f"https://cloud.{dom}" if dom else env("NEXTCLOUD_PUBLIC_URL")
+    if dom:
+        return f"https://cloud.{dom}"
+    # Domainless: allow explicit even if we couldn't classify, else empty
+    return explicit
 
 
 def get_frontend_config() -> dict:
