@@ -11,7 +11,9 @@ What it does:
   1. Create-or-reuse a Cloudflare named tunnel for this Cove (cloudflare_tunnel.ensure_tunnel).
   2. Configure its ingress → the box's bundled Caddy (publishes :443 on the host), which
      host-routes each subdomain (MC / cloud. / voice. / matrix. / {handle}.).
-  3. Run the `cloudflared` container (persistent, --restart unless-stopped, host network).
+  3. Run the `cloudflared` container (persistent, --restart unless-stopped, host network)
+     with **HTTP/2 transport by default** (QUIC/UDP to the edge often fails or crawls on
+     dual-stack home hosts; HTTP/2 keeps public bulk egress usable for Download pack).
   4. Repoint DNS: *.{domain} + {domain} CNAME (proxied) → {tunnel}.cfargotunnel.com.
 
 Prereqs (host env or the Cove's docker/.env):
@@ -32,6 +34,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from provision import cloudflare_tunnel, cloudflare_dns  # noqa: E402
 
+# Default edge transport for cloudflared. QUIC (UDP 7844) is Cloudflare's default but
+# on many home dual-stack hosts it logs "network is unreachable" and bulk downloads
+# through public tunnel hostnames fall to ~KB/s while plain host uplink is fine.
+# HTTP/2 (TCP) is the product default for Cove tunnels; override with
+# CLOUDFLARED_PROTOCOL=quic only if you have measured better results.
+DEFAULT_TRANSPORT_PROTOCOL = "http2"
+
+
+def _transport_protocol() -> str:
+    raw = (os.getenv("CLOUDFLARED_PROTOCOL") or os.getenv("TUNNEL_TRANSPORT_PROTOCOL") or "").strip().lower()
+    if raw in ("http2", "h2", "tcp"):
+        return "http2"
+    if raw in ("quic", "http3", "h3", "udp"):
+        return "quic"
+    return DEFAULT_TRANSPORT_PROTOCOL
+
 
 def _load_env_files(cove_id: str) -> None:
     """Best-effort load CF creds from a nearby instance .env if not already in the shell."""
@@ -50,27 +68,46 @@ def _load_env_files(cove_id: str) -> None:
                         continue
                     k, v = line.split("=", 1)
                     k = k.strip(); v = v.strip().strip('"').strip("'")
-                    if k in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID") and not os.getenv(k):
+                    if k in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID",
+                             "CLOUDFLARED_PROTOCOL", "TUNNEL_TRANSPORT_PROTOCOL") and not os.getenv(k):
                         os.environ[k] = v
         except Exception:
             continue
 
 
+def cloudflared_run_args(token: str, protocol: str | None = None) -> list[str]:
+    """CLI + env for a Cove cloudflared connector (shared with pin helper / compose)."""
+    proto = protocol or _transport_protocol()
+    # Both flag and env: older images honor one or the other; neither prints the token.
+    return [
+        "tunnel", "--no-autoupdate", "--protocol", proto, "run", "--token", token,
+    ]
+
+
 def _run_cloudflared(cove_id: str, token: str, network: str, dry_run: bool) -> dict:
     name = f"{cove_id}-cloudflared"
-    # Replace any prior container so re-running picks up a fresh token cleanly.
+    proto = _transport_protocol()
+    # Replace any prior container so re-running picks up a fresh token/transport cleanly.
     rm = ["docker", "rm", "-f", name]
-    run = ["docker", "run", "-d", "--name", name, "--restart", "unless-stopped",
-           "--network", network, "cloudflare/cloudflared:latest",
-           "tunnel", "--no-autoupdate", "run", "--token", token]
+    run = [
+        "docker", "run", "-d", "--name", name, "--restart", "unless-stopped",
+        "--network", network,
+        "-e", f"TUNNEL_TRANSPORT_PROTOCOL={proto}",
+        "cloudflare/cloudflared:latest",
+        *cloudflared_run_args(token, proto),
+    ]
     if dry_run:
-        return {"ok": True, "dry_run": True,
-                "commands": [" ".join(rm), " ".join(run[:-1] + ["<token>"])]}
+        safe = ["docker", "run", "-d", "--name", name, "--restart", "unless-stopped",
+                "--network", network, "-e", f"TUNNEL_TRANSPORT_PROTOCOL={proto}",
+                "cloudflare/cloudflared:latest",
+                "tunnel", "--no-autoupdate", "--protocol", proto, "run", "--token", "<token>"]
+        return {"ok": True, "dry_run": True, "protocol": proto,
+                "commands": [" ".join(rm), " ".join(safe)]}
     subprocess.run(rm, capture_output=True, text=True)   # ignore "no such container"
     r = subprocess.run(run, capture_output=True, text=True)
     if r.returncode != 0:
         return {"ok": False, "error": (r.stderr or r.stdout).strip()[:400]}
-    return {"ok": True, "container": name, "id": (r.stdout or "").strip()[:12]}
+    return {"ok": True, "container": name, "id": (r.stdout or "").strip()[:12], "protocol": proto}
 
 
 def main() -> int:
@@ -113,7 +150,8 @@ def main() -> int:
         print(f"✗ ingress config failed: {e}")
         return 1
 
-    print(f"→ Starting cloudflared container (network={args.network}) …")
+    proto = _transport_protocol()
+    print(f"→ Starting cloudflared container (network={args.network}, protocol={proto}) …")
     cf = _run_cloudflared(args.cove_id, tun["token"], args.network, args.dry_run)
     if not cf.get("ok"):
         print(f"✗ cloudflared failed: {cf.get('error')}")
@@ -122,7 +160,7 @@ def main() -> int:
         for c in cf["commands"]:
             print("    " + c)
     else:
-        print(f"  container {cf['container']} up ({cf['id']})")
+        print(f"  container {cf['container']} up ({cf['id']}) protocol={cf.get('protocol')}")
 
     _scope = f"*.{domain} + {domain}" if args.wildcard else domain
     print(f"→ Repointing DNS ({_scope} → {tun['hostname']}, proxied) …")
@@ -137,8 +175,9 @@ def main() -> int:
             print(f"✗ DNS repoint failed: {e}")
             return 1
 
-    print(f"\n✓ {domain} is now publicly reachable via Cloudflare tunnel. "
-          f"Remote /join links will resolve from any device.")
+    print(f"\n✓ {domain} is now publicly reachable via Cloudflare tunnel "
+          f"(cloudflared transport={proto}). Remote /join and Download pack public "
+          f"Cloud bases will resolve from any device.")
     return 0
 
 

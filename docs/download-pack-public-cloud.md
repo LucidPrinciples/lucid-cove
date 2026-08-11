@@ -47,3 +47,25 @@ Never paste API or tunnel tokens into chat logs.
 1. `https://files…/` shows Nextcloud login (or redirect), not a dead mesh/502 path.
 2. Download pack → Download next only → browser shelf shows multi‑MB/s on a good remote link (bounded by house upload).
 3. If links still point at mesh-only hosts, confirm `NEXTCLOUD_PUBLIC_URL` is set on the running app and `/api/config` exposes `nextcloud_public_url` accordingly.
+
+## Cloudflare tunnel transport (HTTP/2 default)
+
+Self-host bulk egress (Download pack via a public `files.*` hostname) depends on a healthy
+`cloudflared` connector. Cloudflare's default edge transport is **QUIC** (UDP). On many
+dual-stack home hosts QUIC fails (`network is unreachable` on UDP/7844) and public file
+downloads crawl at ~KB/s even when host uplink to Cloudflare is multi‑MB/s.
+
+**Product default for Cove connectors is HTTP/2 (TCP):**
+
+- `provision/enable_tunnel.py` starts cloudflared with `--protocol http2` and
+  `TUNNEL_TRANSPORT_PROTOCOL=http2`.
+- `docker/cloudflared.compose.fragment.yml` defaults the same for compose-managed connectors.
+- Existing connectors: on the host,
+  `python3 provision/pin_cloudflared_http2.py --name <cove-id>-cloudflared`
+  (does not print tokens).
+
+Override only after measuring: `CLOUDFLARED_PROTOCOL=quic` or
+`TUNNEL_TRANSPORT_PROTOCOL=quic`.
+
+Pair with `NEXTCLOUD_PUBLIC_URL=https://files.<zone>` after
+`provision/enable_public_cloud.py` (or equivalent Zero Trust public hostname → local Nextcloud).
