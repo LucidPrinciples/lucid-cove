@@ -9,6 +9,12 @@ def test_valid_tag_accepts_ollama_names():
     assert val == "qwen3:8b"
     ok, val = ml._valid_tag("ltp-tuner-v2:latest")
     assert ok is True
+    # Ollama HF-style pulls (ollama pull hf.co/org/name)
+    ok, val = ml._valid_tag(
+        "hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest"
+    )
+    assert ok is True
+    assert val.startswith("hf.co/")
 
 
 def test_valid_tag_rejects_empty_and_junk():
@@ -17,6 +23,8 @@ def test_valid_tag_rejects_empty_and_junk():
     ok, err = ml._valid_tag("bad tag with spaces")
     assert ok is False
     ok, err = ml._valid_tag("../escape")
+    assert ok is False
+    ok, err = ml._valid_tag("/absolute")
     assert ok is False
 
 
@@ -77,3 +85,10 @@ def test_split_think_unclosed():
 
 def test_message_text_list_blocks():
     assert "hello" in ml._message_text([{"type": "text", "text": "hello"}])
+
+
+def test_bulk_storage_route_registered():
+    from src.dashboard.routes import settings as settings_routes
+
+    paths = {getattr(r, "path", None) for r in settings_routes.router.routes}
+    assert "/api/settings/bulk-storage" in paths

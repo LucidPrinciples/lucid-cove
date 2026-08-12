@@ -424,6 +424,10 @@ function _defaultPanelHTML(tabId) {
                     <div id="settings-compute" class="settings-row-list"></div>
                 </div>
                 <div class="settings-group">
+                    <div class="settings-group-title">Bulk storage</div>
+                    <div id="settings-bulk-storage" class="settings-row-list"></div>
+                </div>
+                <div class="settings-group">
                     <div class="settings-group-title">System</div>
                     <div id="settings-status" class="settings-status-grid"></div>
                 </div>

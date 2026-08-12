@@ -554,6 +554,43 @@ async function clearAgentSymbol() {
 // Presences — Operator-only admin section
 // =============================================================================
 
+// Bulk storage — second-disk layout for Nextcloud / video / host Ollama models.
+// Paths are host/.env; this panel is read-only guidance + live env echo.
+async function loadSettingsBulkStorage() {
+    const el = document.getElementById('settings-bulk-storage');
+    if (!el) return;
+    try {
+        const data = await fetch('/api/settings/bulk-storage').then(r => r.json());
+        if (data.error) {
+            el.innerHTML = `<div class="error-msg">${ESC(data.error)}</div>`;
+            return;
+        }
+        const row = (label, val, dim) => `
+            <div class="settings-row" style="flex-wrap:wrap;gap:4px;">
+                <span class="settings-label" style="flex:0 0 160px;">${ESC(label)}</span>
+                <code style="font-size:0.72rem;word-break:break-all;${dim ? 'color:var(--dim);' : ''}">${ESC(val || '(not set)')}</code>
+            </div>`;
+        const notes = (data.notes || []).map(n =>
+            `<div style="font-size:0.62rem;color:var(--dim);line-height:1.45;margin:2px 0;">• ${ESC(n)}</div>`
+        ).join('');
+        el.innerHTML = `
+            <div style="font-size:0.72rem;color:var(--text);margin-bottom:8px;line-height:1.45;">
+                Put heavy data (Nextcloud files, video pipeline, local model weights) on a large host disk.
+                Changing paths requires host <code>.env</code> / compose recreate — this panel does not move data.
+            </div>
+            ${row('COVE_BULK_ROOT', data.bulk_root, !data.bulk_root)}
+            ${row('NEXTCLOUD_HOST_PATH', data.nextcloud_host_path, !data.nextcloud_host_path)}
+            ${row('NC data mode', data.nextcloud_using_bind ? 'host bind mount' : 'Docker named volume (default)', false)}
+            ${row('OLLAMA_BASE_URL', data.ollama_base_url, false)}
+            ${row('VIDEO_BASE_PATH', data.video_base_path, false)}
+            <div style="margin-top:8px;">${notes}</div>
+            <div style="font-size:0.62rem;color:var(--dim);margin-top:6px;">Guide: <code>${ESC(data.docs_path || 'docs/bulk-storage.md')}</code></div>
+        `;
+    } catch (err) {
+        el.innerHTML = `<div class="error-msg">${ESC(err.message)}</div>`;
+    }
+}
+
 // Compute backends (Admin Presence) — where heavy work runs. Three pluggable
 // offramps per section; `external` URL = borrow another box's GPU (e.g. the P620).
 async function loadSettingsCompute() {

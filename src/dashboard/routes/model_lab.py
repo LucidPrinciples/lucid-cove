@@ -33,7 +33,8 @@ _RUN_TIMEOUT_S = 180
 _MAX_PROMPT_CHARS = 12000
 _MAX_SYSTEM_CHARS = 8000
 _MAX_TITLE = 200
-_TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+# Ollama tags + HF-style pulls (hf.co/org/name:tag). Allow / but not path junk.
+_TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$")
 
 
 def _message_text(content) -> str:
@@ -150,6 +151,8 @@ def _valid_tag(tag: str) -> tuple[bool, str]:
     t = (tag or "").strip()
     if not t:
         return False, "model tag is required"
+    if ".." in t or t.startswith("/") or "//" in t:
+        return False, "invalid model tag"
     if not _TAG_RE.match(t):
         return False, "invalid model tag"
     return True, t
