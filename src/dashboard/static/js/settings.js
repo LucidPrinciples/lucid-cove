@@ -87,6 +87,7 @@ async function loadSettings() {
             loadSettingsModelOverride(),
             loadSettingsModelRegistry(),
             loadSettingsCompute(),
+            (typeof loadSettingsBulkStorage === 'function' ? loadSettingsBulkStorage() : Promise.resolve()),
             loadSettingsLTP(),
             loadSettingsAgentSymbol(),
         ];

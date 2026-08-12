@@ -70,6 +70,29 @@ REGISTRY: list[EnvVar] = [
     EnvVar("RUNBOOKS_SEED_DIR", "/cove-core/runbooks", "path", "Paths", desc="Seed runbook JSON dir."),
     EnvVar("VIDEO_BASE_PATH", "/vault/AgentSkills/Content/video", "path", "Paths", desc="Video pipeline root."),
     EnvVar(
+        "COVE_BULK_ROOT",
+        "",
+        "path",
+        "Paths",
+        desc=(
+            "Optional host directory for heavy data (second disk). Documented in "
+            "Settings → Bulk storage and docs/bulk-storage.md. Example: /data/cove-bulk. "
+            "Does not move files by itself — pair with NEXTCLOUD_HOST_PATH / host Ollama."
+        ),
+    ),
+    EnvVar(
+        "NEXTCLOUD_HOST_PATH",
+        "",
+        "path",
+        "Paths",
+        desc=(
+            "Optional host bind for the Nextcloud data directory (compose). "
+            "When set, docker-compose mounts this path at /var/www/html instead of "
+            "the named nextcloud_data volume — put video and file bulk on a large disk. "
+            "Empty = named volume (default). See docs/bulk-storage.md before migrating."
+        ),
+    ),
+    EnvVar(
         "TO_DELETE_NOTIFY_BYTES",
         str(100 * 1024 ** 3),
         "int",

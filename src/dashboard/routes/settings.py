@@ -200,6 +200,36 @@ async def compute_settings():
         return JSONResponse(status_code=500, content={"error": f"Failed to load compute config: {e}"})
 
 
+@router.get("/api/settings/bulk-storage")
+async def bulk_storage_settings():
+    """Host bulk-data layout for self-hosters (admin Settings panel).
+
+    Paths are set on the host / in compose `.env` — this endpoint only reports
+    what the running container sees and how to point Nextcloud / Ollama at a
+    second disk. Does not move data.
+    """
+    from src.env import env
+
+    bulk = (env("COVE_BULK_ROOT") or "").strip()
+    nc_host = (env("NEXTCLOUD_HOST_PATH") or "").strip()
+    ollama_url = (env("OLLAMA_BASE_URL") or "").strip()
+    video = (env("VIDEO_BASE_PATH") or "").strip()
+    return {
+        "bulk_root": bulk,
+        "nextcloud_host_path": nc_host,
+        "nextcloud_using_bind": bool(nc_host),
+        "ollama_base_url": ollama_url,
+        "video_base_path": video,
+        "notes": [
+            "Ollama model blobs live on the host (set OLLAMA_MODELS in the Ollama service), not in this container.",
+            "Set NEXTCLOUD_HOST_PATH in the Cove .env and recreate the nextcloud service to bind NC data to a large disk.",
+            "Video pipeline files follow Nextcloud/vault paths under VIDEO_BASE_PATH once NC data is on that disk.",
+            "See docs/bulk-storage.md before migrating an existing Nextcloud volume.",
+        ],
+        "docs_path": "docs/bulk-storage.md",
+    }
+
+
 class ComputeUpdate(BaseModel):
     mode: Optional[str] = None
     url: Optional[str] = None

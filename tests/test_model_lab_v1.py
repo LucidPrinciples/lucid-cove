@@ -85,3 +85,10 @@ def test_split_think_unclosed():
 
 def test_message_text_list_blocks():
     assert "hello" in ml._message_text([{"type": "text", "text": "hello"}])
+
+
+def test_bulk_storage_route_registered():
+    from src.dashboard.routes import settings as settings_routes
+
+    paths = {getattr(r, "path", None) for r in settings_routes.router.routes}
+    assert "/api/settings/bulk-storage" in paths

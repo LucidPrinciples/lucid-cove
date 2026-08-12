@@ -59,7 +59,12 @@ services:
       PHP_MEMORY_LIMIT: 512M
       PHP_UPLOAD_LIMIT: 512M
     volumes:
-      - nextcloud_data:/var/www/html
+      # Bulk storage: set NEXTCLOUD_HOST_PATH in .env to a host directory on a
+      # large disk (e.g. /data/cove-bulk/nextcloud) to bind-mount NC data off the
+      # OS volume. Empty/unset keeps the named volume `nextcloud_data` (default).
+      # Migrating an existing install: stop NC, rsync volume → path, set env, up.
+      # See docs/bulk-storage.md.
+      - ${NEXTCLOUD_HOST_PATH:-nextcloud_data}:/var/www/html
     ports:
       # #SEC3: localhost-only. Docker port-publish bypasses the host firewall —
       # a bare "8081:80" exposes Nextcloud to the whole LAN/internet. Front it
@@ -149,6 +154,10 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-cove}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cove}
       NEXTCLOUD_URL: http://nextcloud:80
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Host bulk roots (informational + Settings). Ollama weights live on the
+      # *host* (OLLAMA_MODELS systemd/env) — not inside this container.
+      COVE_BULK_ROOT: ${COVE_BULK_ROOT:-}
+      NEXTCLOUD_HOST_PATH: ${NEXTCLOUD_HOST_PATH:-}
       PORT: ${PORT:-8200}
       # Agent web_search — compose service DNS (not localhost)
       SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
