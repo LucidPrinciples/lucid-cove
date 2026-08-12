@@ -11,11 +11,18 @@
 <title>Model Lab</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;height:100dvh}
 body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e0;
-  min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+  height:100%;height:100dvh;max-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 
 header{padding:18px 20px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;
   border-bottom:1px solid #1a1a2e;flex-shrink:0;position:relative}
+/* Detail mode: collapse branding so chat composer fits on screen */
+body.ml-detail header{padding:8px 48px 8px 48px;flex-direction:row;align-items:center;justify-content:center;gap:10px}
+body.ml-detail header .avatar{width:36px;height:36px}
+body.ml-detail header .avatar img{width:36px;height:36px}
+body.ml-detail header .sub{display:none}
+body.ml-detail header .brand{font-size:0.8rem}
 .avatar{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#3a3a5c,#1a1a2e);
   border:2px solid #333;display:flex;align-items:center;justify-content:center;cursor:pointer;
   -webkit-tap-highlight-color:transparent;overflow:hidden}
@@ -81,21 +88,34 @@ button:disabled { opacity: .45; pointer-events: none; }
 button:active { background: #252540; }
 .status { font-size: 0.75rem; color: #888; min-height: 18px; margin-top: 8px; text-align: center; }
 
-/* Session / Run Detail View — must fill viewport so chat-log can scroll */
+/* Session / Run Detail — fills leftover body under compact header (NOT 100dvh) */
 .detail-view {
-  flex: 1; min-height: 0; max-height: 100dvh; overflow: hidden;
+  flex: 1 1 auto; min-height: 0; overflow: hidden;
   padding: 0; display: none; flex-direction: column;
+  width: 100%;
 }
 .detail-view.show { display: flex; }
-.detail-head { flex-shrink: 0; padding: 14px 18px 10px; border-bottom: 1px solid #1a1a2e; }
-.detail-title { font-size: 1.05rem; font-weight: 600; color: #fff; margin-bottom: 6px; padding-right: 40px; }
-.detail-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.75rem; color: #888; }
+.detail-bar {
+  flex-shrink: 0; display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-bottom: 1px solid #1a1a2e; background: #0a0a0f;
+}
+.detail-bar .back-btn {
+  flex: 0 0 auto; min-width: 0; width: auto; padding: 6px 12px; font-size: 0.8rem;
+}
+.detail-bar .detail-title {
+  flex: 1; min-width: 0; margin: 0; padding: 0; font-size: 0.95rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.detail-head { flex-shrink: 0; padding: 8px 16px 8px; border-bottom: 1px solid #1a1a2e; }
+.detail-title { font-size: 1.05rem; font-weight: 600; color: #fff; margin-bottom: 6px; padding-right: 8px; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.72rem; color: #888; }
 .detail-meta span { display: flex; align-items: center; gap: 4px; }
 .detail-meta strong { color: #ccc; font-weight: 500; }
 
-/* Session Chat */
+/* Session Chat — ONLY this region scrolls */
 .chat-log {
-  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 12px 0 8px; overscroll-behavior: contain;
 }
 .chat-message { padding: 6px 16px; margin-bottom: 2px; display: flex; }
@@ -110,22 +130,31 @@ button:active { background: #252540; }
 .chat-message.assistant .chat-bubble { background: #1a1a2e; color: #e0e0e0; border-bottom-left-radius: 4px; border: 1px solid #2a2a3e; }
 .chat-message.pending .chat-bubble { opacity: 0.85; border-style: dashed; color: #aaa; font-style: italic; }
 .chat-message.error .chat-bubble { border-color: #e74c3c; color: #ffb4b4; }
-.chat-input-area {
-  padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid #1a1a2e; flex-shrink: 0; display: flex; gap: 8px; align-items: flex-end;
-  background: #0a0a0f;
+.chat-foot {
+  flex-shrink: 0; border-top: 1px solid #1a1a2e; background: #0a0a0f;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
-.chat-input-area textarea {
-  flex: 1; margin-bottom: 0; min-height: 44px; max-height: 120px;
-  resize: none;
-}
-.chat-input-area button { flex: 0 0 auto; min-width: 72px; width: auto; padding: 10px 14px; }
 .chat-status {
-  flex-shrink: 0; min-height: 18px; padding: 0 18px 6px;
+  min-height: 16px; padding: 4px 18px 2px;
   font-size: 0.72rem; color: #888; text-align: center;
 }
 .chat-status.busy { color: #f39c12; }
 .chat-status.err { color: #e74c3c; }
+.chat-session-actions {
+  display: flex; gap: 6px; padding: 0 12px 4px; flex-wrap: wrap;
+}
+.chat-session-actions button {
+  flex: 0 0 auto; min-width: 0; padding: 5px 10px; font-size: 0.72rem;
+}
+.chat-input-area {
+  padding: 8px 12px 10px;
+  display: flex; gap: 8px; align-items: flex-end;
+}
+.chat-input-area textarea {
+  flex: 1; margin-bottom: 0; min-height: 44px; max-height: 100px;
+  resize: none;
+}
+.chat-input-area button { flex: 0 0 auto; min-width: 72px; width: auto; padding: 10px 14px; }
 
 
 .think-block {
@@ -265,8 +294,11 @@ button:active { background: #252540; }
 
 <!-- Session Detail View -->
 <div class="detail-view" id="sessionDetailView">
-  <div class="detail-head">
+  <div class="detail-bar">
+    <button type="button" class="back-btn" id="btnBackSession">← Back</button>
     <div class="detail-title" id="sessionDetailTitle"></div>
+  </div>
+  <div class="detail-head">
     <div class="detail-meta">
       <span>Model: <strong id="sessionDetailModel"></strong></span>
       <span>Temp: <strong id="sessionDetailTemp"></strong></span>
@@ -275,21 +307,26 @@ button:active { background: #252540; }
     </div>
   </div>
   <div class="chat-log" id="sessionChatLog"></div>
-  <div class="chat-status" id="sessionChatStatus" aria-live="polite"></div>
-  <div class="actions" style="padding:0 14px 8px;flex-shrink:0">
-    <button type="button" id="btnCloseSession">Close session</button>
-    <button type="button" id="btnReopenSession" style="display:none">Reopen session</button>
-  </div>
-  <div class="chat-input-area">
-    <textarea id="sessionChatInput" placeholder="Send a message..." rows="2"></textarea>
-    <button class="primary" id="btnSessionChatSend" type="button">Send</button>
+  <div class="chat-foot">
+    <div class="chat-status" id="sessionChatStatus" aria-live="polite"></div>
+    <div class="chat-session-actions">
+      <button type="button" id="btnCloseSession">Close session</button>
+      <button type="button" id="btnReopenSession" style="display:none">Reopen session</button>
+    </div>
+    <div class="chat-input-area">
+      <textarea id="sessionChatInput" placeholder="Send a message..." rows="2"></textarea>
+      <button class="primary" id="btnSessionChatSend" type="button">Send</button>
+    </div>
   </div>
 </div>
 
 <!-- Run Detail View -->
 <div class="detail-view" id="runDetailView">
+  <div class="detail-bar">
+    <button type="button" class="back-btn" id="btnBackRun">← Back</button>
+    <div class="detail-title" id="runDetailTitle"></div>
+  </div>
   <div class="detail-head">
-  <div class="detail-title" id="runDetailTitle"></div>
   <div class="detail-meta">
     <span>Kind: <strong id="runDetailKind"></strong></span>
     <span>Model A: <strong id="runDetailModelA"></strong></span>
@@ -356,14 +393,57 @@ const formatDateTime = iso => {
   return `${d.getFullYear()}-${padZero(d.getMonth() + 1)}-${padZero(d.getDate())} ${padZero(d.getHours())}:${padZero(d.getMinutes())}`;
 };
 
+let currentView = 'sessionsListView';
+
+function isDetailViewId(viewId) {
+  return viewId === 'sessionDetailView' || viewId === 'runDetailView';
+}
+
 function showView(viewId) {
+  currentView = viewId;
   ['sessionsListView', 'runsListView', 'modelsListView', 'sessionDetailView', 'runDetailView'].forEach(id => {
-    $(id).classList.toggle('show', id === viewId);
+    const el = $(id);
+    if (el) el.classList.toggle('show', id === viewId);
   });
-  // Hide header elements if in detail view
-  const isDetailView = ['sessionDetailView', 'runDetailView'].includes(viewId);
-  $('mainWrap').classList.toggle('hide', isDetailView);
-  document.body.classList.toggle('ml-show-close', isDetailView);
+  const detail = isDetailViewId(viewId);
+  $('mainWrap').classList.toggle('hide', detail);
+  document.body.classList.toggle('ml-detail', detail);
+  // × always visible in MC iframe; also on detail when standalone
+  updateCloseVisibility();
+}
+
+function updateCloseVisibility() {
+  let inFrame = false;
+  try { inFrame = !!(window.parent && window.parent !== window); } catch (e) { inFrame = false; }
+  const show = inFrame || isDetailViewId(currentView);
+  document.body.classList.toggle('ml-show-close', show);
+}
+
+function leaveLab() {
+  try {
+    if (window.parent && window.parent !== window && typeof window.parent.closeFlowOverlay === 'function') {
+      window.parent.closeFlowOverlay();
+      return;
+    }
+  } catch (e) {}
+  if (history.length > 1) history.back();
+  else location.href = '/';
+}
+
+function goBackFromDetail() {
+  if (currentView === 'sessionDetailView') {
+    currentSessionId = null;
+    showView('sessionsListView');
+    loadSessions();
+    return;
+  }
+  if (currentView === 'runDetailView') {
+    currentRunId = null;
+    showView('runsListView');
+    loadRuns();
+    return;
+  }
+  leaveLab();
 }
 
 function setStatus(elId, message, isError = false) {
@@ -871,13 +951,17 @@ function refreshAll() {
   loadRuns();
 }
 
+// × : from session/run → list; from list → close Lab overlay (not Briefs via blind history.back)
 $('ml-close').onclick = () => {
-  if (window.closeFlowOverlay) {
-    window.closeFlowOverlay(); // Try to use the shared overlay close
-  } else {
-    history.back(); // Fallback for direct page access
+  if (isDetailViewId(currentView)) {
+    goBackFromDetail();
+    return;
   }
+  leaveLab();
 };
+if ($('btnBackSession')) $('btnBackSession').onclick = goBackFromDetail;
+if ($('btnBackRun')) $('btnBackRun').onclick = goBackFromDetail;
+updateCloseVisibility();
 
 const sf = $('sessionFilters');
 if (sf) {
