@@ -75,13 +75,15 @@ models:
   # (hermes-agent#26847). NOT a shipped default for any role - a family opts in.
   # Grok also stays reachable via OpenRouter. Verified on X Premium 2026-07-13.
 
+  # Registry id kept as grok-4-5 so existing model_override / role pins keep
+  # working; model_string is the xAI API id (updated 2026-08-12 → grok-4.6).
   - id: grok-4-5
-    name: "Grok 4.5 (xAI subscription)"
+    name: "Grok 4.6 (xAI subscription)"
     provider: xai-oauth
-    model_string: "grok-4.5"
+    model_string: "grok-4.6"
     type: cloud
     context_window: 500000
-    notes: "xAI Grok 4.5 via subscription OAuth (unofficial). Needs SuperGrok/X-Premium+ and a Connect xAI device-code login. Reasoning/tools/vision, 500K context. Verified on X Premium 2026-07-13."
+    notes: "xAI Grok 4.6 via subscription OAuth (unofficial). Needs SuperGrok/X-Premium+ and a Connect xAI device-code login. Reasoning/tools/vision, 500K context. API id grok-4.6 (registry id grok-4-5 preserved for override compatibility)."
 
   - id: grok-build
     name: "Grok Build 0.1 (xAI subscription)"
