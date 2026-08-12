@@ -30,6 +30,11 @@ router = APIRouter()
 COVE_MODE = env("COVE_MODE", "single")
 
 _RUN_TIMEOUT_S = 180
+# Lab-only Ollama knobs — do not change global chat provider defaults.
+# keep_alive=0 unloads weights after each call so the GPU does not stay hot
+# between Lab turns (P620 overheat lesson). Smaller ctx than production chat.
+_LAB_KEEP_ALIVE = "0"
+_LAB_NUM_CTX = 8192
 _MAX_PROMPT_CHARS = 12000
 _MAX_SYSTEM_CHARS = 8000
 _MAX_TITLE = 200
@@ -200,6 +205,43 @@ async def _get_ollama_models() -> dict:
     }
 
 
+def _lab_ollama_client(model_tag: str, temperature: float):
+    """ChatOllama pinned for Lab: unload after generate, modest context."""
+    from langchain_ollama import ChatOllama
+    from src.models.provider import _ollama_base_url
+
+    return ChatOllama(
+        model=model_tag,
+        base_url=_ollama_base_url(),
+        temperature=temperature,
+        num_ctx=_LAB_NUM_CTX,
+        timeout=_RUN_TIMEOUT_S,
+        keep_alive=_LAB_KEEP_ALIVE,
+    )
+
+
+async def _unload_ollama_tag(model_tag: str) -> None:
+    """Best-effort: drop model from VRAM immediately (heat / multi-model safety)."""
+    tag = (model_tag or "").strip()
+    if not tag:
+        return
+    try:
+        import httpx
+        from src.models.provider import _ollama_base_url
+
+        base = (_ollama_base_url() or "").rstrip("/")
+        if not base:
+            return
+        # Ollama unloads when keep_alive is 0 on a generate with empty prompt.
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await client.post(
+                f"{base}/api/generate",
+                json={"model": tag, "prompt": "", "keep_alive": 0},
+            )
+    except Exception as e:
+        log.debug("ollama unload %s: %s", tag, e)
+
+
 async def _invoke_ollama_tag(
     *,
     model_tag: str,
@@ -210,7 +252,7 @@ async def _invoke_ollama_tag(
 ) -> tuple[str, int]:
     """Pin to one Ollama tag. No cloud hop, no agent assignment chain."""
     from langchain_core.messages import HumanMessage, SystemMessage
-    from src.models.provider import _ollama_client, _write_jw_metric
+    from src.models.provider import _write_jw_metric
 
     messages = []
     sys = (system_prompt or "").strip()
@@ -218,48 +260,55 @@ async def _invoke_ollama_tag(
         messages.append(SystemMessage(content=sys[:_MAX_SYSTEM_CHARS]))
     messages.append(HumanMessage(content=(user_prompt or "")[:_MAX_PROMPT_CHARS]))
 
-    client = _ollama_client(model_tag, temperature)
+    client = _lab_ollama_client(model_tag, temperature)
     t0 = time.monotonic()
     try:
-        response = await asyncio.wait_for(client.ainvoke(messages), timeout=_RUN_TIMEOUT_S)
-        duration_ms = int((time.monotonic() - t0) * 1000)
-        raw = _message_text(getattr(response, "content", None)).strip()
-        if not raw:
-            raise RuntimeError(f"empty response from {model_tag}")
-        # Keep full raw (incl. thinking) for Lab testing; UI splits answer/thinking.
-        answer, _thinking = _split_model_output(raw)
-        usage = getattr(response, "usage_metadata", {}) or {}
-        meta = getattr(response, "response_metadata", {}) or {}
-        await _write_jw_metric(
-            agent_id="soren",
-            operation_type="model-lab",
-            operation_label=label,
-            model_used=model_tag,
-            provider="ollama",
-            tokens_in=usage.get("input_tokens") or meta.get("prompt_eval_count"),
-            tokens_out=usage.get("output_tokens") or meta.get("eval_count"),
-            duration_ms=duration_ms,
-            succeeded=True,
-        )
-        # Prefer storing the full model output so thinking is not discarded.
-        return raw, duration_ms
-    except Exception:
-        duration_ms = int((time.monotonic() - t0) * 1000)
         try:
+            response = await asyncio.wait_for(
+                client.ainvoke(messages), timeout=_RUN_TIMEOUT_S
+            )
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            raw = _message_text(getattr(response, "content", None)).strip()
+            if not raw:
+                raise RuntimeError(
+                    f"empty response from {model_tag} "
+                    f"(model returned no text — try again, check VRAM, or pick another tag)"
+                )
+            usage = getattr(response, "usage_metadata", {}) or {}
+            meta = getattr(response, "response_metadata", {}) or {}
             await _write_jw_metric(
                 agent_id="soren",
                 operation_type="model-lab",
                 operation_label=label,
                 model_used=model_tag,
                 provider="ollama",
-                tokens_in=None,
-                tokens_out=None,
+                tokens_in=usage.get("input_tokens") or meta.get("prompt_eval_count"),
+                tokens_out=usage.get("output_tokens") or meta.get("eval_count"),
                 duration_ms=duration_ms,
-                succeeded=False,
+                succeeded=True,
             )
+            # Prefer storing the full model output so thinking is not discarded.
+            return raw, duration_ms
         except Exception:
-            pass
-        raise
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            try:
+                await _write_jw_metric(
+                    agent_id="soren",
+                    operation_type="model-lab",
+                    operation_label=label,
+                    model_used=model_tag,
+                    provider="ollama",
+                    tokens_in=None,
+                    tokens_out=None,
+                    duration_ms=duration_ms,
+                    succeeded=False,
+                )
+            except Exception:
+                pass
+            raise
+    finally:
+        # Always try to free VRAM after Lab work (success or fail).
+        await _unload_ollama_tag(model_tag)
 
 
 def _session_owned_sql(presence_id):
@@ -465,6 +514,9 @@ async def update_session(request: Request, session_id: int):
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
     if not row:
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+    # Closing a Lab session should free VRAM even if the last generate failed.
+    if (row.get("status") or "") == "closed":
+        await _unload_ollama_tag(row.get("model_tag") or "")
     return {"ok": True, "item": _row(row)}
 
 

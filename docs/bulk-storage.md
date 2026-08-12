@@ -72,6 +72,8 @@ ollama pull hf.co/org/model-name
 
 HF-style tags contain `/` (e.g. `hf.co/org/name:latest`). Mission Control Model Lab accepts those tags for sessions and A/B runs.
 
+Lab generations use `keep_alive=0` and an explicit unload after each turn / on session close so weights do not stay on the GPU between tests (important on shared boxes that run hot). Production Cove chat still uses the normal Ollama keep-alive defaults.
+
 ## Root disk pressure (ops)
 
 If the OS volume is full but Ollama already lives on a second disk, reclaim Docker image/build cache carefully, and move **Nextcloud** with the bind above. Do not assume models are still on `/`.

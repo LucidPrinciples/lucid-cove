@@ -92,3 +92,26 @@ def test_bulk_storage_route_registered():
 
     paths = {getattr(r, "path", None) for r in settings_routes.router.routes}
     assert "/api/settings/bulk-storage" in paths
+
+
+def test_lab_ollama_client_unloads_after_use(monkeypatch):
+    """Lab must not leave models resident (P620 heat) — keep_alive=0."""
+    captured = {}
+
+    class _FakeChat:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        "langchain_ollama.ChatOllama",
+        _FakeChat,
+    )
+    monkeypatch.setattr(
+        "src.models.provider._ollama_base_url",
+        lambda: "http://ollama.test:11434",
+    )
+    client = ml._lab_ollama_client("qwen3:8b", 0.5)
+    assert isinstance(client, _FakeChat)
+    assert captured.get("keep_alive") == "0"
+    assert captured.get("model") == "qwen3:8b"
+    assert int(captured.get("num_ctx") or 0) <= 8192
