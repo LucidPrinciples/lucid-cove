@@ -127,6 +127,31 @@ button:active { background: #252540; }
 .chat-status.busy { color: #f39c12; }
 .chat-status.err { color: #e74c3c; }
 
+
+.think-block {
+  margin-top: 8px; border: 1px dashed #3a3a55; border-radius: 10px;
+  background: #0e0e18; overflow: hidden;
+}
+.think-block summary {
+  cursor: pointer; padding: 8px 10px; font-size: 0.72rem; color: #9aa;
+  list-style: none; user-select: none;
+}
+.think-block summary::-webkit-details-marker { display: none; }
+.think-block summary::before { content: "▸ "; color: #20b2aa; }
+.think-block[open] summary::before { content: "▾ "; }
+.think-block pre {
+  margin: 0; padding: 0 10px 10px; white-space: pre-wrap; overflow-wrap: anywhere;
+  word-break: break-word; font-size: 0.75rem; line-height: 1.4; color: #9a9aaa;
+  max-height: 240px; overflow-y: auto;
+}
+.session-filters { display:flex; gap:6px; padding: 0 18px 10px; flex-wrap:wrap; }
+.session-filters button {
+  flex: 0 0 auto; min-width: 0; padding: 6px 12px; font-size: 0.75rem;
+}
+.session-filters button.on { border-color: #20b2aa; color: #20b2aa; font-weight: 600; }
+.item .preview { font-size: 0.78rem; color: #999; margin-top: 4px; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
 /* Run detail keeps internal scroll on the whole pane */
 #runDetailView { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 18px 24px; }
 #runDetailView .detail-head { border-bottom: none; padding: 0 0 10px; }
@@ -188,6 +213,11 @@ button:active { background: #252540; }
       </div>
       <div class="status" id="createSessionStatus"></div>
     </div>
+    <div class="session-filters" id="sessionFilters">
+      <button type="button" class="on" data-filter="all">All</button>
+      <button type="button" data-filter="open">Open</button>
+      <button type="button" data-filter="closed">Closed</button>
+    </div>
     <div class="list" id="sessionsList"></div>
   </div>
 
@@ -246,6 +276,10 @@ button:active { background: #252540; }
   </div>
   <div class="chat-log" id="sessionChatLog"></div>
   <div class="chat-status" id="sessionChatStatus" aria-live="polite"></div>
+  <div class="actions" style="padding:0 14px 8px;flex-shrink:0">
+    <button type="button" id="btnCloseSession">Close session</button>
+    <button type="button" id="btnReopenSession" style="display:none">Reopen session</button>
+  </div>
   <div class="chat-input-area">
     <textarea id="sessionChatInput" placeholder="Send a message..." rows="2"></textarea>
     <button class="primary" id="btnSessionChatSend" type="button">Send</button>
@@ -414,24 +448,29 @@ function renderOllamaModelsList() {
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
+let sessionFilter = 'all';
+
 async function loadSessions() {
   try {
-    const data = await api('/api/model-lab/sessions?status=open');
-    if (!data.ok) throw new Error(data.error);
+    const q = sessionFilter && sessionFilter !== 'all' ? ('?status=' + encodeURIComponent(sessionFilter)) : '';
+    const data = await api('/api/model-lab/sessions' + q);
+    // API returns {items} even when ok is omitted
+    const items = data.items || [];
+    if (data.error && !items.length) throw new Error(data.error);
 
     const listEl = $('sessionsList');
-    if (!data.items.length) {
-      listEl.innerHTML = '<div class="empty">No sessions yet. Create one above.</div>';
+    if (!items.length) {
+      listEl.innerHTML = '<div class="empty">No sessions logged yet. Create one above — they stay here after you leave.</div>';
       return;
     }
 
-    listEl.innerHTML = data.items.map(s => `
+    listEl.innerHTML = items.map(s => `
       <div class="item" data-id="${s.id}" onclick="openSession(${s.id})">
-        <div class="t">${esc(s.title || `Session ${s.id}`)}</div>
+        <div class="t">${esc(s.title || ('Session ' + s.id))}</div>
         <div class="sub-t">Model: ${esc(s.model_tag)}</div>
         <div class="meta">
-          <span class="chip ${s.status}">${esc(s.status)}</span>
-          <span class="chip">Temp: ${s.temperature}</span>
+          <span class="chip ${esc(s.status)}">${esc(s.status)}</span>
+          <span class="chip">Temp: ${esc(s.temperature)}</span>
           <span>Updated: ${formatDateTime(s.updated_at)}</span>
         </div>
       </div>
@@ -501,8 +540,12 @@ async function loadSessionDetail(id) {
     const isOpen = s.status === 'open';
     chatInput.disabled = !isOpen || !!window._mlChatBusy;
     chatSendBtn.disabled = !isOpen || !!window._mlChatBusy;
-    chatInput.placeholder = isOpen ? 'Send a message...' : 'Session is closed.';
-    if (!window._mlChatBusy) setChatStatus('');
+    chatInput.placeholder = isOpen ? 'Send a message...' : 'Session is closed — reopen to continue, or browse history.';
+    const btnClose = $('btnCloseSession');
+    const btnReopen = $('btnReopenSession');
+    if (btnClose) btnClose.style.display = isOpen ? '' : 'none';
+    if (btnReopen) btnReopen.style.display = isOpen ? 'none' : '';
+    if (!window._mlChatBusy) setChatStatus(isOpen ? '' : 'Read-only history (closed)');
 
   } catch (e) {
     console.error('Error loading session detail:', e);
@@ -531,11 +574,17 @@ function renderChatMessages(messages, extra) {
   const rows = (messages || []).map(m => {
     const role = m.role === 'user' ? 'user' : 'assistant';
     const cls = role + (m._pending ? ' pending' : '') + (m._error ? ' error' : '');
-    return `<div class="chat-message ${cls}"><div class="chat-bubble">${esc(m.content)}</div></div>`;
+    const body = (m.content || '').trim();
+    const thinking = (m.thinking || '').trim();
+    let thinkHtml = '';
+    if (thinking) {
+      thinkHtml = `<details class="think-block"><summary>Model thinking (kept for testing)</summary><pre>${esc(thinking)}</pre></details>`;
+    }
+    const main = body ? esc(body) : (thinking ? '<em style="color:#777">No answer text — thinking only</em>' : '');
+    return `<div class="chat-message ${cls}"><div class="chat-bubble">${main}${thinkHtml}</div></div>`;
   });
   if (extra) rows.push(extra);
   chatLogEl.innerHTML = rows.join('') || '<div class="empty">No messages yet. Ask something below.</div>';
-  // Double rAF so layout settles before scroll (long replies / flex)
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       chatLogEl.scrollTop = chatLogEl.scrollHeight;
@@ -698,11 +747,36 @@ async function loadRunDetail(id) {
 
     $('runDetailSystemPrompt').value = r.system_prompt || '';
     $('runDetailUserPrompt').value = r.user_prompt || '';
-    $('runDetailResponseA').textContent = r.response_a || r.error || '';
-    $('runDetailErrorA').textContent = r.error && !r.response_a ? r.error : '';
+    const thinkA = (r.response_a_thinking || '').trim();
+    const thinkB = (r.response_b_thinking || '').trim();
+    const ansA = r.response_a || '';
+    const ansB = r.response_b || '';
+    $('runDetailResponseA').textContent = ansA || (thinkA ? '' : (r.error || ''));
+    // inject thinking under pre if present
+    let boxA = $('runDetailResponseA').parentElement;
+    let oldTA = boxA && boxA.querySelector('.think-block');
+    if (oldTA) oldTA.remove();
+    if (thinkA && boxA) {
+      const d = document.createElement('details');
+      d.className = 'think-block';
+      d.innerHTML = '<summary>Model A thinking (kept for testing)</summary><pre></pre>';
+      d.querySelector('pre').textContent = thinkA;
+      boxA.appendChild(d);
+    }
+    $('runDetailErrorA').textContent = r.error && !ansA && !thinkA ? r.error : '';
     $('runDetailLatencyA').textContent = r.latency_a_ms ? `(${r.latency_a_ms} ms)` : '';
 
-    $('runDetailResponseB').textContent = r.response_b || '';
+    $('runDetailResponseB').textContent = ansB;
+    let boxB = $('runDetailResponseB').parentElement;
+    let oldTB = boxB && boxB.querySelector('.think-block');
+    if (oldTB) oldTB.remove();
+    if (thinkB && boxB) {
+      const d = document.createElement('details');
+      d.className = 'think-block';
+      d.innerHTML = '<summary>Model B thinking (kept for testing)</summary><pre></pre>';
+      d.querySelector('pre').textContent = thinkB;
+      boxB.appendChild(d);
+    }
     $('runDetailLatencyB').textContent = r.latency_b_ms ? `(${r.latency_b_ms} ms)` : '';
 
     $('runDetailNotes').value = r.notes || '';
@@ -805,6 +879,17 @@ $('ml-close').onclick = () => {
   }
 };
 
+const sf = $('sessionFilters');
+if (sf) {
+  sf.querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => {
+      sessionFilter = btn.dataset.filter || 'all';
+      sf.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+      loadSessions();
+    };
+  });
+}
+
 document.querySelectorAll('.tabs .tab').forEach(tabEl => {
   tabEl.onclick = () => {
     currentTab = tabEl.dataset.tab;
@@ -825,6 +910,23 @@ document.querySelectorAll('.tabs .tab').forEach(tabEl => {
 });
 
 $('btnCreateSession').onclick = createSession;
+async function setSessionStatus(status) {
+  if (!currentSessionId) return;
+  try {
+    const data = await api('/api/model-lab/sessions/' + currentSessionId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!data.ok) throw new Error(data.error || 'update failed');
+    await loadSessionDetail(currentSessionId);
+    loadSessions();
+  } catch (e) {
+    setChatStatus(e.message || String(e), 'err');
+  }
+}
+if ($('btnCloseSession')) $('btnCloseSession').onclick = () => setSessionStatus('closed');
+if ($('btnReopenSession')) $('btnReopenSession').onclick = () => setSessionStatus('open');
 $('btnSessionChatSend').onclick = sendSessionMessage;
 $('sessionChatInput').onkeydown = (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {

@@ -73,14 +73,44 @@ _THINK_OPEN_RE = re.compile(
 )
 
 
-def _strip_think_blocks(text: str) -> str:
-    """Drop model chain-of-thought wrappers; keep the operator-facing answer."""
+def _split_model_output(text: str) -> tuple[str, str]:
+    """Split model output into (answer, thinking) for Lab testing.
+
+    Thinking is kept for inspection — Lab is an evaluation surface.
+    Answer is the operator-facing body with wrappers removed.
+    """
     if not text:
-        return ""
-    out = _THINK_RE.sub("", text)
-    # Unclosed think block (stream cut off) — drop trailing private reasoning
-    out = _THINK_OPEN_RE.sub("", out)
-    return out.strip()
+        return "", ""
+    raw = text
+    thinking_parts: list[str] = []
+    for m in _THINK_RE.finditer(raw):
+        block = m.group(0)
+        # peel tags
+        inner = re.sub(
+            r"^</?(?:think|thinking|reasoning)>|</(?:think|thinking|reasoning)>$",
+            "",
+            block,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        # simpler: strip first/last tag lines
+        inner = re.sub(r"^<[^>]+>", "", block)
+        inner = re.sub(r"</[^>]+>$", "", inner)
+        thinking_parts.append(inner.strip())
+    answer = _THINK_RE.sub("", raw)
+    # Unclosed trailing think → all thinking, no answer
+    open_m = _THINK_OPEN_RE.search(answer)
+    if open_m:
+        thinking_parts.append(re.sub(r"^<[^>]+>", "", open_m.group(0)).strip())
+        answer = answer[: open_m.start()]
+    answer = answer.strip()
+    thinking = "\n\n".join(p for p in thinking_parts if p).strip()
+    return answer, thinking
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Answer-only view (history / next-turn context)."""
+    answer, _thinking = _split_model_output(text)
+    return answer
 
 
 
@@ -190,16 +220,11 @@ async def _invoke_ollama_tag(
     try:
         response = await asyncio.wait_for(client.ainvoke(messages), timeout=_RUN_TIMEOUT_S)
         duration_ms = int((time.monotonic() - t0) * 1000)
-        raw = _message_text(getattr(response, "content", None))
-        content = _strip_think_blocks(raw)
-        if not content:
-            # If the model only emitted a think block, surface a clear lab error
-            # rather than a giant private monologue or an empty bubble.
-            if raw.strip():
-                raise RuntimeError(
-                    f"{model_tag} returned only internal reasoning — no answer text"
-                )
+        raw = _message_text(getattr(response, "content", None)).strip()
+        if not raw:
             raise RuntimeError(f"empty response from {model_tag}")
+        # Keep full raw (incl. thinking) for Lab testing; UI splits answer/thinking.
+        answer, _thinking = _split_model_output(raw)
         usage = getattr(response, "usage_metadata", {}) or {}
         meta = getattr(response, "response_metadata", {}) or {}
         await _write_jw_metric(
@@ -213,7 +238,8 @@ async def _invoke_ollama_tag(
             duration_ms=duration_ms,
             succeeded=True,
         )
-        return content, duration_ms
+        # Prefer storing the full model output so thinking is not discarded.
+        return raw, duration_ms
     except Exception:
         duration_ms = int((time.monotonic() - t0) * 1000)
         try:
@@ -270,7 +296,7 @@ async def list_models(request: Request):
 # =============================================================================
 
 @router.get("/api/model-lab/sessions")
-async def list_sessions(request: Request, status: str = "open"):
+async def list_sessions(request: Request, status: str = ""):
     from src.memory.database import get_db
 
     presence_id = await _get_presence_id(request)
@@ -361,7 +387,13 @@ async def get_session(request: Request, session_id: int):
     for x in messages:
         m = _row(x)
         if m.get("role") == "assistant" and m.get("content"):
-            m["content"] = _strip_think_blocks(m["content"]) or m["content"]
+            answer, thinking = _split_model_output(m["content"])
+            m["raw_content"] = m["content"]
+            m["thinking"] = thinking
+            # Primary bubble = answer when split worked; else full content
+            m["content"] = answer if (answer or thinking) else m["content"]
+            if not answer and thinking:
+                m["content"] = ""  # thinking-only turn
         cleaned.append(m)
     return {
         "ok": True,
@@ -532,12 +564,20 @@ async def session_chat(request: Request, session_id: int):
         log.exception("session chat save")
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
 
+    item = _row(asst)
+    if item.get("content"):
+        answer, thinking = _split_model_output(item["content"])
+        item["raw_content"] = item["content"]
+        item["thinking"] = thinking
+        item["content"] = answer if (answer or thinking) else item["content"]
+        if not answer and thinking:
+            item["content"] = ""
     if err and not reply:
         return JSONResponse(
-            {"ok": False, "error": err, "item": _row(asst)},
+            {"ok": False, "error": err, "item": item},
             status_code=502,
         )
-    return {"ok": True, "item": _row(asst), "latency_ms": latency_ms}
+    return {"ok": True, "item": item, "latency_ms": latency_ms}
 
 
 # =============================================================================
@@ -601,10 +641,17 @@ async def get_run(request: Request, run_id: int):
     if not row:
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
     item = _row(row)
-    if item.get("response_a"):
-        item["response_a"] = _strip_think_blocks(item["response_a"]) or item["response_a"]
-    if item.get("response_b"):
-        item["response_b"] = _strip_think_blocks(item["response_b"]) or item["response_b"]
+    for key in ("response_a", "response_b"):
+        raw = item.get(key) or ""
+        if not raw:
+            item[f"{key}_thinking"] = ""
+            continue
+        answer, thinking = _split_model_output(raw)
+        item[f"{key}_raw"] = raw
+        item[f"{key}_thinking"] = thinking
+        # Keep response_* as answer for the main pane; thinking alongside
+        if answer or thinking:
+            item[key] = answer
     return {"ok": True, "item": item}
 
 
