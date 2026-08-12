@@ -49,3 +49,31 @@ def test_router_has_expected_paths():
     assert "/api/model-lab/models" in paths
     assert "/api/model-lab/sessions" in paths
     assert "/api/model-lab/runs" in paths
+
+
+
+
+
+
+def test_split_model_output_keeps_thinking():
+    raw = (
+        "<think>\nprivate monologue about Lucidworks\n</think>\n"
+        "The **Lucid Principles** are a framework for coherence."
+    )
+    answer, thinking = ml._split_model_output(raw)
+    assert "Lucidworks" in thinking
+    assert "private monologue" in thinking
+    assert "Lucid Principles" in answer
+    assert "<think" not in answer.lower()
+    assert ml._strip_think_blocks(raw) == answer
+
+
+def test_split_think_unclosed():
+    raw = "<think> only reasoning, no close"
+    answer, thinking = ml._split_model_output(raw)
+    assert answer == ""
+    assert "only reasoning" in thinking
+
+
+def test_message_text_list_blocks():
+    assert "hello" in ml._message_text([{"type": "text", "text": "hello"}])

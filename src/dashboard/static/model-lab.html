@@ -81,25 +81,80 @@ button:disabled { opacity: .45; pointer-events: none; }
 button:active { background: #252540; }
 .status { font-size: 0.75rem; color: #888; min-height: 18px; margin-top: 8px; text-align: center; }
 
-/* Session / Run Detail View */
-.detail-view { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 18px; display: none; flex-direction: column; }
+/* Session / Run Detail View — must fill viewport so chat-log can scroll */
+.detail-view {
+  flex: 1; min-height: 0; max-height: 100dvh; overflow: hidden;
+  padding: 0; display: none; flex-direction: column;
+}
 .detail-view.show { display: flex; }
-.detail-title { font-size: 1.2rem; font-weight: 600; color: #fff; margin-bottom: 8px; }
-.detail-meta { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.8rem; color: #888; margin-bottom: 16px; }
+.detail-head { flex-shrink: 0; padding: 14px 18px 10px; border-bottom: 1px solid #1a1a2e; }
+.detail-title { font-size: 1.05rem; font-weight: 600; color: #fff; margin-bottom: 6px; padding-right: 40px; }
+.detail-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.75rem; color: #888; }
 .detail-meta span { display: flex; align-items: center; gap: 4px; }
 .detail-meta strong { color: #ccc; font-weight: 500; }
 
 /* Session Chat */
-.chat-log { flex: 1; overflow-y: auto; padding: 16px 0; border-top: 1px solid #1a1a2e; }
-.chat-message { padding: 8px 18px; margin-bottom: 4px; display: flex; }
+.chat-log {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 12px 0 8px; overscroll-behavior: contain;
+}
+.chat-message { padding: 6px 16px; margin-bottom: 2px; display: flex; }
 .chat-message.user { justify-content: flex-end; }
 .chat-message.assistant { justify-content: flex-start; }
-.chat-bubble { max-width: 80%; padding: 10px 14px; border-radius: 18px; line-height: 1.4; }
+.chat-bubble {
+  max-width: min(92%, 720px); padding: 10px 14px; border-radius: 16px;
+  line-height: 1.45; font-size: 0.9rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+}
 .chat-message.user .chat-bubble { background: #20b2aa; color: #0a0a0f; border-bottom-right-radius: 4px; }
-.chat-message.assistant .chat-bubble { background: #1a1a2e; color: #e0e0e0; border-bottom-left-radius: 4px; }
-.chat-input-area { padding: 14px 18px; border-top: 1px solid #1a1a2e; flex-shrink: 0; display: flex; gap: 8px; }
-.chat-input-area textarea { flex: 1; margin-bottom: 0; min-height: 40px; max-height: 120px; }
-.chat-input-area button { flex: 0 0 auto; width: 48px; min-width: 48px; padding: 0; }
+.chat-message.assistant .chat-bubble { background: #1a1a2e; color: #e0e0e0; border-bottom-left-radius: 4px; border: 1px solid #2a2a3e; }
+.chat-message.pending .chat-bubble { opacity: 0.85; border-style: dashed; color: #aaa; font-style: italic; }
+.chat-message.error .chat-bubble { border-color: #e74c3c; color: #ffb4b4; }
+.chat-input-area {
+  padding: 10px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #1a1a2e; flex-shrink: 0; display: flex; gap: 8px; align-items: flex-end;
+  background: #0a0a0f;
+}
+.chat-input-area textarea {
+  flex: 1; margin-bottom: 0; min-height: 44px; max-height: 120px;
+  resize: none;
+}
+.chat-input-area button { flex: 0 0 auto; min-width: 72px; width: auto; padding: 10px 14px; }
+.chat-status {
+  flex-shrink: 0; min-height: 18px; padding: 0 18px 6px;
+  font-size: 0.72rem; color: #888; text-align: center;
+}
+.chat-status.busy { color: #f39c12; }
+.chat-status.err { color: #e74c3c; }
+
+
+.think-block {
+  margin-top: 8px; border: 1px dashed #3a3a55; border-radius: 10px;
+  background: #0e0e18; overflow: hidden;
+}
+.think-block summary {
+  cursor: pointer; padding: 8px 10px; font-size: 0.72rem; color: #9aa;
+  list-style: none; user-select: none;
+}
+.think-block summary::-webkit-details-marker { display: none; }
+.think-block summary::before { content: "▸ "; color: #20b2aa; }
+.think-block[open] summary::before { content: "▾ "; }
+.think-block pre {
+  margin: 0; padding: 0 10px 10px; white-space: pre-wrap; overflow-wrap: anywhere;
+  word-break: break-word; font-size: 0.75rem; line-height: 1.4; color: #9a9aaa;
+  max-height: 240px; overflow-y: auto;
+}
+.session-filters { display:flex; gap:6px; padding: 0 18px 10px; flex-wrap:wrap; }
+.session-filters button {
+  flex: 0 0 auto; min-width: 0; padding: 6px 12px; font-size: 0.75rem;
+}
+.session-filters button.on { border-color: #20b2aa; color: #20b2aa; font-weight: 600; }
+.item .preview { font-size: 0.78rem; color: #999; margin-top: 4px; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Run detail keeps internal scroll on the whole pane */
+#runDetailView { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 18px 24px; }
+#runDetailView .detail-head { border-bottom: none; padding: 0 0 10px; }
 
 /* Run Results */
 .run-results { margin-top: 16px; }
@@ -158,6 +213,11 @@ button:active { background: #252540; }
       </div>
       <div class="status" id="createSessionStatus"></div>
     </div>
+    <div class="session-filters" id="sessionFilters">
+      <button type="button" class="on" data-filter="all">All</button>
+      <button type="button" data-filter="open">Open</button>
+      <button type="button" data-filter="closed">Closed</button>
+    </div>
     <div class="list" id="sessionsList"></div>
   </div>
 
@@ -205,23 +265,30 @@ button:active { background: #252540; }
 
 <!-- Session Detail View -->
 <div class="detail-view" id="sessionDetailView">
-  <div class="detail-title" id="sessionDetailTitle"></div>
-  <div class="detail-meta">
-    <span>Model: <strong id="sessionDetailModel"></strong></span>
-    <span>Temp: <strong id="sessionDetailTemp"></strong></span>
-    <span>Status: <strong id="sessionDetailStatus"></strong></span>
-    <span>Created: <strong id="sessionDetailCreated"></strong></span>
-    <span>Updated: <strong id="sessionDetailUpdated"></strong></span>
+  <div class="detail-head">
+    <div class="detail-title" id="sessionDetailTitle"></div>
+    <div class="detail-meta">
+      <span>Model: <strong id="sessionDetailModel"></strong></span>
+      <span>Temp: <strong id="sessionDetailTemp"></strong></span>
+      <span>Status: <strong id="sessionDetailStatus"></strong></span>
+      <span>Updated: <strong id="sessionDetailUpdated"></strong></span>
+    </div>
   </div>
   <div class="chat-log" id="sessionChatLog"></div>
+  <div class="chat-status" id="sessionChatStatus" aria-live="polite"></div>
+  <div class="actions" style="padding:0 14px 8px;flex-shrink:0">
+    <button type="button" id="btnCloseSession">Close session</button>
+    <button type="button" id="btnReopenSession" style="display:none">Reopen session</button>
+  </div>
   <div class="chat-input-area">
-    <textarea id="sessionChatInput" placeholder="Send a message..."></textarea>
-    <button id="btnSessionChatSend" type="button">Send</button>
+    <textarea id="sessionChatInput" placeholder="Send a message..." rows="2"></textarea>
+    <button class="primary" id="btnSessionChatSend" type="button">Send</button>
   </div>
 </div>
 
 <!-- Run Detail View -->
 <div class="detail-view" id="runDetailView">
+  <div class="detail-head">
   <div class="detail-title" id="runDetailTitle"></div>
   <div class="detail-meta">
     <span>Kind: <strong id="runDetailKind"></strong></span>
@@ -231,6 +298,7 @@ button:active { background: #252540; }
     <span>Status: <strong id="runDetailStatus"></strong></span>
     <span>Created: <strong id="runDetailCreated"></strong></span>
     <span>Updated: <strong id="runDetailUpdated"></strong></span>
+  </div>
   </div>
   <div class="form-section">
     <label for="runDetailSystemPrompt">System Prompt</label>
@@ -267,8 +335,13 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 const api = async (url, opts) => {
   const r = await fetch(url, { credentials: 'same-origin', ...opts });
-  if (!r.ok) { throw new Error(`API Error: ${r.statusText} (${r.status})`); }
-  return r.json();
+  let data = null;
+  try { data = await r.json(); } catch (_) {}
+  if (!r.ok) {
+    const msg = (data && (data.error || data.message)) || (`API Error: ${r.statusText} (${r.status})`);
+    throw new Error(msg);
+  }
+  return data;
 };
 
 let currentTab = 'sessions';
@@ -375,24 +448,29 @@ function renderOllamaModelsList() {
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
+let sessionFilter = 'all';
+
 async function loadSessions() {
   try {
-    const data = await api('/api/model-lab/sessions?status=open');
-    if (!data.ok) throw new Error(data.error);
+    const q = sessionFilter && sessionFilter !== 'all' ? ('?status=' + encodeURIComponent(sessionFilter)) : '';
+    const data = await api('/api/model-lab/sessions' + q);
+    // API returns {items} even when ok is omitted
+    const items = data.items || [];
+    if (data.error && !items.length) throw new Error(data.error);
 
     const listEl = $('sessionsList');
-    if (!data.items.length) {
-      listEl.innerHTML = '<div class="empty">No sessions yet. Create one above.</div>';
+    if (!items.length) {
+      listEl.innerHTML = '<div class="empty">No sessions logged yet. Create one above — they stay here after you leave.</div>';
       return;
     }
 
-    listEl.innerHTML = data.items.map(s => `
+    listEl.innerHTML = items.map(s => `
       <div class="item" data-id="${s.id}" onclick="openSession(${s.id})">
-        <div class="t">${esc(s.title || `Session ${s.id}`)}</div>
+        <div class="t">${esc(s.title || ('Session ' + s.id))}</div>
         <div class="sub-t">Model: ${esc(s.model_tag)}</div>
         <div class="meta">
-          <span class="chip ${s.status}">${esc(s.status)}</span>
-          <span class="chip">Temp: ${s.temperature}</span>
+          <span class="chip ${esc(s.status)}">${esc(s.status)}</span>
+          <span class="chip">Temp: ${esc(s.temperature)}</span>
           <span>Updated: ${formatDateTime(s.updated_at)}</span>
         </div>
       </div>
@@ -452,25 +530,22 @@ async function loadSessionDetail(id) {
     $('sessionDetailTemp').textContent = s.temperature;
     $('sessionDetailStatus').textContent = s.status;
     $('sessionDetailStatus').className = `chip ${s.status}`;
-    $('sessionDetailCreated').textContent = formatDateTime(s.created_at);
     $('sessionDetailUpdated').textContent = formatDateTime(s.updated_at);
 
-    // Populate chat log
-    const chatLogEl = $('sessionChatLog');
-    chatLogEl.innerHTML = data.messages.map(m => `
-      <div class="chat-message ${m.role}">
-        <div class="chat-bubble">${esc(m.content)}</div>
-      </div>
-    `).join('');
-    chatLogEl.scrollTop = chatLogEl.scrollHeight; // Scroll to bottom
+    renderChatMessages(data.messages || []);
 
     // Enable/disable chat input based on session status
     const chatInput = $('sessionChatInput');
     const chatSendBtn = $('btnSessionChatSend');
     const isOpen = s.status === 'open';
-    chatInput.disabled = !isOpen;
-    chatSendBtn.disabled = !isOpen;
-    chatInput.placeholder = isOpen ? 'Send a message...' : 'Session is closed.';
+    chatInput.disabled = !isOpen || !!window._mlChatBusy;
+    chatSendBtn.disabled = !isOpen || !!window._mlChatBusy;
+    chatInput.placeholder = isOpen ? 'Send a message...' : 'Session is closed — reopen to continue, or browse history.';
+    const btnClose = $('btnCloseSession');
+    const btnReopen = $('btnReopenSession');
+    if (btnClose) btnClose.style.display = isOpen ? '' : 'none';
+    if (btnReopen) btnReopen.style.display = isOpen ? 'none' : '';
+    if (!window._mlChatBusy) setChatStatus(isOpen ? '' : 'Read-only history (closed)');
 
   } catch (e) {
     console.error('Error loading session detail:', e);
@@ -479,14 +554,66 @@ async function loadSessionDetail(id) {
   }
 }
 
+function setChatStatus(msg, kind) {
+  const el = $('sessionChatStatus');
+  if (!el) return;
+  el.textContent = msg || '';
+  el.className = 'chat-status' + (kind === 'busy' ? ' busy' : kind === 'err' ? ' err' : '');
+}
+
+function setConn(msg, color) {
+  const chip = $('connStatus');
+  if (!chip) return;
+  chip.textContent = msg;
+  chip.style.color = color || '#666';
+}
+
+function renderChatMessages(messages, extra) {
+  const chatLogEl = $('sessionChatLog');
+  if (!chatLogEl) return;
+  const rows = (messages || []).map(m => {
+    const role = m.role === 'user' ? 'user' : 'assistant';
+    const cls = role + (m._pending ? ' pending' : '') + (m._error ? ' error' : '');
+    const body = (m.content || '').trim();
+    const thinking = (m.thinking || '').trim();
+    let thinkHtml = '';
+    if (thinking) {
+      thinkHtml = `<details class="think-block"><summary>Model thinking (kept for testing)</summary><pre>${esc(thinking)}</pre></details>`;
+    }
+    const main = body ? esc(body) : (thinking ? '<em style="color:#777">No answer text — thinking only</em>' : '');
+    return `<div class="chat-message ${cls}"><div class="chat-bubble">${main}${thinkHtml}</div></div>`;
+  });
+  if (extra) rows.push(extra);
+  chatLogEl.innerHTML = rows.join('') || '<div class="empty">No messages yet. Ask something below.</div>';
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      chatLogEl.scrollTop = chatLogEl.scrollHeight;
+    });
+  });
+}
+
 async function sendSessionMessage() {
   const inputEl = $('sessionChatInput');
   const message = inputEl.value.trim();
-  if (!message || !currentSessionId) return;
+  if (!message || !currentSessionId || window._mlChatBusy) return;
 
-  setStatus('sessionChatInput', 'Sending…'); // Use input for temporary status
+  window._mlChatBusy = true;
+  inputEl.value = '';
   inputEl.disabled = true;
   $('btnSessionChatSend').disabled = true;
+  $('btnSessionChatSend').textContent = '…';
+  setChatStatus('Working on host Ollama — local models can take a bit…', 'busy');
+  setConn('working…', '#f39c12');
+
+  // Optimistic user bubble + pending assistant
+  const log = $('sessionChatLog');
+  const prior = Array.from(log.querySelectorAll('.chat-message')).map(node => ({
+    role: node.classList.contains('user') ? 'user' : 'assistant',
+    content: (node.querySelector('.chat-bubble') || {}).textContent || '',
+  })).filter(m => m.content && !m.content.includes('No messages yet'));
+  prior.push({ role: 'user', content: message });
+  prior.push({ role: 'assistant', content: 'Thinking…', _pending: true });
+  renderChatMessages(prior);
 
   try {
     const data = await api('/api/model-lab/sessions/' + currentSessionId + '/chat', {
@@ -494,18 +621,23 @@ async function sendSessionMessage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: message }),
     });
-    if (!data.ok) throw new Error(data.error);
-
-    inputEl.value = '';
-    setStatus('sessionChatInput', '');
+    if (!data.ok) throw new Error(data.error || 'chat failed');
+    setChatStatus(data.latency_ms ? `Reply in ${data.latency_ms} ms` : 'Done');
+    setConn('ready', '#2ecc71');
     await loadSessionDetail(currentSessionId);
-
   } catch (e) {
     console.error('Error sending message:', e);
-    setStatus('sessionChatInput', e.message, true);
+    setChatStatus(e.message || String(e), 'err');
+    setConn('error', '#e74c3c');
+    // Keep the user message visible; replace pending with error
+    prior.pop();
+    prior.push({ role: 'assistant', content: 'Error: ' + (e.message || String(e)), _error: true });
+    renderChatMessages(prior);
   } finally {
+    window._mlChatBusy = false;
     inputEl.disabled = false;
     $('btnSessionChatSend').disabled = false;
+    $('btnSessionChatSend').textContent = 'Send';
     inputEl.focus();
   }
 }
@@ -615,11 +747,36 @@ async function loadRunDetail(id) {
 
     $('runDetailSystemPrompt').value = r.system_prompt || '';
     $('runDetailUserPrompt').value = r.user_prompt || '';
-    $('runDetailResponseA').textContent = r.response_a || r.error || '';
-    $('runDetailErrorA').textContent = r.error && !r.response_a ? r.error : '';
+    const thinkA = (r.response_a_thinking || '').trim();
+    const thinkB = (r.response_b_thinking || '').trim();
+    const ansA = r.response_a || '';
+    const ansB = r.response_b || '';
+    $('runDetailResponseA').textContent = ansA || (thinkA ? '' : (r.error || ''));
+    // inject thinking under pre if present
+    let boxA = $('runDetailResponseA').parentElement;
+    let oldTA = boxA && boxA.querySelector('.think-block');
+    if (oldTA) oldTA.remove();
+    if (thinkA && boxA) {
+      const d = document.createElement('details');
+      d.className = 'think-block';
+      d.innerHTML = '<summary>Model A thinking (kept for testing)</summary><pre></pre>';
+      d.querySelector('pre').textContent = thinkA;
+      boxA.appendChild(d);
+    }
+    $('runDetailErrorA').textContent = r.error && !ansA && !thinkA ? r.error : '';
     $('runDetailLatencyA').textContent = r.latency_a_ms ? `(${r.latency_a_ms} ms)` : '';
 
-    $('runDetailResponseB').textContent = r.response_b || '';
+    $('runDetailResponseB').textContent = ansB;
+    let boxB = $('runDetailResponseB').parentElement;
+    let oldTB = boxB && boxB.querySelector('.think-block');
+    if (oldTB) oldTB.remove();
+    if (thinkB && boxB) {
+      const d = document.createElement('details');
+      d.className = 'think-block';
+      d.innerHTML = '<summary>Model B thinking (kept for testing)</summary><pre></pre>';
+      d.querySelector('pre').textContent = thinkB;
+      boxB.appendChild(d);
+    }
     $('runDetailLatencyB').textContent = r.latency_b_ms ? `(${r.latency_b_ms} ms)` : '';
 
     $('runDetailNotes').value = r.notes || '';
@@ -722,6 +879,17 @@ $('ml-close').onclick = () => {
   }
 };
 
+const sf = $('sessionFilters');
+if (sf) {
+  sf.querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => {
+      sessionFilter = btn.dataset.filter || 'all';
+      sf.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
+      loadSessions();
+    };
+  });
+}
+
 document.querySelectorAll('.tabs .tab').forEach(tabEl => {
   tabEl.onclick = () => {
     currentTab = tabEl.dataset.tab;
@@ -742,6 +910,23 @@ document.querySelectorAll('.tabs .tab').forEach(tabEl => {
 });
 
 $('btnCreateSession').onclick = createSession;
+async function setSessionStatus(status) {
+  if (!currentSessionId) return;
+  try {
+    const data = await api('/api/model-lab/sessions/' + currentSessionId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!data.ok) throw new Error(data.error || 'update failed');
+    await loadSessionDetail(currentSessionId);
+    loadSessions();
+  } catch (e) {
+    setChatStatus(e.message || String(e), 'err');
+  }
+}
+if ($('btnCloseSession')) $('btnCloseSession').onclick = () => setSessionStatus('closed');
+if ($('btnReopenSession')) $('btnReopenSession').onclick = () => setSessionStatus('open');
 $('btnSessionChatSend').onclick = sendSessionMessage;
 $('sessionChatInput').onkeydown = (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {

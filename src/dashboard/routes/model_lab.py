@@ -36,6 +36,85 @@ _MAX_TITLE = 200
 _TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
+def _message_text(content) -> str:
+    """Normalize LangChain / Ollama content to plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                t = block.get("text") or block.get("content") or ""
+                if t:
+                    parts.append(str(t))
+            else:
+                t = getattr(block, "text", None) or getattr(block, "content", None)
+                if t:
+                    parts.append(str(t))
+        return "\n".join(parts)
+    return str(content)
+
+
+_THINK_RE = re.compile(
+    r"<think>.*?</think>|"
+    r"<thinking>.*?</thinking>|"
+    r"<reasoning>.*?</reasoning>",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+_THINK_OPEN_RE = re.compile(
+    r"<think>.*$|"
+    r"<thinking>.*$|"
+    r"<reasoning>.*$",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+
+
+def _split_model_output(text: str) -> tuple[str, str]:
+    """Split model output into (answer, thinking) for Lab testing.
+
+    Thinking is kept for inspection — Lab is an evaluation surface.
+    Answer is the operator-facing body with wrappers removed.
+    """
+    if not text:
+        return "", ""
+    raw = text
+    thinking_parts: list[str] = []
+    for m in _THINK_RE.finditer(raw):
+        block = m.group(0)
+        # peel tags
+        inner = re.sub(
+            r"^</?(?:think|thinking|reasoning)>|</(?:think|thinking|reasoning)>$",
+            "",
+            block,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        # simpler: strip first/last tag lines
+        inner = re.sub(r"^<[^>]+>", "", block)
+        inner = re.sub(r"</[^>]+>$", "", inner)
+        thinking_parts.append(inner.strip())
+    answer = _THINK_RE.sub("", raw)
+    # Unclosed trailing think → all thinking, no answer
+    open_m = _THINK_OPEN_RE.search(answer)
+    if open_m:
+        thinking_parts.append(re.sub(r"^<[^>]+>", "", open_m.group(0)).strip())
+        answer = answer[: open_m.start()]
+    answer = answer.strip()
+    thinking = "\n\n".join(p for p in thinking_parts if p).strip()
+    return answer, thinking
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Answer-only view (history / next-turn context)."""
+    answer, _thinking = _split_model_output(text)
+    return answer
+
+
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -141,9 +220,11 @@ async def _invoke_ollama_tag(
     try:
         response = await asyncio.wait_for(client.ainvoke(messages), timeout=_RUN_TIMEOUT_S)
         duration_ms = int((time.monotonic() - t0) * 1000)
-        content = (getattr(response, "content", None) or "").strip()
-        if not content:
+        raw = _message_text(getattr(response, "content", None)).strip()
+        if not raw:
             raise RuntimeError(f"empty response from {model_tag}")
+        # Keep full raw (incl. thinking) for Lab testing; UI splits answer/thinking.
+        answer, _thinking = _split_model_output(raw)
         usage = getattr(response, "usage_metadata", {}) or {}
         meta = getattr(response, "response_metadata", {}) or {}
         await _write_jw_metric(
@@ -157,7 +238,8 @@ async def _invoke_ollama_tag(
             duration_ms=duration_ms,
             succeeded=True,
         )
-        return content, duration_ms
+        # Prefer storing the full model output so thinking is not discarded.
+        return raw, duration_ms
     except Exception:
         duration_ms = int((time.monotonic() - t0) * 1000)
         try:
@@ -214,7 +296,7 @@ async def list_models(request: Request):
 # =============================================================================
 
 @router.get("/api/model-lab/sessions")
-async def list_sessions(request: Request, status: str = "open"):
+async def list_sessions(request: Request, status: str = ""):
     from src.memory.database import get_db
 
     presence_id = await _get_presence_id(request)
@@ -301,10 +383,22 @@ async def get_session(request: Request, session_id: int):
             messages = await m.fetchall()
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
+    cleaned = []
+    for x in messages:
+        m = _row(x)
+        if m.get("role") == "assistant" and m.get("content"):
+            answer, thinking = _split_model_output(m["content"])
+            m["raw_content"] = m["content"]
+            m["thinking"] = thinking
+            # Primary bubble = answer when split worked; else full content
+            m["content"] = answer if (answer or thinking) else m["content"]
+            if not answer and thinking:
+                m["content"] = ""  # thinking-only turn
+        cleaned.append(m)
     return {
         "ok": True,
         "item": _row(session),
-        "messages": [_row(x) for x in messages],
+        "messages": cleaned,
     }
 
 
@@ -430,7 +524,8 @@ async def session_chat(request: Request, session_id: int):
         if role == "user":
             turns.append(f"User: {text}")
         elif role == "assistant":
-            turns.append(f"Assistant: {text}")
+            cleaned = _strip_think_blocks(text) or text
+            turns.append(f"Assistant: {cleaned}")
     user_blob = "\n\n".join(turns) if turns else content
 
     try:
@@ -469,12 +564,20 @@ async def session_chat(request: Request, session_id: int):
         log.exception("session chat save")
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
 
+    item = _row(asst)
+    if item.get("content"):
+        answer, thinking = _split_model_output(item["content"])
+        item["raw_content"] = item["content"]
+        item["thinking"] = thinking
+        item["content"] = answer if (answer or thinking) else item["content"]
+        if not answer and thinking:
+            item["content"] = ""
     if err and not reply:
         return JSONResponse(
-            {"ok": False, "error": err, "item": _row(asst)},
+            {"ok": False, "error": err, "item": item},
             status_code=502,
         )
-    return {"ok": True, "item": _row(asst), "latency_ms": latency_ms}
+    return {"ok": True, "item": item, "latency_ms": latency_ms}
 
 
 # =============================================================================
@@ -537,7 +640,19 @@ async def get_run(request: Request, run_id: int):
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
     if not row:
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
-    return {"ok": True, "item": _row(row)}
+    item = _row(row)
+    for key in ("response_a", "response_b"):
+        raw = item.get(key) or ""
+        if not raw:
+            item[f"{key}_thinking"] = ""
+            continue
+        answer, thinking = _split_model_output(raw)
+        item[f"{key}_raw"] = raw
+        item[f"{key}_thinking"] = thinking
+        # Keep response_* as answer for the main pane; thinking alongside
+        if answer or thinking:
+            item[key] = answer
+    return {"ok": True, "item": item}
 
 
 @router.post("/api/model-lab/runs")
