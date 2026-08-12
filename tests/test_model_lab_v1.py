@@ -1,0 +1,51 @@
+"""#MODELLAB1 v1 — Soren Model Lab unit tests (no live Ollama required)."""
+
+from src.dashboard.routes import model_lab as ml
+
+
+def test_valid_tag_accepts_ollama_names():
+    ok, val = ml._valid_tag("qwen3:8b")
+    assert ok is True
+    assert val == "qwen3:8b"
+    ok, val = ml._valid_tag("ltp-tuner-v2:latest")
+    assert ok is True
+
+
+def test_valid_tag_rejects_empty_and_junk():
+    ok, err = ml._valid_tag("")
+    assert ok is False
+    ok, err = ml._valid_tag("bad tag with spaces")
+    assert ok is False
+    ok, err = ml._valid_tag("../escape")
+    assert ok is False
+
+
+def test_clamp_temp():
+    assert ml._clamp_temp(0.3) == 0.3
+    assert ml._clamp_temp(-1) == 0.0
+    assert ml._clamp_temp(9) == 2.0
+    assert ml._clamp_temp("nope", 0.7) == 0.7
+
+
+def test_presence_filter_shapes():
+    where, params = ml._presence_filter(None)
+    assert "NULL" in where or "presence_id" in where
+    assert params == ()
+    where, params = ml._presence_filter("abc")
+    assert "%s" in where
+    assert params == ("abc",)
+
+
+def test_row_iso_dates():
+    from datetime import datetime, timezone
+    r = ml._row({"id": 1, "created_at": datetime(2026, 8, 11, tzinfo=timezone.utc)})
+    assert r["id"] == 1
+    assert isinstance(r["created_at"], str)
+
+
+def test_router_has_expected_paths():
+    paths = {getattr(r, "path", None) for r in ml.router.routes}
+    assert "/model-lab" in paths
+    assert "/api/model-lab/models" in paths
+    assert "/api/model-lab/sessions" in paths
+    assert "/api/model-lab/runs" in paths
