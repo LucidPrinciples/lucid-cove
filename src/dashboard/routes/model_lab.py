@@ -36,6 +36,55 @@ _MAX_TITLE = 200
 _TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
+def _message_text(content) -> str:
+    """Normalize LangChain / Ollama content to plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                t = block.get("text") or block.get("content") or ""
+                if t:
+                    parts.append(str(t))
+            else:
+                t = getattr(block, "text", None) or getattr(block, "content", None)
+                if t:
+                    parts.append(str(t))
+        return "\n".join(parts)
+    return str(content)
+
+
+_THINK_RE = re.compile(
+    r"<think>.*?</think>|"
+    r"<thinking>.*?</thinking>|"
+    r"<reasoning>.*?</reasoning>",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+_THINK_OPEN_RE = re.compile(
+    r"<think>.*$|"
+    r"<thinking>.*$|"
+    r"<reasoning>.*$",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Drop model chain-of-thought wrappers; keep the operator-facing answer."""
+    if not text:
+        return ""
+    out = _THINK_RE.sub("", text)
+    # Unclosed think block (stream cut off) — drop trailing private reasoning
+    out = _THINK_OPEN_RE.sub("", out)
+    return out.strip()
+
+
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -141,8 +190,15 @@ async def _invoke_ollama_tag(
     try:
         response = await asyncio.wait_for(client.ainvoke(messages), timeout=_RUN_TIMEOUT_S)
         duration_ms = int((time.monotonic() - t0) * 1000)
-        content = (getattr(response, "content", None) or "").strip()
+        raw = _message_text(getattr(response, "content", None))
+        content = _strip_think_blocks(raw)
         if not content:
+            # If the model only emitted a think block, surface a clear lab error
+            # rather than a giant private monologue or an empty bubble.
+            if raw.strip():
+                raise RuntimeError(
+                    f"{model_tag} returned only internal reasoning — no answer text"
+                )
             raise RuntimeError(f"empty response from {model_tag}")
         usage = getattr(response, "usage_metadata", {}) or {}
         meta = getattr(response, "response_metadata", {}) or {}
@@ -301,10 +357,16 @@ async def get_session(request: Request, session_id: int):
             messages = await m.fetchall()
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
+    cleaned = []
+    for x in messages:
+        m = _row(x)
+        if m.get("role") == "assistant" and m.get("content"):
+            m["content"] = _strip_think_blocks(m["content"]) or m["content"]
+        cleaned.append(m)
     return {
         "ok": True,
         "item": _row(session),
-        "messages": [_row(x) for x in messages],
+        "messages": cleaned,
     }
 
 
@@ -430,7 +492,8 @@ async def session_chat(request: Request, session_id: int):
         if role == "user":
             turns.append(f"User: {text}")
         elif role == "assistant":
-            turns.append(f"Assistant: {text}")
+            cleaned = _strip_think_blocks(text) or text
+            turns.append(f"Assistant: {cleaned}")
     user_blob = "\n\n".join(turns) if turns else content
 
     try:
@@ -537,7 +600,12 @@ async def get_run(request: Request, run_id: int):
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
     if not row:
         return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
-    return {"ok": True, "item": _row(row)}
+    item = _row(row)
+    if item.get("response_a"):
+        item["response_a"] = _strip_think_blocks(item["response_a"]) or item["response_a"]
+    if item.get("response_b"):
+        item["response_b"] = _strip_think_blocks(item["response_b"]) or item["response_b"]
+    return {"ok": True, "item": item}
 
 
 @router.post("/api/model-lab/runs")

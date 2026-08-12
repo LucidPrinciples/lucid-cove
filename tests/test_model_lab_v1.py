@@ -49,3 +49,24 @@ def test_router_has_expected_paths():
     assert "/api/model-lab/models" in paths
     assert "/api/model-lab/sessions" in paths
     assert "/api/model-lab/runs" in paths
+
+
+def test_strip_think_blocks_keeps_answer():
+    raw = (
+        "<think>\nprivate monologue about Lucidworks\n</think>\n"
+        "The **Lucid Principles** are a framework for coherence."
+    )
+    out = ml._strip_think_blocks(raw)
+    assert "Lucidworks" not in out
+    assert "private monologue" not in out
+    assert "Lucid Principles" in out
+    assert "<" not in out
+
+
+def test_strip_think_unclosed():
+    raw = "<think> only reasoning, no close"
+    assert ml._strip_think_blocks(raw) == ""
+
+
+def test_message_text_list_blocks():
+    assert "hello" in ml._message_text([{"type": "text", "text": "hello"}])
