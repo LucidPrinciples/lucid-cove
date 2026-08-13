@@ -12,6 +12,9 @@ def test_default_direction_stays_on_health():
     assert "functional health" in text
     assert "day" in text and "deep" in text
     assert "calendar" in text or "logistics" in text
+    assert kb._DEFAULT_DIRECTION == kb._DEFAULT_DIRECTION_FH
+    assert "inventions" in kb._THREAD_KINDS
+    assert "functional-health" in kb._THREAD_KINDS
 
 
 def test_extractive_summary_skips_system_and_think():
@@ -30,8 +33,18 @@ def test_extractive_summary_skips_system_and_think():
 def test_router_has_expected_paths():
     paths = {getattr(r, "path", None) for r in kb.router.routes}
     assert "/knowledge" in paths
+    assert "/api/knowledge/threads" in paths
     assert "/api/knowledge/sessions" in paths
     assert "/api/knowledge/sessions/{session_id}/chat" in paths
+
+
+def test_think_only_output_is_usable_text():
+    answer, thinking = kb._split_model_output("<think>magnesium first</think>")
+    assert answer == ""
+    assert "magnesium first" in thinking
+    # Product rule: think-only is not an empty reply.
+    shown = answer or thinking
+    assert shown == "magnesium first"
 
 
 def test_knowledge_keep_alive_unloads(monkeypatch):

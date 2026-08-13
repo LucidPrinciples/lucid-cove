@@ -3534,7 +3534,7 @@ function getSeedTools() {
         { id: 'jules', name: 'Jules', agent: 'Jules', agent_color: 'var(--accent)', description: 'Voice transcription — tap, talk, and save straight to your vault.', status: 'active' },
         { id: 'gabs', name: 'Gabs', agent: 'Gabe', agent_color: 'var(--green)', description: 'Paste a link — Gabe runs a Quick assess and keeps the brief in History.', status: 'active' },
         { id: 'model-lab', name: 'Model Lab', agent: 'Soren', agent_color: 'var(--teal, #20b2aa)', description: 'Local Ollama pick, focused sessions, and A/B tester runs — no silent memory merge.', status: 'active' },
-        { id: 'knowledge', name: 'Knowledge', agent: 'Ezra', agent_color: 'var(--yellow, #d4a843)', description: 'Functional Health sessions with Ezra. Isolated from family Day and Deep.', status: 'active' },
+        { id: 'knowledge', name: 'Knowledge', agent: 'Ezra', agent_color: 'var(--yellow, #d4a843)', description: 'Install Knowledge threads — Functional Health live, Inventions placeholder. Isolated from Day and Deep.', status: 'active' },
         { id: 'site-builder', name: 'Site Builder', agent: 'Archimedes', agent_color: 'var(--blue, #5b9bd5)', description: 'Build and deploy sites. Domain, hosting, design, and launch — guided by Archimedes.', status: 'active' },
         { id: 'copy-studio', name: 'Copy Studio', agent: 'Iris', agent_color: 'var(--purple, #b07cd8)', description: 'Marketing copy, emails, social posts. Brand voice enforced by Iris.', status: 'placeholder' },
         { id: 'signal-scanner', name: 'Signal Scanner', agent: 'Ezra', agent_color: 'var(--yellow, #d4a843)', description: 'Market analysis, data patterns, competitive intel. Ezra scans the signal.', status: 'placeholder' },
