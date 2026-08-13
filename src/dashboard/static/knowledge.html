@@ -44,16 +44,16 @@ body.kb-show-close .kb-close{display:flex}
 .tab{flex:1;text-align:center;padding:12px;font-size:0.82rem;color:#666;cursor:pointer;border-bottom:2px solid transparent}
 .tab.on{color:#d4a843;border-bottom-color:#d4a843;font-weight:600}
 
-.list-view, .session-view, .model-inventory-view {
+.list-view, .session-view, .thread-kinds-view {
     flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 0 24px;
     display: none; flex-direction: column;
 }
-.list-view.show, .session-view.show, .model-inventory-view.show {
+.list-view.show, .session-view.show, .thread-kinds-view.show {
     display: flex;
 }
 
 /* Common list item styles */
-.item { padding: 12px 18px; border-bottom: 1px solid #1a1a2e; }
+.item { padding: 12px 18px; border-bottom: 1px solid #1a1a2e; cursor: pointer; }
 .item .t { font-weight: 600; font-size: 0.9rem; color: #fff; margin-bottom: 4px; }
 .item .sub-t { font-size: 0.72rem; color: #666; word-break: break-all; margin-bottom: 6px; }
 .item .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 0.72rem; }
@@ -147,15 +147,16 @@ button:active { background: #252540; }
 .item .preview { font-size: 0.78rem; color: #999; margin-top: 4px; line-height: 1.35;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-/* Model Inventory */
-.model-list-item { padding: 10px 18px; border-bottom: 1px solid #1a1a2e; }
-.model-list-item h3 { font-size: 0.9rem; color: #fff; margin-bottom: 4px; }
-.model-list-item p { font-size: 0.75rem; color: #888; }
-.model-list-item .meta { margin-top: 4px; }
-.model-list-item .meta .chip.chat { border-color: #2ecc71; color: #2ecc71; }
-.model-list-item .meta .chip.embedding { border-color: #f39c12; color: #f39c12; }
-.model-list-item .error { color: #e74c3c; font-size: 0.8rem; margin-top: 8px; }
-.model-list-item .hint { color: #7eb8da; font-size: 0.75rem; margin-top: 4px; }
+/* Thread Kinds */
+.thread-kinds-list { display: flex; flex-direction: column; gap: 10px; padding: 12px 18px; }
+.thread-kind-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 18px; border: 1px solid #2a2a3e; border-radius: 8px;
+  background: #111118; cursor: pointer;
+}
+.thread-kind-item .icon { font-size: 2.2rem; line-height: 1; }
+.thread-kind-item .details h3 { font-size: 1rem; color: #fff; margin-bottom: 2px; }
+.thread-kind-item .details p { font-size: 0.8rem; color: #888; }
 
 </style>
 </head>
@@ -167,7 +168,7 @@ button:active { background: #252540; }
     <img src="/static/ezra-icon.png" width="96" height="96" alt="Ezra">
   </div>
   <div class="brand"><em>Knowledge</em> by Ezra</div>
-  <div class="sub">Functional Health · Focused sessions · Neo-Dolphin</div>
+  <div class="sub">Installable Threads · Neo-Dolphin</div>
   <div class="header-right">
     <span class="status-chip" id="connStatus">ready</span>
   </div>
@@ -175,11 +176,15 @@ button:active { background: #252540; }
 
 <div class="main-wrap" id="mainWrap">
   <div class="tabs">
-    <div class="tab on" data-tab="sessions" id="tabSessions">Sessions</div>
-    <div class="tab" data-tab="models" id="tabModels">Ollama Models</div>
+    <div class="tab on" data-tab="threads" id="tabThreads">Thread Kinds</div>
+    <div class="tab" data-tab="sessions" id="tabSessions">My Sessions</div>
   </div>
 
-  <div class="list-view show" id="sessionsListView">
+  <div class="thread-kinds-view show" id="threadKindsView">
+    <div class="thread-kinds-list" id="threadKindsList"></div>
+  </div>
+
+  <div class="list-view" id="sessionsListView">
     <div class="form-section">
       <label for="newSessionTitle">New Session Title (optional)</label>
       <input id="newSessionTitle" type="text" placeholder="My first health session" />
@@ -212,21 +217,10 @@ button:active { background: #252540; }
     <div class="chat-foot">
       <div class="chat-status" id="chatStatus"></div>
       <div class="chat-input-area">
-        <textarea id="sessionChatInput" placeholder="Ask Ezra about functional health..."></textarea>
+        <textarea id="sessionChatInput" placeholder="Ask Ezra..."></textarea>
         <button id="btnSessionChatSend" type="button">Send</button>
       </div>
     </div>
-  </div>
-
-  <div class="model-inventory-view" id="modelsListView">
-    <div class="form-section">
-      <label>Functional Health Model</label>
-      <select id="knowledgeModelSelect" disabled>
-        <option value="hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest">hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest (Pinned)</option>
-      </select>
-      <p style="font-size:0.75rem;color:#888;margin-top:4px;">This is the dedicated model for Functional Health knowledge.</p>
-    </div>
-    <div class="list" id="ollamaModelsList"></div>
   </div>
 </div>
 

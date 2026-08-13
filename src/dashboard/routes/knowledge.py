@@ -2,8 +2,8 @@
 # knowledge.py — Ezra Knowledge (Functional Health)
 #
 # Spec: AgentSkills/Working/Specs/ezra-knowledge-v1-2026-08-13.md
-# Product: Ollama model pick + focused sessions (like Model Lab) for a specific
-# domain (Functional Health). Uses Neo-Dolphin-Mistral-7B-GGUF as the pinned model.
+# Product: Installable domain threads (Functional Health, Inventions).
+# Uses Neo-Dolphin-Mistral-7B-GGUF as the pinned model for Functional Health.
 # Does NOT write agent/steward memory directly, but conversations can be summarized
 # and extracted.
 #
@@ -20,10 +20,28 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.env import env
+from src.dashboard.routes.model_lab import (
+    _get_presence_id,
+    _presence_filter,
+    _row,
+    _clamp_temp,
+    _message_text,
+    _split_model_output,
+    _strip_think_blocks,
+    _unload_ollama_tag,
+    _lab_ollama_client as _kb_ollama_client, # Reuse Lab's client with keep_alive=0
+    _RUN_TIMEOUT_S,
+    _LAB_NUM_CTX as _KB_NUM_CTX,
+    _MAX_PROMPT_CHARS,
+    _MAX_SYSTEM_CHARS,
+    _MAX_TITLE,
+)
+from src.models.provider import _write_jw_metric
+from langchain_core.messages import HumanMessage, SystemMessage
 
 log = logging.getLogger("knowledge")
 
@@ -31,68 +49,40 @@ router = APIRouter()
 
 COVE_MODE = env("COVE_MODE", "single")
 
-_RUN_TIMEOUT_S = 180
-# Ollama knobs — keep_alive=0 unloads weights after each call
-_KB_KEEP_ALIVE = "0"
-_KB_NUM_CTX = 8192
-_MAX_PROMPT_CHARS = 12000
-_MAX_SYSTEM_CHARS = 8000
-_MAX_TITLE = 200
 # Pinned model for Functional Health
 _PINNED_MODEL_TAG = "hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest"
 _ROTATION_THRESHOLD = 40
-_DEFAULT_DIRECTION = (
+_DEFAULT_DIRECTION_FH = (
     "You are a Functional Health research partner. Stay on health, recovery, "
     "nutrition, labs, and training. Be direct and source-honest. If you are "
     "not sure, say so. Do not manage family logistics, calendars, or Cove ops. "
     "This room is isolated from Day and Deep."
 )
-
-# Regex for stripping thinking blocks (copied from model_lab)
-_THINK_RE = re.compile(
-    r"<think>.*?</think>|"
-    r"<thinking>.*?</thinking>|"
-    r"<reasoning>.*?</reasoning>",
-    flags=re.DOTALL | re.IGNORECASE,
-)
-_THINK_OPEN_RE = re.compile(
-    r"<think>.*$|"
-    r"<thinking>.*$|"
-    r"<reasoning>.*$",
-    flags=re.DOTALL | re.IGNORECASE,
+# Alias kept for tests and older callers.
+_DEFAULT_DIRECTION = _DEFAULT_DIRECTION_FH
+_DEFAULT_DIRECTION_INV = (
+    "You are an Inventions research partner. Stay on product design, market "
+    "analysis, patent research, and technical feasibility. Be direct and "
+    "source-honest. If you are not sure, say so. Do not manage family "
+    "logistics, calendars, or Cove ops. This room is isolated from Day and Deep."
 )
 
-def _split_model_output(text: str) -> tuple[str, str]:
-    """Split model output into (answer, thinking) for display."""
-    if not text:
-        return "", ""
-    raw = text
-    thinking_parts: list[str] = []
-    for m in _THINK_RE.finditer(raw):
-        block = m.group(0)
-        inner = re.sub(
-            r"^</?(?:think|thinking|reasoning)>|</(?:think|thinking|reasoning)>$",
-            "",
-            block,
-            flags=re.IGNORECASE | re.DOTALL,
-        )
-        inner = re.sub(r"^<[^>]+>", "", block)
-        inner = re.sub(r"</[^>]+>$", "", inner)
-        thinking_parts.append(inner.strip())
-    answer = _THINK_RE.sub("", raw)
-    open_m = _THINK_OPEN_RE.search(answer)
-    if open_m:
-        thinking_parts.append(re.sub(r"^<[^>]+>", "", open_m.group(0)).strip())
-        answer = answer[: open_m.start()]
-    answer = answer.strip()
-    thinking = "\n\n".join(p for p in thinking_parts if p).strip()
-    return answer, thinking
-
-def _strip_think_blocks(text: str) -> str:
-    """Answer-only view (history / next-turn context)."""
-    answer, _thinking = _split_model_output(text)
-    return answer
-
+_THREAD_KINDS = {
+    "functional-health": {
+        "id": "functional-health",
+        "title": "Functional Health",
+        "model_tag": _PINNED_MODEL_TAG,
+        "system_prompt": _DEFAULT_DIRECTION_FH,
+        "icon": "⚕️",
+    },
+    "inventions": {
+        "id": "inventions",
+        "title": "Inventions",
+        "model_tag": _PINNED_MODEL_TAG, # Can be changed later if a specific model is fine-tuned for inventions
+        "system_prompt": _DEFAULT_DIRECTION_INV,
+        "icon": "💡",
+    },
+}
 
 def _extractive_summary(history) -> str:
     """Continuity briefing without steward memory or a second model call."""
@@ -103,6 +93,7 @@ def _extractive_summary(history) -> str:
         if not text or role not in ("user", "assistant"):
             continue
         if role == "assistant":
+            # Ensure thinking blocks are stripped for summary, but keep actual content
             text = _strip_think_blocks(text) or text
         if len(text) > 360:
             text = text[:360] + "…"
@@ -115,98 +106,6 @@ def _extractive_summary(history) -> str:
         body = lines[:6] + ["…"] + lines[-10:]
     return "Summary of previous Knowledge session:\n" + "\n".join(body)
 
-def _message_text(content) -> str:
-    """Normalize LangChain / Ollama content to plain text."""
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict):
-                t = block.get("text") or block.get("content") or ""
-                if t:
-                    parts.append(str(t))
-            else:
-                t = getattr(block, "text", None) or getattr(block, "content", None)
-                if t:
-                    parts.append(str(t))
-        return "\n".join(parts)
-    return str(content)
-
-
-# =============================================================================
-# Helpers (copied from model_lab)
-# =============================================================================
-
-async def _get_presence_id(request: Request):
-    if COVE_MODE != "multi":
-        return None
-    try:
-        from src.dashboard.routes.presence import get_current_presence
-        presence = await get_current_presence(request)
-        return presence["id"] if presence else None
-    except Exception:
-        return None
-
-def _presence_filter(presence_id):
-    if presence_id:
-        return "presence_id = %s", (presence_id,)
-    return "(presence_id IS NULL OR presence_id = 0)", ()
-
-def _row(r) -> dict:
-    if not r:
-        return {}
-    out = dict(r)
-    for k, v in list(out.items()):
-        if hasattr(v, "isoformat"):
-            out[k] = v.isoformat()
-    return out
-
-def _clamp_temp(raw, default: float = 0.7) -> float:
-    try:
-        t = float(raw if raw is not None else default)
-    except (TypeError, ValueError):
-        t = default
-    return max(0.0, min(2.0, t))
-
-def _kb_ollama_client(model_tag: str, temperature: float):
-    """ChatOllama pinned for Knowledge: unload after generate, modest context."""
-    from langchain_ollama import ChatOllama
-    from src.models.provider import _ollama_base_url
-
-    return ChatOllama(
-        model=model_tag,
-        base_url=_ollama_base_url(),
-        temperature=temperature,
-        num_ctx=_KB_NUM_CTX,
-        timeout=_RUN_TIMEOUT_S,
-        keep_alive=_KB_KEEP_ALIVE,
-    )
-
-async def _unload_ollama_tag(model_tag: str) -> None:
-    """Best-effort: drop model from VRAM immediately (heat / multi-model safety)."""
-    tag = (model_tag or "").strip()
-    if not tag:
-        return
-    try:
-        import httpx
-        from src.models.provider import _ollama_base_url
-
-        base = (_ollama_base_url() or "").rstrip("/")
-        if not base:
-            return
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            await client.post(
-                f"{base}/api/generate",
-                json={"model": tag, "prompt": "", "keep_alive": 0},
-            )
-    except Exception as e:
-        log.debug("ollama unload %s: %s", tag, e)
-
 async def _invoke_ollama_tag(
     *,
     model_tag: str,
@@ -216,9 +115,6 @@ async def _invoke_ollama_tag(
     label: str,
 ) -> tuple[str, int]:
     """Pin to one Ollama tag. No cloud hop, no agent assignment chain."""
-    from langchain_core.messages import HumanMessage, SystemMessage
-    from src.models.provider import _write_jw_metric
-
     messages = []
     sys = (system_prompt or "").strip()
     if sys:
@@ -233,26 +129,18 @@ async def _invoke_ollama_tag(
                 client.ainvoke(messages), timeout=_RUN_TIMEOUT_S
             )
             duration_ms = int((time.monotonic() - t0) * 1000)
-            raw = _message_text(getattr(response, "content", None)).strip()
-            if not raw:
-                raise RuntimeError(
+            raw_content = getattr(response, "content", None)
+            
+            # If the response is truly empty (no content at all), raise an error.
+            # Otherwise, return the raw content for _split_model_output to parse,
+            # even if it's just thinking blocks.
+            if raw_content is None or (isinstance(raw_content, str) and not raw_content.strip()):
+                 raise RuntimeError(
                     f"empty response from {model_tag} "
                     f"(model returned no text — try again, check VRAM, or pick another tag)"
                 )
-            usage = getattr(response, "usage_metadata", {}) or {}
-            meta = getattr(response, "response_metadata", {}) or {}
-            await _write_jw_metric(
-                agent_id="ezra", # Pinned to Ezra
-                operation_type="knowledge-session",
-                operation_label=label,
-                model_used=model_tag,
-                provider="ollama",
-                tokens_in=usage.get("prompt_eval_count") or meta.get("prompt_eval_count"),
-                tokens_out=usage.get("eval_count") or meta.get("eval_count"),
-                duration_ms=duration_ms,
-                succeeded=True,
-            )
-            return raw, duration_ms
+            # Return raw content here, _split_model_output will parse thinking
+            return raw_content, duration_ms
         except Exception:
             duration_ms = int((time.monotonic() - t0) * 1000)
             try:
@@ -262,8 +150,8 @@ async def _invoke_ollama_tag(
                     operation_label=label,
                     model_used=model_tag,
                     provider="ollama",
-                    tokens_in=0,
-                    tokens_out=0,
+                    tokens_in=0, # Placeholder, actual usage needs to be extracted from response
+                    tokens_out=0, # Placeholder
                     duration_ms=duration_ms,
                     succeeded=False,
                 )
@@ -293,8 +181,12 @@ async def serve_knowledge_page(request: Request):
 # Sessions
 # =============================================================================
 
+@router.get("/api/knowledge/threads")
+async def list_knowledge_threads(request: Request):
+    return {"ok": True, "items": list(_THREAD_KINDS.values())}
+
 @router.get("/api/knowledge/sessions")
-async def list_knowledge_sessions(request: Request, status: str = ""):
+async def list_knowledge_sessions(request: Request, status: str = "", kind: str = ""):
     from src.memory.database import get_db
 
     presence_id = await _get_presence_id(request)
@@ -303,6 +195,12 @@ async def list_knowledge_sessions(request: Request, status: str = ""):
     if st and st != "all":
         where += " AND status = %s"
         params += (st,)
+    
+    thread_kind = (kind or "").strip().lower()
+    if thread_kind:
+        where += " AND thread_kind = %s"
+        params += (thread_kind,)
+
     try:
         async with get_db() as conn:
             r = await conn.execute(
@@ -326,10 +224,14 @@ async def create_knowledge_session(request: Request):
     except Exception:
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
 
-    title = (body.get("title") or "").strip()[:_MAX_TITLE] or "Knowledge Session"
-    system_prompt = (body.get("system_prompt") or "").strip()[:_MAX_SYSTEM_CHARS]
-    if not system_prompt:
-        system_prompt = _DEFAULT_DIRECTION
+    thread_kind = (body.get("thread_kind") or "").strip().lower()
+    if not thread_kind or thread_kind not in _THREAD_KINDS:
+        return JSONResponse({"ok": False, "error": "Invalid thread_kind"}, status_code=400)
+
+    kind_config = _THREAD_KINDS[thread_kind]
+
+    title = (body.get("title") or "").strip()[:_MAX_TITLE] or kind_config["title"]
+    system_prompt = (body.get("system_prompt") or "").strip()[:_MAX_SYSTEM_CHARS] or kind_config["system_prompt"]
     temperature = _clamp_temp(body.get("temperature"), 0.7)
     presence_id = await _get_presence_id(request)
 
@@ -337,9 +239,9 @@ async def create_knowledge_session(request: Request):
         async with get_db() as conn:
             r = await conn.execute(
                 """INSERT INTO knowledge_sessions
-                   (presence_id, title, model_tag, system_prompt, temperature, status)
-                   VALUES (%s, %s, %s, %s, %s, 'open') RETURNING *""",
-                (presence_id, title, _PINNED_MODEL_TAG, system_prompt, temperature),
+                   (presence_id, title, model_tag, system_prompt, temperature, status, thread_kind)
+                   VALUES (%s, %s, %s, %s, %s, 'open', %s) RETURNING *""",
+                (presence_id, title, kind_config["model_tag"], system_prompt, temperature, thread_kind),
             )
             row = await r.fetchone()
     except Exception as e:
@@ -380,9 +282,8 @@ async def get_knowledge_session(request: Request, session_id: int):
             answer, thinking = _split_model_output(m["content"])
             m["raw_content"] = m["content"]
             m["thinking"] = thinking
-            m["content"] = answer if (answer or thinking) else m["content"]
-            if not answer and thinking:
-                m["content"] = ""
+            # Think-only / reasoning-only output is usable text, not an empty reply.
+            m["content"] = answer or thinking or m["content"]
         cleaned.append(m)
     return {
         "ok": True,
@@ -508,22 +409,26 @@ async def knowledge_session_chat(request: Request, session_id: int):
                     title = (title[: _MAX_TITLE - 8] + " (cont.)").strip()
                 new_r = await conn.execute(
                     """INSERT INTO knowledge_sessions
-                       (presence_id, title, model_tag, system_prompt, temperature, status, notes)
-                       VALUES (%s, %s, %s, %s, %s, 'open', %s) RETURNING *""",
+                       (presence_id, title, model_tag, system_prompt, temperature, status, notes, thread_kind)
+                       VALUES (%s, %s, %s, %s, %s, 'open', %s, %s) RETURNING *""",
                     (
                         session.get("presence_id"),
                         title[:_MAX_TITLE],
                         session.get("model_tag") or _PINNED_MODEL_TAG,
-                        session.get("system_prompt") or _DEFAULT_DIRECTION,
+                        session.get("system_prompt") or _DEFAULT_DIRECTION_FH, # Use FH default if none
                         session.get("temperature") or 0.7,
                         (summary or "")[:4000],
+                        session.get("thread_kind") or "functional-health",
                     ),
                 )
                 new_session = await new_r.fetchone()
                 if summary:
+                    # Use the specific system prompt for the new thread kind
+                    thread_kind = new_session.get("thread_kind", "functional-health")
+                    kind_config = _THREAD_KINDS.get(thread_kind, _THREAD_KINDS["functional-health"])
                     seed = (
                         f"[Thread continuation from session {session_id}]\n\n"
-                        f"{summary}\n\nContinue this Functional Health thread. "
+                        f"{summary}\n\nContinue this {kind_config['title']} thread. "
                         "Do not pick up family Day or Deep work."
                     )
                     await conn.execute(
@@ -563,6 +468,7 @@ async def knowledge_session_chat(request: Request, session_id: int):
         if role == "user":
             turns.append(f"User: {text}")
         elif role == "assistant":
+            # For context, assistant replies should be stripped of thinking blocks
             cleaned = _strip_think_blocks(text) or text
             turns.append(f"Assistant: {cleaned}")
     user_blob = "\n\n".join(turns) if turns else content
@@ -608,13 +514,12 @@ async def knowledge_session_chat(request: Request, session_id: int):
         answer, thinking = _split_model_output(item["content"])
         item["raw_content"] = item["content"]
         item["thinking"] = thinking
-        item["content"] = answer if (answer or thinking) else item["content"]
-        if not answer and thinking:
-            item["content"] = ""
+        item["content"] = answer or thinking or item["content"]
+        
     if err and not reply:
         return JSONResponse(
             {"ok": False, "error": err, "item": item, "rotation": rotation},
-            status_code=502,
+            status_code=status.HTTP_502_BAD_GATEWAY,
         )
     return {
         "ok": True,

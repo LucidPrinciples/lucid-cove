@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS knowledge_sessions (
     temperature     DOUBLE PRECISION NOT NULL DEFAULT 0.7,
     status          TEXT NOT NULL DEFAULT 'open'
                     CHECK (status IN ('open', 'closed')),
+    thread_kind     TEXT NOT NULL DEFAULT 'functional-health',
     notes           TEXT DEFAULT '',
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     updated_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -21,6 +22,12 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_sessions_presence
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_sessions_status
     ON knowledge_sessions (status, updated_at DESC);
+
+ALTER TABLE knowledge_sessions
+    ADD COLUMN IF NOT EXISTS thread_kind TEXT NOT NULL DEFAULT 'functional-health';
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_sessions_kind
+    ON knowledge_sessions (thread_kind, updated_at DESC);
 
 
 CREATE TABLE IF NOT EXISTS knowledge_messages (

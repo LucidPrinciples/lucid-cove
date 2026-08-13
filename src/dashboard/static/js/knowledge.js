@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 let currentSessionId = null;
-let currentTab = 'sessions';
+let currentThreadKind = null;
+let currentTab = 'threads';
 let sessionFilter = 'all';
 let pollTimer = null;
 
@@ -64,7 +65,7 @@ async function api(path, opts) {
 }
 
 function showView(viewId) {
-  const views = ['sessionsListView', 'sessionDetailView', 'modelsListView'];
+  const views = ['threadKindsView', 'sessionsListView', 'sessionDetailView'];
   views.forEach(id => {
     $(id)?.classList.toggle('show', id === viewId);
   });
@@ -82,14 +83,63 @@ function goBackFromDetail() {
   showView('sessionsListView');
   clearInterval(pollTimer);
   pollTimer = null;
-  loadSessions(); // Refresh list on back
+  loadSessions(currentThreadKind); // Refresh list on back
+}
+
+// ── Thread Kinds ─────────────────────────────────────────────────────────────
+
+async function loadThreadKinds() {
+  try {
+    const data = await api('/api/knowledge/threads');
+    if (!data.ok) throw new Error(data.error);
+
+    const listEl = $('threadKindsList');
+    if (!data.items.length) {
+      listEl.innerHTML = '<div class="empty">No knowledge thread kinds available.</div>';
+      return;
+    }
+    // Store thread kinds globally for easy access
+    window._threadKinds = data.items;
+
+    listEl.innerHTML = data.items.map(t => `
+      <div class="thread-kind-item" data-kind="${t.id}" onclick="selectThreadKind('${t.id}')">
+        <div class="icon">${esc(t.icon)}</div>
+        <div class="details">
+          <h3>${esc(t.title)}</h3>
+          <p>${esc(t.system_prompt)}</p>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Error loading thread kinds:', e);
+    setStatus('createSessionStatus', e.message, true);
+  }
+}
+
+function selectThreadKind(kind) {
+  currentThreadKind = kind;
+  $('tabThreads').classList.remove('on');
+  $('tabSessions').classList.add('on');
+  showView('sessionsListView');
+  loadSessions(kind);
+  // Pre-fill session creation form with thread kind defaults
+  const threadConfig = window._threadKinds.find(t => t.id === kind);
+  if (threadConfig) {
+    $('newSessionTitle').value = threadConfig.title;
+    $('newSessionSystemPrompt').value = threadConfig.system_prompt;
+    $('sessionChatInput').placeholder = `Ask Ezra about ${threadConfig.title}...`;
+  } else {
+    $('newSessionTitle').value = '';
+    $('newSessionSystemPrompt').value = '';
+    $('sessionChatInput').placeholder = 'Ask Ezra...';
+  }
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
-async function loadSessions() {
+async function loadSessions(kind) {
   try {
-    const data = await api(`/api/knowledge/sessions?status=${sessionFilter}`);
+    const data = await api(`/api/knowledge/sessions?status=${sessionFilter}&kind=${kind || ''}`);
     if (!data.ok) throw new Error(data.error);
 
     const listEl = $('sessionsList');
@@ -123,9 +173,14 @@ async function createSession() {
     const system_prompt = $('newSessionSystemPrompt').value.trim();
     const temperature = parseFloat($('newSessionTemperature').value);
 
+    if (!currentThreadKind) {
+      setStatus('createSessionStatus', 'Please select a thread kind first.', true);
+      return;
+    }
+
     const body = {
       title,
-      model_tag: "hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest", // Pinned model
+      thread_kind: currentThreadKind,
       system_prompt,
       temperature
     };
@@ -138,11 +193,11 @@ async function createSession() {
     if (!data.ok) throw new Error(data.error);
 
     $('newSessionTitle').value = '';
-    $('newSessionSystemPrompt').value = 'You are a helpful assistant specialized in functional health.';
+    $('newSessionSystemPrompt').value = '';
     $('newSessionTemperature').value = '0.7';
 
     setStatus('createSessionStatus', 'Session created.');
-    await loadSessions();
+    await loadSessions(currentThreadKind);
     openSession(data.item.id); // Open the new session immediately
 
   } catch (e) {
@@ -171,7 +226,7 @@ async function loadSessionDetail(id) {
       msgEl.className = `chat-message ${m.role}`;
       const bubbleEl = document.createElement('div');
       bubbleEl.className = 'chat-bubble';
-      bubbleEl.innerHTML = esc(m.content); // Use innerHTML for markdown-like content? No, stick to plain text for now.
+      bubbleEl.textContent = m.content || '';
 
       if (m.thinking) {
         const detailsEl = document.createElement('details');
@@ -191,6 +246,14 @@ async function loadSessionDetail(id) {
     $('sessionChatInput').disabled = s.status === 'closed';
     $('btnSessionChatSend').disabled = s.status === 'closed';
 
+    // Update placeholder based on thread kind
+    const threadConfig = window._threadKinds.find(t => t.id === s.thread_kind);
+    if (threadConfig) {
+      $('sessionChatInput').placeholder = `Ask Ezra about ${threadConfig.title}...`;
+    } else {
+      $('sessionChatInput').placeholder = 'Ask Ezra...';
+    }
+
     if (s.status === 'open' && !pollTimer) {
       pollTimer = setInterval(() => loadSessionDetail(id), 3000);
     } else if (s.status !== 'open' && pollTimer) {
@@ -201,8 +264,7 @@ async function loadSessionDetail(id) {
   } catch (e) {
     console.error('Error loading session detail:', e);
     setStatus('chatStatus', e.message, true);
-    // Go back to list if error
-    goBackFromDetail();
+    goBackFromDetail(); // Go back to list if error
   }
 }
 
@@ -265,39 +327,9 @@ async function setSessionStatus(status) {
     });
     if (!data.ok) throw new Error(data.error || 'update failed');
     await loadSessionDetail(currentSessionId);
-    loadSessions();
+    loadSessions(currentThreadKind);
   } catch (e) {
     setStatus('chatStatus', e.message || String(e), true);
-  }
-}
-
-// ── Ollama Models List (for reference, pinned model is fixed) ───────────────
-
-async function loadOllamaModels() {
-  try {
-    const data = await api('/api/model-lab/models'); // Reusing Model Lab's model endpoint
-    if (!data.ok) throw new Error(data.error);
-
-    const listEl = $('ollamaModelsList');
-    if (!data.models.length) {
-      listEl.innerHTML = '<div class="empty">No Ollama models found. Is Ollama running?</div>';
-      return;
-    }
-
-    listEl.innerHTML = data.models.map(m => `
-      <div class="model-list-item">
-        <h3>${esc(m.name)}</h3>
-        <p>Size: ${(m.size_bytes / (1024 * 1024 * 1024)).toFixed(2)} GB</p>
-        <div class="meta">
-          ${m.chat ? '<span class="chip chat">Chat</span>' : ''}
-          ${!m.chat && m.embedding ? '<span class="chip embedding">Embedding</span>' : ''}
-        </div>
-      </div>
-    `).join('');
-
-  } catch (e) {
-    console.error('Error loading Ollama models:', e);
-    setStatus('createSessionStatus', e.message, true);
   }
 }
 
@@ -321,7 +353,7 @@ if (sf) {
     btn.onclick = () => {
       sessionFilter = btn.dataset.filter || 'all';
       sf.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === btn));
-      loadSessions();
+      loadSessions(currentThreadKind);
     };
   });
 }
@@ -332,29 +364,41 @@ document.querySelectorAll('.tabs .tab').forEach(tabEl => {
     document.querySelectorAll('.tabs .tab').forEach(t => t.classList.remove('on'));
     tabEl.classList.add('on');
 
-    if (currentTab === 'sessions') {
+    if (currentTab === 'threads') {
+      showView('threadKindsView');
+      loadThreadKinds();
+    } else if (currentTab === 'sessions') {
       showView('sessionsListView');
-      loadSessions();
-    } else if (currentTab === 'models') {
-      showView('modelsListView');
-      loadOllamaModels();
+      loadSessions(currentThreadKind);
     }
   };
 });
 
 // Initial load
-loadSessions();
-loadOllamaModels();
+(async function() {
+  // Pre-load thread kinds into a global variable for easy access
+  const data = await api('/api/knowledge/threads');
+  if (data.ok) {
+    window._threadKinds = data.items;
+  } else {
+    window._threadKinds = [];
+    console.error('Failed to load thread kinds', data.error);
+  }
 
-// Deep link support
-(function () {
+  // Deep link support
   const q = new URLSearchParams(location.search);
   const sessionId = q.get('session');
+  const threadKind = q.get('kind');
 
   if (sessionId) {
-    openSession(parseInt(sessionId));
     currentTab = 'sessions';
+    $('tabThreads').classList.remove('on');
     $('tabSessions').classList.add('on');
-    $('tabModels').classList.remove('on');
+    if (threadKind) currentThreadKind = threadKind;
+    showView('sessionDetailView');
+    openSession(parseInt(sessionId));
+  } else {
+    loadThreadKinds();
+    showView('threadKindsView');
   }
 })();
