@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Knowledge by Ezra">
+<link rel="apple-touch-icon" href="/static/ezra-icon.png">
+<link rel="icon" type="image/png" href="/static/ezra-icon.png">
+<title>Knowledge by Ezra</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;height:100dvh}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0f;color:#e0e0e0;
+  height:100%;height:100dvh;max-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+
+header{padding:18px 20px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;
+  border-bottom:1px solid #1a1a2e;flex-shrink:0;position:relative}
+body.kb-detail header{padding:8px 48px 8px 48px;flex-direction:row;align-items:center;justify-content:center;gap:10px}
+body.kb-detail header .avatar{width:36px;height:36px}
+body.kb-detail header .avatar img{width:36px;height:36px}
+body.kb-detail header .sub{display:none}
+body.kb-detail header .brand{font-size:0.8rem}
+.avatar{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#3a3a5c,#1a1a2e);
+  border:2px solid #333;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;overflow:hidden}
+.avatar img{width:96px;height:96px;border-radius:50%;object-fit:cover}
+.brand{font-size:0.85rem;color:#666;font-weight:400;letter-spacing:0.5px}
+.brand em{font-style:normal;color:#7eb8da}.sub{font-size:0.72rem;color:#555;text-align:center;max-width:280px;line-height:1.35}
+.header-right{position:absolute;top:14px;right:16px;display:flex;align-items:center;gap:10px}
+header .status-chip{font-size:0.7rem;color:#666}
+
+.kb-close{position:fixed;top:10px;left:12px;z-index:50;width:36px;height:36px;border-radius:18px;
+  border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:18px;line-height:1;
+  display:none;align-items:center;justify-content:center;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;padding:0}
+.kb-close:hover{border-color:#d4a843;color:#d4a843}
+body.kb-show-close .kb-close{display:flex}
+
+.main-wrap{display:flex;flex-direction:column;flex:1;min-height:0}
+.main-wrap.hide{display:none}
+.tabs{display:flex;gap:0;border-bottom:1px solid #1a1a2e;flex-shrink:0}
+.tab{flex:1;text-align:center;padding:12px;font-size:0.82rem;color:#666;cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{color:#d4a843;border-bottom-color:#d4a843;font-weight:600}
+
+.list-view, .session-view, .model-inventory-view {
+    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 8px 0 24px;
+    display: none; flex-direction: column;
+}
+.list-view.show, .session-view.show, .model-inventory-view.show {
+    display: flex;
+}
+
+/* Common list item styles */
+.item { padding: 12px 18px; border-bottom: 1px solid #1a1a2e; }
+.item .t { font-weight: 600; font-size: 0.9rem; color: #fff; margin-bottom: 4px; }
+.item .sub-t { font-size: 0.72rem; color: #666; word-break: break-all; margin-bottom: 6px; }
+.item .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 0.72rem; }
+.chip { padding: 2px 8px; border-radius: 999px; border: 1px solid #333; color: #888; }
+.chip.open { border-color: #d4a843; color: #d4a843; }
+.chip.closed { border-color: #555; color: #888; }
+.empty { color: #444; text-align: center; padding: 36px 16px; font-size: 0.85rem; font-style: italic; }
+
+/* Form styles */
+.form-section { padding: 14px 18px; border-bottom: 1px solid #1a1a2e; flex-shrink: 0; }
+label { display: block; font-size: 0.7rem; color: #d4a843; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+input[type=text], input[type=number], select, textarea {
+  width: 100%; background: #111118; border: 1px solid #2a2a3e; border-radius: 8px;
+  color: #e0e0e0; padding: 10px 12px; font-size: 0.9rem; margin-bottom: 10px; }
+textarea { min-height: 64px; resize: vertical; font-family: inherit; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+button {
+  border: 1px solid #333; background: #1a1a2e; color: #ccc; border-radius: 8px;
+  padding: 10px 14px; font-size: 0.85rem; cursor: pointer; flex: 1; min-width: 120px; }
+button.primary { border-color: #d4a843; color: #d4a843; font-weight: 600; }
+button:disabled { opacity: .45; pointer-events: none; }
+button:active { background: #252540; }
+.status { font-size: 0.75rem; color: #888; min-height: 18px; margin-top: 8px; text-align: center; }
+
+/* Session Detail — ONLY this region scrolls */
+.chat-log {
+  flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 0 8px; overscroll-behavior: contain;
+}
+.chat-message { padding: 6px 16px; margin-bottom: 2px; display: flex; }
+.chat-message.user { justify-content: flex-end; }
+.chat-message.assistant { justify-content: flex-start; }
+.chat-bubble {
+  max-width: min(92%, 720px); padding: 10px 14px; border-radius: 16px;
+  line-height: 1.45; font-size: 0.9rem;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+}
+.chat-message.user .chat-bubble { background: #d4a843; color: #0a0a0f; border-bottom-right-radius: 4px; }
+.chat-message.assistant .chat-bubble { background: #1a1a2e; color: #e0e0e0; border-bottom-left-radius: 4px; border: 1px solid #2a2a3e; }
+.chat-message.pending .chat-bubble { opacity: 0.85; border-style: dashed; color: #aaa; font-style: italic; }
+.chat-message.error .chat-bubble { border-color: #e74c3c; color: #ffb4b4; }
+.chat-foot {
+  flex-shrink: 0; border-top: 1px solid #1a1a2e; background: #0a0a0f;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.chat-status {
+  min-height: 16px; padding: 4px 18px 2px;
+  font-size: 0.72rem; color: #888; text-align: center;
+}
+.chat-status.busy { color: #f39c12; }
+.chat-status.err { color: #e74c3c; }
+.chat-session-actions {
+  display: flex; gap: 6px; padding: 0 12px 4px; flex-wrap: wrap;
+}
+.chat-session-actions button {
+  flex: 0 0 auto; min-width: 0; padding: 5px 10px; font-size: 0.72rem;
+}
+.chat-input-area {
+  padding: 8px 12px 10px;
+  display: flex; gap: 8px; align-items: flex-end;
+}
+.chat-input-area textarea {
+  flex: 1; margin-bottom: 0; min-height: 44px; max-height: 100px;
+  resize: none;
+}
+.chat-input-area button { flex: 0 0 auto; min-width: 72px; width: auto; padding: 10px 14px; }
+
+
+.think-block {
+  margin-top: 8px; border: 1px dashed #3a3a55; border-radius: 10px;
+  background: #0e0e18; overflow: hidden;
+}
+.think-block summary {
+  cursor: pointer; padding: 8px 10px; font-size: 0.72rem; color: #9aa;
+  list-style: none; user-select: none;
+}
+.think-block summary::-webkit-details-marker { display: none; }
+.think-block summary::before { content: "▸ "; color: #d4a843; }
+.think-block[open] summary::before { content: "▾ "; }
+.think-block pre {
+  margin: 0; padding: 0 10px 10px; white-space: pre-wrap; overflow-wrap: anywhere;
+  word-break: break-word; font-size: 0.75rem; line-height: 1.4; color: #9a9aaa;
+  max-height: 240px; overflow-y: auto;
+}
+.session-filters { display:flex; gap:6px; padding: 0 18px 10px; flex-wrap:wrap; }
+.session-filters button {
+  flex: 0 0 auto; min-width: 0; padding: 6px 12px; font-size: 0.75rem;
+}
+.session-filters button.on { border-color: #d4a843; color: #d4a843; font-weight: 600; }
+.item .preview { font-size: 0.78rem; color: #999; margin-top: 4px; line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Model Inventory */
+.model-list-item { padding: 10px 18px; border-bottom: 1px solid #1a1a2e; }
+.model-list-item h3 { font-size: 0.9rem; color: #fff; margin-bottom: 4px; }
+.model-list-item p { font-size: 0.75rem; color: #888; }
+.model-list-item .meta { margin-top: 4px; }
+.model-list-item .meta .chip.chat { border-color: #2ecc71; color: #2ecc71; }
+.model-list-item .meta .chip.embedding { border-color: #f39c12; color: #f39c12; }
+.model-list-item .error { color: #e74c3c; font-size: 0.8rem; margin-top: 8px; }
+.model-list-item .hint { color: #7eb8da; font-size: 0.75rem; margin-top: 4px; }
+
+</style>
+</head>
+<body>
+<button type="button" class="kb-close" id="kb-close" aria-label="Close" title="Close">×</button>
+
+<header>
+  <div class="avatar" onclick="location.reload()" title="tap Ezra to refresh">
+    <img src="/static/ezra-icon.png" width="96" height="96" alt="Ezra">
+  </div>
+  <div class="brand"><em>Knowledge</em> by Ezra</div>
+  <div class="sub">Functional Health · Focused sessions · Neo-Dolphin</div>
+  <div class="header-right">
+    <span class="status-chip" id="connStatus">ready</span>
+  </div>
+</header>
+
+<div class="main-wrap" id="mainWrap">
+  <div class="tabs">
+    <div class="tab on" data-tab="sessions" id="tabSessions">Sessions</div>
+    <div class="tab" data-tab="models" id="tabModels">Ollama Models</div>
+  </div>
+
+  <div class="list-view show" id="sessionsListView">
+    <div class="form-section">
+      <label for="newSessionTitle">New Session Title (optional)</label>
+      <input id="newSessionTitle" type="text" placeholder="My first health session" />
+      <label for="newSessionSystemPrompt">System Prompt (optional)</label>
+      <textarea id="newSessionSystemPrompt" placeholder="You are a helpful assistant specialized in functional health."></textarea>
+      <label for="newSessionTemperature">Temperature (0.0-2.0)</label>
+      <input id="newSessionTemperature" type="number" step="0.1" min="0.0" max="2.0" value="0.7" />
+      <div class="actions">
+        <button class="primary" id="btnCreateSession" type="button">Create Session</button>
+      </div>
+      <div class="status" id="createSessionStatus"></div>
+    </div>
+    <div class="session-filters" id="sessionFilters">
+      <button type="button" class="on" data-filter="all">All</button>
+      <button type="button" data-filter="open">Open</button>
+      <button type="button" data-filter="closed">Closed</button>
+    </div>
+    <div class="list" id="sessionsList"></div>
+  </div>
+
+  <div class="session-view" id="sessionDetailView">
+    <div class="chat-foot">
+      <div class="chat-session-actions">
+        <button type="button" id="btnBackSession" class="btn-sm">← Back to Sessions</button>
+        <button type="button" id="btnCloseSession" class="btn-sm">Close Session</button>
+        <button type="button" id="btnReopenSession" class="btn-sm" style="display:none;">Reopen Session</button>
+      </div>
+    </div>
+    <div class="chat-log" id="chatLog"></div>
+    <div class="chat-foot">
+      <div class="chat-status" id="chatStatus"></div>
+      <div class="chat-input-area">
+        <textarea id="sessionChatInput" placeholder="Ask Ezra about functional health..."></textarea>
+        <button id="btnSessionChatSend" type="button">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="model-inventory-view" id="modelsListView">
+    <div class="form-section">
+      <label>Functional Health Model</label>
+      <select id="knowledgeModelSelect" disabled>
+        <option value="hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest">hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest (Pinned)</option>
+      </select>
+      <p style="font-size:0.75rem;color:#888;margin-top:4px;">This is the dedicated model for Functional Health knowledge.</p>
+    </div>
+    <div class="list" id="ollamaModelsList"></div>
+  </div>
+</div>
+
+<script src="/static/js/knowledge.js"></script>
+</body>
+</html>

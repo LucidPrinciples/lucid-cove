@@ -132,3 +132,13 @@ models:
     type: local
     context_window: 32768
     notes: "Fine-tuned on Canon + Manifesto. Framework-native tuning generation. 94/94 eval score. LOCAL tier routes tuning-shaped work here."
+
+  # Domain model for Ezra Knowledge / Functional Health.
+  # Public name: Enoch Wellness. Host Ollama tag is the HF GGUF pull.
+  - id: enoch-wellness
+    name: "Enoch Wellness (Neo-Dolphin)"
+    provider: ollama
+    model_string: "hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest"
+    type: local
+    context_window: 8192
+    notes: "Ezra Knowledge domain model for Functional Health. Not the house brain. Unload after each Knowledge turn."

@@ -70,6 +70,8 @@ tabs:
     label: JouleWork
   - id: memory
     label: Memory
+  - id: knowledge
+    label: Knowledge
   - id: affiliates
     label: Affiliates
     script: affiliates

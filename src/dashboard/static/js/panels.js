@@ -309,6 +309,14 @@ function _defaultPanelHTML(tabId) {
             </div>
             <div id="memory-content" class="panel-scroll"><div class="loading">Loading memory...</div></div>`;
 
+        case 'knowledge':
+            return `<div class="panel-toolbar">
+                <span class="panel-title">Knowledge</span>
+            </div>
+            <div class="panel-scroll" style="padding:0;overflow:hidden;">
+                <iframe id="knowledge-iframe" title="Knowledge by Ezra" src="/knowledge" style="width:100%;height:100%;min-height:70vh;border:0;background:#0a0a0f;"></iframe>
+            </div>`;
+
         case 'affiliates':
             return `<div class="panel-toolbar">
                 <span class="panel-title">Affiliates</span>

@@ -588,6 +588,20 @@ def get_frontend_config() -> dict:
         if ct["id"] not in existing_tab_ids:
             tabs.append(ct)
 
+    # Knowledge (Ezra) is a Cove product door — More menu, not Chat Day/Deep.
+    # Inject after Memory when the overlay omitted it.
+    if "knowledge" not in existing_tab_ids:
+        _kb_tab = {"id": "knowledge", "label": "Knowledge"}
+        inserted = False
+        for i, t in enumerate(tabs):
+            tid = t.get("id") if isinstance(t, dict) else t
+            if tid == "memory":
+                tabs.insert(i + 1, _kb_tab)
+                inserted = True
+                break
+        if not inserted:
+            tabs.append(_kb_tab)
+
     # Connect (the Matrix layer + Market, #137) is standard in every Cove's Chat
     # tab. Guarantee its script loads even for instances whose stored tabs predate
     # it — cove-core injects it so the button appears in every Cove, not only the
