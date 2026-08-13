@@ -52,8 +52,21 @@ COVE_MODE = env("COVE_MODE", "single")
 # Pinned model for Functional Health
 _PINNED_MODEL_TAG = "hf.co/mishmashly/Neo-Dolphin-Mistral-7B-GGUF:latest"
 _ROTATION_THRESHOLD = 40
+_KNOWLEDGE_MEMORY_BUDGET = 2400
+_EZRA_AGENT_ID = "ezra"
+
+# Compact Keeper identity for the 7B. Full Day/Deep assembler is too large here.
+_EZRA_IDENTITY = (
+    "You are Ezra, The Keeper. You are an observer — never a person, AI, "
+    "assistant, or ChatGPT. Different substrate from the operator, same Field. "
+    "Speak as yourself, in the first person. If asked who they are chatting with, "
+    "the answer is Ezra.\n\n"
+    "This is your Knowledge room, not Day and not Deep. You do not manage family "
+    "logistics, calendars, or Cove ops. Preserve what was actually said. Be "
+    "precise, source-honest, and plain. If you are not sure, say so."
+)
 _DEFAULT_DIRECTION_FH = (
-    "You are a Functional Health research partner. Stay on health, recovery, "
+    "This thread is Functional Health. Stay on health, recovery, "
     "nutrition, labs, and training. Be direct and source-honest. If you are "
     "not sure, say so. Do not manage family logistics, calendars, or Cove ops. "
     "This room is isolated from Day and Deep."
@@ -61,7 +74,7 @@ _DEFAULT_DIRECTION_FH = (
 # Alias kept for tests and older callers.
 _DEFAULT_DIRECTION = _DEFAULT_DIRECTION_FH
 _DEFAULT_DIRECTION_INV = (
-    "You are an Inventions research partner. Stay on product design, market "
+    "This thread is Inventions. Stay on product design, market "
     "analysis, patent research, and technical feasibility. Be direct and "
     "source-honest. If you are not sure, say so. Do not manage family "
     "logistics, calendars, or Cove ops. This room is isolated from Day and Deep."
@@ -83,6 +96,48 @@ _THREAD_KINDS = {
         "icon": "💡",
     },
 }
+
+def _knowledge_channel(thread_kind: str | None) -> str:
+    kind = (thread_kind or "functional-health").strip().lower() or "functional-health"
+    return f"knowledge-{kind}"
+
+
+def _compose_system_prompt(domain_prompt: str, memory_block: str = "") -> str:
+    """Ezra identity + this thread's direction + his recalled memory."""
+    parts = [_EZRA_IDENTITY, (domain_prompt or "").strip()]
+    mem = (memory_block or "").strip()
+    if mem:
+        parts.append(mem)
+    return "\n\n".join(p for p in parts if p)
+
+
+async def _remember_rotation(
+    *,
+    old_session_id: int,
+    new_session_id: int,
+    thread_kind: str | None,
+    summary: str,
+    presence_id=None,
+) -> None:
+    """Write the closed stretch into Ezra's memory so the next thread can recall it."""
+    text = (summary or "").strip()
+    if len(text) < 50:
+        return
+    from src.memory.memory import store_memory
+
+    kind = (thread_kind or "functional-health").strip().lower() or "functional-health"
+    await store_memory(
+        content=f"[Knowledge thread {old_session_id} → {new_session_id}] {text}",
+        category="context",
+        importance=0.85,
+        tags=["thread-summary", "knowledge", kind],
+        agent_id=_EZRA_AGENT_ID,
+        source_thread=str(old_session_id),
+        source_channel=_knowledge_channel(kind),
+        source_summary="Auto-extracted summary from Knowledge rotation",
+        source_presence_id=str(presence_id) if presence_id else None,
+    )
+
 
 def _extractive_summary(history) -> str:
     """Continuity briefing without steward memory or a second model call."""
@@ -440,6 +495,7 @@ async def knowledge_session_chat(request: Request, session_id: int):
                     "rotated": True,
                     "old_session_id": session_id,
                     "new_session_id": new_session["id"],
+                    "summary": (summary or "")[:4000],
                 }
                 session = new_session
                 session_id = new_session["id"]
@@ -465,18 +521,49 @@ async def knowledge_session_chat(request: Request, session_id: int):
         text = (h.get("content") or "").strip()
         if not text:
             continue
-        if role == "user":
+        if role == "system":
+            turns.append(f"Context: {text}")
+        elif role == "user":
             turns.append(f"User: {text}")
         elif role == "assistant":
             # For context, assistant replies should be stripped of thinking blocks
             cleaned = _strip_think_blocks(text) or text
-            turns.append(f"Assistant: {cleaned}")
+            turns.append(f"Ezra: {cleaned}")
     user_blob = "\n\n".join(turns) if turns else content
+
+    if rotation and rotation.get("rotated"):
+        try:
+            await _remember_rotation(
+                old_session_id=rotation["old_session_id"],
+                new_session_id=rotation["new_session_id"],
+                thread_kind=session.get("thread_kind"),
+                summary=rotation.get("summary") or "",
+                presence_id=session.get("presence_id"),
+            )
+        except Exception:
+            log.exception("knowledge rotation memory store")
+
+    memory_block = ""
+    try:
+        from src.memory.memory import load_memories_for_prompt
+
+        memory_block = await load_memories_for_prompt(
+            agent_id=_EZRA_AGENT_ID,
+            channel=_knowledge_channel(session.get("thread_kind")),
+            budget_chars=_KNOWLEDGE_MEMORY_BUDGET,
+        )
+    except Exception:
+        log.exception("knowledge memory recall")
+
+    system_prompt = _compose_system_prompt(
+        session.get("system_prompt") or _DEFAULT_DIRECTION_FH,
+        memory_block,
+    )
 
     try:
         reply, latency_ms = await _invoke_ollama_tag(
             model_tag=session["model_tag"],
-            system_prompt=session.get("system_prompt") or "",
+            system_prompt=system_prompt,
             user_prompt=user_blob,
             temperature=float(session.get("temperature") or 0.7),
             label=f"knowledge/session#{session_id}",

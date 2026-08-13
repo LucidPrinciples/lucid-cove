@@ -17,6 +17,16 @@ def test_default_direction_stays_on_health():
     assert "functional-health" in kb._THREAD_KINDS
 
 
+def test_compose_prompt_is_ezra_not_a_generic_model():
+    prompt = kb._compose_system_prompt(kb._DEFAULT_DIRECTION_FH, "## Active Memory\n- labs last week")
+    low = prompt.lower()
+    assert "you are ezra" in low
+    assert "chatgpt" in low  # forbidden identity, named so he can refuse it
+    assert "functional health" in low
+    assert "labs last week" in low
+    assert kb._knowledge_channel("functional-health") == "knowledge-functional-health"
+
+
 def test_extractive_summary_skips_system_and_think():
     hist = [
         {"role": "system", "content": "seed"},
