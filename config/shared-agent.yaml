@@ -39,6 +39,8 @@ tabs:
     script: calendar
   - id: memory
     label: Memory
+  - id: knowledge
+    label: Knowledge
   - id: reports
     label: Reports
     scripts: [tuning, joulework]
