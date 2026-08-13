@@ -319,6 +319,7 @@ function renderActions(container, actions, scheduled, openWorkSessions) {
     openWorkSessions = openWorkSessions || _openWorkSessions || [];
     window._abLastScheduledItems = scheduled;
     window._abLastOpenWork = openWorkSessions;
+    window._abLastActions = actions;
 
     // ── Build tabs from all items ──────────────────────
     // Tab definitions: id, label, items, subtabs (optional)
@@ -445,6 +446,8 @@ function renderActions(container, actions, scheduled, openWorkSessions) {
                     html += _renderScheduledCards(sub.items, lane);
                 } else if (sub.id === 'history') {
                     html += _renderHistoryShell(sub.items);
+                } else if (_AB_PLATFORM_SUBS.indexOf(sub.id) >= 0) {
+                    html += _renderPlatformCards(sub.items, sub.id);
                 } else {
                     html += _renderActionCards(sub.items);
                 }
@@ -470,6 +473,17 @@ function renderActions(container, actions, scheduled, openWorkSessions) {
         if (upEl) {
             upEl._abSourceItems = allSched.filter(s => s.status === 'uploaded');
         }
+        window._abPlatformDrafts = window._abPlatformDrafts || {};
+        const lastActions = window._abLastActions || [];
+        _AB_PLATFORM_SUBS.forEach((pid) => {
+            const pel = document.getElementById(`ab-act-sub-social-${pid}`);
+            const items = lastActions.filter((a) => {
+                if (pid === 'youtube-short') return a.category === 'youtube-short' && !a.is_testing;
+                return a.category === pid && !a.is_testing;
+            });
+            window._abPlatformDrafts[pid] = items;
+            if (pel) pel._abSourceItems = items;
+        });
     } catch (_) { /* ignore */ }
 
     // Restore previously active tab/subtab after re-render
@@ -844,6 +858,13 @@ function _groupItemsBySession(items, opts) {
             order.push(ukey);
         }
     }
+    if (sortMode === 'history') {
+        order.sort((ka, kb) => {
+            const ta = Math.max(0, ...(map[ka] || []).map(_itemTimeMs));
+            const tb = Math.max(0, ...(map[kb] || []).map(_itemTimeMs));
+            return tb - ta;
+        });
+    }
     for (const k of order) {
         map[k].sort((a, b) => {
             if (sortMode === 'history') {
@@ -1048,7 +1069,72 @@ function _renderGrouped(items, cardFn, opts) {
     return html;
 }
 
-function _renderActionCards(items) {
+const _AB_RECENT_MS = 3 * 24 * 60 * 60 * 1000;
+const _AB_PLATFORM_SUBS = ['youtube-short', 'tiktok', 'x-post', 'instagram', 'facebook'];
+
+function _abGetPlatformLane(platId) {
+    const lanes = (_abLoadUi().platformLanes) || {};
+    return lanes[platId] === 'all' ? 'all' : 'recent';
+}
+
+function _abIsRecentItem(it) {
+    const t = _itemTimeMs(it);
+    if (!t) return false;
+    return (Date.now() - t) <= _AB_RECENT_MS;
+}
+
+function _abRecentItems(items) {
+    return (items || []).filter(_abIsRecentItem);
+}
+
+function _abPlatformLaneBarHtml(platId, recentCount, allCount) {
+    const lane = _abGetPlatformLane(platId);
+    const pid = esc(platId);
+    return `<div class="ab-filter-bar" data-platform-lane="${pid}" role="toolbar" aria-label="Recent or all drafts">
+        <div class="ab-filter-row">
+            <span class="ab-filter-label">Show</span>
+            <button type="button" class="ab-filter-chip${lane === 'recent' ? ' on' : ''}"
+                onclick="event.stopPropagation(); _abSetPlatformLane('${pid}', 'recent')">Recent</button>
+            <button type="button" class="ab-filter-chip${lane === 'all' ? ' on' : ''}"
+                onclick="event.stopPropagation(); _abSetPlatformLane('${pid}', 'all')">All</button>
+            <span class="ab-filter-count">${lane === 'recent' ? recentCount : allCount} / ${allCount}</span>
+        </div>
+    </div>`;
+}
+
+function _abSetPlatformLane(platId, lane) {
+    const lanes = Object.assign({}, (_abLoadUi().platformLanes) || {});
+    lanes[platId] = (lane === 'all') ? 'all' : 'recent';
+    _abSaveUi({ platformLanes: lanes });
+    const el = document.getElementById(`ab-act-sub-social-${platId}`);
+    const items = (window._abPlatformDrafts && window._abPlatformDrafts[platId])
+        || (el && el._abSourceItems)
+        || [];
+    if (el) {
+        el.innerHTML = _renderPlatformCards(items, platId);
+        el._abSourceItems = items;
+    }
+}
+
+function _renderPlatformCards(items, platId) {
+    const all = items || [];
+    const recent = _abRecentItems(all);
+    const lane = _abGetPlatformLane(platId);
+    const view = lane === 'all' ? all : recent;
+    const bar = _abPlatformLaneBarHtml(platId, recent.length, all.length);
+    if (!all.length) {
+        return `<div class="ab-empty">No drafts on this platform.</div>`;
+    }
+    if (!view.length) {
+        return `${bar}<div class="ab-empty">Nothing from the last 3 days.
+            <div style="margin-top:6px;font-size:0.78rem;color:var(--dim)">Switch to All to work the older unscheduled backlog.</div>
+        </div>`;
+    }
+    const opts = (lane === 'recent') ? { sort: 'history' } : undefined;
+    return bar + _renderActionCards(view, opts);
+}
+
+function _renderActionCards(items, opts) {
     return _renderGrouped(items, (a) => {
         const urgencyColors = { high: 'var(--red)', normal: 'var(--accent)', low: 'var(--green)' };
         const color = urgencyColors[a.urgency] || 'var(--dim)';
@@ -1123,7 +1209,7 @@ function _renderActionCards(items) {
             </div>
             <span class="ab-action-status-badge ab-status-${esc(a.status || 'draft')}">${esc(a.status || '')}</span>
         </div>`;
-    });
+    }, opts);
 }
 
 function _renderScheduledCards(items, lane) {

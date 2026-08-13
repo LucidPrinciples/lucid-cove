@@ -444,6 +444,11 @@ async def get_actions(request: Request):
                     "source_stem": stem,
                     "session_role": role,
                     "is_testing": testing,
+                    "created_at": (
+                        row["created_at"].isoformat()
+                        if row.get("created_at") and hasattr(row["created_at"], "isoformat")
+                        else (str(row["created_at"]) if row.get("created_at") else "")
+                    ),
                 })
 
             # CF-1: strict self-scope
@@ -554,6 +559,11 @@ async def get_actions(request: Request):
                     "source_stem": stem,
                     "session_role": role,
                     "is_testing": testing,
+                    "created_at": (
+                        row["created_at"].isoformat()
+                        if row.get("created_at") and hasattr(row["created_at"], "isoformat")
+                        else (str(row["created_at"]) if row.get("created_at") else "")
+                    ),
                 })
     except _SkipPublic:
         pass
