@@ -284,3 +284,26 @@ def test_ui_surfaces_new_video_meta_fields():
     assert "moment_mine_brief" in ui
     assert "description_skeleton" in ui
 
+
+
+def test_youtube_upload_does_not_append_shorts_hashtag():
+    """#Shorts is not a title tag. Upload + queue must strip, never append."""
+    yt = (ROOT / "src/dashboard/routes/youtube.py").read_text()
+    sched = (ROOT / "src/utils/scheduler.py").read_text()
+    assert 'title = f"{title} #Shorts"' not in yt
+    assert 'title = f"{title} #Shorts"' not in sched
+    assert "strip_hashtags_from_title" in yt
+    assert "strip_hashtags_from_title" in sched
+
+
+def test_title_prompt_forbids_hashtags():
+    from src.dashboard.routes.video_meta import (
+        empty_video_meta,
+        build_platform_system_prompt,
+    )
+    from src.dashboard.routes.social_templates import UNIVERSAL_RULES
+
+    yt = build_platform_system_prompt("youtube", empty_video_meta(), "quote", "30s")
+    assert "Never put hashtags in the title" in yt
+    assert "never include hashtags" in UNIVERSAL_RULES.lower()
+    assert "#shorts" in UNIVERSAL_RULES.lower()

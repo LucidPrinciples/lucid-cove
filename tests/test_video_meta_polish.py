@@ -62,6 +62,24 @@ def test_parse_polish_response_items():
     assert _parse_polish_response("not json") is None
 
 
+def test_strip_hashtags_from_title():
+    from src.dashboard.routes.video_meta import (
+        strip_hashtags_from_title,
+        ensure_title_differs_from_opening,
+    )
+    assert strip_hashtags_from_title("Freedom to choose #Shorts") == "Freedom to choose"
+    assert strip_hashtags_from_title("#shorts Daily practice") == "Daily practice"
+    assert strip_hashtags_from_title("Stay with it #lucid #dreams") == "Stay with it"
+    assert strip_hashtags_from_title("No tags here") == "No tags here"
+    cleaned = ensure_title_differs_from_opening({
+        "title": "A real question #Shorts",
+        "description": "Something else entirely.",
+        "hashtags": "#practice",
+    })
+    assert cleaned["title"] == "A real question"
+    assert cleaned["hashtags"] == "#practice"
+
+
 def test_merge_polished_item():
     from src.dashboard.routes.video_meta import _merge_polished_item
     orig = {"id": "1", "title": "Old", "description": "Old d", "hashtags": "", "tags": [], "platform": "youtube"}

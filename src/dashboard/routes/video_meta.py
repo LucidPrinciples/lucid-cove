@@ -121,7 +121,10 @@ VIDEO_META_FIELD_META = {
     },
     "hashtag_seeds": {
         "label": "Hashtag seeds",
-        "help": "Optional tags the writer may include when they fit. X still stays light on tags.",
+        "help": (
+            "Optional tags the writer may include in the hashtags / description "
+            "field when they fit. Never placed in the title. X still stays light on tags."
+        ),
         "placeholder": "#hardware #diy",
     },
     "description_extra": {
@@ -397,11 +400,11 @@ Write metadata for a YouTube Short clip.
 {desc_fmt}
 
 Rules:
-- Title: 50-70 chars. Hook-first. No clickbait but must grab attention. Include a key concept from the clip.
+- Title: 50-70 chars. Hook-first. No clickbait but must grab attention. Include a key concept from the clip. Never put hashtags in the title (no #words, no #Shorts).
 - Description: Follow DESCRIPTION FORMAT above (3-5 short sections). First line is the hook (shows in search). Topic bullets use → arrows, not dashes. Prefer easy response prompts when natural (a real question the viewer can answer), not forced engagement bait. {yt_link_rule}
 - TITLE VS OPENING LINE: the title and the first line of the description must NOT be identical or a near-paraphrase of each other. Title is the short searchable label; the description opening can restate the idea in different words or lead with the frame/why it matters. Never paste the title as description line 1.
 {attr_rule}
-- Hashtags: 8-12 relevant hashtags, mix of broad and niche. {hash_brand}
+- Hashtags: 8-12 relevant hashtags in the hashtags field only, mix of broad and niche. Never #shorts / #Shorts / #fyp. {hash_brand}
 - Tags: 10-15 comma-separated search terms for YouTube's tag system.
 
 The clip is {{clip_type}} length ({{duration}}s).
@@ -439,11 +442,11 @@ Write a caption for a TikTok video.
 {moment_line}
 
 Rules:
-- Title: Short hook (shown in search).
+- Title: Short hook (shown in search). No hashtags in the title.
 - Description: Caption 150-300 chars. Hook in first line, then one tight thought — not a multi-section skeleton. No URLs.
 - TITLE VS OPENING LINE: title and description first line must not be identical or near-paraphrase.
 - Prefer an easy response prompt when natural. Soft handle mention OK if brief.
-- Hashtags: 4-6 searchable topic tags. {hash_brand} Skip spam tags like #fyp.
+- Hashtags: 4-6 searchable topic tags in the hashtags field only. {hash_brand} Skip spam tags like #fyp, #shorts, #Shorts.
 - Tags: Empty array.
 
 The clip is {{clip_type}} length ({{duration}}s).
@@ -461,11 +464,11 @@ Return ONLY valid JSON:
 {desc_fmt}
 
 Rules:
-- Title: Short hook for the cover (40 chars max).
+- Title: Short hook for the cover (40 chars max). No hashtags in the title.
 - Description: Follow DESCRIPTION FORMAT above (2-4 sections). Prefer an easy response prompt when natural. No URLs (not clickable). If a site pointer is needed, say "link in bio" — never invent a URL.
 - TITLE VS OPENING LINE: title and description first line must not be identical or near-paraphrase.
 {attr_rule}
-- Hashtags: 8-12 focused hashtags at the end. {hash_brand}
+- Hashtags: 8-12 focused hashtags at the end of the description / hashtags field. Never in the title. Never #shorts / #Shorts / #fyp. {hash_brand}
 - Tags: Empty array.
 
 The clip is {{clip_type}} length ({{duration}}s).
@@ -556,7 +559,7 @@ def build_full_video_system_prompt(meta: dict[str, str]) -> str:
 {voice_line}
 {extra_line}
 
-Generate metadata for a full-length YouTube video. Title should be compelling and searchable.
+Generate metadata for a full-length YouTube video. Title should be compelling and searchable. Never put hashtags or #words in the title.
 
 {desc_fmt}
 
@@ -626,7 +629,7 @@ Your job — FINAL POLISH only:
 3) DE-DUPE titles across the batch: sibling clips of the same moment must not share near-identical titles. Differentiate by angle/size while staying true to the clip.
 3b) TITLE VS OPENING LINE (same card): for each item, title and the first line of description must not be identical or near-paraphrase. If the draft pasted the title as description line 1, rewrite the opening line (keep title) so the body starts with a different frame or restatement.
 4) Voice + hard rules: no em dashes, no placeholder text, no hype words (groundbreaking, game-changing, revolutionary). Finished postable copy only.
-5) Hashtags/tags: tighten for discovery when weak; do not invent brand tags the profile did not seed. X stays light on hashtags (0–1).
+5) Hashtags/tags: tighten for discovery when weak; do not invent brand tags the profile did not seed. X stays light on hashtags (0–1). Never put hashtags in the title. Never use #shorts, #Shorts, or #fyp.
 6) Do not invent URLs or closing blocks that were not already in the draft. Preserve exact closing blocks / CTAs already present.
 7) Keep platform_data and any fields you were not given out of the rewrite — only return the editable meta fields.
 
@@ -758,6 +761,17 @@ async def _invoke_polish_model(system_prompt: str, human_prompt: str) -> tuple[s
     return None, ""
 
 
+def strip_hashtags_from_title(title: str) -> str:
+    """Titles never carry hashtags. Seeds and #Shorts belong elsewhere."""
+    raw = (title or "").strip()
+    if not raw:
+        return ""
+    cleaned = re.sub(r"(?i)#shorts\b", " ", raw)
+    cleaned = re.sub(r"#[^\s#]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—|,")
+    return cleaned.strip()
+
+
 def _norm_meta_line(s: str) -> str:
     """Collapse whitespace + case for title/opening comparison."""
     return " ".join((s or "").strip().lower().split())
@@ -771,7 +785,10 @@ def ensure_title_differs_from_opening(item: dict) -> dict:
     """
     if not isinstance(item, dict):
         return item
-    title = (item.get("title") or "").strip()
+    title = strip_hashtags_from_title(item.get("title") or "")
+    if title != (item.get("title") or "").strip():
+        item = dict(item)
+        item["title"] = title
     desc = item.get("description") or ""
     if not title or not isinstance(desc, str) or not desc.strip():
         return item

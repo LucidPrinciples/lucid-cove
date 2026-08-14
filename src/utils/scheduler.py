@@ -801,11 +801,9 @@ class AgentScheduler:
                     raise
                 access_token = await get_valid_access_token("youtube")
 
-            # Build title
-            title = post["title"]
-            if post["is_short"] and "#Shorts" not in title and "#shorts" not in title:
-                if len(title) + 8 <= 100:
-                    title = f"{title} #Shorts"
+            # Build title. Never append #Shorts — titles stay hashtag-free.
+            from src.dashboard.routes.video_meta import strip_hashtags_from_title
+            title = strip_hashtags_from_title(post["title"] or "")
 
             # Append hashtags to description
             desc = post["description"] or ""
