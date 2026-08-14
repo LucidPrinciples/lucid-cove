@@ -99,7 +99,7 @@ class UploadRequest(BaseModel):
     made_for_kids: bool = Field(default=False)
     shorts: bool = Field(
         default=False,
-        description="If true, adds #Shorts to title if not present."
+        description="True when the file is a short-form clip. Titles never receive hashtags."
     )
     publish_at: str | None = Field(
         default=None,
@@ -163,12 +163,9 @@ async def youtube_upload(req: UploadRequest, request: Request):
     except ValueError as e:
         return JSONResponse(status_code=401, content={"error": str(e)})
 
-    # Build video metadata
-    title = req.title
-    if req.shorts and "#Shorts" not in title and "#shorts" not in title:
-        # Append #Shorts if it fits within the 100-char limit
-        if len(title) + 8 <= 100:
-            title = f"{title} #Shorts"
+    # Build video metadata. Titles stay free of hashtags — including #Shorts.
+    from src.dashboard.routes.video_meta import strip_hashtags_from_title
+    title = strip_hashtags_from_title(req.title)
 
     # Build snippet. Sanitize tags to YouTube's real limit: strip angle brackets
     # (rejected outright), drop empties, and cap the TOTAL characters (YouTube counts

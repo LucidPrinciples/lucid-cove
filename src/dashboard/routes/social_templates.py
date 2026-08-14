@@ -22,7 +22,9 @@ Hard rules (all platforms):
 - Separate paragraphs with a blank line (\\n\\n inside the JSON string).
 - No em dashes. Use periods or commas instead.
 - No performative hype ("groundbreaking", "game-changing", "revolutionary").
-- Plain, authentic voice. The creator talks like a person, not a marketer."""
+- Plain, authentic voice. The creator talks like a person, not a marketer.
+- TITLE: never include hashtags or #words. No #Shorts / #shorts. Hashtags belong only in the hashtags field (and description where that platform expects them).
+- Never use #shorts, #Shorts, or #fyp as a hashtag."""
 
 # Display names — prompts are built by video_meta.build_platform_system_prompt.
 PLATFORM_NAMES = {
