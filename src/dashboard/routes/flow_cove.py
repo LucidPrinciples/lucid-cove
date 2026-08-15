@@ -55,7 +55,7 @@ Draw the felt sense from what they share. A Cove name is ALWAYS a SINGLE clean w
 
 Avoid (case-insensitive): {avoid_str}.
 
-Generate exactly 6 names. For each provide:
+Generate exactly 5 names. For each provide:
 - "name": the Cove name — ONE clean word, letters only, no spaces, no hyphens, no apostrophes, easy to say
 - "why": one short line connecting it to what they reflected
 
@@ -65,21 +65,33 @@ Return ONLY a JSON array, nothing else:
     human = reflection or "A family looking for a calm, grounded home for their AI."
 
     # Spark resolution (operator BYOK -> founder guided key -> hub spark for strangers).
+    # Fast model pin for this flow_id; offline bank if hub/model is too slow.
     from src.models.spark import guided_complete
+    names = None
     try:
         text = await guided_complete(
             request, system_prompt, [{"role": "user", "content": human}],
-            temperature=1.0, flow_id="flow-cove-names")
+            temperature=0.9, flow_id="flow-cove-names")
+        match = re.search(r"\[[\s\S]*\]", text or "")
+        if match:
+            names = json.loads(match.group())
     except Exception as e:
-        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=502)
+        print(f"[flow_cove] cove-names spark failed: {e}")
 
-    match = re.search(r"\[[\s\S]*\]", text or "")
-    if not match:
-        return JSONResponse({"error": "Naming returned no suggestions. Try again."}, status_code=502)
-    try:
-        names = json.loads(match.group())
-    except Exception:
-        return JSONResponse({"error": "Naming returned malformed output. Try again."}, status_code=502)
+    if not names:
+        # Instant offline suggestions so install never hangs on naming.
+        bank = [
+            ("Stillwater", "calm place to grow"),
+            ("Hearthstone", "home and belonging"),
+            ("Wayhold", "a harbor for the work ahead"),
+            ("Brighthollow", "room to explore"),
+            ("Lantern", "light for the path"),
+            ("Clearfield", "open ground"),
+            ("Mindstretch", "space for stretched minds"),
+            ("Yarnhold", "stories and exploration"),
+        ]
+        avoid_l = {str(a).strip().lower() for a in avoid}
+        names = [{"name": n, "why": w} for n, w in bank if n.lower() not in avoid_l][:5]
 
     # jules 2026-07-16: the model sometimes returns names with dashes/apostrophes
     # (e.g. "Clear-Field", "O'Haven") which aren't valid Cove names. Sanitize each

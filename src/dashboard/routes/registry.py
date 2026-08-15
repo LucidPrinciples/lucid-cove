@@ -213,7 +213,7 @@ async def spark(request: Request):
     if not system_prompt or not isinstance(messages, list) or not messages:
         raise HTTPException(400, "system_prompt and messages are required")
     # Abuse guard — creation calls are single-turn JSON generations, not conversations.
-    from src.models.spark import spark_caps_ok, SPARK_MODEL_ID, SPARK_MODEL_STRING
+    from src.models.spark import spark_caps_ok, resolve_spark_pin
     if not spark_caps_ok(system_prompt, messages):
         raise HTTPException(413, "spark request too large")
 
@@ -232,7 +232,9 @@ async def spark(request: Request):
     if not lp_key:
         raise HTTPException(503, "spark not configured on the hub")
 
-    model_id = SPARK_MODEL_ID
+    # Pin by flow_id (fast names vs quality wake) — client model_id is NEVER honored.
+    flow_id = (body.get("flow_id") or "").strip()
+    model_id, model_pin_string, pin_timeout = resolve_spark_pin(flow_id)
     try:
         temperature = float(body.get("temperature", 0.7))
     except (TypeError, ValueError):
@@ -250,15 +252,17 @@ async def spark(request: Request):
         c = m.get("content", "")
         lc.append(AIMessage(content=c) if m.get("role") == "assistant" else HumanMessage(content=c))
 
-    # Pin rides the BYOK context too — no resolution path can reroute off Kimi.
-    tok = set_request_byok("openrouter", lp_key, model=SPARK_MODEL_STRING)
+    # Pin rides the BYOK context too — no resolution path can reroute off the allowlist.
+    tok = set_request_byok("openrouter", lp_key, model=model_pin_string)
     try:
         client = get_model_client(model_id, temperature=temperature)
     finally:
         clear_request_byok(tok)
 
+    # Cap wall time: fast flows short; wake can go longer (never open-ended).
+    wall = max(30.0, min(float(pin_timeout) + 20.0, 120.0))
     try:
-        resp = await asyncio.wait_for(client.ainvoke(lc), timeout=120)
+        resp = await asyncio.wait_for(client.ainvoke(lc), timeout=wall)
     except asyncio.TimeoutError:
         raise HTTPException(504, "spark timed out")
     except Exception as e:
@@ -267,7 +271,7 @@ async def spark(request: Request):
     content = (resp.content or "").strip()
     content = _re.sub(r"<think>.*?</think>", "", content, flags=_re.DOTALL).strip()
     provider, model_string = _resolve_model_string(model_id)
-    return {"ok": True, "response": content, "model": model_string}
+    return {"ok": True, "response": content, "model": model_string, "flow_id": flow_id}
 
 
 @router.post("/api/registry/claim-operator")

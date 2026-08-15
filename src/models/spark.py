@@ -37,16 +37,38 @@ from fastapi import Request
 
 from src.env import env
 
-# The one model LP's key will ever run. Registry id + raw string (the string is also
-# pinned into set_request_byok so no resolution path can reroute it).
+# LP-key models (pinned — never openrouter/auto, never Cove brain, never client free choice).
+# QUALITY: wake / first-memory — needs voice.
+# FAST: naming + archetype pick — short JSON; Kimi was too slow for a live wizard.
 SPARK_MODEL_ID = "kimi-k2.5-openrouter"
 SPARK_MODEL_STRING = "moonshotai/kimi-k2.5"
+SPARK_FAST_MODEL_ID = "deepseek-v3.2"
+SPARK_FAST_MODEL_STRING = "deepseek/deepseek-v3.2"
+
+# flow_id values that use the fast pin + shorter timeout (hub + Cove must agree).
+SPARK_FAST_FLOW_IDS = frozenset({
+    "flow-cove-names",
+    "flow-agent-names",
+    "flow-agent-identity",
+    "flow-agent-persona",
+})
+SPARK_FAST_TIMEOUT = 25.0
+SPARK_QUALITY_TIMEOUT = 90.0
 
 # Abuse caps for LP-key calls. Creation-Flow calls are single-turn JSON generations —
 # there is no conversation with this key.
 SPARK_MAX_MESSAGES = 4
 SPARK_MAX_SYSTEM_CHARS = 8000
 SPARK_MAX_TOTAL_CHARS = 12000
+
+
+def resolve_spark_pin(flow_id: str | None = None) -> tuple[str, str, float]:
+    """Return (registry_model_id, openrouter_model_string, default_timeout) for LP spark.
+    Fast flows = short JSON; everything else (wake) stays on Kimi quality pin."""
+    fid = (flow_id or "").strip()
+    if fid in SPARK_FAST_FLOW_IDS:
+        return SPARK_FAST_MODEL_ID, SPARK_FAST_MODEL_STRING, SPARK_FAST_TIMEOUT
+    return SPARK_MODEL_ID, SPARK_MODEL_STRING, SPARK_QUALITY_TIMEOUT
 
 
 async def spark_allowed(request: Request) -> bool:
@@ -123,7 +145,7 @@ def _clean(content: str) -> str:
 
 async def guided_complete(request: Request, system_prompt: str, messages: list,
                           *, temperature: float = 0.7, model_id: str = None,
-                          flow_id: str = None, timeout: float = 90.0) -> str:
+                          flow_id: str = None, timeout: float = None) -> str:
     """Run a guided/onboarding completion via the best available spark tier.
 
     `messages` is a list of {role: 'user'|'assistant', content: str}. Returns the
@@ -133,9 +155,13 @@ async def guided_complete(request: Request, system_prompt: str, messages: list,
     Tier 1 (operator BYOK): model_id defaults to the Cove BRAIN, and the operator's
     request-scoped key swaps to their provider — their key, their choice.
     Tiers 2 + 3 (LP's key): gated by spark_allowed() (creation only), capped by
-    spark_caps_ok(), and PINNED to SPARK_MODEL — the caller's model_id and the
-    Cove brain are both ignored on LP's dime.
+    spark_caps_ok(), and PINNED by flow_id (fast vs quality) — the caller's model_id
+    and the Cove brain are both ignored on LP's dime.
     """
+    pin_id, pin_string, pin_timeout = resolve_spark_pin(flow_id)
+    if timeout is None:
+        timeout = pin_timeout
+
     prov, key = await _operator_creds(request)
     on_lp_key = False
     if not key:
@@ -146,7 +172,7 @@ async def guided_complete(request: Request, system_prompt: str, messages: list,
     if on_lp_key:
         if not spark_caps_ok(system_prompt, messages):
             raise RuntimeError("spark request too large (creation calls are single short turns)")
-        model_id = SPARK_MODEL_ID
+        model_id = pin_id
     elif not model_id:
         from src.models.provider import current_cove_brain
         model_id = current_cove_brain().get("model")
@@ -161,7 +187,7 @@ async def guided_complete(request: Request, system_prompt: str, messages: list,
             lc.append(AIMessage(content=c) if m.get("role") == "assistant" else HumanMessage(content=c))
         # On LP's key the explicit model pin rides the BYOK context too, so even a
         # provider mismatch inside get_model_client cannot reroute to another model.
-        tok = set_request_byok(prov, key, model=SPARK_MODEL_STRING if on_lp_key else "")
+        tok = set_request_byok(prov, key, model=pin_string if on_lp_key else "")
         try:
             client = get_model_client(model_id, temperature=temperature)
         finally:
@@ -180,7 +206,7 @@ async def guided_complete(request: Request, system_prompt: str, messages: list,
         raise RuntimeError("spark request too large (creation calls are single short turns)")
     r = await registry_client.spark_complete(
         system_prompt=system_prompt, messages=messages,
-        model_id=SPARK_MODEL_ID, temperature=temperature, flow_id=flow_id, timeout=timeout + 20)
+        model_id=pin_id, temperature=temperature, flow_id=flow_id, timeout=timeout + 15)
     if not r.get("ok"):
         raise RuntimeError(r.get("reason") or "hub spark failed")
     return _clean(r.get("response") or "")
