@@ -870,6 +870,75 @@ async def onboarding_cove_door(request: Request):
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)[:200]})
 
 
+async def _founding_unfinished_operator() -> dict | None:
+    """Founding admin still in first-run (placeholder handle, empty agent_identity).
+
+    Used when the claim-link session cookie is missing so the virgin-Cove wizard can
+    still mint the founding @handle. Returns None once setup is past that state —
+    later calls require a real session.
+    """
+    import re
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            r = await conn.execute(
+                """SELECT id, display_name, username, email, agent_name, last_name,
+                          tier, cove_role, agent_config, agent_identity, active_workflows,
+                          api_mode, name_locked, preferences, referral_code, referred_by,
+                          nc_username, nc_password, created_at, last_access
+                   FROM accounts
+                   WHERE cove_role = 'admin' AND active = TRUE
+                   ORDER BY created_at ASC NULLS LAST
+                   LIMIT 3""")
+            rows = await r.fetchall()
+    except Exception:
+        return None
+    if not rows:
+        return None
+    # Only safe when the Cove still looks like a single unfinished founder seed.
+    unfinished = []
+    for row in rows:
+        uname = (row.get("username") or "").strip().lower()
+        if not re.match(r"^.+-[0-9a-f]{4}$", uname):
+            continue
+        ai = row.get("agent_identity")
+        if isinstance(ai, str):
+            try:
+                ai = json.loads(ai) if ai.strip() else {}
+            except Exception:
+                ai = {}
+        if isinstance(ai, dict) and ai:
+            continue
+        unfinished.append(dict(row))
+    if len(unfinished) == 1 and len(rows) == 1:
+        return unfinished[0]
+    return None
+
+
+async def _ensure_session_cookie(response: JSONResponse, request: Request, account_id) -> None:
+    """Attach a fresh presence_token so the rest of the wizard is authenticated."""
+    import secrets as _secrets
+    from src.dashboard.routes.presence import (
+        COOKIE_NAME, COOKIE_MAX_AGE, _create_session, _hash_token, _parse_device_label,
+    )
+    raw = _secrets.token_urlsafe(32)
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            await _create_session(
+                conn, account_id, _hash_token(raw),
+                _parse_device_label(request.headers.get("user-agent", "")),
+            )
+    except Exception:
+        return
+    _xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    secure = (request.url.scheme == "https") or (_xfp == "https")
+    response.set_cookie(
+        key=COOKIE_NAME, value=raw, max_age=COOKIE_MAX_AGE, path="/",
+        httponly=True, samesite="lax", secure=secure,
+    )
+
+
 @router.post("/api/onboarding/claim-operator")
 async def claim_operator(request: Request):
     """Wizard step 1 for a from-scratch install: create the operator's identity inline.
@@ -881,12 +950,25 @@ async def claim_operator(request: Request):
     writes the chosen handle/name/email onto the seeded operator row. If they ALREADY have
     a real handle (an upgrader who arrived with an account), this is a no-op — the wizard
     just prefills + locks it. Off-network (no LP_REGISTRY_URL) it skips the hub and just
-    sets the local handle (a fully-private Cove has no shared namespace)."""
+    sets the local handle (a fully-private Cove has no shared namespace).
+
+    Auth: prefers the claim-link session. If the cookie is missing on a virgin Cove,
+    falls back to the single unfinished founding admin (and mints a session cookie on
+    success) so first-run is not a hard dead-end.
+    """
     import re
     from src.dashboard.routes.presence import get_current_presence
     p = await get_current_presence(request)
+    minted_session = False
     if not p or not p.get("id"):
-        return JSONResponse(status_code=401, content={"ok": False, "error": "Not authenticated"})
+        p = await _founding_unfinished_operator()
+        if not p or not p.get("id"):
+            return JSONResponse(status_code=401, content={
+                "ok": False,
+                "error": "Not signed in. Re-open your claim link (the http://localhost:…/p/… "
+                         "URL from the install terminal) and try again — the handle is not the problem.",
+            })
+        minted_session = True
     body = await request.json()
     handle = (body.get("handle") or "").lstrip("@").strip().lower()
     # Woods / Jules 1310: capitalize at write — "jeff" must become "Jeff" here, not
@@ -924,10 +1006,15 @@ async def claim_operator(request: Request):
         if not rr.get("ok"):
             # Pass the structured code through (e.g. email_exists → the wizard offers connect /
             # leave-blank instead of a dead-end alert). #211.
+            # Also surface FastAPI `detail` from the hub so the alert is never empty.
+            err = (rr.get("error") or rr.get("reason") or rr.get("detail")
+                   or "That handle isn't available.")
+            if not isinstance(err, str):
+                err = str(err)
             return JSONResponse(status_code=409, content={
                 "ok": False,
                 "code": rr.get("code") or "",
-                "error": rr.get("error") or rr.get("reason") or "That handle isn't available.",
+                "error": err,
             })
         handle = (rr.get("handle") or handle).lstrip("@")
         minted_token = (rr.get("operator_token") or "").strip()
@@ -969,7 +1056,10 @@ async def claim_operator(request: Request):
                 tuple(params))
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": f"Couldn't save your handle: {e}"})
-    return {"ok": True, "handle": handle}
+    resp = JSONResponse({"ok": True, "handle": handle})
+    if minted_session:
+        await _ensure_session_cookie(resp, request, p["id"])
+    return resp
 
 
 @router.post("/api/onboarding/connect-operator")

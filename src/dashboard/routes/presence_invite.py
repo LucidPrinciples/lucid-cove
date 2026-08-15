@@ -270,7 +270,7 @@ async def open_invite(token: str, request: Request):
     resp = RedirectResponse(wizard, status_code=302)
     _xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
     resp.set_cookie(
-        key=COOKIE_NAME, value=raw, max_age=COOKIE_MAX_AGE, httponly=True,
+        key=COOKIE_NAME, value=raw, max_age=COOKIE_MAX_AGE, path="/", httponly=True,
         samesite="lax", secure=(request.url.scheme == "https") or (_xfp == "https"),
         domain=_cookie_domain_for(request),
     )

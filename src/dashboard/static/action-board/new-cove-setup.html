@@ -396,18 +396,33 @@ async function _watchCarry(h) {
     }
   } catch (e) { /* open fields by default */ }
 })();
+function _opErrMsg(d, status) {
+  // Middleware 403 returns {detail}; claim-operator returns {error, reason, code}.
+  // Never blame the handle when the real problem is "not signed in via claim link".
+  const raw = (d && (d.error || d.reason || d.detail)) || '';
+  const s = (typeof raw === 'string' ? raw : (raw && raw.msg) || '').trim();
+  if (status === 401 || status === 403 || /auth/i.test(s)) {
+    return 'This browser is not signed into the Cove yet. Re-open your claim link '
+      + '(the /p/… URL from install / NEXT_STEPS.md) and try again — the handle is not the problem.';
+  }
+  return s || 'Could not create your identity — try a different handle.';
+}
 async function opContinue() {
   if (opBtn.disabled) return;
   opBtn.disabled = true; opBtn.textContent = '…';
   try {
     if (!_opLocked && !_opConnected) {
+      // claim-operator is public at middleware but enforces first-run or session itself.
+      // Do not preflight /api/presence/me — virgin Coves may lack a cookie and still
+      // complete via the unfinished-founder fallback (cookie is minted on success).
       const r = await fetch('/api/onboarding/claim-operator', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         // join:true tells the server NOT to write cove.yaml's operator_token (that's the
         // founder's Cove token) — this is a member/second-admin joining an existing Cove.
         body: JSON.stringify({ name: (opName.value || '').trim(), handle: (opHandle.value || '').trim(), email: (opEmail.value || '').trim(), join: _joinMode }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.ok) {
         opBtn.disabled = false; opBtn.textContent = 'Continue →';
         if (d.code === 'email_exists') {
@@ -438,7 +453,7 @@ async function opContinue() {
           }
           return;
         }
-        alert(d.error || 'Could not create your identity — try a different handle.');
+        alert(_opErrMsg(d, r.status));
         return;
       }
     }
