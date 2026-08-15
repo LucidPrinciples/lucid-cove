@@ -144,7 +144,16 @@ async def wake_thread(request: Request):
     channel = (body.get("channel") or "").strip() or get_default_channel()
     try:
         target = await _resolve_wake_target_agent(request, body)
-        return await _append_messages(request, channel, items, agent_id=target)
+        out = await _append_messages(request, channel, items, agent_id=target)
+        # Leaving the wake ceremony (thread written) closes the LP spark window —
+        # finalize already wrote agent_identity; without this stamp, spark_allowed
+        # would stay open forever after first-run.
+        try:
+            from src.dashboard.routes.flow_cove import _stamp_spark_wake_done
+            await _stamp_spark_wake_done(request)
+        except Exception:
+            pass
+        return out
     except Exception as e:
         # Best-effort: don't break the flow if the thread write fails.
         return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=200)
