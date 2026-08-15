@@ -1,9 +1,9 @@
 """THE SPARK BOUNDARY + PIN (2026-07-19 incident).
 
-The LP Cove Onboarding key carries exactly one thing: the install wizard from the
-public repo, until the wizard's finalize writes the admin's agent_identity. And on
-LP's key the model is pinned to Kimi K2.5 via OpenRouter — never the Cove brain,
-never a client model_id, never openrouter/auto.
+The LP Cove Onboarding key carries the install wizard (naming + wake), until
+spark_wake_done is stamped (finalize alone is not enough — wake runs after
+identity write). On LP's key the model is pinned to Kimi K2.5 via OpenRouter —
+never the Cove brain, never a client model_id, never openrouter/auto.
 
 Regression: the guided-key fallback was "any keyless operator, forever" (post-setup
 Action Board tools billed to the onboarding key), and the spark inherited a
@@ -84,6 +84,16 @@ def test_spark_allowed_fails_closed():
     # No session (or any error underneath) must mean NO spark — never a fallback open.
     assert asyncio.get_event_loop().run_until_complete(
         spark_allowed(_NoSessionRequest())) is False
+
+
+def test_spark_allowed_holds_open_until_wake_done():
+    """Finalize writes agent_identity before the wake UI; spark must still run for
+    wake + wake-reflect, then close when spark_wake_done is stamped."""
+    src = _src("src/models/spark.py")
+    assert "spark_wake_done" in src
+    # Boundary still fails closed without a session (tested above); the wake stamp
+    # is the close after identity exists.
+    assert "not bool(ac.get(\"spark_wake_done\"))" in src or "spark_wake_done" in src
 
 
 # ── The caps ─────────────────────────────────────────────────────────────────

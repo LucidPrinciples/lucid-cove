@@ -283,4 +283,36 @@ Return ONLY JSON, nothing else: {{"message": "..."}}"""
         msg = (content or "").strip()
     if not msg:
         return JSONResponse({"error": "No reflection. Try again."}, status_code=502)
+    # Close the spark creation window after a successful first-memory reply so LP's
+    # key cannot keep serving post-setup flows (boundary lives in spark_allowed).
+    try:
+        await _stamp_spark_wake_done(request)
+    except Exception:
+        pass
     return {"message": msg}
+
+
+async def _stamp_spark_wake_done(request: Request) -> None:
+    """Mark agent_config.spark_wake_done so spark_allowed closes after the wake."""
+    from src.dashboard.routes.presence import get_current_presence
+    from src.memory.database import get_db
+    p = await get_current_presence(request)
+    if not p or not p.get("id"):
+        return
+    ac = p.get("agent_config") or {}
+    if isinstance(ac, str):
+        try:
+            ac = json.loads(ac) or {}
+        except Exception:
+            ac = {}
+    if not isinstance(ac, dict):
+        ac = {}
+    if ac.get("spark_wake_done"):
+        return
+    ac = dict(ac)
+    ac["spark_wake_done"] = True
+    async with get_db() as conn:
+        await conn.execute(
+            "UPDATE accounts SET agent_config = %s, updated_at = NOW() WHERE id = %s",
+            (json.dumps(ac), str(p["id"])),
+        )

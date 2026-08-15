@@ -10,12 +10,14 @@ Resolution order (Creation-Flow / onboarding inference ONLY):
      or on the stranger's box. (cove-creation-language.md: "Spark = the shared model
      Lucid Cove gives so the agent can wake and meet the operator.")
 
-THE SPARK BOUNDARY (2026-07-19): LP's key (tiers 2 + 3) carries exactly ONE thing —
-the install wizard from the public repo, i.e. creating the Cove. The wizard's finalize
-writes the admin's `agent_identity`; from that moment the spark is DEAD to this Cove.
-Full stop. Everything after — the admin onboarding, Action Board, mirror builder — runs
-on the operator's own brain or doesn't run. `spark_allowed()` is that boundary; every
-LP-key path must check it. Tier 1 (the operator's OWN key, their money) is never gated.
+THE SPARK BOUNDARY (2026-07-19, refined 2026-08-15): LP's key (tiers 2 + 3) carries
+the install wizard from the public repo — naming, identity, persona, AND the wake
+meet (first words + first-memory reply). Finalize writes `agent_identity` *before*
+the wake UI runs, so empty-identity alone would kill the spark mid-ceremony and the
+UI falls back to canned lines ("I'm keeping that…"). Gate is therefore:
+  admin + (no agent_identity yet  OR  agent_config.spark_wake_done is not set).
+Wake/finish stamps `spark_wake_done`. After that — admin onboarding, Action Board,
+mirror builder — operator's own brain only. Tier 1 (BYOK) is never gated.
 
 THE SPARK PIN: on LP's key the model is ALWAYS Kimi K2.5 via OpenRouter — never the
 Cove brain, never a caller-supplied model_id, never BYOK_DEFAULT_MODEL's lottery.
@@ -48,11 +50,13 @@ SPARK_MAX_TOTAL_CHARS = 12000
 
 
 async def spark_allowed(request: Request) -> bool:
-    """True only while the signed-in operator is a Cove admin still inside the
-    new-cove-setup wizard (empty `agent_identity` — the same check presence.py's
-    login redirect uses for firstrun). The wizard's finalize writes the identity,
-    which permanently closes this. Fails CLOSED: no session, not admin, or any
-    error → no spark."""
+    """True while the signed-in operator is a Cove admin still in creation.
+
+    Pre-finalize: empty agent_identity (same as firstrun redirect).
+    Post-finalize pre-wake: identity exists but agent_config.spark_wake_done is
+    unset — the wake UI still needs LP spark (finalize runs first in the wizard).
+    After wake completes (or is stamped closed): False. Fails CLOSED on any error.
+    """
     try:
         from src.dashboard.routes.presence import get_current_presence
         p = await get_current_presence(request)
@@ -65,7 +69,19 @@ async def spark_allowed(request: Request) -> bool:
                 ai = json.loads(ai) if ai.strip() else {}
             except Exception:
                 ai = {}
-        return not (isinstance(ai, dict) and ai)
+        if not (isinstance(ai, dict) and ai):
+            return True  # still in wizard before finalize
+        ac = p.get("agent_config") or {}
+        if isinstance(ac, str):
+            import json
+            try:
+                ac = json.loads(ac) or {}
+            except Exception:
+                ac = {}
+        if not isinstance(ac, dict):
+            ac = {}
+        # Wake ceremony still open until stamped done.
+        return not bool(ac.get("spark_wake_done"))
     except Exception:
         return False
 
