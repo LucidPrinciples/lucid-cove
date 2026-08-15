@@ -1651,16 +1651,23 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
     # on 8008, etc.). Self-host single-Cove keeps its static defaults. Write the
     # resolved ports back into deploy so every builder downstream uses them.
     target = (deploy.get("target") or "standalone").strip().lower()
+    # Umami (3000) + SearXNG (8888) must preflight too — fixed defaults collided on a
+    # 2nd Cove on the same host (compose bind fail → app never starts). install.sh
+    # also assigns these via _free and writes them into from-scratch deploy.
     _ports = netconfig.preflight_ports(
         {"app": deploy.get("app_port", 8200),
          "nextcloud": deploy.get("nextcloud_port", 8080),
          "matrix": deploy.get("matrix_port", 8008),
-         "voice": deploy.get("voice_port", 8301)},
+         "voice": deploy.get("voice_port", 8301),
+         "umami": deploy.get("umami_port", 3000),
+         "searxng": deploy.get("searxng_port", 8888)},
         target)
     deploy["app_port"] = _ports["app"]
     deploy["nextcloud_port"] = _ports["nextcloud"]
     deploy["matrix_port"] = _ports["matrix"]
     deploy["voice_port"] = _ports["voice"]
+    deploy["umami_port"] = _ports["umami"]
+    deploy["searxng_port"] = _ports["searxng"]
     # SHARED-Caddy (Haven) model for self-host: a standalone box runs ONE shared Caddy that
     # owns 80/443 and routes EVERY Cove (by container name over the external lucidcove-net
     # bridge). So a self-host Cove is now Caddy-LESS (no per-Cove 80/443 bind → multiple

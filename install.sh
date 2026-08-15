@@ -182,8 +182,12 @@ if [ ! -f "$CFG" ]; then
   # other host listener.)
   _busy() { docker ps --format '{{.Ports}}' 2>/dev/null | grep -q ":$1->" || lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
   _free() { local p="$1"; while _busy "$p"; do p=$((p+1)); done; printf '%s' "$p"; }
+  # App / NC / Matrix / voice + Umami / SearXNG — every host-published port must go
+  # through _free or a 2nd Cove on the same box collides (Umami 3000 / SearX 8888
+  # were fixed defaults → compose abort, app never starts, 3/9 containers).
   APP_PORT=$(_free 8200); NC_PORT=$(_free 8080); MX_PORT=$(_free 8008); VOICE_PORT=$(_free 8301)
-  c_dim "  ports: app $APP_PORT · nextcloud $NC_PORT · matrix $MX_PORT · voice $VOICE_PORT"
+  UMAMI_PORT=$(_free 3000); SEARX_PORT=$(_free 8888)
+  c_dim "  ports: app $APP_PORT · nextcloud $NC_PORT · matrix $MX_PORT · voice $VOICE_PORT · umami $UMAMI_PORT · searx $SEARX_PORT"
   # Host-side mesh preflight (CF-90b). Mesh membership is foundational: a claimed
   # address must point DNS at the box's MESH IP or nothing can reach it (NAT). The
   # provisioner runs in a throwaway container with its own network namespace, so it
@@ -220,7 +224,9 @@ deploy:
   app_port: $APP_PORT
   nextcloud_port: $NC_PORT
   matrix_port: $MX_PORT
-  voice_port: $VOICE_PORT${MESH_IP:+
+  voice_port: $VOICE_PORT
+  umami_port: $UMAMI_PORT
+  searxng_port: $SEARX_PORT${MESH_IP:+
   mesh_ip: $MESH_IP}
 model_providers:
   - openrouter        # add your key in the wizard / Settings — not required to boot
