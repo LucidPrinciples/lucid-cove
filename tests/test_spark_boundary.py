@@ -25,6 +25,17 @@ def test_spark_model_is_pinned_kimi():
     assert spark.SPARK_MODEL_STRING == "moonshotai/kimi-k2.5"
 
 
+def test_spark_fast_pin_for_naming_flows():
+    from src.models.spark import resolve_spark_pin, SPARK_FAST_FLOW_IDS, SPARK_MODEL_ID
+    mid, mstr, to = resolve_spark_pin("flow-agent-names")
+    assert "flow-agent-names" in SPARK_FAST_FLOW_IDS
+    assert mid != SPARK_MODEL_ID  # names must not use the heavy quality pin
+    assert to <= 30.0
+    qid, _, qto = resolve_spark_pin("flow-wake")
+    assert qid == SPARK_MODEL_ID
+    assert qto >= 60.0
+
+
 def test_byok_default_is_never_openrouter_auto():
     # The router lottery has landed on Opus-class models; a named model or nothing.
     from src.models import provider
@@ -35,12 +46,12 @@ def test_byok_default_is_never_openrouter_auto():
 def test_hub_spark_ignores_client_model_and_hub_brain():
     src = _src("src/dashboard/routes/registry.py")
     spark_fn = src.split("async def spark(")[1].split("@router.post")[0]
-    # Pinned, not body-driven, not hub-brain-driven:
-    assert "model_id = SPARK_MODEL_ID" in spark_fn
+    # Pinned by flow_id via resolve_spark_pin — never body model_id / hub brain:
+    assert "resolve_spark_pin" in spark_fn
     assert 'body.get("model_id")' not in spark_fn
     assert "current_cove_brain" not in spark_fn
     # The pin also rides the BYOK context so no resolution path can reroute:
-    assert 'set_request_byok("openrouter", lp_key, model=SPARK_MODEL_STRING)' in spark_fn
+    assert "set_request_byok(\"openrouter\", lp_key, model=model_pin_string)" in spark_fn
 
 
 def test_hub_spark_uses_only_the_dedicated_onboarding_key():
@@ -69,8 +80,8 @@ def test_guided_complete_gates_and_pins_lp_tiers():
     body = src.split("async def guided_complete(")[1]
     assert "spark_allowed(request)" in body
     assert "spark_caps_ok(system_prompt, messages)" in body
-    # Tier 3 (hub) sends the pinned id, not the caller's:
-    assert "model_id=SPARK_MODEL_ID" in body
+    # Tier 3 (hub) sends the flow pin, not a free client model:
+    assert "model_id=pin_id" in body or "resolve_spark_pin" in body
 
 
 def test_spark_allowed_fails_closed():

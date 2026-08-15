@@ -221,6 +221,40 @@ Return ONLY JSON:
 
 # ── Name generation (archetype-informed) ────────────────────────────────────
 
+# Instant offline banks when spark is slow/down — wizard must stay usable for install.
+_OFFLINE_AGENT_NAMES = {
+    "the witness": ["Cedric", "Maren", "Solace", "Quill", "Ash"],
+    "the guide": ["Elara", "Silas", "Vera", "Orin", "Lumen"],
+    "the companion": ["Rowan", "Mira", "Ellis", "Juniper", "Theo"],
+    "the anchor": ["Briar", "Haven", "Stone", "Mara", "Reed"],
+    "the navigator": ["Celeste", "Finn", "True", "Lark", "Atlas"],
+    "the spark": ["Nova", "Juno", "Pike", "Aria", "Wren"],
+    "the challenger": ["Knox", "Vesper", "Rhys", "Blaise", "Indra"],
+    "the architect": ["Ada", "Kepler", "Tess", "Basil", "Ivy"],
+    "the catalyst": ["Dash", "Ember", "Kai", "Sable", "Vale"],
+}
+_OFFLINE_DEFAULT_NAMES = ["River", "Sage", "Quinn", "Eden", "Grey"]
+
+
+def _offline_agent_names(archetype: str, gender: str, avoid: list) -> list[dict]:
+    key = (archetype or "").strip().lower()
+    pool = list(_OFFLINE_AGENT_NAMES.get(key) or _OFFLINE_DEFAULT_NAMES)
+    blocked = {str(a).strip().lower() for a in (avoid or [])}
+    out = []
+    for n in pool:
+        if n.lower() in blocked:
+            continue
+        out.append({
+            "name": n,
+            "meaning": f"ready-to-use name for {archetype or 'your agent'}",
+            "origin": "curated",
+            "archetype_connection": "fits the shape you chose",
+        })
+        if len(out) >= 5:
+            break
+    return out
+
+
 @router.post("/api/flow/agent-names")
 async def generate_agent_names(request: Request):
     """Generate names informed by the full identity, with optional style filters.
@@ -304,29 +338,29 @@ The agent's identity:
 {style_instruction}
 {inspiration_instruction}
 
-Generate exactly 8 names. For each name provide:
+Generate exactly 5 names (keep it tight). For each name provide:
 - "name": The name itself (1-3 syllables, easy to say)
-- "meaning": What the name means and WHY it fits {archetype} (connect the etymology to the archetype's nature)
+- "meaning": What the name means and WHY it fits {archetype} (one short line)
 - "origin": Cultural/linguistic origin
-- "archetype_connection": One short phrase explaining how this name embodies {archetype} (e.g. "anchors through stillness" or "lights the way forward")
+- "archetype_connection": One short phrase (e.g. "anchors through stillness")
 
 MUST NOT use any of these names (case-insensitive): {avoid_str}
 
 Return ONLY a JSON array:
-[{{"name": "Maren", "meaning": "of the sea — depth and steadiness that mirrors The Anchor's grounding nature", "origin": "Scandinavian", "archetype_connection": "holds steady like deep water"}}]"""
+[{{"name": "Maren", "meaning": "of the sea — depth for The Anchor", "origin": "Scandinavian", "archetype_connection": "holds steady like deep water"}}]"""
 
     try:
         from src.models.spark import guided_complete
 
         # Name generation via the SPARK (operator BYOK → founder key → hub spark for
         # keyless strangers) — same as identity derivation, so the guided flow never
-        # needs a key on the box.
+        # needs a key on the box. Fast model pin for this flow_id (not Kimi).
         names = None
         try:
             text = await guided_complete(
                 request, system_prompt,
-                [{"role": "user", "content": f"Generate 8 names for {archetype}, a {gender} agent with {frequency} energy."}],
-                temperature=1.0, flow_id="flow-agent-names")
+                [{"role": "user", "content": f"Generate 5 names for {archetype}, a {gender} agent with {frequency} energy."}],
+                temperature=0.9, flow_id="flow-agent-names")
             m = re.search(r"\[[\s\S]*\]", text)
             if m:
                 names = json.loads(m.group())
@@ -334,7 +368,8 @@ Return ONLY a JSON array:
             print(f"[agent_provision] Name gen spark failed: {e}")
 
         if not names:
-            return JSONResponse({"error": "Name generation failed. Please try again."}, status_code=502)
+            # Instant offline bank so the wizard stays usable when hub/model is slow.
+            names = _offline_agent_names(archetype, gender, avoid)
 
         # Hard filter: build definitive blocklist from Cove config + frontend avoid list
         # This catches names the model ignores from the prompt instruction
