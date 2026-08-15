@@ -110,6 +110,13 @@ class OperatorAuthMiddleware(BaseHTTPMiddleware):
         # (naming the Cove + picking a handle in the first-run wizard). Read-only, safe.
         "/api/presence/handle-available",
         "/api/cove/name-available",
+        # First-run wizard identity steps. The HTML wizard is a public static page; the
+        # claim-link cookie sometimes fails to stick (or the operator lands on the wizard
+        # without /p/…). These routes enforce first-run-only or session themselves so a
+        # virgin Cove can still mint the founding @handle (middleware 403 was surfacing
+        # as a bogus "try a different handle" alert).
+        "/api/onboarding/claim-operator",
+        "/api/onboarding/connect-operator",
         # Quick-door archetype gallery — the first-run wizard loads this template list
         # before a session is reliably in hand (same class as the two reads above).
         # Static framework templates only (no user data, no secrets). Read-only, safe.

@@ -387,10 +387,14 @@ async def signin_link_auth(token: str, request: Request):
         if _next.startswith("/") and not _next.startswith("//"):
             redirect_to = _next
     response = RedirectResponse(redirect_to)
+    # path="/" is required: without it some clients scope the cookie to /p and the
+    # wizard's /api/onboarding/* calls arrive unauthenticated (handle check is public,
+    # claim-operator is not → "try a different handle" on every handle).
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         max_age=COOKIE_MAX_AGE,
+        path="/",
         httponly=True,
         samesite="lax",
         secure=cookie_secure,
