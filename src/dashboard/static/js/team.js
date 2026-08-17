@@ -686,6 +686,8 @@ function invitePresence() {
     form.innerHTML = `
         <div class="team-section-header">Invite a Presence by link</div>
         <div class="add-member-fields">
+            <div style="font-size:0.72rem;color:var(--dim);line-height:1.55;margin-bottom:8px;">This is the off-mesh path. Someone already on the mesh can be added with Add Presence. The join link only works from anywhere after a one-time tunnel on this machine. Personal Mission Controls stay mesh-only.</div>
+            <div id="inv-tunnel"></div>
             <select id="inv-role" class="amf-input">
                 <option value="member">Member — their own agent + tools, reaches the team through an admin</option>
                 <option value="admin">Admin — full access to the build team</option>
@@ -700,6 +702,84 @@ function invitePresence() {
         </div>`;
     box.innerHTML = '';
     box.appendChild(form);
+    loadInviteTunnelStep();
+}
+
+async function loadInviteTunnelStep() {
+    const el = document.getElementById('inv-tunnel');
+    if (!el) return;
+    try {
+        const r = await fetch('/api/reachability/status');
+        const d = await r.json();
+        if (!r.ok) return;
+        // Hosted / already tunneled — no extra step.
+        if ((d.mode || '') === 'tunnel') {
+            el.innerHTML = '<div style="font-size:0.7rem;color:var(--green,#3fb950);margin-bottom:10px;">Off-mesh invite links can resolve. Create the link below.</div>';
+            return;
+        }
+        if (!d.eligible) {
+            el.innerHTML = '<div style="font-size:0.7rem;color:var(--orange,#e67e22);margin-bottom:10px;">Claim this Cove\'s address first — Invite by Link needs a domain the tunnel can route.</div>';
+            return;
+        }
+        const requested = !!d.tunnel_requested;
+        el.innerHTML = `
+            <div style="margin-bottom:12px;padding:10px;background:#0e0e16;border:1px solid #24242f;border-radius:8px;">
+                <div style="font-size:0.78rem;font-weight:600;color:var(--text);margin-bottom:4px;">One-time: make Invite by Link work off-mesh</div>
+                <div style="font-size:0.7rem;color:var(--dim);line-height:1.5;margin-bottom:8px;">${requested
+                    ? 'A tunnel was requested but not confirmed yet. Run the host command, then mark it done only after a phone that is not on the mesh can open a /join link.'
+                    : 'Run one command on this Cove\'s machine. That stands up a Cloudflare tunnel so the join page loads for someone who is not on your mesh. This stays here until that has actually been done.'}</div>
+                <div id="inv-public-status" style="font-size:0.7rem;color:var(--dim);margin-bottom:6px;"></div>
+                <div id="inv-public-cmd" style="display:none;margin-bottom:8px;font-size:0.7rem;"></div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <button class="btn btn-sm" type="button" onclick="enablePublicCoveFromInvite(this)">${requested ? 'Show host command again' : 'Get the host command'}</button>
+                    <button class="btn btn-sm" type="button" onclick="confirmPublicCoveFromInvite(this)">I ran it — off-mesh join works</button>
+                </div>
+            </div>`;
+    } catch (e) { /* invite form still works */ }
+}
+
+async function enablePublicCoveFromInvite(btn) {
+    const status = document.getElementById('inv-public-status');
+    const out = document.getElementById('inv-public-cmd');
+    if (btn) btn.disabled = true;
+    if (status) { status.textContent = 'Preparing…'; status.style.color = 'var(--dim)'; }
+    try {
+        const r = await fetch('/api/reachability/public', { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok || d.error) {
+            if (status) { status.textContent = d.error || 'Could not prepare.'; status.style.color = '#ff6b6b'; }
+            return;
+        }
+        if (status) { status.textContent = 'Run this once on the Cove machine:'; status.style.color = 'var(--accent)'; }
+        if (out) {
+            out.style.display = 'block';
+            out.innerHTML =
+                '<div style="background:#0e0e16;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-family:ui-monospace,monospace;color:var(--accent);word-break:break-all;">' + esc(d.host_command || '') + '</div>' +
+                '<div style="color:var(--dim);margin-top:6px;line-height:1.5;">' + esc(d.note || '') + '</div>';
+        }
+    } catch (e) {
+        if (status) { status.textContent = 'Could not prepare — try again.'; status.style.color = '#ff6b6b'; }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function confirmPublicCoveFromInvite(btn) {
+    const status = document.getElementById('inv-public-status');
+    if (btn) btn.disabled = true;
+    try {
+        const r = await fetch('/api/reachability/public/confirm', { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok || d.error) {
+            if (status) { status.textContent = d.error || 'Could not confirm.'; status.style.color = '#ff6b6b'; }
+            return;
+        }
+        loadInviteTunnelStep();
+    } catch (e) {
+        if (status) { status.textContent = 'Could not confirm — try again.'; status.style.color = '#ff6b6b'; }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 async function createPresenceInvite() {

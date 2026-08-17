@@ -1451,6 +1451,8 @@ async function ensureTabScripts(tabId) {
     const names = _tabScriptBasenames(tabId);
     // Team/Market also need presence-profile (#176).
     if (tabId === 'team' || tabId === 'market') names.push('presence-profile');
+    // Recent Echoes on the agent page calls showEchoDetail from tuning.js.
+    if (tabId === 'team') names.push('tuning');
     // Action Board virtual tabs need action-board.js (no longer cold-shell).
     if (typeof tabId === 'string' && tabId.indexOf('ab-') === 0) names.push('action-board');
     await loadScriptBasenames(names);

@@ -695,7 +695,7 @@ function _defaultPanelHTML(tabId) {
             return `<div class="panel-scroll ab-content">
                 <div class="ab-header">
                     <h2>Tools</h2>
-                    <p class="ab-subtitle">Your team's stations</p>
+                    <p class="ab-subtitle">Your team's stations. Open a tool, then use your browser's Add to Home Screen for a phone shortcut.</p>
                 </div>
                 <div id="ab-tools-list" class="ab-tools-list">
                     <div class="loading">Loading tools...</div>
