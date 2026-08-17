@@ -223,17 +223,19 @@ Return ONLY JSON:
 
 # Instant offline banks when spark is slow/down — wizard must stay usable for install.
 _OFFLINE_AGENT_NAMES = {
-    "the witness": ["Cedric", "Maren", "Solace", "Quill", "Ash"],
-    "the guide": ["Elara", "Silas", "Vera", "Orin", "Lumen"],
-    "the companion": ["Rowan", "Mira", "Ellis", "Juniper", "Theo"],
-    "the anchor": ["Briar", "Haven", "Stone", "Mara", "Reed"],
-    "the navigator": ["Celeste", "Finn", "True", "Lark", "Atlas"],
-    "the spark": ["Nova", "Juno", "Pike", "Aria", "Wren"],
-    "the challenger": ["Knox", "Vesper", "Rhys", "Blaise", "Indra"],
-    "the architect": ["Ada", "Kepler", "Tess", "Basil", "Ivy"],
-    "the catalyst": ["Dash", "Ember", "Kai", "Sable", "Vale"],
+    "the witness": ["Cedric", "Maren", "Solace", "Quill", "Ash", "Linnea", "Orrin", "Nest"],
+    "the guide": ["Elara", "Silas", "Orin", "Lumen", "Calla", "Idris", "Nimue", "Bram"],
+    "the companion": ["Rowan", "Mira", "Ellis", "Juniper", "Theo", "Nell", "Paxen", "Sorenna"],
+    "the anchor": ["Briar", "Haven", "Stone", "Mara", "Reed", "Cedar", "Holt", "Tamsin"],
+    "the navigator": ["Celeste", "Finn", "True", "Lark", "Maris", "Osa", "Quillan", "Vela"],
+    "the spark": ["Nova", "Juno", "Pike", "Aria", "Wren", "Sol", "Emberly", "Kite"],
+    "the challenger": ["Knox", "Vesper", "Rhys", "Blaise", "Indra", "Nyx", "Torin", "Reeve"],
+    "the architect": ["Ada", "Kepler", "Tess", "Basil", "Ivy", "Mina", "Corin", "Helix"],
+    "the catalyst": ["Dash", "Ember", "Sable", "Vale", "Riven", "Lux", "Cinder", "Ari"],
 }
-_OFFLINE_DEFAULT_NAMES = ["River", "Sage", "Quinn", "Eden", "Grey"]
+_OFFLINE_DEFAULT_NAMES = [
+    "River", "Eden", "Grey", "Willa", "Folke", "Sable", "Nori", "Bram",
+]
 
 
 def _offline_agent_names(archetype: str, gender: str, avoid: list) -> list[dict]:
@@ -250,7 +252,7 @@ def _offline_agent_names(archetype: str, gender: str, avoid: list) -> list[dict]
             "origin": "curated",
             "archetype_connection": "fits the shape you chose",
         })
-        if len(out) >= 5:
+        if len(out) >= 8:
             break
     return out
 
@@ -338,7 +340,7 @@ The agent's identity:
 {style_instruction}
 {inspiration_instruction}
 
-Generate exactly 5 names (keep it tight). For each name provide:
+Generate exactly 8 names. For each name provide:
 - "name": The name itself (1-3 syllables, easy to say)
 - "meaning": What the name means and WHY it fits {archetype} (one short line)
 - "origin": Cultural/linguistic origin
@@ -359,7 +361,7 @@ Return ONLY a JSON array:
         try:
             text = await guided_complete(
                 request, system_prompt,
-                [{"role": "user", "content": f"Generate 5 names for {archetype}, a {gender} agent with {frequency} energy."}],
+                [{"role": "user", "content": f"Generate 8 names for {archetype}, a {gender} agent with {frequency} energy."}],
                 temperature=0.9, flow_id="flow-agent-names")
             m = re.search(r"\[[\s\S]*\]", text)
             if m:
@@ -407,6 +409,22 @@ Return ONLY a JSON array:
 
         # Filter names with special characters that break config/paths
         names = [n for n in names if not any(c in n.get("name", "") for c in "'\"\\/-")]
+
+        # Reserved-name / avoid filters can empty a short spark or bank list.
+        # Top up from the offline bank so the wizard never looks like four chips.
+        if len(names) < 8:
+            have = {n.get("name", "").lower().strip() for n in names}
+            extra_avoid = list(cove_blocklist | have)
+            for extra in _offline_agent_names(archetype, gender, extra_avoid):
+                nm = (extra.get("name") or "").lower().strip()
+                if not nm or nm in have:
+                    continue
+                if any(c in extra.get("name", "") for c in "'\"\\/-"):
+                    continue
+                names.append(extra)
+                have.add(nm)
+                if len(names) >= 8:
+                    break
 
         return {"names": names[:8]}
 

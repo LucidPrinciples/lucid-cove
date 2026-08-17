@@ -703,9 +703,15 @@ function _onboardingCardHtml(item) {
             : (probe.probed
                 ? '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--dim);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:6px;">re-check</span>'
                 : '<span style="font-size:0.6rem;text-transform:uppercase;color:var(--dim);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:6px;">not checked</span>');
+        const nextLine = probe.hard_to_reach
+            ? 'Next: run the command, then on the router enable UPnP/NAT-PMP or reserve this box and forward UDP 41641. Refresh after that.'
+            : (probe.probed
+                ? 'Next: re-run the command when you can, or skip — the Cove still works.'
+                : 'Next: run the command on the Cove machine. That check tells us whether the router needs a one-time change.');
         const meta = [
+            `<div style="margin-top:2px;color:var(--text);">${nextLine}</div>`,
             st.ts ? `Last check: ${ESC(st.ts)}` : '',
-            reason ? `Reason: ${ESC(reason)}` : '',
+            reason ? `Detail: ${ESC(reason)}` : '',
             st.mesh_ip ? `Mesh IP: ${ESC(st.mesh_ip)}` : '',
             st.port_mapping ? `Port mapping: ${ESC(st.port_mapping)}` : '',
             st.nearest_derp ? `Nearest DERP: ${ESC(st.nearest_derp)}` : '',

@@ -463,15 +463,14 @@ async def onboarding_items(request: Request):
             "done": False,       # filled below from probe + skip flag
             "available": False,  # filled below — after foundation, admin only
             "admin_only": True,
-            "body": ("Your Cove works without this — L1 relay keeps you online. When this "
-                     "box is easy for the mesh to punch to, every phone and laptop gets "
-                     "faster direct paths. We only show this when a check says the host is "
-                     "hard to reach (or has never been checked)."),
+            "body": ("Your Cove still works — phones and laptops can use the private mesh "
+                     "through our relay. This step is optional: it makes those paths faster "
+                     "and more direct. Do the next action below, then refresh. Or skip."),
             "guide": [
-                "On the Cove machine, run the check command below (needs Tailscale on the host).",
-                "If it says hard to reach: on your router, enable UPnP/NAT-PMP if you trust it, OR set a DHCP reservation for this box and forward UDP 41641 to it.",
-                "Re-run the check. When it reports OK, this card clears itself.",
-                "Skip anytime — family can still use the private mesh via our relay.",
+                "Do this next: copy the command and run it on the Cove machine (needs Tailscale on the host).",
+                "If the result says hard to reach: on your router, enable UPnP/NAT-PMP if you trust it, OR reserve this box a DHCP address and forward UDP 41641 to it.",
+                "Run the command again. When it reports OK, this card clears itself.",
+                "Skip anytime — the family can still reach the Cove over the relay.",
             ],
         },
     ]
@@ -568,9 +567,11 @@ async def onboarding_items(request: Request):
             _s["skipped"] = _hr_skip
             if _hr.get("hard_to_reach"):
                 _s["title"] = "Your Cove host is hard to reach"
-                _hint = ((_hr.get("status") or {}).get("hint") or "").strip()
-                if _hint:
-                    _s["body"] = _hint
+                _s["body"] = (
+                    "Your Cove still works over the relay. Next: run the command on the "
+                    "Cove machine, then enable UPnP/NAT-PMP on the router or reserve this "
+                    "box and forward UDP 41641. Refresh after that — or skip."
+                )
             elif _hr.get("available_reason") == "stale_ok_recheck":
                 _s["title"] = "Re-check host reachability"
                 _s["body"] = ("Last check looked fine but is over a week old. Re-run the "

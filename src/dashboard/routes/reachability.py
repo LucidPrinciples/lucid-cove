@@ -104,5 +104,29 @@ async def enable_public(request: Request):
                  "(Tunnel:Edit + DNS:Edit) and CLOUDFLARE_ACCOUNT_ID in the environment "
                  "or the Cove's docker/.env. After it finishes, remote /join links resolve "
                  "from any device. This exposes only what Caddy already serves; your home "
-                 "IP stays hidden behind Cloudflare."),
+                 "IP stays hidden behind Cloudflare. Mark it done on Invite by Link only "
+                 "after an off-mesh phone can open a /join page — clicking this is not enough."),
     }
+
+
+@router.post("/api/reachability/public/confirm")
+async def confirm_public(request: Request):
+    """Admin: operator attests the host tunnel step actually works off-mesh.
+
+    Host success is not wired back yet, so this is the same signal as marking
+    an address live. Do not flip mode to tunnel from the request click alone.
+    """
+    if not await _is_admin_presence(request):
+        return JSONResponse(status_code=403, content={"error": "Admin Presence only"})
+    cove = load_cove_config()
+    domain = (cove.get("domain") or "").strip()
+    if not domain:
+        return JSONResponse(status_code=400, content={
+            "error": "Claim your Cove's address first — a public tunnel needs a domain to route."})
+    pub = dict(cove.get("public") or {}) if isinstance(cove.get("public"), dict) else {}
+    pub.update({"mode": "tunnel", "requested": True, "provider": "cloudflare"})
+    try:
+        save_cove_config({"public": pub})
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"could not save: {e}"})
+    return {"ok": True, "mode": "tunnel", "domain": domain}

@@ -3217,14 +3217,21 @@ function getSeedFlows() {
             { id: 'reframe-exercise', name: 'Reframe Exercise', description: 'Take a situation that feels stuck and walk through a guided reframe using the Lucid Principles framework.', category: 'practice', step_count: 5, est_time: '~10 min' },
         ];
     }
-    // Operator+ tier: full Creation Flows
-    return [
-        { id: 'new-cove-setup', name: 'New Cove Setup', description: 'The complete onboarding journey. Name your Cove, set up your family, configure your steward agent, and generate your provisioner config.', category: 'onboarding', step_count: 7, est_time: '~20 min' },
+    // Operator+ tier: full Creation Flows.
+    // New Cove Setup is first-run / join only — hide it once this Cove already
+    // has a real name. Opening it mid-life does not install another stack.
+    const flows = [];
+    const named = !!(typeof MC !== 'undefined' && MC.instance && String(MC.instance.family_name || '').trim()
+        && String(MC.instance.family_name).trim().toLowerCase() !== 'new cove');
+    if (!named) {
+        flows.push({ id: 'new-cove-setup', name: 'New Cove Setup', description: 'Name this Cove and bring your steward into being. This does not install another Cove on the machine.', category: 'onboarding', step_count: 7, est_time: '~20 min' });
+    }
+    return flows.concat([
         { id: 'create-a-product', name: 'Create a Product', description: 'Define a product, configure its agent pipeline, set pricing and delivery, and launch it into your Cove production system.', category: 'business', step_count: 0, est_time: 'Coming soon' },
         { id: 'create-a-business', name: 'Create a Business', description: 'Set up a new business entity. Identity, products, revenue model, agent roles, branding, and operational infrastructure.', category: 'business', step_count: 0, est_time: 'Coming soon' },
         { id: 'create-a-mirror', name: 'Create a Mirror', description: 'Build a philosophical mirror — map passages from your canon to Lucid Principles tuning combinations through your personal lens. The first marketplace product.', category: 'marketplace', step_count: 4, est_time: '~30 min' },
         // New Agent Setup is accessed from Team tab (per-operator) and end of New Cove Setup — not a standalone flow
-    ];
+    ]);
 }
 
 // =============================================================================
