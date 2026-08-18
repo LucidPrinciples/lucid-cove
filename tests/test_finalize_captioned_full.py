@@ -20,6 +20,9 @@ def test_finalize_endpoint_exists():
     assert "_finalize_captioned_full_metadata" in PROC
     # caption-full success path uses shared helper
     assert "await _finalize_captioned_full_metadata" in PROC
+    assert "_load_stem_transcript_text" in PROC
+    assert "x_source = await _load_stem_transcript_text" in PROC
+    assert "transcript_text=description or title" not in PROC
 
 
 def test_crop_ui_finalize_button():

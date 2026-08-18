@@ -590,15 +590,10 @@ async def caption_full_video(request: Request):
 _VIDEO_BASE = env("VIDEO_BASE_PATH", "/vault/AgentSkills/Content/video")
 
 
-async def _generate_video_metadata(stem: str, request=None) -> dict:
-    """Generate YouTube title, description, tags from the full transcript.
-
-    Uses the cove-core model chain (same as moments analysis). Reads the transcript
-    from the presence's NC (founder mount fallback) when a request is supplied.
-    Returns: { title, description, hashtags, tags: [] }
-    """
-    # Load transcript — presence NC (multi-mode) or founder mount
+async def _load_stem_transcript_text(stem: str, request=None, max_words: int = 4000) -> str:
+    """Load edited-then-raw transcript text for a stem (presence NC, founder fallback)."""
     from src.dashboard.routes.video_pipeline import _read_video_json
+
     transcript_text = ""
     for tf in [f"{stem}-transcript-edited.json", f"{stem}-transcript.json"]:
         tdata = await _read_video_json(request, f"transcripts/{tf}") if request is not None else None
@@ -607,15 +602,26 @@ async def _generate_video_metadata(stem: str, request=None) -> dict:
             transcript_text = " ".join(s.get("text", "") for s in segments)
             logger.info(f"Loaded transcript for metadata: {tf} ({len(segments)} segments)")
             break
+    if not transcript_text:
+        return ""
+    words = transcript_text.split()
+    if max_words and len(words) > max_words:
+        return " ".join(words[:max_words]) + " [truncated]"
+    return transcript_text
+
+
+async def _generate_video_metadata(stem: str, request=None) -> dict:
+    """Generate YouTube title, description, tags from the full transcript.
+
+    Uses the cove-core model chain (same as moments analysis). Reads the transcript
+    from the presence's NC (founder mount fallback) when a request is supplied.
+    Returns: { title, description, hashtags, tags: [] }
+    """
+    transcript_text = await _load_stem_transcript_text(stem, request)
 
     if not transcript_text:
         logger.warning(f"No transcript found for {stem} — using generic metadata")
         return {"title": f"{stem} — Full Video", "description": "", "hashtags": "", "tags": []}
-
-    # Truncate to ~4000 words to fit context
-    words = transcript_text.split()
-    if len(words) > 4000:
-        transcript_text = " ".join(words[:4000]) + " [truncated]"
 
     try:
         from src.models.provider import get_model_client, _resolve_model_string
@@ -748,12 +754,14 @@ async def _finalize_captioned_full_metadata(
         _cf1_pid = await _acting_presence_id(request)
 
         try:
+            # Write X from the talk, not a shrink of the YouTube description.
+            x_source = await _load_stem_transcript_text(stem, request)
             x_meta = await generate_platform_metadata(
                 platform="x",
                 clip_label=title,
                 clip_type="full",
                 duration_seconds=result.get("duration_seconds", 0),
-                transcript_text=description or title,
+                transcript_text=x_source or description or title,
                 request=request,
                 owner_id=owner_id,
             )

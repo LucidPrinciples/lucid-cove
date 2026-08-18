@@ -186,21 +186,18 @@ def test_short_tier_offers_three_sizes_when_supported():
     assert 'type": "story"' in src or '"type": "story"' in src
 
 
-def test_ig_fb_default_selected_in_crop_ui():
+def test_ig_fb_default_unselected_in_crop_ui():
     ui = (ROOT / "src/dashboard/static/action-board/video-crop-position.html").read_text()
     assert "{ id: 'instagram'" in ui
     assert "{ id: 'facebook'" in ui
-    # Both default selected true so process passes draft the full set
-    assert "id: 'instagram', label: 'Instagram'" in ui
-    assert "selected: true, format: '9:16' },\n    { id: 'facebook'" in ui or (
-        "instagram" in ui and "selected: true" in ui
-    )
-    # crude but stable: facebook line has selected: true
+    # Operator currently posts YT / TikTok / X. IG/FB stay available, off by default.
     for line in ui.splitlines():
+        if "id: 'youtube'" in line or "id: 'tiktok'" in line or "id: 'x'" in line:
+            assert "selected: true" in line
         if "id: 'facebook'" in line:
-            assert "selected: true" in line
+            assert "selected: false" in line
         if "id: 'instagram'" in line:
-            assert "selected: true" in line
+            assert "selected: false" in line
 
 
 def test_process_moments_passes_moment_context():
@@ -307,3 +304,29 @@ def test_title_prompt_forbids_hashtags():
     assert "Never put hashtags in the title" in yt
     assert "never include hashtags" in UNIVERSAL_RULES.lower()
     assert "#shorts" in UNIVERSAL_RULES.lower()
+
+
+def test_x_and_tiktok_prompts_target_cold_discovery():
+    from src.dashboard.routes.video_meta import (
+        empty_video_meta,
+        build_platform_system_prompt,
+        build_polish_system_prompt,
+    )
+
+    empty = empty_video_meta()
+    x = build_platform_system_prompt("x", empty, "story", "90s")
+    tt = build_platform_system_prompt("tiktok", empty, "thought", "45s")
+    polish = build_polish_system_prompt(empty)
+
+    assert "little or no following" in x.lower()
+    assert "never a shrink of a youtube description" in x.lower()
+    assert "1 or 2 topical" in x.lower()
+    assert "usually return \"\"" not in x.lower()
+
+    assert "little or no following" in tt.lower()
+    assert "search" in tt.lower()
+    assert "4-6 searchable" in tt.lower()
+
+    assert "no following" in polish.lower()
+    assert "1–2 topical" in polish or "1-2 topical" in polish.lower()
+    assert "X stays light on hashtags (0–1)" not in polish
