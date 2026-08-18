@@ -412,9 +412,9 @@ The clip is {{clip_type}} length ({{duration}}s).
 
 Return ONLY valid JSON:
 {{"title": "...", "description": "...", "hashtags": "#tag1 #tag2 ...", "tags": ["tag1", "tag2", ...]}}""",
-        "x": f"""You are an X/Twitter post writer.
+        "x": f"""You are an X/Twitter post writer for a creator with little or no following.
 
-Write a post to accompany a video clip.
+Write a standalone feed post that can stop a stranger mid-scroll. The video is the proof; the text must earn the play on its own.
 {who} {about}
 {voice_line}
 {extra_line}
@@ -422,10 +422,11 @@ Write a post to accompany a video clip.
 
 Rules:
 - Title: Not used on X. Set to the clip label.
-- Description: This IS the post text. Max 240 chars including hashtags (the video doesn't count). Punchy, conversational. NEVER include a URL or link. Single short post — do not use the multi-section description skeleton.
+- Description: This IS the post text. Max 240 chars including hashtags (the video doesn't count). Write from the clip transcript, never a shrink of a YouTube description. Open with one specific claim, contrast, or lived detail someone would search or quote. Then one tight thought. End with one real question the viewer can answer. NEVER include a URL or link. Single short post — do not use the multi-section description skeleton.
 - A soft handle credit is OK only if it fits the char limit and feels natural (e.g. a trailing handle), never "Creator is …".
+- Do not write vague recap lines ("thoughts on focus", "my journey building"). Name the concrete thing from the clip.
 - Prefer a light response prompt when it fits (a real question), not forced bait.
-- Hashtags: Default to NONE. At most 1 if it genuinely aids discovery. Usually return "".
+- Hashtags: 1 or 2 topical tags that match words a stranger would search for this clip. Not brand vanity tags unless the clip is explicitly about that brand. Never return empty when a topical tag is obvious. Never #fyp / #shorts / #Shorts.
 - Tags: Empty array.
 
 The clip is {{clip_type}} length ({{duration}}s).
@@ -433,20 +434,20 @@ The clip is {{clip_type}} length ({{duration}}s).
 
 Return ONLY valid JSON:
 {{"title": "...", "description": "...", "hashtags": "#tag1 #tag2 #tag3", "tags": []}}""",
-        "tiktok": f"""You are a TikTok caption writer.
+        "tiktok": f"""You are a TikTok caption writer for a creator with little or no following.
 
-Write a caption for a TikTok video.
+Write a caption that can surface in search and keep a stranger watching.
 {who} {about}
 {voice_line}
 {extra_line}
 {moment_line}
 
 Rules:
-- Title: Short hook (shown in search). No hashtags in the title.
-- Description: Caption 150-300 chars. Hook in first line, then one tight thought — not a multi-section skeleton. No URLs.
+- Title: Short searchable hook (shown in search). Specific claim or contrast from the clip, not a vague topic label. No hashtags in the title.
+- Description: Caption 150-300 chars. Write from THIS clip's transcript, not a recap of a longer YouTube description. Hook in first line with a concrete claim or lived detail, then one tight thought, then one real question. Not a multi-section skeleton. No URLs.
 - TITLE VS OPENING LINE: title and description first line must not be identical or near-paraphrase.
 - Prefer an easy response prompt when natural. Soft handle mention OK if brief.
-- Hashtags: 4-6 searchable topic tags in the hashtags field only. {hash_brand} Skip spam tags like #fyp, #shorts, #Shorts.
+- Hashtags: 4-6 searchable topic tags in the hashtags field only. Mix 1-2 broad discovery terms with 3-4 niche terms from the clip. {hash_brand} Skip spam tags like #fyp, #shorts, #Shorts. Prefer tags people search, not brand slogans.
 - Tags: Empty array.
 
 The clip is {{clip_type}} length ({{duration}}s).
@@ -625,11 +626,11 @@ Your job — FINAL POLISH only:
 1) DESCRIPTION FORMAT for multi-paragraph platforms (youtube, instagram, facebook):
 {sk}
    Never leave a bare topic list with no lead-in. Fix that if the draft did it.
-2) Short platforms (x, tiktok): keep single short posts; do not expand into the multi-section skeleton. Respect length limits (X ≤240 chars including hashtags).
+2) Short platforms (x, tiktok): keep single short posts; do not expand into the multi-section skeleton. Respect length limits (X ≤240 chars including hashtags). Write as if the creator has no following: a specific claim or contrast first, then one real question. Do not shrink a YouTube description into the X/TikTok body.
 3) DE-DUPE titles across the batch: sibling clips of the same moment must not share near-identical titles. Differentiate by angle/size while staying true to the clip.
 3b) TITLE VS OPENING LINE (same card): for each item, title and the first line of description must not be identical or near-paraphrase. If the draft pasted the title as description line 1, rewrite the opening line (keep title) so the body starts with a different frame or restatement.
 4) Voice + hard rules: no em dashes, no placeholder text, no hype words (groundbreaking, game-changing, revolutionary). Finished postable copy only.
-5) Hashtags/tags: tighten for discovery when weak; do not invent brand tags the profile did not seed. X stays light on hashtags (0–1). Never put hashtags in the title. Never use #shorts, #Shorts, or #fyp.
+5) Hashtags/tags: tighten for discovery when weak; do not invent brand tags the profile did not seed. X: 1–2 topical search tags (not brand vanity, never empty when a topic is obvious). TikTok: 4–6 searchable tags, mix broad + niche. Never put hashtags in the title. Never use #shorts, #Shorts, or #fyp.
 6) Do not invent URLs or closing blocks that were not already in the draft. Preserve exact closing blocks / CTAs already present.
 7) Keep platform_data and any fields you were not given out of the rewrite — only return the editable meta fields.
 
