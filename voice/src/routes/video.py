@@ -211,6 +211,29 @@ def encode_fps_args(video_path: str) -> list:
     return ["-vsync", "cfr"]
 
 
+# Publish audio: mix every source channel to one, then treat / loudnorm.
+# iPhone clips (and some Bluetooth captures) often park the talk on the left
+# and leave the right nearly empty. Speakers fold L+R so it sounds fine; a
+# single remaining earbud only hears the empty side. Filters without a
+# downmix run per channel and keep that hole. Preview already used -ac 1;
+# process-moments / caption-full did not.
+PUBLISH_AF = (
+    "aformat=channel_layouts=mono,"
+    "highpass=f=80,"
+    "lowpass=f=12000,"
+    "acompressor=threshold=-20dB:ratio=3:attack=5:release=50,"
+    "loudnorm=I=-14:TP=-1:LRA=11"
+)
+
+
+def publish_audio_args() -> list:
+    """AAC args for Shorts and captioned full: mono mix on both listen paths."""
+    return [
+        "-af", PUBLISH_AF,
+        "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "1",
+    ]
+
+
 def join_vf(*parts) -> str:
     """Comma-join non-empty filtergraph segments."""
     out = []
@@ -1052,13 +1075,6 @@ async def process_moments(request: Request):
                         vf_color,
                     )
 
-                af = (
-                    "highpass=f=80,"
-                    "lowpass=f=12000,"
-                    "acompressor=threshold=-20dB:ratio=3:attack=5:release=50,"
-                    "loudnorm=I=-14:TP=-1:LRA=11"
-                )
-
                 # Generate ASS subtitle file
                 ass_path = None
                 if transcript_segments and caption:
@@ -1095,10 +1111,10 @@ async def process_moments(request: Request):
                     # timecode/motion DATA tracks that derail default stream selection.
                     "-map", "0:v:0", "-map", "0:a:0?",
                     "-vf", vf,
-                    "-af", af,
                     # CFR at SOURCE rate when known — hard-coded 30fps was
                     # re-timing 24/60fps iPhone and looking soft vs QuickTime.
                     *encode_fps_args(video_path),
+                    *publish_audio_args(),
                     # Native passthrough (Original+HDR) or the SDR bt709 x264 bar.
                     *(native_v_args or [
                         "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
@@ -1109,7 +1125,6 @@ async def process_moments(request: Request):
                         "-colorspace", "bt709", "-color_primaries", "bt709",
                         "-color_trc", "bt709", "-color_range", "tv",
                     ]),
-                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
                     "-movflags", "+faststart",
                     out_tmp,
                 ]
@@ -1833,13 +1848,6 @@ async def caption_full_video(request: Request):
         if ass_path:
             vf += f",ass={ass_path}"
 
-        af = (
-            "highpass=f=80,"
-            "lowpass=f=12000,"
-            "acompressor=threshold=-20dB:ratio=3:attack=5:release=50,"
-            "loudnorm=I=-14:TP=-1:LRA=11"
-        )
-
         # Build ffmpeg command with trim if transcript defines boundaries
         cmd = ["ffmpeg", "-y"]
         if effective_start > 0:
@@ -1851,9 +1859,9 @@ async def caption_full_video(request: Request):
             # Map only real video + audio (skip iPhone timecode/motion data tracks).
             "-map", "0:v:0", "-map", "0:a:0?",
             "-vf", vf,
-            "-af", af,
             # CFR at SOURCE rate when known (not hard-coded 30).
             *encode_fps_args(video_path),
+            *publish_audio_args(),
             # Native passthrough (Original+HDR) or the SDR bt709 x264 bar.
             *(native_v_args or [
                 "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
@@ -1863,7 +1871,6 @@ async def caption_full_video(request: Request):
                 "-colorspace", "bt709", "-color_primaries", "bt709",
                 "-color_trc", "bt709", "-color_range", "tv",
             ]),
-            "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
             "-movflags", "+faststart",
             "-threads", "0",
             out_tmp,
