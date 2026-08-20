@@ -1204,7 +1204,8 @@ function _renderActionCards(items, opts) {
         <div class="ab-action-card ${postCls.classes}" data-id="${esc(a.id)}" data-stem="${esc(a.source_stem || '')}" data-session-role="${esc(a.session_role || '')}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${esc(a.title)} ${roleBadge} ${metaChips}</div>
+                <div class="ab-action-title">${esc(a.title)}</div>
+                ${ (roleBadge || metaChips) ? `<div class="ab-action-chrome">${roleBadge}${metaChips}</div>` : '' }
                 <div class="ab-action-desc">${esc(a.description || '')} ${stemBadge} ${series}</div>
             </div>
             <span class="ab-action-status-badge ab-status-${esc(a.status || 'draft')}">${esc(a.status || '')}</span>
@@ -1248,7 +1249,7 @@ function _renderScheduledCards(items, lane) {
         let ytLink = '';
         if (s.youtube_video_id) {
             const studioUrl = `https://studio.youtube.com/video/${s.youtube_video_id}/edit`;
-            ytLink = `<a href="${esc(studioUrl)}" target="_blank" style="color:var(--accent);font-size:11px;margin-left:8px;" onclick="event.stopPropagation()">Studio ↗</a>`;
+            ytLink = `<a class="ab-action-link" href="${esc(studioUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Studio ↗</a>`;
         }
 
         // Cache every scheduled row so cancel/open can tell youtube_queue vs social_queue
@@ -1270,7 +1271,8 @@ function _renderScheduledCards(items, lane) {
         <div class="ab-action-card ab-scheduled-card ${postCls.classes}" data-stem="${esc(s.source_stem || '')}" data-session-role="${esc(s.session_role || '')}" data-post-mode="${esc(postCls.mode)}" data-length="${esc(postCls.length)}" data-platform="${esc(plat)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${platTag}${esc(s.title)}${ytLink} ${roleBadge} ${metaChips}</div>
+                <div class="ab-action-title">${platTag}${esc(s.title)}</div>
+                ${ (ytLink || roleBadge || metaChips) ? `<div class="ab-action-chrome">${ytLink}${roleBadge}${metaChips}</div>` : '' }
                 <div class="ab-action-desc">${esc(s.subtitle)} ${stemBadge} ${series}${err} ${s.file_path ? `<span style="font-size:10px;color:var(--dim)">${esc(s.file_path.split('/').pop())}</span>` : ''}</div>
             </div>
             <span class="ab-action-status-badge ab-status-${esc(s.status)}">${esc(s.status)}</span>
@@ -1364,13 +1366,11 @@ function _renderHistoryCards(items) {
         );
         let links = '';
         if (watch) {
-            links += `<a href="${esc(watch)}" target="_blank" rel="noopener"
-                style="color:var(--accent);font-size:11px;margin-left:8px;"
+            links += `<a class="ab-action-link" href="${esc(watch)}" target="_blank" rel="noopener"
                 onclick="event.stopPropagation()">Watch ↗</a>`;
         }
         if (studio) {
-            links += `<a href="${esc(studio)}" target="_blank" rel="noopener"
-                style="color:var(--accent);font-size:11px;margin-left:8px;"
+            links += `<a class="ab-action-link" href="${esc(studio)}" target="_blank" rel="noopener"
                 onclick="event.stopPropagation()">Studio ↗</a>`;
         }
         const key = `${plat}:${h.id}`;
@@ -1388,7 +1388,8 @@ function _renderHistoryCards(items) {
              data-history-id="${esc(String(h.id))}" data-platform="${esc(plat)}" ${clickAttr}>
             <div class="ab-action-urgency" style="background:var(--green)"></div>
             <div class="ab-action-info">
-                <div class="ab-action-title">${platTag}${esc(h.title || '')}${links} ${roleBadge} ${metaChips}</div>
+                <div class="ab-action-title">${platTag}${esc(h.title || '')}</div>
+                ${ (links || roleBadge || metaChips) ? `<div class="ab-action-chrome">${links}${roleBadge}${metaChips}</div>` : '' }
                 <div class="ab-action-desc">${esc(h.subtitle || '')} ${stemBadge} ${
                     h.series ? `<span class="ab-action-series">${esc(h.series)}</span>` : ''
                 }</div>

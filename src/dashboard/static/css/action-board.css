@@ -66,17 +66,24 @@
 #ab-actions-list {
   display: block;
 }
-/* Cards within each panel use grid */
+/* Cards within each panel use grid.
+   Desktop is two-up so titles stay mostly one line (mobile already stacks 1fr). */
 .ab-act-panel {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
 }
 .ab-act-subtabs, .ab-act-subpanel {
   grid-column: 1 / -1;
 }
 .ab-act-subpanel {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.5rem;
+}
+.ab-act-subpanel > .ab-filter-bar,
+.ab-act-subpanel > .ab-empty,
+.ab-act-panel > .ab-filter-bar,
+.ab-act-panel > .ab-empty {
+  grid-column: 1 / -1;
 }
 /* ── Action tab bar (top-level categories) ── */
 .ab-act-tabs {
@@ -434,7 +441,7 @@
 }
 .ab-session-body {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     padding: 0 10px 10px;
 }
@@ -459,7 +466,17 @@
 .ab-action-card:hover { border-color: var(--accent); background: var(--card); }
 .ab-action-urgency { width: 3px; min-height: 2.2rem; border-radius: 2px; flex-shrink: 0; align-self: stretch; }
 .ab-action-info { flex: 1; min-width: 0; }
-.ab-action-title { font-size: 0.8rem; font-weight: 600; line-height: 1.35; margin-bottom: 0.2rem; }
+.ab-action-title { font-size: 0.8rem; font-weight: 600; line-height: 1.35; margin-bottom: 0.15rem; }
+.ab-action-chrome {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.45rem;
+  margin: 0 0 0.2rem;
+}
+.ab-action-chrome:empty { display: none; }
+.ab-action-link {
+  color: var(--accent); font-size: 0.68rem; font-weight: 600;
+  text-decoration: none; white-space: nowrap;
+}
+.ab-action-link:hover { text-decoration: underline; }
 .ab-action-desc { font-size: 0.68rem; color: var(--dim); line-height: 1.35; }
 .ab-action-series {
   font-size: 0.58rem; font-weight: 600; color: var(--accent);
@@ -1229,6 +1246,7 @@
 
 @media (max-width: 768px) {
   .ab-act-panel, .ab-act-subpanel { grid-template-columns: 1fr; }
+  .ab-session-body { grid-template-columns: 1fr; }
   #ab-flows-list { grid-template-columns: 1fr; }
   .ab-link-grid { grid-template-columns: 1fr; }
   .vault-grid { grid-template-columns: 1fr; }
