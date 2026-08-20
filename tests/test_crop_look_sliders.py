@@ -111,6 +111,12 @@ def test_hq_scale_and_join_vf():
     assert "out_color_matrix=bt2020" in hdr
     assert ns["join_vf"]("crop=1", "", None, "eq=x") == "crop=1,eq=x"
     assert ns["join_vf"]("crop=1", "") == "crop=1"
+    # Same-size crop → no lanczos pass. Smaller crop still scales.
+    assert ns["hq_fit"](2160, 3840, 2160, 3840) == ""
+    assert ns["hq_fit"](2160, 2160, 2160, 2160) == ""
+    fit_up = ns["hq_fit"](1620, 1620, 2160, 2160)
+    assert "scale=2160:2160" in fit_up
+    assert "lanczos" in fit_up
 
 
 def test_encode_defaults_original_and_quality():
