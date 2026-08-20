@@ -741,6 +741,7 @@ async def get_scheduled(request: Request):
                     "source_stem": stem,
                     "session_role": role,
                     "related_video": row.get("related_video"),
+                    "file_path": row.get("file_path") or "",
                 })
 
             # X (and future API auto platforms) live in social_queue — not youtube_queue.
@@ -795,6 +796,7 @@ async def get_scheduled(request: Request):
                     "clip_type": row.get("clip_type") or "",
                     "source_stem": stem,
                     "session_role": role,
+                    "file_path": row.get("file_path") or "",
                 })
 
     except Exception:

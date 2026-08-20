@@ -1271,7 +1271,7 @@ function _renderScheduledCards(items, lane) {
             <div class="ab-action-urgency" style="background:${color}"></div>
             <div class="ab-action-info">
                 <div class="ab-action-title">${platTag}${esc(s.title)}${ytLink} ${roleBadge} ${metaChips}</div>
-                <div class="ab-action-desc">${esc(s.subtitle)} ${stemBadge} ${series}${err}</div>
+                <div class="ab-action-desc">${esc(s.subtitle)} ${stemBadge} ${series}${err} ${s.file_path ? `<span style="font-size:10px;color:var(--dim)">${esc(s.file_path.split('/').pop())}</span>` : ''}</div>
             </div>
             <span class="ab-action-status-badge ab-status-${esc(s.status)}">${esc(s.status)}</span>
         </div>`;
@@ -2125,6 +2125,10 @@ function openUploadedDetail(queueId) {
                 <div class="ab-detail-title-row">
                     <h2 class="ab-detail-title">${esc(item.title)}</h2>
                     <span class="ab-action-status-badge ab-status-uploaded">uploaded</span>
+                </div>
+                                <div class="ab-detail-field">
+                    <label>Filename</label>
+                    <div class="ab-detail-filepath">${esc(item.file_path.split('/').pop() || '')}</div>
                 </div>
                 ${pubDate ? `<div style="margin:12px 0;color:#aaa;font-size:13px;">Scheduled to go public: ${pubDate}</div>` : ''}
                 ${item.series ? `<div style="margin-bottom:12px;"><span class="ab-action-series">${esc(item.series)}</span></div>` : ''}
