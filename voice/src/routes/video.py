@@ -139,6 +139,24 @@ def hq_scale(w, h, *, out_matrix: str | None = "bt709") -> str:
     return base
 
 
+def hq_fit(src_w, src_h, out_w, out_h, *, out_matrix: str | None = "bt709") -> str:
+    """Scale crop → output only when the crop is not already that size.
+
+    Lanczos on a same-size frame still refilters 4K texture. Skip when the
+    requested crop already matches the deliverable pixels (full-frame 9:16
+    at 2160×3840, or a square already at the pad target). Geometry that
+    actually changes size still uses hq_scale.
+    """
+    try:
+        sw, sh = int(src_w), int(src_h)
+        ow, oh = int(out_w), int(out_h)
+    except (TypeError, ValueError):
+        return hq_scale(out_w, out_h, out_matrix=out_matrix)
+    if sw > 0 and sh > 0 and sw == ow and sh == oh:
+        return ""
+    return hq_scale(out_w, out_h, out_matrix=out_matrix)
+
+
 def scale_out_matrix(color_info: dict | None, *, native_hdr: bool) -> str | None:
     """Matrix for hq_scale: keep bt2020 on native HDR, bt709 on SDR deliverables.
 
@@ -1030,12 +1048,13 @@ async def process_moments(request: Request):
                 # Build video filter chain per format
                 # HDR→SDR first (when needed), then geometry; look grade last.
                 if fmt == "vertical" and border_enabled:
-                    # Crop → hq scale to square → pad with black bars → optional look
+                    # Crop → scale only if crop ≠ video area → pad → optional look
                     video_h = fmt_out_h - fmt_bar_top - fmt_bar_bot
+                    crop_side = min(int(src_w), int(src_h))
                     vf = join_vf(
                         vf_prep,
                         _square_crop_expr(src_w, src_h, src_x, src_y),
-                        hq_scale(fmt_out_w, video_h, out_matrix=scale_matrix),
+                        hq_fit(crop_side, crop_side, fmt_out_w, video_h, out_matrix=scale_matrix),
                         f"pad={fmt_out_w}:{fmt_out_h}:0:{fmt_bar_top}:black",
                         vf_color,
                     )
@@ -1044,17 +1063,18 @@ async def process_moments(request: Request):
                     vf = join_vf(
                         vf_prep,
                         _rect_crop_expr(src_w, src_h, src_x, src_y),
-                        hq_scale(fmt_out_w, fmt_out_h, out_matrix=scale_matrix),
+                        hq_fit(src_w, src_h, fmt_out_w, fmt_out_h, out_matrix=scale_matrix),
                         vf_color,
                     )
                 elif fmt == "horizontal":
                     # Pillarboxed: same square crop as vertical, placed in 16:9 frame
                     h_pad_left = (fmt_out_w - h_square) // 2
                     if border_enabled and src_w > 0:
+                        crop_side = min(int(src_w), int(src_h))
                         vf = join_vf(
                             vf_prep,
                             _square_crop_expr(src_w, src_h, src_x, src_y),
-                            hq_scale(h_square, h_square, out_matrix=scale_matrix),
+                            hq_fit(crop_side, crop_side, h_square, h_square, out_matrix=scale_matrix),
                             f"pad={fmt_out_w}:{fmt_out_h}:{h_pad_left}:{fmt_bar_top}:black",
                             vf_color,
                         )
@@ -1067,11 +1087,12 @@ async def process_moments(request: Request):
                             vf_color,
                         )
                 elif fmt == "square":
-                    # Same 1:1 crop as vertical → hq scale to output square
+                    # Same 1:1 crop as vertical → scale only if crop ≠ output square
+                    crop_side = min(int(src_w), int(src_h))
                     vf = join_vf(
                         vf_prep,
                         _square_crop_expr(src_w, src_h, src_x, src_y),
-                        hq_scale(fmt_out_w, fmt_out_h, out_matrix=scale_matrix),
+                        hq_fit(crop_side, crop_side, fmt_out_w, fmt_out_h, out_matrix=scale_matrix),
                         vf_color,
                     )
 
@@ -1821,11 +1842,12 @@ async def caption_full_video(request: Request):
         )
 
         if has_crop:
-            # HDR prep → crop to operator's square → hq scale → pillarbox → look
+            # HDR prep → crop to operator's square → scale only if needed → pillarbox → look
+            crop_side = min(int(src_w), int(src_h))
             vf = join_vf(
                 vf_prep,
                 _square_crop_expr(src_w, src_h, src_x, src_y),
-                hq_scale(h_square, h_square, out_matrix=scale_matrix),
+                hq_fit(crop_side, crop_side, h_square, h_square, out_matrix=scale_matrix),
                 f"pad={fmt_out_w}:{fmt_out_h}:{pad_left}:{h_bar_top}:black",
                 vf_color,
             )
