@@ -66,17 +66,17 @@
 #ab-actions-list {
   display: block;
 }
-/* Cards within each panel use grid.
-   Desktop is two-up so titles stay mostly one line (mobile already stacks 1fr). */
+/* Action cards are two Links-tiles wide (Links uses minmax(220px)).
+   auto-fill packs as many as the monitor allows — 2 on a laptop, 4–5 on a wide display. */
 .ab-act-panel {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
   gap: 0.5rem;
 }
 .ab-act-subtabs, .ab-act-subpanel {
   grid-column: 1 / -1;
 }
 .ab-act-subpanel {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
   gap: 0.5rem;
 }
 .ab-act-subpanel > .ab-filter-bar,
@@ -317,10 +317,7 @@
   grid-column: 1 / -1;
   width: 100%;
 }
-/* History reads as full-width rows (session stack), not a multi-column tile grid */
-#ab-history-body .ab-session-body {
-  grid-template-columns: 1fr;
-}
+/* History cards pack on the same double-tile grid as Scheduled/Uploaded. */
 #ab-history-body .ab-history-card {
   width: 100%;
   max-width: none;
@@ -441,7 +438,7 @@
 }
 .ab-session-body {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
     gap: 8px;
     padding: 0 10px 10px;
 }

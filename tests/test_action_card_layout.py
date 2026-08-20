@@ -1,4 +1,4 @@
-"""Action cards: two-up desktop rows; title then Studio/badges."""
+"""Action cards: double Links-tile width, pack across the monitor; title then Studio/badges."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -6,12 +6,12 @@ CSS = (ROOT / "src/dashboard/static/css/action-board.css").read_text(encoding="u
 JS = (ROOT / "src/dashboard/static/js/action-board.js").read_text(encoding="utf-8")
 
 
-def test_desktop_two_column_action_grids():
-    assert CSS.count("grid-template-columns: repeat(2, minmax(0, 1fr))") >= 2
-    # Session groups (where most cards live) are two-up; History stays 1fr.
-    marker = ".ab-session-body {\n    display: grid;\n    grid-template-columns: repeat(2, minmax(0, 1fr));"
+def test_desktop_double_tile_action_grids():
+    assert CSS.count("grid-template-columns: repeat(auto-fill, minmax(440px, 1fr))") >= 3
+    marker = ".ab-session-body {\n    display: grid;\n    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));"
     assert marker in CSS
-    assert "#ab-history-body .ab-session-body" in CSS
+    # History uses the same packing — no 1fr override on session bodies.
+    assert "#ab-history-body .ab-session-body" not in CSS
 
 
 def test_mobile_stacks_session_cards():
