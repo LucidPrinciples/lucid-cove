@@ -57,6 +57,19 @@ def test_router_has_expected_paths():
     assert "/api/model-lab/models" in paths
     assert "/api/model-lab/sessions" in paths
     assert "/api/model-lab/runs" in paths
+    assert "/api/model-lab/packs" in paths
+
+
+def test_load_lab_packs_has_baseline_set():
+    data = ml._load_lab_packs()
+    ids = {p.get("id") for p in data.get("packs") or []}
+    assert "blank" in ids
+    assert "general-chat" in ids
+    assert "summarize" in ids
+    assert "code-review" in ids
+    general = next(p for p in data["packs"] if p["id"] == "general-chat")
+    assert general.get("system_prompt")
+    assert "session" in (general.get("applies_to") or [])
 
 
 
