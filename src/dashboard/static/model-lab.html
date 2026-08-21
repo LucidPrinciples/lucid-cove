@@ -227,6 +227,11 @@ button:active { background: #252540; }
 
   <div class="list-view show" id="sessionsListView">
     <div class="form-section">
+      <label for="newSessionPack">Starting point</label>
+      <select id="newSessionPack">
+        <option value="blank">Blank</option>
+      </select>
+      <p class="hint" id="newSessionPackHint" style="color:#666;font-size:0.75rem;margin:-4px 0 10px;">Fills title, system prompt, and temperature. You can edit after.</p>
       <label for="newSessionTitle">New Session Title (optional)</label>
       <input id="newSessionTitle" type="text" placeholder="My first session" />
       <label for="newSessionModel">Model Tag</label>
@@ -252,6 +257,11 @@ button:active { background: #252540; }
 
   <div class="list-view" id="runsListView">
     <div class="form-section">
+      <label for="newRunPack">Starting point</label>
+      <select id="newRunPack">
+        <option value="blank">Blank</option>
+      </select>
+      <p class="hint" id="newRunPackHint" style="color:#666;font-size:0.75rem;margin:-4px 0 10px;">Fills title, system prompt, user prompt, and temperature. You can edit after.</p>
       <label for="newRunTitle">New Run Title (optional)</label>
       <input id="newRunTitle" type="text" placeholder="My first test run" />
       <label for="newRunKind">Run Kind</label>
@@ -528,7 +538,71 @@ function renderOllamaModelsList() {
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
 
+let labPacks = [];
 let sessionFilter = 'all';
+
+function packById(id) {
+  return labPacks.find(p => p.id === id) || null;
+}
+
+function fillPackSelect(selectEl) {
+  if (!selectEl) return;
+  const current = selectEl.value || 'blank';
+  selectEl.innerHTML = '';
+  const list = labPacks.length ? labPacks : [{ id: 'blank', title: 'Blank', description: '' }];
+  list.forEach(pack => {
+    const opt = document.createElement('option');
+    opt.value = pack.id;
+    opt.textContent = pack.title || pack.id;
+    selectEl.appendChild(opt);
+  });
+  if ([...selectEl.options].some(o => o.value === current)) selectEl.value = current;
+}
+
+function applyPackToSession(packId) {
+  const pack = packById(packId);
+  if (!pack) return;
+  if (pack.default_title) $('newSessionTitle').value = pack.default_title;
+  else if (pack.id === 'blank') $('newSessionTitle').value = '';
+  $('newSessionSystemPrompt').value = pack.system_prompt || '';
+  if (pack.temperature != null && pack.temperature !== '') {
+    $('newSessionTemperature').value = String(pack.temperature);
+  } else if (pack.id === 'blank') {
+    $('newSessionTemperature').value = '0.7';
+  }
+  const hint = $('newSessionPackHint');
+  if (hint) hint.textContent = pack.description || 'Fills title, system prompt, and temperature. You can edit after.';
+}
+
+function applyPackToRun(packId) {
+  const pack = packById(packId);
+  if (!pack) return;
+  if (pack.default_title) $('newRunTitle').value = pack.default_title;
+  else if (pack.id === 'blank') $('newRunTitle').value = '';
+  $('newRunSystemPrompt').value = pack.system_prompt || '';
+  $('newRunUserPrompt').value = pack.user_prompt || '';
+  if (pack.temperature != null && pack.temperature !== '') {
+    $('newRunTemperature').value = String(pack.temperature);
+  } else if (pack.id === 'blank') {
+    $('newRunTemperature').value = '0.3';
+  }
+  const hint = $('newRunPackHint');
+  if (hint) hint.textContent = pack.description || 'Fills title, system prompt, user prompt, and temperature. You can edit after.';
+}
+
+async function loadLabPacks() {
+  try {
+    const data = await api('/api/model-lab/packs');
+    labPacks = (data && data.packs) || [];
+  } catch (e) {
+    console.error('Error loading lab packs:', e);
+    labPacks = [];
+  }
+  fillPackSelect($('newSessionPack'));
+  fillPackSelect($('newRunPack'));
+  applyPackToSession($('newSessionPack').value || 'blank');
+  applyPackToRun($('newRunPack').value || 'blank');
+}
 
 async function loadSessions() {
   try {
@@ -946,6 +1020,7 @@ async function cancelRun() {
 let pollTimer = null;
 
 function refreshAll() {
+  loadLabPacks();
   loadOllamaModels();
   loadSessions();
   loadRuns();
@@ -994,6 +1069,8 @@ document.querySelectorAll('.tabs .tab').forEach(tabEl => {
 });
 
 $('btnCreateSession').onclick = createSession;
+if ($('newSessionPack')) $('newSessionPack').onchange = () => applyPackToSession($('newSessionPack').value);
+if ($('newRunPack')) $('newRunPack').onchange = () => applyPackToRun($('newRunPack').value);
 async function setSessionStatus(status) {
   if (!currentSessionId) return;
   try {

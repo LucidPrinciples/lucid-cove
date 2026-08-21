@@ -42,6 +42,38 @@ _MAX_TITLE = 200
 _TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,191}$")
 
 
+def _pack_candidate_paths():
+    """Same mount pattern as agent-presets: data/ is not copied into /app/src."""
+    here = Path(__file__).resolve()
+    return [
+        Path("/cove-core/data/model-lab-packs.json"),
+        here.parents[3] / "data" / "model-lab-packs.json",
+        Path("/app/data/model-lab-packs.json"),
+    ]
+
+
+def _load_lab_packs() -> dict:
+    """Shared baseline packs. Empty list is a packaging bug, not a silent fallback."""
+    for p in _pack_candidate_paths():
+        try:
+            if p.exists():
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                packs = data.get("packs") or []
+                return {
+                    "version": int(data.get("version") or 1),
+                    "packs": packs,
+                    "path": str(p),
+                }
+        except Exception as e:
+            log.error("model-lab packs read failed at %s: %s", p, e)
+    log.error(
+        "model-lab-packs.json not found in: %s",
+        ", ".join(str(p) for p in _pack_candidate_paths()),
+    )
+    return {"version": 1, "packs": [], "path": ""}
+
+
 def _message_text(content) -> str:
     """Normalize LangChain / Ollama content to plain text."""
     if content is None:
@@ -341,6 +373,18 @@ async def list_models(request: Request):
     except Exception as e:
         log.exception("list models")
         return JSONResponse({"ok": False, "error": str(e)[:300]}, status_code=500)
+
+
+@router.get("/api/model-lab/packs")
+async def list_packs(request: Request):
+    """Baseline starting points for sessions and tester runs. Does not run a model."""
+    data = _load_lab_packs()
+    return {
+        "ok": True,
+        "version": data.get("version", 1),
+        "count": len(data.get("packs") or []),
+        "packs": data.get("packs") or [],
+    }
 
 
 # =============================================================================
