@@ -136,10 +136,11 @@ def test_frame_still_ffmpeg_cmd_probes_when_no_color_info():
 
 def test_process_paths_wire_color_prep():
     text = VOICE_VIDEO.read_text()
-    assert "vf_prep = color_prep_vf(color_info)" in text
+    assert 'vf_prep = "" if native_v_args else color_prep_vf(color_info)' in text
     assert "frame_still_ffmpeg_cmd(video_path, t, probe_video_color(video_path))" in text
     assert text.count("vf_prep") >= 6
     assert "hdr→sdr" in text
+    assert "KEEP HDR" in text
 
 
 def test_extract_frame_route_uses_helper():
