@@ -442,20 +442,14 @@ def native_hdr_encode_args(
     *,
     preset: str = "medium",
 ) -> list | None:
-    """Reserved helper: true HLG/PQ HEVC re-encode args (NOT used on publish).
+    """HLG/PQ HEVC re-encode args for keep-HDR publish.
 
-    2026-07-22 QA (JAG side-by-side on P620): crop → scale → ASS burn → libx265
-    while tagging HLG/bt2020 produced red/magenta cast + sparkle/pixelation next
-    to the camera file. Burned captions force a full decode/filter graph; that
-    is not an identity mux, and desktop VLC/QuickTime do not match Apple EDR
-    the way Safari does on a remuxed HLG file.
+    Process-moments and caption-full use this when the source is HDR so crop,
+    scale, ASS, and per-clip sliders do not flatten HLG → Rec.709 8-bit x264.
+    Crop stills still go through hdr_to_sdr_vf so the browser JPEG matches
+    <video> tone-mapping.
 
-    Publish paths (process-moments, caption-full) therefore use display-referred
-    SDR via hdr_to_sdr_vf (gamut-map BEFORE tonemap) + high-quality x264, even
-    for Original look. This helper stays for experiments / future true-passthrough
-    work that does not burn filters; callers must not clear vf_prep when using it.
-
-    Returns the video-encoder arg list when source is HDR, else None.
+    Scale must keep bt2020 (see scale_out_matrix). Returns None for SDR.
     """
     if not is_hdr_color(color_info):
         return None
@@ -946,18 +940,18 @@ async def process_moments(request: Request):
     # Look preset + optional B/C/S slider overrides (from crop template)
     vf_color = resolve_look_vf(crop)
     color_info = probe_video_color(video_path)
-    # Always display-referred publish when source is HDR: gamut-map → tonemap →
-    # bt709, then geometry + captions + x264. Do NOT take the "native HLG
-    # passthrough" branch here — burned ASS/crop/scale is already a full
-    # re-encode, and tagging that graph as HLG/bt2020 reads red/sparkly next
-    # to the camera file on desktop players (2026-07-22 P620 QA).
-    vf_prep = color_prep_vf(color_info)
-    native_v_args = None
-    scale_matrix = scale_out_matrix(color_info, native_hdr=False)
-    if is_hdr_color(color_info) and not vf_color:
+    # Keep-HDR publish when source is HLG/PQ. Crop/scale/ASS already force a
+    # re-encode; tagging that graph as HLG/bt2020 + 10-bit HEVC matches the
+    # sidecar remakes JAG approved (camera look + per-clip sliders). Flatten
+    # (hable → Rec.709 8-bit x264) only when a look grade is on, or for stills.
+    keep_hdr = is_hdr_color(color_info)
+    native_v_args = native_hdr_encode_args(color_info) if keep_hdr else None
+    vf_prep = "" if native_v_args else color_prep_vf(color_info)
+    scale_matrix = scale_out_matrix(color_info, native_hdr=bool(native_v_args))
+    if native_v_args:
         logger.info(
-            "Original+HDR → DISPLAY SDR (hable + E-GAMMA baseline, x264 crf14; "
-            "no native HLG re-tag)"
+            "Original+HDR → KEEP HDR (libx265 10-bit HLG/PQ, crop/ASS on; "
+            "no hable flatten)"
         )
     logger.info(
         "Look filter: preset=%s → %s; color_prep=%s (trc=%s prim=%s)",
@@ -1139,8 +1133,6 @@ async def process_moments(request: Request):
                     # Native passthrough (Original+HDR) or the SDR bt709 x264 bar.
                     *(native_v_args or [
                         "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-                        # CRF 14 + slow: near-transparent after crop/scale; bt709
-                        # tags stop players mis-reading limited-range as washed.
                         "-preset", "slow", "-crf", "14",
                         "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
                         "-colorspace", "bt709", "-color_primaries", "bt709",
@@ -1773,14 +1765,16 @@ async def caption_full_video(request: Request):
             look_src[k] = body.get(k)
     vf_color = resolve_look_vf(look_src)
     color_info = probe_video_color(video_path)
-    # Same as process-moments: HDR publish is display SDR, never native re-tag.
-    vf_prep = color_prep_vf(color_info)
-    native_v_args = None
-    scale_matrix = scale_out_matrix(color_info, native_hdr=False)
-    if is_hdr_color(color_info) and not vf_color:
+    # Same as process-moments: keep HDR when source is HLG/PQ. Flatten only
+    # for SDR sources (or stills). Per-clip look sliders still stack on top.
+    keep_hdr = is_hdr_color(color_info)
+    native_v_args = native_hdr_encode_args(color_info) if keep_hdr else None
+    vf_prep = "" if native_v_args else color_prep_vf(color_info)
+    scale_matrix = scale_out_matrix(color_info, native_hdr=bool(native_v_args))
+    if native_v_args:
         logger.info(
-            "Original+HDR (caption-full) → DISPLAY SDR "
-            "(hable + E-GAMMA baseline, x264; no native HLG re-tag)"
+            "Original+HDR (caption-full) → KEEP HDR "
+            "(libx265 10-bit HLG/PQ; no hable flatten)"
         )
     logger.info(
         "Look filter (caption-full): preset=%s → %s; color_prep=%s (trc=%s)",
@@ -1887,7 +1881,6 @@ async def caption_full_video(request: Request):
             # Native passthrough (Original+HDR) or the SDR bt709 x264 bar.
             *(native_v_args or [
                 "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-                # Match short quality bar: slow + CRF 14 + explicit bt709 tags.
                 "-preset", "slow", "-crf", "14",
                 "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
                 "-colorspace", "bt709", "-color_primaries", "bt709",
