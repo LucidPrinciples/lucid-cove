@@ -509,7 +509,7 @@
         const sender = event && event.getSender && event.getSender();
         const local = (sender || '').split(':')[0].replace(/^@/, '').toLowerCase();
         const msgtype = event && event.getContent && (event.getContent() || {}).msgtype;
-        if (local === 'steward' && (msgtype === 'm.notice' || msgtype === 'm.text')) {
+        if ((local === 'steward' || local === 'mercer') && (msgtype === 'm.notice' || msgtype === 'm.text')) {
           clearPendingStewardTyping();
         }
       } catch (_) {}
@@ -1645,6 +1645,7 @@
       } catch (e) { /* ignore */ }
     }
     if (local === 'steward') return 'Stuart';
+    if (local === 'mercer') return 'Mercer';
     if (local === 'havensteward') return 'Haven';
     return local || 'Someone';
   }
@@ -1858,7 +1859,7 @@
       }
     } catch (e) { /* ignore */ }
     if (!ids.length && pendingStewardTyping && room && room.roomId === activeRoomId) {
-      return 'Stuart is typing…';
+      return pendingStewardTyping + ' is typing…';
     }
     const names = ids.map(id => prettySenderLabel(id, room)).filter(Boolean);
     if (!names.length) return '';
@@ -1908,11 +1909,13 @@
   }
 
   function mentionsSteward(text) {
-    return /(?:^|[^\w])@(?:stuart|steward)\b/i.test(text || '');
+    if (/(?:^|[^\w])@(?:stuart|steward)\b/i.test(text || '')) return 'Stuart';
+    if (/(?:^|[^\w])@mercer\b/i.test(text || '')) return 'Mercer';
+    return '';
   }
 
-  function markPendingStewardTyping() {
-    pendingStewardTyping = true;
+  function markPendingStewardTyping(who) {
+    pendingStewardTyping = who || 'Stuart';
     if (pendingStewardTypingTimer) clearTimeout(pendingStewardTypingTimer);
     pendingStewardTypingTimer = setTimeout(function () {
       pendingStewardTyping = false;
@@ -1936,7 +1939,8 @@
     const body = inp.value.trim();
     if (!body) return;
     inp.value = '';
-    if (mentionsSteward(body)) markPendingStewardTyping();
+    var pendingWho = mentionsSteward(body);
+    if (pendingWho) markPendingStewardTyping(pendingWho);
     trySend(activeRoomId, body, 0);
   }
 

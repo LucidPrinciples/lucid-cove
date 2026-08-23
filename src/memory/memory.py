@@ -54,10 +54,16 @@ def _memory_agent_id(channel: str, agent_id: str) -> str:
     Steward channels use the steward's agent_id so all Presences share
     one memory pool. Regular channels use the host agent_id.
     """
-    from src.config import _is_steward_channel, get_steward_channel_config
+    from src.config import (
+        _is_steward_channel, get_steward_channel_config,
+        _is_merchant_channel, get_merchant_channel_config,
+    )
     if _is_steward_channel(channel):
         sc = get_steward_channel_config()
         return sc.get("agent_id", "stuart") if sc else "stuart"
+    if _is_merchant_channel(channel):
+        mc = get_merchant_channel_config()
+        return mc.get("agent_id", "mercer") if mc else "mercer"
     return agent_id
 
 VALID_CATEGORIES = {

@@ -520,10 +520,13 @@ async def lifespan(app: FastAPI):
     # Instance type is not the gate — Clearfield reports domain, not admin.
     matrix_stop = asyncio.Event()
     matrix_task = None
+    merchant_task = None
     try:
         from src.utils.matrix_family import (
             run_family_mention_loop,
+            run_merchant_mention_loop,
             should_run_family_mention_worker,
+            should_run_merchant_mention_worker,
         )
         if should_run_family_mention_worker():
             matrix_task = asyncio.create_task(
@@ -533,6 +536,14 @@ async def lifespan(app: FastAPI):
             print(f"{ts()} [app] Family mention worker started.")
         else:
             print(f"{ts()} [app] Family mention worker skipped (no steward channel).")
+        if should_run_merchant_mention_worker():
+            merchant_task = asyncio.create_task(
+                run_merchant_mention_loop(matrix_stop),
+                name="matrix-family-merchant-mentions",
+            )
+            print(f"{ts()} [app] Family merchant mention worker started.")
+        else:
+            print(f"{ts()} [app] Family merchant mention worker skipped.")
     except Exception as e:
         print(f"{ts()} [app] Family mention worker not started: {e}")
 
@@ -578,6 +589,14 @@ async def lifespan(app: FastAPI):
         matrix_task.cancel()
         try:
             await matrix_task
+        except asyncio.CancelledError:
+            pass
+
+    if merchant_task and not merchant_task.done():
+        matrix_stop.set()
+        merchant_task.cancel()
+        try:
+            await merchant_task
         except asyncio.CancelledError:
             pass
 

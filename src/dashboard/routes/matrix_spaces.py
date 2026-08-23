@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 STEWARD_LOCALPART = env("MATRIX_STEWARD_LOCALPART", "steward")
+MERCHANT_LOCALPART = env("MATRIX_MERCHANT_LOCALPART", "mercer")
 
 
 def _internal() -> str:
@@ -93,10 +94,17 @@ async def _http(method: str, path: str, token: str = None, body: dict = None):
 async def _state() -> dict:
     from src.memory.database import get_db
     async with get_db() as conn:
-        r = await conn.execute(
-            "SELECT steward_username, steward_password, space_id, family_room_id "
-            "FROM cove_matrix WHERE id = 1")
-        row = await r.fetchone()
+        try:
+            r = await conn.execute(
+                "SELECT steward_username, steward_password, space_id, family_room_id, "
+                "merchant_username, merchant_password "
+                "FROM cove_matrix WHERE id = 1")
+            row = await r.fetchone()
+        except Exception:
+            r = await conn.execute(
+                "SELECT steward_username, steward_password, space_id, family_room_id "
+                "FROM cove_matrix WHERE id = 1")
+            row = await r.fetchone()
     return dict(row) if row else {}
 
 
@@ -166,6 +174,73 @@ async def ensure_steward() -> dict:
     except Exception as e:
         log.info("cove steward displayname skipped: %s", str(e)[:100])
     return {"user": user, "pw": pw, "token": token}
+
+
+async def ensure_merchant() -> dict | None:
+    """Return {user, pw, token} for the Cove's merchant Matrix identity.
+
+    Separate localpart and creds from the steward. The merchant does not own
+    the Space — he is invited into the existing Family room. None when the
+    merchant channel is disabled or Matrix is not configured.
+    """
+    try:
+        from src.config import get_merchant_channel_config
+        if not get_merchant_channel_config():
+            return None
+    except Exception:
+        return None
+    if not _configured():
+        return None
+
+    st = await _state()
+    user, pw = st.get("merchant_username"), st.get("merchant_password")
+    hs = _internal()
+    localpart = MERCHANT_LOCALPART
+    if not (user and pw):
+        user, pw = await register_matrix_account(localpart, admin=False)
+        await _save_state(merchant_username=user, merchant_password=pw)
+
+    login = await _try_login(hs, user, pw)
+    if not login.get("ok"):
+        ec = (login.get("errcode") or "").upper()
+        if login.get("unreachable"):
+            log.warning("merchant matrix homeserver unreachable: %s", login.get("body"))
+            return None
+        if ec == "M_LIMIT_EXCEEDED":
+            log.info("merchant matrix login rate-limited")
+            return None
+        if ec in ("M_FORBIDDEN", "M_USER_DEACTIVATED", "M_UNKNOWN"):
+            try:
+                user, pw = await register_matrix_account(localpart, admin=False)
+                await _save_state(merchant_username=user, merchant_password=pw)
+                login = await _try_login(hs, user, pw)
+            except Exception as re:
+                log.warning("merchant self-heal re-register failed: %s", getattr(re, "detail", re))
+        if not login.get("ok"):
+            log.warning("merchant Matrix account login failed: %s", login.get("errcode") or login)
+            return None
+    token = ((login.get("data") or {}).get("access_token") or "").strip()
+    if not token:
+        log.warning("merchant matrix login missing token")
+        return None
+    try:
+        await _set_cove_steward_displayname(token, _uid(user), _cove_merchant_label())
+    except Exception as e:
+        log.info("cove merchant displayname skipped: %s", str(e)[:100])
+    return {"user": user, "pw": pw, "token": token}
+
+
+def _cove_merchant_label() -> str:
+    """First name only — do not append the family surname."""
+    try:
+        from src.config import get_merchant_channel_config
+        mc = get_merchant_channel_config() or {}
+        name = (mc.get("name") or "").strip()
+        if name:
+            return name[:1].upper() + name[1:]
+    except Exception:
+        pass
+    return "Mercer"
 
 
 def _cove_steward_label() -> str:
@@ -239,6 +314,21 @@ async def _presence_handles() -> list:
     return [row["username"] for row in rows if (row or {}).get("username")]
 
 
+async def _join_room(token: str, room_id: str) -> None:
+    """Join a room we were invited to (merchant into steward-owned Family)."""
+    if not (token and room_id):
+        return
+    s, r = await _http(
+        "POST",
+        "/_matrix/client/v3/join/%s" % _up.quote(room_id),
+        token,
+        {},
+    )
+    if s not in (200, 201) and (r or {}).get("errcode") not in ("M_FORBIDDEN",):
+        log.info("matrix join skipped room=%s status=%s err=%s",
+                 room_id, s, (r or {}).get("errcode") or (r or {}).get("error"))
+
+
 async def _invite(token: str, rooms: list, user_ids: list):
     for room in rooms:
         if not room:
@@ -307,6 +397,15 @@ async def ensure_cove_space() -> dict:
     tok = steward["token"]
     cove_name = await _live_cove_name()
     invites = [_uid(h) for h in await _presence_handles()]
+    merchant = None
+    try:
+        merchant = await ensure_merchant()
+    except Exception as e:
+        log.info("merchant matrix ensure skipped: %s", e)
+    if merchant and merchant.get("user"):
+        mid = _uid(merchant["user"])
+        if mid not in invites:
+            invites.append(mid)
 
     st = await _state()
     space_id, room_id = st.get("space_id"), st.get("family_room_id")
@@ -316,6 +415,12 @@ async def ensure_cove_space() -> dict:
         room_ok = await _room_alive_for_steward(tok, room_id)
         if space_ok and room_ok:
             await _invite(tok, [space_id, room_id], invites)
+            if merchant and merchant.get("token") and room_id:
+                try:
+                    await _join_room(merchant["token"], space_id)
+                    await _join_room(merchant["token"], room_id)
+                except Exception as e:
+                    log.info("merchant family join skipped: %s", e)
             await _sync_space_to_registry(cove_name, space_id)  # self-healing
             return {"ok": True, "space_id": space_id, "room_id": room_id, "created": False}
         log.warning(
@@ -351,6 +456,12 @@ async def ensure_cove_space() -> dict:
                 {"via": [sn], "canonical": True})
 
     await _save_state(space_id=space_id, family_room_id=room_id)
+    if merchant and merchant.get("token") and room_id:
+        try:
+            await _join_room(merchant["token"], space_id)
+            await _join_room(merchant["token"], room_id)
+        except Exception as e:
+            log.info("merchant family join skipped: %s", e)
     log.info("Built Cove Space %s (Family room %s) for %s", space_id, room_id, cove_name)
     await _sync_space_to_registry(cove_name, space_id)
     return {"ok": True, "space_id": space_id, "room_id": room_id, "created": True}
@@ -526,7 +637,10 @@ async def api_ensure_cove_space(request: Request):
 async def api_family_worker_status(request: Request):
     """COVEMX1-S1: last Family mention-worker poll. No tokens, no room ids."""
     try:
-        from src.utils.matrix_family import worker_status
-        return worker_status()
+        from src.utils.matrix_family import worker_status, merchant_worker_status
+        return {
+            "steward": worker_status(),
+            "merchant": merchant_worker_status(),
+        }
     except Exception as e:
         return {"ok": False, "reason": str(e)[:200]}

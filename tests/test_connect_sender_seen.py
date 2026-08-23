@@ -17,6 +17,7 @@ def test_timeline_uses_pretty_sender_not_raw_localpart():
     assert "prettySenderLabel" in chunk
     assert "split(':')[0].replace('@', '')" not in chunk
     assert "local === 'steward') return 'Stuart'" in CX
+    assert "local === 'mercer') return 'Mercer'" in CX
 
 
 def test_invite_label_not_reused_as_your_cove_on_bubbles():
@@ -51,4 +52,5 @@ def test_typing_reads_member_state_not_missing_sdk_helper():
     assert "m.typing" not in chunk or "pendingStewardTyping" in chunk
     assert "pendingStewardTyping" in CX
     assert "mentionsSteward" in CX
-    assert "Stuart is typing…" in chunk
+    assert " is typing…" in chunk
+    assert "@mercer" in CX

@@ -326,3 +326,139 @@ async def test_poll_once_answers_new_mention(monkeypatch):
 async def _async(value):
     return value
 
+
+MERCER = "@mercer:matrix.example.org"
+MERCER_LOCALS = mention_localparts("mercer", "Mercer", MERCER)
+
+
+def test_at_mercer_is_not_a_stuart_mention():
+    assert not event_is_mention(
+        _msg("hey @mercer what is shipping"),
+        steward_user_id=STEWARD,
+        localparts=LOCALS,
+    )
+
+
+def test_at_mercer_is_a_merchant_mention():
+    assert event_is_mention(
+        _msg("hey @mercer what is shipping"),
+        steward_user_id=MERCER,
+        localparts=MERCER_LOCALS,
+    )
+
+
+def test_merchant_memory_agent_id_uses_merchant_pool(monkeypatch):
+    monkeypatch.setattr(
+        "src.config.get_merchant_channel_config",
+        lambda: {"name": "mercer", "agent_id": "mercer"},
+    )
+    monkeypatch.setattr("src.config.get_primary_agent_id", lambda: "agent")
+    monkeypatch.setattr(
+        "src.config.get_steward_channel_config",
+        lambda: {"name": "stuart", "agent_id": "stuart"},
+    )
+    assert mf.merchant_memory_agent_id() == "mercer"
+    assert mf.merchant_thread_id() == "mercer-matrix-family"
+    assert mf.family_memory_agent_id() == "stuart"
+
+
+def test_should_run_merchant_requires_both_channels(monkeypatch):
+    monkeypatch.setattr("src.env.env_bool", lambda key, default=False: False)
+    monkeypatch.setattr(
+        "src.config.get_steward_channel_config",
+        lambda: {"name": "stuart", "enabled": True},
+    )
+    monkeypatch.setattr("src.config.get_merchant_channel_config", lambda: None)
+    assert mf.should_run_merchant_mention_worker() is False
+    monkeypatch.setattr(
+        "src.config.get_merchant_channel_config",
+        lambda: {"name": "mercer", "enabled": True},
+    )
+    assert mf.should_run_merchant_mention_worker() is True
+
+
+def test_family_turn_memory_can_name_merchant():
+    note = family_turn_memory_content("jag", "hey @mercer", "on it", role="merchant")
+    assert "mentioned the merchant" in note
+    assert "hey @mercer" in note
+
+
+def test_mentions_in_timeline_uses_caller_answered_set():
+    ev = _msg("hey @mercer")
+    ev["event_id"] = "$both"
+    mine = set()
+    first = mentions_in_timeline(
+        [ev], steward_user_id=MERCER, localparts=MERCER_LOCALS, answered_ids=mine
+    )
+    assert len(first) == 1
+    mine.add("$both")
+    again = mentions_in_timeline(
+        [ev], steward_user_id=MERCER, localparts=MERCER_LOCALS, answered_ids=mine
+    )
+    assert again == []
+    still = mentions_in_timeline(
+        [ev], steward_user_id=MERCER, localparts=MERCER_LOCALS
+    )
+    assert len(still) == 1
+
+
+@pytest.mark.asyncio
+async def test_poll_merchant_once_answers_new_mention(monkeypatch):
+    sent = []
+
+    async def _session(*, force=False):
+        return {
+            "ok": True,
+            "token": "t",
+            "hub": "http://dendrite:8008",
+            "room_id": "!fam:ex",
+            "user_id": MERCER,
+            "localparts": MERCER_LOCALS,
+        }
+
+    async def _http(method, url, token, params=None, body=None):
+        return 200, {
+            "next_batch": "m2",
+            "rooms": {"join": {"!fam:ex": {"timeline": {"events": [
+                {**_msg("hey @mercer status"), "event_id": "$mnew"},
+                {**_msg("hey @stuart ignore"), "event_id": "$snew"},
+            ]}}}},
+        }
+
+    async def _turn(text, speaker):
+        return "merchant got it"
+
+    async def _notice(hub, token, room_id, body):
+        sent.append(body)
+
+    remembered = []
+
+    async def _remember(speaker, user_text, reply):
+        remembered.append((speaker, user_text, reply))
+
+    async def _seen(hub, token, room_id, user_id, event_id):
+        return None
+
+    async def _typing(hub, token, room_id, user_id, on):
+        return None
+
+    monkeypatch.setattr(mf, "_bind_merchant_session", _session)
+    monkeypatch.setattr(mf, "_http", _http)
+    monkeypatch.setattr(mf, "_load_merchant_cursor", lambda: _async("m1"))
+    monkeypatch.setattr(mf, "_save_merchant_cursor", lambda nb: _async(None))
+    monkeypatch.setattr(mf, "_run_merchant_turn", _turn)
+    monkeypatch.setattr(mf, "_send_notice", _notice)
+    monkeypatch.setattr(mf, "_remember_merchant_turn", _remember)
+    monkeypatch.setattr(mf, "_mark_mention_seen", _seen)
+    monkeypatch.setattr(mf, "_set_typing", _typing)
+    mf._merchant_answered_event_ids.clear()
+
+    result = await mf.poll_merchant_once()
+    assert result["ok"] is True
+    assert result["caught_up"] is False
+    assert result["answered"] == 1
+    assert sent == ["merchant got it"]
+    assert remembered == [("jag", "hey @mercer status", "merchant got it")]
+    assert "$mnew" in mf._merchant_answered_event_ids
+    mf._merchant_answered_event_ids.clear()
+

@@ -161,12 +161,19 @@ def timeline_events(sync_body: dict, room_id: str) -> list:
     return [e for e in events if isinstance(e, dict)]
 
 
-def mentions_in_timeline(events: list, *, steward_user_id: str, localparts: set[str]) -> list:
+def mentions_in_timeline(
+    events: list,
+    *,
+    steward_user_id: str,
+    localparts: set[str],
+    answered_ids: set[str] | None = None,
+) -> list:
     """Mention events we have not already answered this process."""
+    seen = _answered_event_ids if answered_ids is None else answered_ids
     out = []
     for event in events:
         event_id = (event.get("event_id") or "").strip()
-        if event_id and event_id in _answered_event_ids:
+        if event_id and event_id in seen:
             continue
         if event_is_mention(event, steward_user_id=steward_user_id, localparts=localparts):
             out.append(event)
@@ -201,7 +208,9 @@ def family_reply_body(text: str) -> str:
     return cut + "\n\nContinue in Mission Control if you want the rest."
 
 
-def family_turn_memory_content(speaker: str, user_text: str, reply: str) -> str:
+def family_turn_memory_content(
+    speaker: str, user_text: str, reply: str, *, role: str = "steward"
+) -> str:
     """Short Day-visible note for one Family-room mention. No secrets, no dump."""
     who = (speaker or "someone").strip() or "someone"
     asked = " ".join((user_text or "").split())
@@ -210,8 +219,9 @@ def family_turn_memory_content(speaker: str, user_text: str, reply: str) -> str:
         asked = asked[: MEMORY_BODY_MAX - 1].rstrip() + "…"
     if len(said) > MEMORY_BODY_MAX:
         said = said[: MEMORY_BODY_MAX - 1].rstrip() + "…"
+    label = (role or "steward").strip() or "steward"
     return (
-        f"{who} mentioned the steward in the Family room: {asked} "
+        f"{who} mentioned the {label} in the Family room: {asked} "
         f"Reply: {said}"
     )
 
@@ -245,7 +255,11 @@ def _clear_session():
 
 def _cursor_column_missing(exc: Exception) -> bool:
     text = str(exc).lower()
-    return "sync_next_batch" in text or "undefinedcolumn" in text.replace(" ", "")
+    return (
+        "sync_next_batch" in text
+        or "merchant_sync_next_batch" in text
+        or "undefinedcolumn" in text.replace(" ", "")
+    )
 
 
 async def _http(method: str, url: str, token: str, *, params=None, body=None):
@@ -582,3 +596,348 @@ async def run_family_mention_loop(stop: asyncio.Event):
             except asyncio.TimeoutError:
                 pass
     log.info("matrix family mention worker stopped")
+
+
+# ── Merchant (second manager) ───────────────────────────────────────────────
+# Same Family room, own Matrix identity, own /sync cursor, own memory pool.
+# Does not own the Space. Does not answer @stuart.
+
+DEFAULT_MERCHANT_GRAPH_CHANNEL = "mercer-day"
+
+_merchant_session: dict = {}
+_merchant_answered_event_ids: set[str] = set()
+_merchant_last_status: dict = {"ok": None, "reason": "not started"}
+
+
+def should_run_merchant_mention_worker() -> bool:
+    """True when the family process already runs the steward worker and Mercer is on."""
+    if not should_run_family_mention_worker():
+        return False
+    try:
+        from src.config import get_merchant_channel_config
+        return bool(get_merchant_channel_config())
+    except Exception:
+        return False
+
+
+def merchant_graph_channel() -> str:
+    try:
+        from src.config import get_merchant_channel_config
+        mc = get_merchant_channel_config() or {}
+        name = (mc.get("name") or "mercer").strip().lower() or "mercer"
+        return f"{name}-day"
+    except Exception:
+        return DEFAULT_MERCHANT_GRAPH_CHANNEL
+
+
+def merchant_memory_agent_id() -> str:
+    """Merchant memory pool id — never the steward pool, never host primary."""
+    try:
+        from src.config import get_merchant_channel_config
+        mc = get_merchant_channel_config() or {}
+        agent = (mc.get("agent_id") or mc.get("name") or "mercer").strip().lower()
+        if agent:
+            return agent
+    except Exception:
+        pass
+    return "mercer"
+
+
+def merchant_thread_id() -> str:
+    return f"{merchant_memory_agent_id()}-matrix-family"
+
+
+def merchant_worker_status() -> dict:
+    return dict(_merchant_last_status)
+
+
+def _set_merchant_status(result: dict) -> dict:
+    _merchant_last_status.clear()
+    _merchant_last_status.update(result)
+    return result
+
+
+def _clear_merchant_session():
+    _merchant_session.clear()
+
+
+async def _remember_merchant_turn(speaker: str, user_text: str, reply: str) -> None:
+    from src.memory.memory import store_memory
+
+    stored = await store_memory(
+        family_turn_memory_content(speaker, user_text, reply, role="merchant"),
+        category="observation",
+        importance=0.75,
+        tags=["matrix", "family-room", "mercer"],
+        agent_id=merchant_memory_agent_id(),
+        source_thread=merchant_thread_id(),
+        source_channel=FAMILY_THREAD_CHANNEL,
+        source_summary="Family room mention",
+        source_operator_name=(speaker or "").strip() or None,
+    )
+    mid = (stored or {}).get("id")
+    if mid:
+        log.info("matrix merchant family turn remembered id=%s", mid)
+
+
+async def _load_merchant_cursor() -> str:
+    from src.memory.database import get_db
+    try:
+        async with get_db() as conn:
+            r = await conn.execute(
+                "SELECT merchant_sync_next_batch FROM cove_matrix WHERE id = 1"
+            )
+            row = await r.fetchone()
+        return ((row or {}).get("merchant_sync_next_batch") or "").strip()
+    except Exception as e:
+        if _cursor_column_missing(e):
+            log.info("matrix merchant cursor column not applied yet")
+        else:
+            log.info("matrix merchant cursor read skipped: %s", e)
+        return ""
+
+
+async def _save_merchant_cursor(next_batch: str) -> None:
+    if not next_batch:
+        return
+    from src.memory.database import get_db
+    try:
+        async with get_db() as conn:
+            await conn.execute(
+                "UPDATE cove_matrix SET merchant_sync_next_batch = %s, "
+                "updated_at = NOW() WHERE id = 1",
+                (next_batch,),
+            )
+    except Exception as e:
+        if _cursor_column_missing(e):
+            log.info("matrix merchant cursor write skipped — migration not applied")
+        else:
+            log.warning("matrix merchant cursor write failed: %s", e)
+
+
+async def _ensure_merchant_family_thread() -> None:
+    from src.memory.database import get_db
+
+    agent_id = merchant_memory_agent_id()
+    thread_id = merchant_thread_id()
+    async with get_db() as conn:
+        r = await conn.execute(
+            "SELECT thread_id FROM chat_threads WHERE thread_id = %s",
+            (thread_id,),
+        )
+        if await r.fetchone():
+            return
+        await conn.execute(
+            """INSERT INTO chat_threads
+               (thread_id, agent_id, channel, title, status, first_message_at, metadata)
+               VALUES (%s, %s, %s, %s, 'active', NOW(), %s::jsonb)
+               ON CONFLICT (thread_id) DO NOTHING""",
+            (
+                thread_id,
+                agent_id,
+                FAMILY_THREAD_CHANNEL,
+                "Family room",
+                json.dumps({"source": "matrix", "kind": "family-room", "manager": "merchant"}),
+            ),
+        )
+
+
+async def _run_merchant_turn(user_text: str, speaker: str) -> str:
+    from langchain_core.messages import HumanMessage
+    from src.graphs.channels import get_channel_graph
+    from src.memory.checkpointer import get_checkpointer
+    from src.memory.threads import update_thread_stats
+
+    await _ensure_merchant_family_thread()
+    agent_id = merchant_memory_agent_id()
+    prompt = family_turn_prompt(speaker, user_text)
+    thread_id = merchant_thread_id()
+    channel = merchant_graph_channel()
+    reply = ""
+    async with get_checkpointer() as checkpointer:
+        graph = await get_channel_graph(channel, checkpointer)
+        cfg = {
+            "configurable": {"thread_id": thread_id},
+            "recursion_limit": CHAT_RECURSION_LIMIT,
+        }
+        graph_input = {
+            "messages": [HumanMessage(
+                content=prompt,
+                additional_kwargs={"created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                   "input_mode": "matrix"},
+            )],
+            "agent_id": agent_id,
+            "channel": channel,
+            "input_mode": "matrix",
+            "agent_identity": None,
+        }
+        last_msgs = []
+        async for event in graph.astream(graph_input, config=cfg):
+            for state_update in event.values():
+                last_msgs = state_update.get("messages", last_msgs)
+        reply = _extract_reply(last_msgs)
+    try:
+        await update_thread_stats(thread_id)
+    except Exception:
+        pass
+    return family_reply_body(reply)
+
+
+async def _bind_merchant_session(*, force: bool = False) -> dict:
+    now = time.time()
+    if (
+        not force
+        and _merchant_session.get("token")
+        and _merchant_session.get("room_id")
+        and (now - float(_merchant_session.get("loaded_at") or 0)) < SESSION_TTL_SEC
+    ):
+        return _merchant_session
+
+    from src.dashboard.routes.matrix_spaces import (
+        _configured,
+        _has_state_table,
+        _internal,
+        _uid,
+        ensure_cove_space,
+        ensure_merchant,
+    )
+    from src.config import get_merchant_channel_config
+
+    if not _configured():
+        return {"ok": False, "reason": "matrix not configured"}
+    if not await _has_state_table():
+        return {"ok": False, "reason": "cove_matrix absent"}
+
+    built = await ensure_cove_space()
+    if not built.get("ok"):
+        return {"ok": False, "reason": built.get("reason") or "no family room"}
+    room_id = built.get("room_id")
+    if not room_id:
+        return {"ok": False, "reason": "no family room id"}
+
+    merchant = await ensure_merchant()
+    if not merchant or not merchant.get("token"):
+        return {"ok": False, "reason": "no merchant identity"}
+
+    mc = {}
+    try:
+        mc = get_merchant_channel_config() or {}
+    except Exception:
+        mc = {}
+
+    _merchant_session.update({
+        "ok": True,
+        "token": merchant["token"],
+        "user": merchant["user"],
+        "user_id": _uid(merchant["user"]),
+        "room_id": room_id,
+        "hub": _internal(),
+        "localparts": mention_localparts(
+            merchant["user"],
+            env("MATRIX_MERCHANT_LOCALPART", "mercer"),
+            mc.get("agent_id"),
+            mc.get("name"),
+            "mercer",
+        ),
+        "loaded_at": now,
+    })
+    return _merchant_session
+
+
+async def poll_merchant_once() -> dict:
+    """One /sync + mention pass as Mercer. Own cursor — never the steward's."""
+    sess = await _bind_merchant_session()
+    if not sess.get("ok"):
+        return _set_merchant_status({"ok": False, "reason": sess.get("reason") or "no session"})
+
+    token = sess["token"]
+    hub = sess["hub"]
+    room_id = sess["room_id"]
+    user_id = sess["user_id"]
+    localparts = sess["localparts"]
+
+    since = await _load_merchant_cursor()
+    filt = json.dumps({
+        "room": {
+            "rooms": [room_id],
+            "timeline": {"limit": 20, "types": ["m.room.message"]},
+        }
+    })
+    params = {"timeout": 0 if not since else SYNC_TIMEOUT_MS, "filter": filt}
+    if since:
+        params["since"] = since
+
+    status, body = await _http("GET", hub + "/_matrix/client/v3/sync", token, params=params)
+    if status in (401, 403):
+        _clear_merchant_session()
+        return _set_merchant_status({"ok": False, "reason": "auth %s" % status})
+    if status != 200:
+        return _set_merchant_status({"ok": False, "reason": "sync %s" % status})
+
+    next_batch = (body or {}).get("next_batch") or ""
+    answered = 0
+    if since:
+        for event in mentions_in_timeline(
+            timeline_events(body, room_id),
+            steward_user_id=user_id,
+            localparts=localparts,
+            answered_ids=_merchant_answered_event_ids,
+        ):
+            text = _event_text(event)
+            if not text:
+                continue
+            speaker = _speaker_label(event.get("sender") or "")
+            event_id = (event.get("event_id") or "").strip()
+            try:
+                await _mark_mention_seen(hub, token, room_id, user_id, event_id)
+                reply = await _run_merchant_turn(text, speaker)
+            except Exception as e:
+                log.warning("matrix merchant family turn failed: %s", e)
+                reply = (
+                    "I caught the mention, but that turn failed. "
+                    "Try again in Mission Control if it keeps happening."
+                )
+            finally:
+                await _set_typing(hub, token, room_id, user_id, False)
+            await _send_notice(hub, token, room_id, reply)
+            try:
+                await _remember_merchant_turn(speaker, text, reply)
+            except Exception as e:
+                log.info("matrix merchant memory write skipped: %s", e)
+            if event_id:
+                _merchant_answered_event_ids.add(event_id)
+                if len(_merchant_answered_event_ids) > 400:
+                    _merchant_answered_event_ids.clear()
+            answered += 1
+
+    if next_batch:
+        await _save_merchant_cursor(next_batch)
+    return _set_merchant_status({"ok": True, "answered": answered, "caught_up": not bool(since)})
+
+
+async def run_merchant_mention_loop(stop: asyncio.Event):
+    """Long-running Mercer worker. Cancel via stop or task cancel."""
+    log.info("matrix merchant mention worker starting")
+    while not stop.is_set():
+        try:
+            result = await poll_merchant_once()
+            if not result.get("ok"):
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=ERROR_BACKOFF_SEC)
+                except asyncio.TimeoutError:
+                    pass
+                continue
+            if result.get("caught_up"):
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("matrix merchant loop error: %s", e)
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=ERROR_BACKOFF_SEC)
+            except asyncio.TimeoutError:
+                pass
+    log.info("matrix merchant mention worker stopped")
