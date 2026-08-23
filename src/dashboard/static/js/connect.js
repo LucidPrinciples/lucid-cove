@@ -35,6 +35,8 @@
   let tokenBackoff = 2000;    // current cooldown; doubles on failure, resets on success
   let retryTimer = null;      // scheduled auto-retry after backoff / warm-up
   let syncWatchdog = null;    // hard timeout waiting for PREPARED
+  let pendingStewardTyping = false;
+  let pendingStewardTypingTimer = null;
   // One-shot fail lock for a single connect attempt. matrix-js-sdk often emits
   // ERROR then STOPPED (or ERROR repeatedly) for one dead /sync. Without this,
   // each event doubled tokenBackoff and stacked scheduleConnectRetry + a second
@@ -200,6 +202,8 @@
     .cx-msg{max-width:78%;padding:8px 12px;border-radius:12px;background:rgba(255,255,255,0.05);font-size:0.9rem;line-height:1.4;word-wrap:break-word;overflow-wrap:anywhere}
     .cx-msg.mine{align-self:flex-end;background:rgba(92,225,230,0.16)}
     .cx-msg .cx-sender{font-size:0.72rem;opacity:0.65;margin-bottom:2px}
+    .cx-typing{opacity:.65;font-size:0.82rem;font-style:italic;padding:2px 4px 0}
+    .cx-seen{font-size:0.68rem;opacity:.45;align-self:flex-end;margin-top:-2px}
     .connect-compose{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--border,#23304d)}
     .connect-compose input{flex:1;background:rgba(255,255,255,0.06);border:1px solid var(--border,#23304d);border-radius:10px;padding:10px 12px;color:var(--text,#F6F1E7);font-size:0.9rem}
     .connect-compose button{background:var(--daily-freq,#5ce1e6);color:#0B1022;border:none;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer}
@@ -501,9 +505,29 @@
     });
     client.on(RoomEvent.Timeline, (event, room) => {
       if (!started || mode !== 'chats') return;
+      try {
+        const sender = event && event.getSender && event.getSender();
+        const local = (sender || '').split(':')[0].replace(/^@/, '').toLowerCase();
+        const msgtype = event && event.getContent && (event.getContent() || {}).msgtype;
+        if ((local === 'steward' || local === 'mercer') && (msgtype === 'm.notice' || msgtype === 'm.text')) {
+          clearPendingStewardTyping();
+        }
+      } catch (_) {}
       if (room && room.roomId === activeRoomId) renderTimeline();
       renderTree();
     });
+    if (RoomEvent.Typing) {
+      client.on(RoomEvent.Typing, (event, room) => {
+        if (!started || mode !== 'chats') return;
+        if (room && room.roomId === activeRoomId) renderTimeline();
+      });
+    }
+    if (RoomEvent.Receipt) {
+      client.on(RoomEvent.Receipt, (event, room) => {
+        if (!started || mode !== 'chats') return;
+        if (room && room.roomId === activeRoomId) renderTimeline();
+      });
+    }
     // Membership flips (invite → join, or a brand-new invite room) often have no
     // timeline event yet — Timeline alone never re-renders. Room.myMembership is
     // the signal for late steward invites after set-domain / first Connect.
@@ -1587,6 +1611,45 @@
     return local || 'Someone';
   }
 
+  // Message / typing / receipt names. Do not reuse prettyInviterLabel — that
+  // helper falls back to room.name for @steward ("Clearfield — Family"), which
+  // is correct on an invite line and wrong on a bubble. Profile displayname
+  // only when it is a real person label; otherwise Stuart / Haven.
+  function prettySenderLabel(mxid, room) {
+    const local = inviterLocalpart(mxid);
+    function usable(label) {
+      const t = (label == null ? '' : String(label)).trim();
+      if (!t) return '';
+      if (inviterLocalpart('@' + t.replace(/^@/, '')) === local) return '';
+      if (t === 'Your Cove' || t === 'The Haven') return '';
+      const rn = roomName(room);
+      if (rn && t.toLowerCase() === String(rn).trim().toLowerCase()) return '';
+      return t;
+    }
+    if (client && mxid) {
+      try {
+        const u = client.getUser && client.getUser(mxid);
+        const dn = usable(u && (u.displayName || u.rawDisplayName));
+        if (dn) return dn;
+      } catch (e) { /* ignore */ }
+      try {
+        if (room && room.getMember) {
+          const m = room.getMember(mxid);
+          let n = m && m.rawDisplayName;
+          if (!n && m && m.events && m.events.member && m.events.member.getContent) {
+            n = m.events.member.getContent().displayname;
+          }
+          n = usable(n);
+          if (n) return n;
+        }
+      } catch (e) { /* ignore */ }
+    }
+    if (local === 'steward') return 'Stuart';
+    if (local === 'mercer') return 'Mercer';
+    if (local === 'havensteward') return 'Haven';
+    return local || 'Someone';
+  }
+
   function pendingInviteRooms() {
     if (!client || !client.getRooms) return [];
     return client.getRooms().filter(r => r && r.getMyMembership && r.getMyMembership() === 'invite');
@@ -1758,12 +1821,116 @@
     const events = room.getLiveTimeline().getEvents()
       .filter(e => e.getType() === 'm.room.message' && e.getContent() && e.getContent().body);
     const nearBottom = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 80;
+    const lastMine = events.filter(e => e.getSender() === me).pop();
+    const seenBy = lastMine ? receiptNamesForEvent(room, lastMine, me) : [];
+    const typingLine = typingNames(room, me);
     tl.innerHTML = events.map(e => {
       const mine = e.getSender() === me;
-      const who = (e.getSender() || '').split(':')[0].replace('@', '');
+      const who = prettySenderLabel(e.getSender() || '', room);
       return `<div class="cx-msg${mine ? ' mine' : ''}">${mine ? '' : '<div class="cx-sender">' + esc(who) + '</div>'}${esc(e.getContent().body)}</div>`;
     }).join('') || '<div class="connect-empty">No messages yet. Say hello.</div>';
+    if (seenBy.length) {
+      tl.innerHTML += '<div class="cx-seen">Seen by ' + esc(seenBy.join(', ')) + '</div>';
+    }
+    if (typingLine) {
+      tl.innerHTML += '<div class="cx-typing" id="cx-typing">' + esc(typingLine) + '</div>';
+    }
     if (nearBottom) tl.scrollTop = tl.scrollHeight;
+  }
+
+  function typingNames(room, me) {
+    const ids = [];
+    const seen = {};
+    function add(id) {
+      if (!id || id === me || seen[id]) return;
+      seen[id] = true;
+      ids.push(id);
+    }
+    // This vendored SDK has no Room.getTypingUsers. Members carry .typing.
+    try {
+      const members = room && room.getJoinedMembers ? room.getJoinedMembers() : [];
+      (members || []).forEach(m => {
+        if (m && m.typing) add(m.userId || m.user_id);
+      });
+    } catch (e) { /* ignore */ }
+    try {
+      if (room && typeof room.getTypingUsers === 'function') {
+        (room.getTypingUsers() || []).forEach(add);
+      }
+    } catch (e) { /* ignore */ }
+    if (!ids.length && pendingStewardTyping && room && room.roomId === activeRoomId) {
+      return pendingStewardTyping + ' is typing…';
+    }
+    const names = ids.map(id => prettySenderLabel(id, room)).filter(Boolean);
+    if (!names.length) return '';
+    if (names.length === 1) return names[0] + ' is typing…';
+    return names.join(', ') + ' are typing…';
+  }
+
+  function receiptNamesForEvent(room, event, me) {
+    if (!room || !event || !event.getId) return [];
+    const eventId = event.getId();
+    if (!eventId) return [];
+    let receipts = [];
+    try {
+      if (typeof room.getReceiptsForEvent === 'function') {
+        receipts = room.getReceiptsForEvent(event) || [];
+      }
+    } catch (e) {
+      receipts = [];
+    }
+    const names = [];
+    const seen = {};
+    receipts.forEach(r => {
+      const userId = r && (r.userId || (r.receipt && r.receipt.user_id) || r.user_id);
+      if (!userId || userId === me || seen[userId]) return;
+      const kind = (r.type || (r.receipt && r.receipt.type) || 'm.read');
+      if (kind && kind !== 'm.read' && kind !== 'm.read.private') return;
+      seen[userId] = true;
+      names.push(prettySenderLabel(userId, room));
+    });
+    if (names.length) return names;
+    // Fallback: walk live receipt store if the SDK shape differs.
+    try {
+      const store = room.getUsersReadUpTo ? null : (room.receipts || room._receipts);
+      if (store && typeof store === 'object') {
+        Object.keys(store).forEach(uid => {
+          if (!uid || uid === me || seen[uid]) return;
+          const rec = store[uid];
+          const rid = rec && (rec.eventId || rec.event_id);
+          if (rid === eventId) {
+            seen[uid] = true;
+            names.push(prettySenderLabel(uid, room));
+          }
+        });
+      }
+    } catch (e) { /* ignore */ }
+    return names;
+  }
+
+  function mentionsSteward(text) {
+    if (/(?:^|[^\w])@(?:stuart|steward)\b/i.test(text || '')) return 'Stuart';
+    if (/(?:^|[^\w])@mercer\b/i.test(text || '')) return 'Mercer';
+    return '';
+  }
+
+  function markPendingStewardTyping(who) {
+    pendingStewardTyping = who || 'Stuart';
+    if (pendingStewardTypingTimer) clearTimeout(pendingStewardTypingTimer);
+    pendingStewardTypingTimer = setTimeout(function () {
+      pendingStewardTyping = false;
+      pendingStewardTypingTimer = null;
+      if (activeRoomId) renderTimeline();
+    }, 45000);
+    if (activeRoomId) renderTimeline();
+  }
+
+  function clearPendingStewardTyping() {
+    pendingStewardTyping = false;
+    if (pendingStewardTypingTimer) {
+      clearTimeout(pendingStewardTypingTimer);
+      pendingStewardTypingTimer = null;
+    }
   }
 
   async function sendMsg() {
@@ -1772,6 +1939,8 @@
     const body = inp.value.trim();
     if (!body) return;
     inp.value = '';
+    var pendingWho = mentionsSteward(body);
+    if (pendingWho) markPendingStewardTyping(pendingWho);
     trySend(activeRoomId, body, 0);
   }
 

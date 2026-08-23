@@ -54,10 +54,16 @@ def _memory_agent_id(channel: str, agent_id: str) -> str:
     Steward channels use the steward's agent_id so all Presences share
     one memory pool. Regular channels use the host agent_id.
     """
-    from src.config import _is_steward_channel, get_steward_channel_config
+    from src.config import (
+        _is_steward_channel, get_steward_channel_config,
+        _is_merchant_channel, get_merchant_channel_config,
+    )
     if _is_steward_channel(channel):
         sc = get_steward_channel_config()
         return sc.get("agent_id", "stuart") if sc else "stuart"
+    if _is_merchant_channel(channel):
+        mc = get_merchant_channel_config()
+        return mc.get("agent_id", "mercer") if mc else "mercer"
     return agent_id
 
 VALID_CATEGORIES = {
@@ -995,6 +1001,22 @@ async def load_memories_for_prompt(
         )
         continuity_rows = await continuity.fetchall()
 
+        # Recent Family-room mentions — Day must see these without a paste.
+        family_mentions = await conn.execute(
+            """SELECT id, content, category, importance, tags,
+                      access_count, last_accessed, created_at,
+                      source_operator_name, source_presence_id
+               FROM agent_memory
+               WHERE agent_id = %s AND is_active = TRUE
+                 AND source_channel = 'matrix-family'
+                 AND (expires_at IS NULL OR expires_at > NOW())
+                 AND COALESCE(needs_review, FALSE) = FALSE
+               ORDER BY created_at DESC
+               LIMIT 5""",
+            (agent_id,),
+        )
+        family_rows = await family_mentions.fetchall()
+
         # Load ALL non-context active memories as candidates.
         # We fetch a wide set and let the temporal decay function
         # do the ranking in Python — single source of truth for the
@@ -1056,6 +1078,12 @@ async def load_memories_for_prompt(
 
     # Continuity rows always first (thread summaries for conversation pickup)
     for row in continuity_rows:
+        if row["id"] not in seen_ids:
+            seen_ids.add(row["id"])
+            selected.append(row)
+
+    # Then the latest Family-room mention turns (two-doors contract).
+    for row in family_rows:
         if row["id"] not in seen_ids:
             seen_ids.add(row["id"])
             selected.append(row)

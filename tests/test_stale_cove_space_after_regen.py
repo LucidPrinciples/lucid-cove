@@ -58,6 +58,7 @@ async def test_ensure_recreates_when_persisted_rooms_are_dead():
         s.get("space_id") is None and s.get("family_room_id") is None
         for s in calls["save"]
     )
+    assert any(s.get("sync_next_batch") is None for s in calls["save"])
     assert create_n["n"] == 2
 
 
