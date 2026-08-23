@@ -147,6 +147,23 @@ def test_remember_family_turn_is_observation_not_context():
     src = inspect.getsource(mf._remember_family_turn)
     assert 'category="observation"' in src
     assert 'category="context"' not in src
+    assert "family_memory_agent_id()" in src
+    assert "get_primary_agent_id()" not in src
+
+
+def test_family_memory_agent_id_uses_steward_pool_not_host_primary(monkeypatch):
+    monkeypatch.setattr(
+        "src.config.get_steward_channel_config",
+        lambda: {"name": "stuart", "agent_id": "stuart"},
+    )
+    monkeypatch.setattr("src.config.get_primary_agent_id", lambda: "agent")
+    assert mf.family_memory_agent_id() == "stuart"
+    assert mf.family_thread_id() == "stuart-matrix-family"
+
+
+def test_family_memory_agent_id_falls_back_to_stuart(monkeypatch):
+    monkeypatch.setattr("src.config.get_steward_channel_config", lambda: None)
+    assert mf.family_memory_agent_id() == "stuart"
 
 
 def test_set_status_drops_stale_reason():

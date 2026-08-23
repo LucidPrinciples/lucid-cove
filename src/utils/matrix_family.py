@@ -72,13 +72,27 @@ def _set_status(result: dict) -> dict:
     return result
 
 
-def family_thread_id() -> str:
+def family_memory_agent_id() -> str:
+    """Steward memory pool id — same key Day tools and the prompt pin use.
+
+    get_primary_agent_id() is the first row in agent.yaml. On a family
+    overlay that can be ``agent`` (or another host id), which writes
+    Family turns where Day cannot search them. Steward channel config
+    is the shared pool.
+    """
     try:
-        from src.config import get_primary_agent_id
-        agent = (get_primary_agent_id() or "stuart").strip().lower() or "stuart"
+        from src.config import get_steward_channel_config
+        sc = get_steward_channel_config() or {}
+        agent = (sc.get("agent_id") or sc.get("name") or "stuart").strip().lower()
+        if agent:
+            return agent
     except Exception:
-        agent = "stuart"
-    return f"{agent}-matrix-family"
+        pass
+    return "stuart"
+
+
+def family_thread_id() -> str:
+    return f"{family_memory_agent_id()}-matrix-family"
 SYNC_TIMEOUT_MS = 30_000
 ERROR_BACKOFF_SEC = 15.0
 CHAT_RECURSION_LIMIT = 200
@@ -204,7 +218,6 @@ def family_turn_memory_content(speaker: str, user_text: str, reply: str) -> str:
 
 async def _remember_family_turn(speaker: str, user_text: str, reply: str) -> None:
     """Write the mention into the shared steward memory pool."""
-    from src.config import get_primary_agent_id
     from src.memory.memory import store_memory
 
     # Observation, not context: Day's prompt only keeps the last three
@@ -215,7 +228,7 @@ async def _remember_family_turn(speaker: str, user_text: str, reply: str) -> Non
         category="observation",
         importance=0.75,
         tags=["matrix", "family-room"],
-        agent_id=get_primary_agent_id(),
+        agent_id=family_memory_agent_id(),
         source_thread=family_thread_id(),
         source_channel=FAMILY_THREAD_CHANNEL,
         source_summary="Family room mention",
@@ -282,9 +295,8 @@ async def _save_cursor(next_batch: str) -> None:
 
 async def _ensure_family_thread() -> None:
     from src.memory.database import get_db
-    from src.config import get_primary_agent_id
 
-    agent_id = get_primary_agent_id()
+    agent_id = family_memory_agent_id()
     thread_id = family_thread_id()
     async with get_db() as conn:
         r = await conn.execute(
@@ -328,13 +340,12 @@ def _extract_reply(messages) -> str:
 
 async def _run_steward_turn(user_text: str, speaker: str) -> str:
     from langchain_core.messages import HumanMessage
-    from src.config import get_primary_agent_id
     from src.graphs.channels import get_channel_graph
     from src.memory.checkpointer import get_checkpointer
     from src.memory.threads import update_thread_stats
 
     await _ensure_family_thread()
-    agent_id = get_primary_agent_id()
+    agent_id = family_memory_agent_id()
     prompt = family_turn_prompt(speaker, user_text)
     thread_id = family_thread_id()
     channel = family_graph_channel()
