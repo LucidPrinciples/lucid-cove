@@ -1601,18 +1601,42 @@
     return local || 'Someone';
   }
 
-  // Message / typing / receipt names. Same profile lookup as invites, but a
-  // missing displayname must not become "Your Cove" — that label is for
-  // invite copy only. Durable localpart stays @steward; the bubble says Stuart.
+  // Message / typing / receipt names. Do not reuse prettyInviterLabel — that
+  // helper falls back to room.name for @steward ("Clearfield — Family"), which
+  // is correct on an invite line and wrong on a bubble. Profile displayname
+  // only when it is a real person label; otherwise Stuart / Haven.
   function prettySenderLabel(mxid, room) {
     const local = inviterLocalpart(mxid);
-    const fromProfile = prettyInviterLabel(mxid, room);
-    if (fromProfile && fromProfile !== local && fromProfile !== 'Your Cove' && fromProfile !== 'The Haven') {
-      return fromProfile;
+    function usable(label) {
+      const t = (label == null ? '' : String(label)).trim();
+      if (!t) return '';
+      if (inviterLocalpart('@' + t.replace(/^@/, '')) === local) return '';
+      if (t === 'Your Cove' || t === 'The Haven') return '';
+      const rn = roomName(room);
+      if (rn && t.toLowerCase() === String(rn).trim().toLowerCase()) return '';
+      return t;
+    }
+    if (client && mxid) {
+      try {
+        const u = client.getUser && client.getUser(mxid);
+        const dn = usable(u && (u.displayName || u.rawDisplayName));
+        if (dn) return dn;
+      } catch (e) { /* ignore */ }
+      try {
+        if (room && room.getMember) {
+          const m = room.getMember(mxid);
+          let n = m && m.rawDisplayName;
+          if (!n && m && m.events && m.events.member && m.events.member.getContent) {
+            n = m.events.member.getContent().displayname;
+          }
+          n = usable(n);
+          if (n) return n;
+        }
+      } catch (e) { /* ignore */ }
     }
     if (local === 'steward') return 'Stuart';
     if (local === 'havensteward') return 'Haven';
-    return fromProfile || local || 'Someone';
+    return local || 'Someone';
   }
 
   function pendingInviteRooms() {

@@ -21,9 +21,11 @@ def test_timeline_uses_pretty_sender_not_raw_localpart():
 
 def test_invite_label_not_reused_as_your_cove_on_bubbles():
     fn = CX.index("function prettySenderLabel")
-    chunk = CX[fn : fn + 700]
+    chunk = CX[fn : fn + 1600]
+    assert "prettyInviterLabel" not in chunk
     assert "Your Cove" in chunk
     assert "return 'Stuart'" in chunk
+    assert "roomName(room)" in chunk
 
 
 def test_typing_and_receipt_listeners_repaint_open_room():
