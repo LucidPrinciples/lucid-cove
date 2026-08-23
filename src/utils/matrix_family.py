@@ -29,6 +29,26 @@ FAMILY_THREAD_CHANNEL = "matrix-family"
 DEFAULT_GRAPH_CHANNEL = "stuart-day"
 
 
+def should_run_family_mention_worker() -> bool:
+    """True on the family Cove process that owns Connect / cove_matrix.
+
+    Instance type is not the gate: Clearfield's overlay reports ``domain``,
+    not ``admin``. Personal agents and the public shared app must not start
+    this loop. A merchant-only box with no steward channel also stays off.
+    """
+    try:
+        from src.env import env_bool
+        if env_bool("LP_REGISTRY_MASTER"):
+            return False
+    except Exception:
+        pass
+    try:
+        from src.config import get_steward_channel_config
+        return bool(get_steward_channel_config())
+    except Exception:
+        return False
+
+
 def family_graph_channel() -> str:
     """Steward Day channel for this Cove — not a Clearfield-only hardcode."""
     try:

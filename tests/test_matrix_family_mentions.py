@@ -33,6 +33,32 @@ def _msg(body, sender="@jag:matrix.example.org", mentions=None, formatted=""):
     }
 
 
+def test_should_run_requires_steward_channel(monkeypatch):
+    monkeypatch.setattr(mf, "should_run_family_mention_worker", mf.should_run_family_mention_worker)
+    monkeypatch.setattr("src.env.env_bool", lambda key, default=False: False)
+
+    def _no_steward():
+        return None
+
+    monkeypatch.setattr("src.config.get_steward_channel_config", _no_steward)
+    assert mf.should_run_family_mention_worker() is False
+
+    monkeypatch.setattr(
+        "src.config.get_steward_channel_config",
+        lambda: {"name": "stuart", "enabled": True},
+    )
+    assert mf.should_run_family_mention_worker() is True
+
+
+def test_should_run_skips_public_shared_app(monkeypatch):
+    monkeypatch.setattr("src.env.env_bool", lambda key, default=False: key == "LP_REGISTRY_MASTER")
+    monkeypatch.setattr(
+        "src.config.get_steward_channel_config",
+        lambda: {"name": "stuart", "enabled": True},
+    )
+    assert mf.should_run_family_mention_worker() is False
+
+
 def test_mention_localparts_strips_mxid():
     assert "steward" in mention_localparts("@steward:matrix.x.org", "Stuart")
     assert "stuart" in mention_localparts("@steward:matrix.x.org", "Stuart")

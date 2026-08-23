@@ -516,19 +516,23 @@ async def lifespan(app: FastAPI):
             print(f"{ts()} [app] orphaned video-job sweep error: {e}")
     video_sweep_task = asyncio.create_task(_video_job_sweep())
 
-    # COVEMX1-S1: Family-room mention worker. Host Cove only. Cancelled on shutdown.
+    # COVEMX1-S1: Family-room mention worker. Steward channel owns Connect.
+    # Instance type is not the gate — Clearfield reports domain, not admin.
     matrix_stop = asyncio.Event()
     matrix_task = None
     try:
-        from src.config import get_instance as _mx_inst
-        _mx_type = (_mx_inst().get("type") or "personal")
-        if _mx_type == "admin":
-            from src.utils.matrix_family import run_family_mention_loop
+        from src.utils.matrix_family import (
+            run_family_mention_loop,
+            should_run_family_mention_worker,
+        )
+        if should_run_family_mention_worker():
             matrix_task = asyncio.create_task(
                 run_family_mention_loop(matrix_stop),
                 name="matrix-family-mentions",
             )
             print(f"{ts()} [app] Family mention worker started.")
+        else:
+            print(f"{ts()} [app] Family mention worker skipped (no steward channel).")
     except Exception as e:
         print(f"{ts()} [app] Family mention worker not started: {e}")
 
