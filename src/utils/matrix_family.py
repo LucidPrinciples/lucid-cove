@@ -65,6 +65,13 @@ def worker_status() -> dict:
     return dict(_last_status)
 
 
+def _set_status(result: dict) -> dict:
+    """Replace the last poll snapshot so leftover keys cannot linger."""
+    _last_status.clear()
+    _last_status.update(result)
+    return result
+
+
 def family_thread_id() -> str:
     try:
         from src.config import get_primary_agent_id
@@ -77,6 +84,7 @@ ERROR_BACKOFF_SEC = 15.0
 CHAT_RECURSION_LIMIT = 200
 SESSION_TTL_SEC = 45 * 60
 NOTICE_MAX_CHARS = 1800
+MEMORY_BODY_MAX = 280
 FAMILY_TURN_PREFIX = (
     "You are answering a mention in the shared Family Matrix room. "
     "Keep the reply short. Do not paste host commands, secrets, file dumps, "
@@ -177,6 +185,39 @@ def family_reply_body(text: str) -> str:
     if len(cut) < 200:
         cut = body[: NOTICE_MAX_CHARS - 80].rstrip()
     return cut + "\n\nContinue in Mission Control if you want the rest."
+
+
+def family_turn_memory_content(speaker: str, user_text: str, reply: str) -> str:
+    """Short Day-visible note for one Family-room mention. No secrets, no dump."""
+    who = (speaker or "someone").strip() or "someone"
+    asked = " ".join((user_text or "").split())
+    said = " ".join((reply or "").split())
+    if len(asked) > MEMORY_BODY_MAX:
+        asked = asked[: MEMORY_BODY_MAX - 1].rstrip() + "…"
+    if len(said) > MEMORY_BODY_MAX:
+        said = said[: MEMORY_BODY_MAX - 1].rstrip() + "…"
+    return (
+        f"{who} mentioned the steward in the Family room: {asked} "
+        f"Reply: {said}"
+    )
+
+
+async def _remember_family_turn(speaker: str, user_text: str, reply: str) -> None:
+    """Write the mention into the shared steward memory pool."""
+    from src.config import get_primary_agent_id
+    from src.memory.memory import store_memory
+
+    await store_memory(
+        family_turn_memory_content(speaker, user_text, reply),
+        category="context",
+        importance=0.65,
+        tags=["matrix", "family-room"],
+        agent_id=get_primary_agent_id(),
+        source_thread=family_thread_id(),
+        source_channel=FAMILY_THREAD_CHANNEL,
+        source_summary="Family room mention",
+        source_operator_name=(speaker or "").strip() or None,
+    )
 
 
 def _clear_session():
@@ -394,9 +435,7 @@ async def poll_once() -> dict:
     """One /sync + mention pass. Safe no-op when Matrix or cove_matrix is missing."""
     sess = await _bind_session()
     if not sess.get("ok"):
-        result = {"ok": False, "reason": sess.get("reason") or "no session"}
-        _last_status.update(result)
-        return result
+        return _set_status({"ok": False, "reason": sess.get("reason") or "no session"})
 
     token = sess["token"]
     hub = sess["hub"]
@@ -418,13 +457,9 @@ async def poll_once() -> dict:
     status, body = await _http("GET", hub + "/_matrix/client/v3/sync", token, params=params)
     if status in (401, 403):
         _clear_session()
-        result = {"ok": False, "reason": "auth %s" % status}
-        _last_status.update(result)
-        return result
+        return _set_status({"ok": False, "reason": "auth %s" % status})
     if status != 200:
-        result = {"ok": False, "reason": "sync %s" % status}
-        _last_status.update(result)
-        return result
+        return _set_status({"ok": False, "reason": "sync %s" % status})
 
     next_batch = (body or {}).get("next_batch") or ""
     answered = 0
@@ -448,6 +483,10 @@ async def poll_once() -> dict:
                     "Try again in Mission Control if it keeps happening."
                 )
             await _send_notice(hub, token, room_id, reply)
+            try:
+                await _remember_family_turn(speaker, text, reply)
+            except Exception as e:
+                log.info("matrix family memory write skipped: %s", e)
             event_id = (event.get("event_id") or "").strip()
             if event_id:
                 _answered_event_ids.add(event_id)
@@ -457,9 +496,7 @@ async def poll_once() -> dict:
 
     if next_batch:
         await _save_cursor(next_batch)
-    result = {"ok": True, "answered": answered, "caught_up": not bool(since)}
-    _last_status.update(result)
-    return result
+    return _set_status({"ok": True, "answered": answered, "caught_up": not bool(since)})
 
 
 async def run_family_mention_loop(stop: asyncio.Event):

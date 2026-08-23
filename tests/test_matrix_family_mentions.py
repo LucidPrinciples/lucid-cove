@@ -9,6 +9,7 @@ from src.utils.matrix_family import (
     NOTICE_MAX_CHARS,
     event_is_mention,
     family_reply_body,
+    family_turn_memory_content,
     family_turn_prompt,
     mention_localparts,
     mentions_in_timeline,
@@ -133,6 +134,31 @@ def test_family_turn_prompt_marks_the_room():
     assert "host commands" in text
 
 
+def test_family_turn_memory_names_speaker_and_caps():
+    note = family_turn_memory_content("jag", "hey @stuart " + ("x" * 400), "yes " + ("y" * 400))
+    assert "jag mentioned the steward in the Family room" in note
+    assert "hey @stuart" in note
+    assert "Reply:" in note
+    assert len(note) < 800
+
+
+def test_set_status_drops_stale_reason():
+    mf._last_status.clear()
+    mf._last_status.update({"ok": None, "reason": "not started", "answered": 0})
+    mf._set_status({"ok": True, "answered": 1, "caught_up": False})
+    assert mf.worker_status() == {"ok": True, "answered": 1, "caught_up": False}
+
+
+def test_cove_steward_label_is_first_name(monkeypatch):
+    from src.dashboard.routes import matrix_spaces as ms
+
+    monkeypatch.setattr(
+        "src.config.get_steward_channel_config",
+        lambda: {"name": "stuart"},
+    )
+    assert ms._cove_steward_label() == "Stuart"
+
+
 def test_timeline_events_only_that_room():
     room = "!fam:example.org"
     body = {
@@ -239,8 +265,14 @@ async def test_poll_once_answers_new_mention(monkeypatch):
     monkeypatch.setattr(mf, "_http", _http)
     monkeypatch.setattr(mf, "_load_cursor", lambda: _async("s1"))
     monkeypatch.setattr(mf, "_save_cursor", lambda nb: _async(None))
+    remembered = []
+
+    async def _remember(speaker, user_text, reply):
+        remembered.append((speaker, user_text, reply))
+
     monkeypatch.setattr(mf, "_run_steward_turn", _turn)
     monkeypatch.setattr(mf, "_send_notice", _notice)
+    monkeypatch.setattr(mf, "_remember_family_turn", _remember)
     mf._answered_event_ids.clear()
 
     result = await mf.poll_once()
@@ -248,7 +280,9 @@ async def test_poll_once_answers_new_mention(monkeypatch):
     assert result["caught_up"] is False
     assert result["answered"] == 1
     assert sent == ["got it"]
+    assert remembered == [("jag", "hey @stuart what is next", "got it")]
     assert "$new" in mf._answered_event_ids
+    assert "reason" not in result
     mf._answered_event_ids.clear()
 
 

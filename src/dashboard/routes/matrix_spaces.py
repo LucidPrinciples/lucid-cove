@@ -158,7 +158,51 @@ async def ensure_steward() -> dict:
                 "python3 /cove-core/provision/set_domain.py --remove-matrix-user %s "
                 "--cove-id <cove_id>, then reopen Connect." % STEWARD_LOCALPART,
             )
-    return {"user": user, "pw": pw, "token": login["data"]["access_token"]}
+    token = login["data"]["access_token"]
+    # Localpart stays "steward" (stable owner). Clients should show the
+    # steward first name, not the raw handle — same idea as the Haven label.
+    try:
+        await _set_cove_steward_displayname(token, _uid(user), _cove_steward_label())
+    except Exception as e:
+        log.info("cove steward displayname skipped: %s", str(e)[:100])
+    return {"user": user, "pw": pw, "token": token}
+
+
+def _cove_steward_label() -> str:
+    """First name only — do not append the family surname."""
+    try:
+        from src.config import get_steward_channel_config, get_instance
+        sc = get_steward_channel_config() or {}
+        name = (sc.get("name") or "").strip()
+        if not name:
+            name = ((get_instance() or {}).get("name") or "").strip()
+        if name:
+            return name[:1].upper() + name[1:]
+    except Exception:
+        pass
+    try:
+        from src.utils.settings import get_setting_sync
+        name = (get_setting_sync("admin_agent_display_name", "") or "").strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    return "Stuart"
+
+
+async def _set_cove_steward_displayname(token: str, user_id: str, name: str) -> None:
+    """PUT the Cove steward profile displayname. Best-effort, idempotent."""
+    label = (name or "").strip()
+    if not (token and user_id and label):
+        return
+    s, _ = await _http(
+        "PUT",
+        "/_matrix/client/v3/profile/%s/displayname" % _up.quote(user_id),
+        token,
+        {"displayname": label},
+    )
+    if s != 200:
+        log.info("cove steward displayname set returned %s", s)
 
 
 async def _live_cove_name() -> str:
