@@ -378,6 +378,42 @@ async def _send_notice(hub: str, token: str, room_id: str, body: str) -> None:
         log.warning("matrix family send failed status=%s err=%s", status, (data or {}).get("error"))
 
 
+async def _mark_mention_seen(
+    hub: str, token: str, room_id: str, user_id: str, event_id: str
+) -> None:
+    """Read-receipt the mention so the sender knows it landed, then show typing."""
+    if event_id:
+        path = "/_matrix/client/v3/rooms/%s/receipt/m.read/%s" % (
+            urllib.parse.quote(room_id),
+            urllib.parse.quote(event_id),
+        )
+        try:
+            status, _data = await _http("POST", hub + path, token, body={})
+            if status not in (200, 201):
+                log.info("matrix family receipt skipped status=%s", status)
+        except Exception as e:
+            log.info("matrix family receipt skipped: %s", e)
+    await _set_typing(hub, token, room_id, user_id, True)
+
+
+async def _set_typing(
+    hub: str, token: str, room_id: str, user_id: str, typing: bool
+) -> None:
+    path = "/_matrix/client/v3/rooms/%s/typing/%s" % (
+        urllib.parse.quote(room_id),
+        urllib.parse.quote(user_id),
+    )
+    body = {"typing": bool(typing)}
+    if typing:
+        body["timeout"] = 30_000
+    try:
+        status, _data = await _http("PUT", hub + path, token, body=body)
+        if status not in (200, 201):
+            log.info("matrix family typing skipped status=%s", status)
+    except Exception as e:
+        log.info("matrix family typing skipped: %s", e)
+
+
 async def _bind_session(*, force: bool = False) -> dict:
     """Steward token + Family room, cached so /sync does not mint a device each loop."""
     now = time.time()
@@ -474,7 +510,9 @@ async def poll_once() -> dict:
             if not text:
                 continue
             speaker = _speaker_label(event.get("sender") or "")
+            event_id = (event.get("event_id") or "").strip()
             try:
+                await _mark_mention_seen(hub, token, room_id, user_id, event_id)
                 reply = await _run_steward_turn(text, speaker)
             except Exception as e:
                 log.warning("matrix family turn failed: %s", e)
@@ -482,6 +520,8 @@ async def poll_once() -> dict:
                     "I caught the mention, but that turn failed. "
                     "Try again in Mission Control if it keeps happening."
                 )
+            finally:
+                await _set_typing(hub, token, room_id, user_id, False)
             await _send_notice(hub, token, room_id, reply)
             try:
                 await _remember_family_turn(speaker, text, reply)

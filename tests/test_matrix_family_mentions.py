@@ -266,13 +266,24 @@ async def test_poll_once_answers_new_mention(monkeypatch):
     monkeypatch.setattr(mf, "_load_cursor", lambda: _async("s1"))
     monkeypatch.setattr(mf, "_save_cursor", lambda nb: _async(None))
     remembered = []
+    seen = []
+    typing = []
 
     async def _remember(speaker, user_text, reply):
         remembered.append((speaker, user_text, reply))
 
+    async def _seen(hub, token, room_id, user_id, event_id):
+        seen.append(event_id)
+        typing.append(True)
+
+    async def _typing(hub, token, room_id, user_id, on):
+        typing.append(bool(on))
+
     monkeypatch.setattr(mf, "_run_steward_turn", _turn)
     monkeypatch.setattr(mf, "_send_notice", _notice)
     monkeypatch.setattr(mf, "_remember_family_turn", _remember)
+    monkeypatch.setattr(mf, "_mark_mention_seen", _seen)
+    monkeypatch.setattr(mf, "_set_typing", _typing)
     mf._answered_event_ids.clear()
 
     result = await mf.poll_once()
@@ -281,6 +292,8 @@ async def test_poll_once_answers_new_mention(monkeypatch):
     assert result["answered"] == 1
     assert sent == ["got it"]
     assert remembered == [("jag", "hey @stuart what is next", "got it")]
+    assert seen == ["$new"]
+    assert typing[-1] is False
     assert "$new" in mf._answered_event_ids
     assert "reason" not in result
     mf._answered_event_ids.clear()
