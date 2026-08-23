@@ -1047,6 +1047,7 @@ def _clear_cove_matrix_space_ids(*, postgres_container: str, cove_id: str) -> bo
     sql = (
         "UPDATE cove_matrix SET space_id = NULL, family_room_id = NULL, "
         "updated_at = NOW() WHERE id = 1;"
+        "UPDATE cove_matrix SET sync_next_batch = NULL, updated_at = NOW() WHERE id = 1;"
     )
     for role in (cove_id, "postgres"):
         # -v ON_ERROR_STOP=0 so a missing table is not a hard fail.

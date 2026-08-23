@@ -905,10 +905,12 @@ CREATE TABLE IF NOT EXISTS cove_matrix (
     steward_password TEXT,
     space_id         TEXT,
     family_room_id   TEXT,
+    sync_next_batch  TEXT,
     created_at       TIMESTAMPTZ DEFAULT NOW(),
     updated_at       TIMESTAMPTZ DEFAULT NOW(),
     CONSTRAINT cove_matrix_singleton CHECK (id = 1)
 );
+ALTER TABLE cove_matrix ADD COLUMN IF NOT EXISTS sync_next_batch TEXT;
 
 -- =============================================================================
 -- Hub network registrar (#133) — the global source of truth, replaces the

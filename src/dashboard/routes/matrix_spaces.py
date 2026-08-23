@@ -233,8 +233,20 @@ async def _room_alive_for_steward(token: str, room_id: str) -> bool:
 
 
 async def _clear_space_ids() -> None:
-    """Drop persisted Space/Family ids so the next ensure recreates them."""
-    await _save_state(space_id=None, family_room_id=None)
+    """Drop persisted Space/Family ids so the next ensure recreates them.
+
+    Also drop the Family-worker /sync cursor — a token from the old room
+    would skip or mis-route mentions after regen.
+    """
+    try:
+        await _save_state(space_id=None, family_room_id=None, sync_next_batch=None)
+    except Exception:
+        await _save_state(space_id=None, family_room_id=None)
+    try:
+        from src.utils.matrix_family import _clear_session
+        _clear_session()
+    except Exception:
+        pass
 
 
 # ── The Cove Space ───────────────────────────────────────────────────────────
@@ -464,3 +476,13 @@ async def invite_presence_to_cove_space(handle: str) -> dict:
 async def api_ensure_cove_space(request: Request):
     """Manual trigger / backfill for the Cove Space (operator-gated by middleware)."""
     return await ensure_cove_space()
+
+
+@router.get("/api/admin/matrix/family-worker")
+async def api_family_worker_status(request: Request):
+    """COVEMX1-S1: last Family mention-worker poll. No tokens, no room ids."""
+    try:
+        from src.utils.matrix_family import worker_status
+        return worker_status()
+    except Exception as e:
+        return {"ok": False, "reason": str(e)[:200]}

@@ -516,6 +516,22 @@ async def lifespan(app: FastAPI):
             print(f"{ts()} [app] orphaned video-job sweep error: {e}")
     video_sweep_task = asyncio.create_task(_video_job_sweep())
 
+    # COVEMX1-S1: Family-room mention worker. Host Cove only. Cancelled on shutdown.
+    matrix_stop = asyncio.Event()
+    matrix_task = None
+    try:
+        from src.config import get_instance as _mx_inst
+        _mx_type = (_mx_inst().get("type") or "personal")
+        if _mx_type == "admin":
+            from src.utils.matrix_family import run_family_mention_loop
+            matrix_task = asyncio.create_task(
+                run_family_mention_loop(matrix_stop),
+                name="matrix-family-mentions",
+            )
+            print(f"{ts()} [app] Family mention worker started.")
+    except Exception as e:
+        print(f"{ts()} [app] Family mention worker not started: {e}")
+
     yield
 
     if _brain_task and not _brain_task.done():
@@ -550,6 +566,14 @@ async def lifespan(app: FastAPI):
         kb_sync_task.cancel()
         try:
             await kb_sync_task
+        except asyncio.CancelledError:
+            pass
+
+    if matrix_task and not matrix_task.done():
+        matrix_stop.set()
+        matrix_task.cancel()
+        try:
+            await matrix_task
         except asyncio.CancelledError:
             pass
 
