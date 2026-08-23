@@ -995,6 +995,22 @@ async def load_memories_for_prompt(
         )
         continuity_rows = await continuity.fetchall()
 
+        # Recent Family-room mentions — Day must see these without a paste.
+        family_mentions = await conn.execute(
+            """SELECT id, content, category, importance, tags,
+                      access_count, last_accessed, created_at,
+                      source_operator_name, source_presence_id
+               FROM agent_memory
+               WHERE agent_id = %s AND is_active = TRUE
+                 AND source_channel = 'matrix-family'
+                 AND (expires_at IS NULL OR expires_at > NOW())
+                 AND COALESCE(needs_review, FALSE) = FALSE
+               ORDER BY created_at DESC
+               LIMIT 5""",
+            (agent_id,),
+        )
+        family_rows = await family_mentions.fetchall()
+
         # Load ALL non-context active memories as candidates.
         # We fetch a wide set and let the temporal decay function
         # do the ranking in Python — single source of truth for the
@@ -1056,6 +1072,12 @@ async def load_memories_for_prompt(
 
     # Continuity rows always first (thread summaries for conversation pickup)
     for row in continuity_rows:
+        if row["id"] not in seen_ids:
+            seen_ids.add(row["id"])
+            selected.append(row)
+
+    # Then the latest Family-room mention turns (two-doors contract).
+    for row in family_rows:
         if row["id"] not in seen_ids:
             seen_ids.add(row["id"])
             selected.append(row)

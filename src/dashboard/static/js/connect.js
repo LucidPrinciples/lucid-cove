@@ -35,6 +35,8 @@
   let tokenBackoff = 2000;    // current cooldown; doubles on failure, resets on success
   let retryTimer = null;      // scheduled auto-retry after backoff / warm-up
   let syncWatchdog = null;    // hard timeout waiting for PREPARED
+  let pendingStewardTyping = false;
+  let pendingStewardTypingTimer = null;
   // One-shot fail lock for a single connect attempt. matrix-js-sdk often emits
   // ERROR then STOPPED (or ERROR repeatedly) for one dead /sync. Without this,
   // each event doubled tokenBackoff and stacked scheduleConnectRetry + a second
@@ -503,6 +505,14 @@
     });
     client.on(RoomEvent.Timeline, (event, room) => {
       if (!started || mode !== 'chats') return;
+      try {
+        const sender = event && event.getSender && event.getSender();
+        const local = (sender || '').split(':')[0].replace(/^@/, '').toLowerCase();
+        const msgtype = event && event.getContent && (event.getContent() || {}).msgtype;
+        if (local === 'steward' && (msgtype === 'm.notice' || msgtype === 'm.text')) {
+          clearPendingStewardTyping();
+        }
+      } catch (_) {}
       if (room && room.roomId === activeRoomId) renderTimeline();
       renderTree();
     });
@@ -1828,13 +1838,29 @@
   }
 
   function typingNames(room, me) {
-    if (!room || !room.getTypingUsers) return '';
-    let ids = [];
-    try { ids = room.getTypingUsers() || []; } catch (e) { return ''; }
-    const names = ids
-      .filter(id => id && id !== me)
-      .map(id => prettySenderLabel(id, room))
-      .filter(Boolean);
+    const ids = [];
+    const seen = {};
+    function add(id) {
+      if (!id || id === me || seen[id]) return;
+      seen[id] = true;
+      ids.push(id);
+    }
+    // This vendored SDK has no Room.getTypingUsers. Members carry .typing.
+    try {
+      const members = room && room.getJoinedMembers ? room.getJoinedMembers() : [];
+      (members || []).forEach(m => {
+        if (m && m.typing) add(m.userId || m.user_id);
+      });
+    } catch (e) { /* ignore */ }
+    try {
+      if (room && typeof room.getTypingUsers === 'function') {
+        (room.getTypingUsers() || []).forEach(add);
+      }
+    } catch (e) { /* ignore */ }
+    if (!ids.length && pendingStewardTyping && room && room.roomId === activeRoomId) {
+      return 'Stuart is typing…';
+    }
+    const names = ids.map(id => prettySenderLabel(id, room)).filter(Boolean);
     if (!names.length) return '';
     if (names.length === 1) return names[0] + ' is typing…';
     return names.join(', ') + ' are typing…';
@@ -1881,12 +1907,36 @@
     return names;
   }
 
+  function mentionsSteward(text) {
+    return /(?:^|[^\w])@(?:stuart|steward)\b/i.test(text || '');
+  }
+
+  function markPendingStewardTyping() {
+    pendingStewardTyping = true;
+    if (pendingStewardTypingTimer) clearTimeout(pendingStewardTypingTimer);
+    pendingStewardTypingTimer = setTimeout(function () {
+      pendingStewardTyping = false;
+      pendingStewardTypingTimer = null;
+      if (activeRoomId) renderTimeline();
+    }, 45000);
+    if (activeRoomId) renderTimeline();
+  }
+
+  function clearPendingStewardTyping() {
+    pendingStewardTyping = false;
+    if (pendingStewardTypingTimer) {
+      clearTimeout(pendingStewardTypingTimer);
+      pendingStewardTypingTimer = null;
+    }
+  }
+
   async function sendMsg() {
     const inp = document.getElementById('cx-input');
     if (!inp || !activeRoomId || !client) return;
     const body = inp.value.trim();
     if (!body) return;
     inp.value = '';
+    if (mentionsSteward(body)) markPendingStewardTyping();
     trySend(activeRoomId, body, 0);
   }
 

@@ -42,3 +42,13 @@ def test_seen_and_typing_chrome_present():
     assert " is typing…" in CX
     assert "function typingNames" in CX
     assert "function receiptNamesForEvent" in CX
+
+
+def test_typing_reads_member_state_not_missing_sdk_helper():
+    fn = CX.index("function typingNames")
+    chunk = CX[fn : fn + 1600]
+    assert "getJoinedMembers" in chunk
+    assert "m.typing" not in chunk or "pendingStewardTyping" in chunk
+    assert "pendingStewardTyping" in CX
+    assert "mentionsSteward" in CX
+    assert "Stuart is typing…" in chunk

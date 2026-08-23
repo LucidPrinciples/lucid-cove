@@ -207,10 +207,13 @@ async def _remember_family_turn(speaker: str, user_text: str, reply: str) -> Non
     from src.config import get_primary_agent_id
     from src.memory.memory import store_memory
 
-    await store_memory(
+    # Observation, not context: Day's prompt only keeps the last three
+    # context rows (thread summaries). A Family turn has to stay in the
+    # shared pool and in tool search so Day can answer without a paste.
+    stored = await store_memory(
         family_turn_memory_content(speaker, user_text, reply),
-        category="context",
-        importance=0.65,
+        category="observation",
+        importance=0.75,
         tags=["matrix", "family-room"],
         agent_id=get_primary_agent_id(),
         source_thread=family_thread_id(),
@@ -218,6 +221,9 @@ async def _remember_family_turn(speaker: str, user_text: str, reply: str) -> Non
         source_summary="Family room mention",
         source_operator_name=(speaker or "").strip() or None,
     )
+    mid = (stored or {}).get("id")
+    if mid:
+        log.info("matrix family turn remembered id=%s", mid)
 
 
 def _clear_session():

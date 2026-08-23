@@ -142,6 +142,13 @@ def test_family_turn_memory_names_speaker_and_caps():
     assert len(note) < 800
 
 
+def test_remember_family_turn_is_observation_not_context():
+    import inspect
+    src = inspect.getsource(mf._remember_family_turn)
+    assert 'category="observation"' in src
+    assert 'category="context"' not in src
+
+
 def test_set_status_drops_stale_reason():
     mf._last_status.clear()
     mf._last_status.update({"ok": None, "reason": "not started", "answered": 0})
