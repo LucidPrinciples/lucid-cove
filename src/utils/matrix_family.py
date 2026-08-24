@@ -800,6 +800,9 @@ async def _bind_merchant_session(*, force: bool = False) -> dict:
         _uid,
         ensure_cove_space,
         ensure_merchant,
+        ensure_merchant_in_family,
+        ensure_steward,
+        merchant_mxid,
     )
     from src.config import get_merchant_channel_config
 
@@ -819,6 +822,19 @@ async def _bind_merchant_session(*, force: bool = False) -> dict:
     if not merchant or not merchant.get("token"):
         return {"ok": False, "reason": "no merchant identity"}
 
+    # Mint is not membership. Invite+join on every bind so a restart cannot
+    # leave the merchant in zero rooms while /sync walks the cursor past pings.
+    try:
+        steward = await ensure_steward()
+        await ensure_merchant_in_family(
+            merchant,
+            steward_token=steward["token"],
+            space_id=built.get("space_id") or "",
+            room_id=room_id,
+        )
+    except Exception as e:
+        log.info("merchant family bind join skipped: %s", e)
+
     mc = {}
     try:
         mc = get_merchant_channel_config() or {}
@@ -829,11 +845,12 @@ async def _bind_merchant_session(*, force: bool = False) -> dict:
         "ok": True,
         "token": merchant["token"],
         "user": merchant["user"],
-        "user_id": _uid(merchant["user"]),
+        "user_id": merchant_mxid(merchant) or _uid(merchant["user"]),
         "room_id": room_id,
         "hub": _internal(),
         "localparts": mention_localparts(
             merchant["user"],
+            merchant.get("user_id"),
             env("MATRIX_MERCHANT_LOCALPART", "mercer"),
             mc.get("agent_id"),
             mc.get("name"),
