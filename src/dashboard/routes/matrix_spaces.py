@@ -219,15 +219,21 @@ async def ensure_merchant() -> dict | None:
         if not login.get("ok"):
             log.warning("merchant Matrix account login failed: %s", login.get("errcode") or login)
             return None
-    token = ((login.get("data") or {}).get("access_token") or "").strip()
+    data = login.get("data") or {}
+    token = (data.get("access_token") or "").strip()
     if not token:
         log.warning("merchant matrix login missing token")
         return None
+    # Prefer the MXID login actually returned. Rebuilding from cove.yaml
+    # domain / MATRIX_SERVER_NAME can point at a different server_name than
+    # Dendrite (localhost vs claimed domain) — invite then 200s a ghost and
+    # the merchant stays in zero rooms while the worker still /syncs.
+    user_id = (data.get("user_id") or "").strip() or _uid(user)
     try:
-        await _set_cove_steward_displayname(token, _uid(user), _cove_merchant_label())
+        await _set_cove_steward_displayname(token, user_id, _cove_merchant_label())
     except Exception as e:
         log.info("cove merchant displayname skipped: %s", str(e)[:100])
-    return {"user": user, "pw": pw, "token": token}
+    return {"user": user, "pw": pw, "token": token, "user_id": user_id}
 
 
 def _cove_merchant_label() -> str:
@@ -312,6 +318,39 @@ async def _presence_handles() -> list:
             "AND tier IN ('cove', 'presence')")
         rows = await r.fetchall()
     return [row["username"] for row in rows if (row or {}).get("username")]
+
+
+def merchant_mxid(merchant: dict | None) -> str:
+    """Live merchant MXID from login, else rebuilt localpart@server."""
+    if not merchant:
+        return ""
+    uid = (merchant.get("user_id") or "").strip()
+    if uid.startswith("@") and ":" in uid:
+        return uid
+    local = (merchant.get("user") or MERCHANT_LOCALPART or "").strip()
+    return _uid(local) if local else ""
+
+
+async def ensure_merchant_in_family(
+    merchant: dict | None, *, steward_token: str, space_id: str, room_id: str
+) -> None:
+    """Invite + join the merchant into Space/Family. Idempotent.
+
+    Worker bind must call this even when the rooms already exist — minting
+    the account is not membership. Invite uses the live login MXID.
+    """
+    if not (merchant and merchant.get("token") and room_id and steward_token):
+        return
+    mid = merchant_mxid(merchant)
+    if not mid:
+        return
+    try:
+        await _invite(steward_token, [space_id, room_id], [mid])
+        if space_id:
+            await _join_room(merchant["token"], space_id)
+        await _join_room(merchant["token"], room_id)
+    except Exception as e:
+        log.info("merchant family join skipped: %s", e)
 
 
 async def _join_room(token: str, room_id: str) -> None:
@@ -403,8 +442,8 @@ async def ensure_cove_space() -> dict:
     except Exception as e:
         log.info("merchant matrix ensure skipped: %s", e)
     if merchant and merchant.get("user"):
-        mid = _uid(merchant["user"])
-        if mid not in invites:
+        mid = merchant_mxid(merchant)
+        if mid and mid not in invites:
             invites.append(mid)
 
     st = await _state()
@@ -415,12 +454,9 @@ async def ensure_cove_space() -> dict:
         room_ok = await _room_alive_for_steward(tok, room_id)
         if space_ok and room_ok:
             await _invite(tok, [space_id, room_id], invites)
-            if merchant and merchant.get("token") and room_id:
-                try:
-                    await _join_room(merchant["token"], space_id)
-                    await _join_room(merchant["token"], room_id)
-                except Exception as e:
-                    log.info("merchant family join skipped: %s", e)
+            await ensure_merchant_in_family(
+                merchant, steward_token=tok, space_id=space_id, room_id=room_id
+            )
             await _sync_space_to_registry(cove_name, space_id)  # self-healing
             return {"ok": True, "space_id": space_id, "room_id": room_id, "created": False}
         log.warning(
@@ -456,12 +492,9 @@ async def ensure_cove_space() -> dict:
                 {"via": [sn], "canonical": True})
 
     await _save_state(space_id=space_id, family_room_id=room_id)
-    if merchant and merchant.get("token") and room_id:
-        try:
-            await _join_room(merchant["token"], space_id)
-            await _join_room(merchant["token"], room_id)
-        except Exception as e:
-            log.info("merchant family join skipped: %s", e)
+    await ensure_merchant_in_family(
+        merchant, steward_token=tok, space_id=space_id, room_id=room_id
+    )
     log.info("Built Cove Space %s (Family room %s) for %s", space_id, room_id, cove_name)
     await _sync_space_to_registry(cove_name, space_id)
     return {"ok": True, "space_id": space_id, "room_id": room_id, "created": True}

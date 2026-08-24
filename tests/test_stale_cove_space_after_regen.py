@@ -95,6 +95,53 @@ def test_regen_clears_cove_matrix_helper_exists_and_is_called():
     assert 'core = {k: steps[k] for k in ("stop", "db_wipe", "config", "start")' in NET_SRC
 
 
+def test_merchant_mxid_prefers_login_user_id():
+    assert ms.merchant_mxid({
+        "user": "mercer",
+        "user_id": "@mercer:matrix.clearfield.localhost",
+    }) == "@mercer:matrix.clearfield.localhost"
+    rebuilt = ms.merchant_mxid({"user": "mercer", "user_id": ""})
+    assert rebuilt.startswith("@mercer:")
+
+
+def test_ensure_uses_login_mxid_not_rebuilt_uid():
+    src = MS_SRC if "merchant_mxid(merchant)" in MS_SRC else Path(
+        "src/dashboard/routes/matrix_spaces.py"
+    ).read_text()
+    assert "mid = merchant_mxid(merchant)" in src
+    assert 'mid = _uid(merchant["user"])' not in src
+    assert "user_id" in src.split("async def ensure_merchant")[1].split("async def _cove_merchant_label")[0]
+
+
+@pytest.mark.asyncio
+async def test_ensure_merchant_in_family_invites_live_mxid():
+    invited = []
+    joined = []
+
+    async def fake_invite(token, rooms, user_ids):
+        invited.append((token, rooms, user_ids))
+
+    async def fake_join(token, room_id):
+        joined.append((token, room_id))
+
+    merchant = {
+        "user": "mercer",
+        "token": "mtok",
+        "user_id": "@mercer:matrix.clearfield.localhost",
+    }
+    with patch.object(ms, "_invite", side_effect=fake_invite), \
+         patch.object(ms, "_join_room", side_effect=fake_join):
+        await ms.ensure_merchant_in_family(
+            merchant,
+            steward_token="stok",
+            space_id="!space",
+            room_id="!fam",
+        )
+
+    assert invited == [("stok", ["!space", "!fam"], ["@mercer:matrix.clearfield.localhost"])]
+    assert joined == [("mtok", "!space"), ("mtok", "!fam")]
+
+
 def test_invite_presence_routes_through_ensure():
     fn = MS_SRC.split("async def invite_presence_to_cove_space")[1].split(
         "@router.post"

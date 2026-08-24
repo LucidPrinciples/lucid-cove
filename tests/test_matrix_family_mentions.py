@@ -462,3 +462,63 @@ async def test_poll_merchant_once_answers_new_mention(monkeypatch):
     assert "$mnew" in mf._merchant_answered_event_ids
     mf._merchant_answered_event_ids.clear()
 
+
+@pytest.mark.asyncio
+async def test_bind_merchant_session_joins_family(monkeypatch):
+    """Mint is not membership — bind must invite+join with the live MXID."""
+    joined = []
+
+    async def _ensure_space():
+        return {"ok": True, "space_id": "!space", "room_id": "!fam"}
+
+    async def _ensure_merchant():
+        return {
+            "user": "mercer",
+            "token": "mtok",
+            "user_id": "@mercer:matrix.clearfield.localhost",
+        }
+
+    async def _ensure_steward():
+        return {"user": "steward", "token": "stok"}
+
+    async def _join(merchant, *, steward_token, space_id, room_id):
+        joined.append((merchant["user_id"], steward_token, space_id, room_id))
+
+    monkeypatch.setattr("src.dashboard.routes.matrix_spaces._configured", lambda: True)
+    monkeypatch.setattr(
+        "src.dashboard.routes.matrix_spaces._has_state_table", lambda: _async(True)
+    )
+    monkeypatch.setattr(
+        "src.dashboard.routes.matrix_spaces._internal", lambda: "http://dendrite:8008"
+    )
+    monkeypatch.setattr(
+        "src.dashboard.routes.matrix_spaces._uid",
+        lambda user: "@%s:wrong.example" % user,
+    )
+    monkeypatch.setattr(
+        "src.dashboard.routes.matrix_spaces.ensure_cove_space", _ensure_space
+    )
+    monkeypatch.setattr(
+        "src.dashboard.routes.matrix_spaces.ensure_merchant", _ensure_merchant
+    )
+    monkeypatch.setattr(
+        "src.dashboard.routes.matrix_spaces.ensure_steward", _ensure_steward
+    )
+    monkeypatch.setattr(
+        "src.dashboard.routes.matrix_spaces.ensure_merchant_in_family", _join
+    )
+    monkeypatch.setattr(
+        "src.dashboard.routes.matrix_spaces.merchant_mxid",
+        lambda m: (m or {}).get("user_id") or "",
+    )
+    monkeypatch.setattr(
+        "src.config.get_merchant_channel_config",
+        lambda: {"name": "mercer", "agent_id": "mercer"},
+    )
+    mf._merchant_session.clear()
+    sess = await mf._bind_merchant_session(force=True)
+    assert sess["ok"] is True
+    assert sess["user_id"] == "@mercer:matrix.clearfield.localhost"
+    assert joined == [("@mercer:matrix.clearfield.localhost", "stok", "!space", "!fam")]
+    mf._merchant_session.clear()
+
