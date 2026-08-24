@@ -1,9 +1,12 @@
-"""BOOKLED1 — presence Bookkeeping P&L + ledger.
+"""BOOKLED2 — presence Bookkeeping P&L + ledger + vendor map.
 
-GET  /books                     Wave-style P&L page
-GET  /api/books/summary         category rollup (optional year/month)
-GET  /api/books/lines           transactions for one category
-PATCH /api/books/line           set category from the working chart
+GET   /books                    statement P&L page
+GET   /api/books/summary        category rollup (optional year/month)
+GET   /api/books/lines          transactions for one category
+PATCH /api/books/line           set one category from the working chart
+PATCH /api/books/lines          set many categories at once
+GET   /api/books/map            vendor/phrase rules
+PUT   /api/books/map            replace rules; apply to uncategorized
 
 Bytes live in the logged-in Presence's Bookkeeping/Organize/*.mapped.json.
 Do not log amounts, payees, or statement text.
@@ -158,6 +161,7 @@ async def books_summary(request: Request, path: str = ""):
         "month": month,
         "periods": periods,
         "chart": chart,
+        "vendor_map": bk.vendor_map_from_payload(payload),
         "pnl": pnl,
     })
 
@@ -227,5 +231,102 @@ async def books_patch_line(request: Request):
         "ok": True,
         "path": clean,
         "line": bk.line_preview(row, clean, index),
+        "needs_review_count": updated.get("needs_review_count"),
+        "vendor_map": bk.vendor_map_from_payload(updated),
+    })
+
+
+@router.patch("/api/books/lines")
+async def books_patch_lines(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    path = (body.get("path") or DEFAULT_LEDGER).strip()
+    raw_indexes = body.get("indexes") or body.get("indices") or []
+    if not isinstance(raw_indexes, list):
+        return JSONResponse({"ok": False, "error": "indexes is required"}, status_code=400)
+    indexes: list[int] = []
+    for item in raw_indexes:
+        try:
+            indexes.append(int(item))
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "indexes must be integers"}, status_code=400)
+    if len(indexes) > 200:
+        return JSONResponse({"ok": False, "error": "Too many lines in one save"}, status_code=400)
+    label = (body.get("category") or body.get("category_label") or "").strip()
+    if not label:
+        return JSONResponse({"ok": False, "error": "category is required"}, status_code=400)
+
+    payload, clean, err, status = await _read_ledger(request, path)
+    if err or payload is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    updated, uerr = bk.apply_categories(payload, indexes, label)
+    if uerr or updated is None:
+        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, clean, updated)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "updated": len(set(indexes)),
+        "needs_review_count": updated.get("needs_review_count"),
+        "vendor_map": bk.vendor_map_from_payload(updated),
+    })
+
+
+@router.get("/api/books/map")
+async def books_get_map(request: Request, path: str = ""):
+    ledger_path = path or DEFAULT_LEDGER
+    payload, clean, err, status = await _read_ledger(request, ledger_path)
+    if err or payload is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "chart": bk.working_chart_from_payload(payload),
+        "vendor_map": bk.vendor_map_from_payload(payload),
+    })
+
+
+@router.put("/api/books/map")
+async def books_put_map(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    path = (body.get("path") or DEFAULT_LEDGER).strip()
+    rules = body.get("vendor_map") or body.get("rules") or []
+    if not isinstance(rules, list):
+        return JSONResponse({"ok": False, "error": "vendor_map must be a list"}, status_code=400)
+    if len(rules) > 400:
+        return JSONResponse({"ok": False, "error": "Too many map rules"}, status_code=400)
+
+    payload, clean, err, status = await _read_ledger(request, path)
+    if err or payload is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    updated, uerr = bk.set_vendor_map(payload, rules)
+    if uerr or updated is None:
+        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+    applied = {"applied": 0, "skipped_placed": 0}
+    if body.get("apply", True):
+        updated, applied, aerr = bk.apply_vendor_map(updated)
+        if aerr or updated is None:
+            return JSONResponse({"ok": False, "error": aerr, "path": clean}, status_code=400)
+    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, clean, updated)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "vendor_map": bk.vendor_map_from_payload(updated),
+        "applied": (applied or {}).get("applied", 0),
         "needs_review_count": updated.get("needs_review_count"),
     })

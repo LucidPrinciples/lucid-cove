@@ -77,3 +77,40 @@ def test_apply_category_uses_working_chart_only():
     assert bad is None and err
     missing, err = bk.apply_category(payload, 9, "Advertising")
     assert missing is None and err
+    assert any(r["phrase"] == "vendor" for r in bk.vendor_map_from_payload(updated))
+
+
+def test_batch_recode_and_vendor_map():
+    payload = {
+        "working_chart": [
+            {"label": "Advertising", "code": None, "layer": "official"},
+            {"label": "BANK SERVICE CHARGES 210", "code": "210", "layer": "write-in"},
+        ],
+        "rows": [
+            _row("2025-01-15", "-10.00", name="Acme Ads"),
+            _row("2025-01-16", "-11.00", name="Acme Ads"),
+            _row("2025-01-17", "-4.00", name="Other Co"),
+        ],
+    }
+    updated, err = bk.apply_categories(payload, [0, 1], "Advertising")
+    assert err is None and updated is not None
+    assert updated["rows"][0]["category_label"] == "Advertising"
+    assert updated["rows"][1]["category_label"] == "Advertising"
+    assert updated["rows"][2].get("category_label") is None
+    rules = bk.vendor_map_from_payload(updated)
+    assert len(rules) == 1
+    assert rules[0]["phrase"] == "acme ads"
+    assert rules[0]["label"] == "Advertising"
+
+    payload["vendor_map"] = [{"phrase": "other co", "label": "BANK SERVICE CHARGES 210"}]
+    mapped, stats, err = bk.apply_vendor_map(payload)
+    assert err is None and mapped is not None
+    assert stats["applied"] == 1
+    assert mapped["rows"][2]["category_label"] == "BANK SERVICE CHARGES 210"
+    assert mapped["rows"][0]["category_label"] == "Advertising"
+
+    cleaned, err = bk.set_vendor_map(payload, [{"phrase": "ok phrase", "label": "Advertising"}])
+    assert err is None and cleaned is not None
+    assert [r["phrase"] for r in cleaned["vendor_map"]] == ["ok phrase"]
+    bad, err = bk.set_vendor_map(payload, [{"phrase": "x", "label": "Advertising"}])
+    assert bad is None and err
