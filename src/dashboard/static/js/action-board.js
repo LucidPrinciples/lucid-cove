@@ -2361,7 +2361,7 @@ function _abLinksWithReturn(url) {
         const u = new URL(String(url), window.location.origin);
         if (u.origin !== window.location.origin) return url;
         const path = u.pathname.replace(/\/+$/, '') || '/';
-        if (path !== '/backlog' && path !== '/jules' && path !== '/gabs' && path !== '/model-lab' && path !== '/knowledge' && path !== '/tables' && path !== '/briefs') return url;
+        if (path !== '/backlog' && path !== '/jules' && path !== '/gabs' && path !== '/model-lab' && path !== '/knowledge' && path !== '/tables' && path !== '/briefs' && path !== '/books') return url;
         if (!u.searchParams.has('return')) u.searchParams.set('return', 'links');
         // Keep relative form for in-Cove paths so host/presence doors stay correct.
         if (String(url).startsWith('/') || !/^[a-z][a-z0-9+.-]*:/i.test(String(url))) {
@@ -2787,6 +2787,7 @@ const FLOW_ROUTING = [
     { keywords: ['video', 'short', 'youtube', 'clip'], target: 'video-shorts-pipeline', label: 'Video Shorts Pipeline', isTool: true },
     { keywords: ['gab', 'gabs', 'research link', 'assess link', 'deep research'], target: 'gabs', label: 'Gabs', isTool: true },
     { keywords: ['model lab', 'modellab', 'ollama', 'a/b test', 'model tester'], target: 'model-lab', label: 'Model Lab', isTool: true },
+    { keywords: ['bookkeeping', 'books', 'p&l', 'profit and loss', 'ledger', 'wave'], target: 'books', label: 'Bookkeeping', isTool: true },
     { keywords: ['knowledge', 'functional health', 'enoch', 'neo-dolphin', 'ezra knowledge'], target: 'knowledge', label: 'Knowledge', isTool: true },
 ];
 
@@ -3425,6 +3426,13 @@ function _abToolBuiltins() {
         agent_owner: 'Soren', requires_agent: false, tuned_safe: false,
         image_url: '/static/soren-icon.png',
     }, {
+        id: 'books', slug: 'books', title: 'Bookkeeping',
+        promise: 'Work the books from a P&L — click a category, change the dropdown, save.',
+        type: 'tool', tab: 'tools', category: 'finance',
+        status: 'active', build_flow: null, _builtin: true,
+        agent_owner: 'Stuart', requires_agent: false, tuned_safe: false,
+        image_url: '/static/lp-mark.png',
+    }, {
         id: 'knowledge', slug: 'knowledge', title: 'Knowledge',
         promise: 'Functional Health sessions with Ezra — isolated from family Day/Deep.',
         type: 'tool', tab: 'tools', category: 'knowledge',
@@ -3483,7 +3491,7 @@ function abCapOpen(slug) {
     }
     // Owned / runnable → open the tool or its page.
     const page = FLOW_PAGES[slug] || (cap && cap.build_flow && FLOW_PAGES[cap.build_flow]);
-    if (typeof openTool === 'function' && (FLOW_PAGES[slug] || slug === 'jules' || slug === 'gabs' || slug === 'model-lab' || slug === 'knowledge' || slug === 'video-pipeline' || slug === 'video-shorts-pipeline')) { openTool(slug); return; }
+    if (typeof openTool === 'function' && (FLOW_PAGES[slug] || slug === 'jules' || slug === 'gabs' || slug === 'model-lab' || slug === 'knowledge' || slug === 'books' || slug === 'video-pipeline' || slug === 'video-shorts-pipeline')) { openTool(slug); return; }
     if (page) { openFlowOverlay(page, cap && cap.tab === 'flows' ? 'ab-flows' : 'ab-tools', cap ? cap.title : slug); return; }
     if (typeof showToolPlaceholder === 'function') showToolPlaceholder(cap ? cap.title : slug, cap ? (cap.agent_owner || '') : '');
 }
@@ -3582,6 +3590,7 @@ function openTool(id) {
         'gabs': '/gabs',    // link → Quick assess, served by this Cove's MC (#GABS-V1)
         'model-lab': '/model-lab',  // Soren Model Lab + Tester (#MODELLAB1)
         'knowledge': '/knowledge',  // Ezra Knowledge / Functional Health
+        'books': '/books',  // BOOKLED1 profit and loss
     };
     const url = toolPages[id] || FLOW_PAGES[id];
     if (!url) {
@@ -3632,6 +3641,7 @@ function getSeedTools() {
         { id: 'jules', name: 'Jules', agent: 'Jules', agent_color: 'var(--accent)', description: 'Voice transcription — tap, talk, and save straight to your vault.', status: 'active' },
         { id: 'gabs', name: 'Gabs', agent: 'Gabe', agent_color: 'var(--green)', description: 'Paste a link — Gabe runs a Quick assess and keeps the brief in History.', status: 'active' },
         { id: 'model-lab', name: 'Model Lab', agent: 'Soren', agent_color: 'var(--teal, #20b2aa)', description: 'Local Ollama pick, focused sessions, and A/B tester runs — no silent memory merge.', status: 'active' },
+        { id: 'books', name: 'Bookkeeping', agent: 'Stuart', agent_color: 'var(--accent)', description: 'Work the books from a P&L — click a category, change the dropdown, save.', status: 'active' },
         { id: 'knowledge', name: 'Knowledge', agent: 'Ezra', agent_color: 'var(--yellow, #d4a843)', description: 'Install Knowledge threads — Functional Health live, Inventions placeholder. Isolated from Day and Deep.', status: 'active' },
         { id: 'site-builder', name: 'Site Builder', agent: 'Archimedes', agent_color: 'var(--blue, #5b9bd5)', description: 'Build and deploy sites. Domain, hosting, design, and launch — guided by Archimedes.', status: 'active' },
         { id: 'copy-studio', name: 'Copy Studio', agent: 'Iris', agent_color: 'var(--purple, #b07cd8)', description: 'Marketing copy, emails, social posts. Brand voice enforced by Iris.', status: 'placeholder' },
