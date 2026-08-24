@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bookkeeping">
+<link rel="apple-touch-icon" href="/static/lp-mark.png">
+<link rel="icon" type="image/png" href="/static/lp-mark.png">
+<title>Bookkeeping</title>
+<style>
+:root{
+  --bg:#0a0a0f; --surface:#12121a; --border:#2a2a3a; --text:#e8e8f0;
+  --dim:#9898b0; --faint:#6a6a80; --accent:#5ce1e6; --ok:#4ade80; --bad:#f87171;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;height:100dvh}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);
+  height:100%;max-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+header{padding:16px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0;position:relative}
+header h1{font-size:1.05rem;font-weight:600;letter-spacing:.02em}
+header .meta{font-size:.78rem;color:var(--dim);margin-top:4px}
+.bk-close{position:fixed;top:10px;left:12px;z-index:50;width:36px;height:36px;border-radius:18px;
+  border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:18px;line-height:1;
+  display:none;align-items:center;justify-content:center;cursor:pointer;padding:0}
+body.bk-show-close .bk-close{display:flex}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;
+  border-bottom:1px solid var(--border);flex-shrink:0}
+select,button{font:inherit}
+select{background:var(--surface);color:var(--text);border:1px solid var(--border);
+  border-radius:8px;padding:6px 10px}
+button{background:transparent;border:1px solid var(--border);color:var(--text);
+  border-radius:8px;padding:6px 12px;cursor:pointer}
+button.primary{border-color:var(--accent);color:var(--accent);background:rgba(92,225,230,.1)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.totals{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:12px 16px;flex-shrink:0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.card .k{font-size:.72rem;color:var(--dim)}
+.card .v{font-size:1.05rem;font-weight:600;margin-top:2px}
+.card.ok .v{color:var(--ok)} .card.bad .v{color:var(--bad)}
+.scroll{flex:1;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{padding:10px 14px;border-bottom:1px solid var(--border);text-align:left;vertical-align:middle}
+th{position:sticky;top:0;background:#16161f;color:var(--dim);font-weight:500;font-size:.75rem;letter-spacing:.04em}
+tr.clickable{cursor:pointer}
+tr.clickable:hover{background:#16161f}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.muted{color:var(--dim)} .faint{color:var(--faint)}
+.pill{display:inline-block;font-size:.7rem;padding:2px 7px;border-radius:999px;border:1px solid var(--border);color:var(--dim)}
+.err{margin:16px;padding:14px;border-radius:10px;border:1px solid rgba(248,113,113,.35);
+  background:rgba(248,113,113,.08);color:var(--bad)}
+.okmsg{color:var(--ok);font-size:.82rem}
+.detail-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.detail-bar h2{font-size:.95rem;font-weight:600;flex:1}
+.line-row select{max-width:220px}
+.status{padding:6px 16px;font-size:.8rem;color:var(--dim);flex-shrink:0}
+.hide{display:none}
+</style>
+</head>
+<body>
+<button class="bk-close" type="button" aria-label="Close">×</button>
+<header>
+  <h1>Bookkeeping</h1>
+  <div class="meta" id="hdrMeta">Loading…</div>
+</header>
+<div class="toolbar">
+  <label class="faint">Period
+    <select id="periodSel"></select>
+  </label>
+  <button type="button" id="btnAll">All time</button>
+</div>
+<div id="err" class="err hide"></div>
+<div id="pnlView">
+  <div class="totals">
+    <div class="card ok"><div class="k">Income</div><div class="v" id="tInc">—</div></div>
+    <div class="card bad"><div class="k">Expenses</div><div class="v" id="tExp">—</div></div>
+    <div class="card"><div class="k">Net</div><div class="v" id="tNet">—</div></div>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Category</th><th class="num">Count</th><th class="num">Total</th></tr></thead>
+      <tbody id="pnlBody"></tbody>
+    </table>
+  </div>
+</div>
+<div id="detailView" class="hide" style="display:none;flex-direction:column;flex:1;min-height:0">
+  <div class="detail-bar">
+    <button type="button" id="btnBack">← P&amp;L</button>
+    <h2 id="detailTitle">Category</h2>
+    <span class="pill" id="detailCount"></span>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr></thead>
+      <tbody id="lineBody"></tbody>
+    </table>
+  </div>
+</div>
+<div class="status" id="status"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { path: '', chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null };
+
+function money(n) {
+  if (n == null || Number.isNaN(n)) return '—';
+  const v = Number(n);
+  const sign = v < 0 ? '−' : '';
+  return sign + '$' + Math.abs(v).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function showErr(msg) {
+  const el = $('err');
+  if (!msg) { el.classList.add('hide'); el.textContent = ''; return; }
+  el.textContent = msg;
+  el.classList.remove('hide');
+}
+function leaveBooks() {
+  try {
+    if (window.parent && window.parent !== window && typeof window.parent.closeFlowOverlay === 'function') {
+      window.parent.closeFlowOverlay();
+      return;
+    }
+  } catch (e) {}
+  if (history.length > 1) history.back();
+  else location.href = '/';
+}
+function qs() {
+  const p = new URLSearchParams();
+  if (state.path) p.set('path', state.path);
+  if (state.year) p.set('year', String(state.year));
+  if (state.month) p.set('month', String(state.month));
+  const s = p.toString();
+  return s ? ('?' + s) : '';
+}
+function fillPeriod() {
+  const sel = $('periodSel');
+  const cur = state.year ? (state.month ? `${state.year}-${String(state.month).padStart(2,'0')}` : String(state.year)) : '';
+  const opts = ['<option value="">All time</option>'];
+  (state.periods.years || []).forEach(y => {
+    opts.push(`<option value="${y}">${y}</option>`);
+  });
+  (state.periods.months || []).forEach(m => {
+    const key = `${m.year}-${String(m.month).padStart(2,'0')}`;
+    const label = new Date(m.year, m.month - 1, 1).toLocaleString(undefined, {month:'short', year:'numeric'});
+    opts.push(`<option value="${key}">${label}</option>`);
+  });
+  sel.innerHTML = opts.join('');
+  sel.value = cur;
+}
+async function loadSummary() {
+  showErr('');
+  $('status').textContent = 'Loading…';
+  const r = await fetch('/api/books/summary' + qs());
+  const data = await r.json();
+  if (!data.ok) { showErr(data.error || 'Could not load books'); $('status').textContent = ''; return; }
+  state.path = data.path || state.path;
+  state.chart = data.chart || [];
+  state.periods = data.periods || {years:[], months:[]};
+  fillPeriod();
+  const ent = data.entity || 'Books';
+  const acct = data.account || '';
+  const review = data.needs_review_count != null ? ` · ${data.needs_review_count} need review` : '';
+  $('hdrMeta').textContent = `${ent}${acct ? ' · ' + acct : ''} · ${data.row_count || 0} lines${review}`;
+  const pnl = data.pnl || {};
+  $('tInc').textContent = money(pnl.income_total);
+  $('tExp').textContent = money(pnl.expense_total);
+  $('tNet').textContent = money(pnl.net);
+  const rows = [];
+  (pnl.income || []).forEach(line => { rows.push(pnlRow(line, 'income')); });
+  (pnl.expenses || []).forEach(line => { rows.push(pnlRow(line, 'expense')); });
+  if (pnl.uncategorized && pnl.uncategorized.count) { rows.push(pnlRow(pnl.uncategorized, 'uncat')); }
+  $('pnlBody').innerHTML = rows.join('') || '<tr><td colspan="3" class="muted">No lines in this period.</td></tr>';
+  $('status').textContent = '';
+}
+function pnlRow(line, kind) {
+  const cls = kind === 'expense' ? 'bad' : (kind === 'income' ? 'ok' : '');
+  const label = escapeHtml(line.label || 'Uncategorized');
+  return `<tr class="clickable" data-cat="${encodeURIComponent(line.label || 'Uncategorized')}">
+    <td>${label}${kind==='uncat' ? ' <span class="pill">place these</span>' : ''}</td>
+    <td class="num muted">${line.count || 0}</td>
+    <td class="num ${cls}">${money(line.total)}</td>
+  </tr>`;
+}
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function showPnl() {
+  state.category = null;
+  $('detailView').style.display = 'none';
+  $('pnlView').classList.remove('hide');
+  document.body.classList.remove('bk-detail');
+}
+function showDetail() {
+  $('pnlView').classList.add('hide');
+  $('detailView').style.display = 'flex';
+  document.body.classList.add('bk-detail');
+}
+async function openCategory(label) {
+  state.category = label;
+  $('detailTitle').textContent = label;
+  showDetail();
+  $('lineBody').innerHTML = '<tr><td colspan="4" class="muted">Loading…</td></tr>';
+  const p = new URLSearchParams();
+  if (state.path) p.set('path', state.path);
+  if (state.year) p.set('year', String(state.year));
+  if (state.month) p.set('month', String(state.month));
+  p.set('category', label);
+  const r = await fetch('/api/books/lines?' + p.toString());
+  const data = await r.json();
+  if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="4">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
+  state.chart = data.chart || state.chart;
+  $('detailCount').textContent = (data.count || 0) + ' lines';
+  const opts = (state.chart || []).map(c =>
+    `<option value="${escapeHtml(c.label)}">${escapeHtml(c.label)}</option>`
+  ).join('');
+  const body = (data.lines || []).map(line => {
+    const sel = `<select data-index="${line.index}" data-was="${escapeHtml(line.category)}">${opts}</select>`;
+    return `<tr class="line-row">
+      <td class="muted">${escapeHtml(line.date || '')}</td>
+      <td>${escapeHtml(line.payee || '')}</td>
+      <td>${sel}</td>
+      <td class="num ${line.amount < 0 ? 'bad' : 'ok'}">${money(line.amount)}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="4" class="muted">No lines.</td></tr>';
+  $('lineBody').innerHTML = body;
+  $('lineBody').querySelectorAll('select').forEach(sel => {
+    sel.value = sel.getAttribute('data-was') || '';
+    sel.addEventListener('change', () => saveLine(sel));
+  });
+}
+async function saveLine(sel) {
+  const index = Number(sel.getAttribute('data-index'));
+  const category = sel.value;
+  $('status').textContent = 'Saving…';
+  const r = await fetch('/api/books/line', {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path: state.path, index, category })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Save failed');
+    sel.value = sel.getAttribute('data-was') || '';
+    return;
+  }
+  sel.setAttribute('data-was', category);
+  $('status').innerHTML = '<span class="okmsg">Saved</span>';
+  await loadSummary();
+  if (state.category) await openCategory(state.category);
+}
+$('pnlBody').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-cat]');
+  if (!tr) return;
+  openCategory(decodeURIComponent(tr.getAttribute('data-cat')));
+});
+$('btnBack').onclick = () => { showPnl(); loadSummary(); };
+$('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
+$('periodSel').onchange = () => {
+  const v = $('periodSel').value;
+  if (!v) { state.year = null; state.month = null; }
+  else if (v.includes('-')) {
+    const [y,m] = v.split('-');
+    state.year = Number(y); state.month = Number(m);
+  } else { state.year = Number(v); state.month = null; }
+  loadSummary();
+};
+document.querySelector('.bk-close').onclick = leaveBooks;
+(function initClose() {
+  try {
+    const inOverlay = window.parent && window.parent !== window;
+    const want = new URLSearchParams(location.search).get('return');
+    if (inOverlay || want === 'links') document.body.classList.add('bk-show-close');
+  } catch (e) {}
+})();
+loadSummary();
+</script>
+</body>
+</html>
