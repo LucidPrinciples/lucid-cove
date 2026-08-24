@@ -14,6 +14,7 @@ from typing import Any
 ORGANIZE_PREFIX = "Bookkeeping/Organize"
 LEDGER_SUFFIX = ".mapped.json"
 UNCATEGORIZED = "Uncategorized"
+MIN_MAP_PHRASE = 4
 
 _DATE_FMTS = (
     "%Y-%m-%d",
@@ -134,6 +135,23 @@ def row_payee(row: dict) -> str:
         if val not in (None, ""):
             return str(val).strip()
     return ""
+
+
+def norm_phrase(value: Any) -> str:
+    t = str(value or "").lower().replace("&", " and ")
+    t = re.sub(r"[^a-z0-9 ]+", " ", t)
+    t = re.sub(r"\b\d{2,}\b", " ", t)
+    return " ".join(t.split())
+
+
+def row_match_text(row: dict) -> str:
+    row = flatten_row(row)
+    parts: list[str] = []
+    for key in ("Name", "Description", "description", "Payee", "Memo", "Additional information"):
+        val = row.get(key)
+        if val not in (None, ""):
+            parts.append(str(val))
+    return norm_phrase(" ".join(parts))
 
 
 def category_label(row: dict) -> str:
@@ -284,25 +302,185 @@ def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None =
 
 
 def apply_category(payload: dict, index: int, label: str) -> tuple[dict | None, str | None]:
+    return apply_categories(payload, [index], label)
+
+
+def apply_categories(payload: dict, indexes: list[int], label: str) -> tuple[dict | None, str | None]:
     rows = payload.get("rows") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
         return None, "Ledger has no rows"
-    if index < 0 or index >= len(rows):
-        return None, "Transaction not found"
-    row = rows[index]
-    if not isinstance(row, dict):
-        return None, "Transaction not found"
+    if not indexes:
+        return None, "No transactions selected"
     chart = working_chart_from_payload(payload)
     hit = chart_lookup(chart, label)
     if hit is None:
         return None, "Category is not on the working chart"
-    row["category_label"] = hit["label"]
-    row["category_code"] = hit.get("code")
-    row["category_layer"] = hit.get("layer")
-    row["needs_review"] = False
-    row["match_rule"] = "operator"
+    seen: set[int] = set()
+    for index in indexes:
+        if not isinstance(index, int) or index < 0 or index >= len(rows):
+            return None, "Transaction not found"
+        if index in seen:
+            continue
+        row = rows[index]
+        if not isinstance(row, dict):
+            return None, "Transaction not found"
+        row["category_label"] = hit["label"]
+        row["category_code"] = hit.get("code")
+        row["category_layer"] = hit.get("layer")
+        row["needs_review"] = False
+        row["match_rule"] = "operator"
+        seen.add(index)
     payload["rows"] = rows
+    teach_from_indexes(payload, list(seen), hit["label"])
     payload["needs_review_count"] = sum(
         1 for r in rows if isinstance(r, dict) and r.get("needs_review")
     )
     return payload, None
+
+
+def vendor_map_from_payload(payload: dict) -> list[dict]:
+    raw = payload.get("vendor_map") if isinstance(payload, dict) else None
+    out: list[dict] = []
+    seen: set[str] = set()
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        phrase = norm_phrase(item.get("phrase") or item.get("vendor") or "")
+        label = str(item.get("label") or item.get("category") or "").strip()
+        if len(phrase) < MIN_MAP_PHRASE or not label:
+            continue
+        if phrase in seen:
+            continue
+        seen.add(phrase)
+        out.append({
+            "phrase": phrase,
+            "label": label,
+            "source": item.get("source") or "operator",
+        })
+    out.sort(key=lambda x: x["phrase"])
+    return out
+
+
+def teach_vendor_rule(payload: dict, phrase: Any, label: str) -> bool:
+    """Upsert one operator phrase → category. Returns True if the map changed."""
+    if not isinstance(payload, dict):
+        return False
+    cleaned = norm_phrase(phrase)
+    if len(cleaned) < MIN_MAP_PHRASE:
+        return False
+    chart = working_chart_from_payload(payload)
+    hit = chart_lookup(chart, label)
+    if hit is None:
+        return False
+    rules = vendor_map_from_payload(payload)
+    for rule in rules:
+        if rule["phrase"] == cleaned:
+            if rule["label"] == hit["label"] and rule.get("source") == "operator":
+                return False
+            rule["label"] = hit["label"]
+            rule["source"] = "operator"
+            payload["vendor_map"] = sorted(rules, key=lambda x: x["phrase"])
+            return True
+    rules.append({"phrase": cleaned, "label": hit["label"], "source": "operator"})
+    payload["vendor_map"] = sorted(rules, key=lambda x: x["phrase"])
+    return True
+
+
+def teach_from_indexes(payload: dict, indexes: list[int], label: str) -> int:
+    """Teach one phrase per distinct payee on the selected rows."""
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return 0
+    taught = 0
+    seen: set[str] = set()
+    for index in indexes:
+        if not isinstance(index, int) or index < 0 or index >= len(rows):
+            continue
+        row = rows[index]
+        if not isinstance(row, dict):
+            continue
+        phrase = norm_phrase(row_payee(row) or row_match_text(row))
+        if not phrase or phrase in seen:
+            continue
+        seen.add(phrase)
+        if teach_vendor_rule(payload, phrase, label):
+            taught += 1
+    return taught
+
+
+def set_vendor_map(payload: dict, rules: list[dict]) -> tuple[dict | None, str | None]:
+    if not isinstance(payload, dict):
+        return None, "Ledger JSON must be an object"
+    chart = working_chart_from_payload(payload)
+    cleaned: list[dict] = []
+    seen: set[str] = set()
+    for item in rules:
+        if not isinstance(item, dict):
+            continue
+        phrase = norm_phrase(item.get("phrase") or item.get("vendor") or "")
+        label = str(item.get("label") or item.get("category") or "").strip()
+        if len(phrase) < MIN_MAP_PHRASE:
+            return None, f"Phrase must be at least {MIN_MAP_PHRASE} characters"
+        hit = chart_lookup(chart, label)
+        if hit is None:
+            return None, "Category is not on the working chart"
+        if phrase in seen:
+            return None, "Duplicate phrase in map"
+        seen.add(phrase)
+        cleaned.append({
+            "phrase": phrase,
+            "label": hit["label"],
+            "source": item.get("source") or "operator",
+        })
+    cleaned.sort(key=lambda x: x["phrase"])
+    payload["vendor_map"] = cleaned
+    return payload, None
+
+
+def apply_vendor_map(payload: dict) -> tuple[dict | None, dict | None, str | None]:
+    """Re-tag uncategorized / review rows from the operator map. Leaves placed rows alone."""
+    if not isinstance(payload, dict):
+        return None, None, "Ledger JSON must be an object"
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return None, None, "Ledger has no rows"
+    chart = working_chart_from_payload(payload)
+    rules = vendor_map_from_payload(payload)
+    applied = 0
+    skipped = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = category_label(row)
+        if label != UNCATEGORIZED and not row.get("needs_review"):
+            skipped += 1
+            continue
+        text = row_match_text(row)
+        if not text:
+            continue
+        hits: list[dict] = []
+        for rule in rules:
+            phrase = rule["phrase"]
+            if phrase and phrase in text:
+                hits.append(rule)
+        if not hits:
+            continue
+        labels = {h["label"] for h in hits}
+        if len(labels) > 1:
+            continue
+        hit = chart_lookup(chart, hits[0]["label"])
+        if hit is None:
+            continue
+        row["category_label"] = hit["label"]
+        row["category_code"] = hit.get("code")
+        row["category_layer"] = hit.get("layer")
+        row["needs_review"] = False
+        row["match_rule"] = "vendor-map"
+        applied += 1
+    payload["rows"] = rows
+    payload["needs_review_count"] = sum(
+        1 for r in rows if isinstance(r, dict) and r.get("needs_review")
+    )
+    return payload, {"applied": applied, "skipped_placed": skipped}, None

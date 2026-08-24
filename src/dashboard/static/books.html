@@ -27,9 +27,10 @@ header .meta{font-size:.78rem;color:var(--dim);margin-top:4px}
 body.bk-show-close .bk-close{display:flex}
 .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;
   border-bottom:1px solid var(--border);flex-shrink:0}
-select,button{font:inherit}
-select{background:var(--surface);color:var(--text);border:1px solid var(--border);
+select,button,input{font:inherit}
+select,input{background:var(--surface);color:var(--text);border:1px solid var(--border);
   border-radius:8px;padding:6px 10px}
+input{min-width:0}
 button{background:transparent;border:1px solid var(--border);color:var(--text);
   border-radius:8px;padding:6px 12px;cursor:pointer}
 button.primary{border-color:var(--accent);color:var(--accent);background:rgba(92,225,230,.1)}
@@ -51,11 +52,19 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .err{margin:16px;padding:14px;border-radius:10px;border:1px solid rgba(248,113,113,.35);
   background:rgba(248,113,113,.08);color:var(--bad)}
 .okmsg{color:var(--ok);font-size:.82rem}
-.detail-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
-.detail-bar h2{font-size:.95rem;font-weight:600;flex:1}
+.detail-bar,.map-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.detail-bar h2,.map-bar h2{font-size:.95rem;font-weight:600;flex:1}
 .line-row select{max-width:220px}
 .status{padding:6px 16px;font-size:.8rem;color:var(--dim);flex-shrink:0}
 .hide{display:none}
+.sec-head td{padding-top:18px;padding-bottom:6px;font-size:.72rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border);background:var(--bg)}
+.sec-total td{font-weight:600;border-bottom:none;padding-top:8px}
+.map-add{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.map-add input{flex:1;min-width:140px}
+.map-add select{flex:1;min-width:160px}
+.check{width:18px;height:18px;accent-color:var(--accent)}
+.batch{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -69,6 +78,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
     <select id="periodSel"></select>
   </label>
   <button type="button" id="btnAll">All time</button>
+  <button type="button" id="btnMap">Import map</button>
 </div>
 <div id="err" class="err hide"></div>
 <div id="pnlView">
@@ -90,17 +100,40 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
     <h2 id="detailTitle">Category</h2>
     <span class="pill" id="detailCount"></span>
   </div>
+  <div class="detail-bar batch">
+    <label class="faint"><input type="checkbox" class="check" id="chkAll"> All</label>
+    <select id="batchCat"></select>
+    <button type="button" class="primary" id="btnApply">Apply to checked</button>
+  </div>
   <div class="scroll">
     <table>
-      <thead><tr><th>Date</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr></thead>
+      <thead><tr><th></th><th>Date</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr></thead>
       <tbody id="lineBody"></tbody>
+    </table>
+  </div>
+</div>
+<div id="mapView" class="hide" style="display:none;flex-direction:column;flex:1;min-height:0">
+  <div class="map-bar">
+    <button type="button" id="btnMapBack">← P&amp;L</button>
+    <h2>Import map</h2>
+    <span class="pill" id="mapCount"></span>
+  </div>
+  <div class="map-add">
+    <input id="mapPhrase" type="text" placeholder="Vendor or phrase" autocomplete="off">
+    <select id="mapCat"></select>
+    <button type="button" class="primary" id="btnAddRule">Add / update</button>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Phrase</th><th>Category</th><th></th></tr></thead>
+      <tbody id="mapBody"></tbody>
     </table>
   </div>
 </div>
 <div class="status" id="status"></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { path: '', chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null };
+const state = { path: '', chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [] };
 
 function money(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -147,6 +180,32 @@ function fillPeriod() {
   sel.innerHTML = opts.join('');
   sel.value = cur;
 }
+function chartOptions(selected) {
+  return (state.chart || []).map(c => {
+    const lab = escapeHtml(c.label);
+    const sel = (selected && selected === c.label) ? ' selected' : '';
+    return `<option value="${lab}"${sel}>${lab}</option>`;
+  }).join('');
+}
+function hideViews() {
+  $('pnlView').classList.add('hide');
+  $('detailView').style.display = 'none';
+  $('mapView').style.display = 'none';
+}
+function showPnl() {
+  state.category = null;
+  hideViews();
+  $('pnlView').classList.remove('hide');
+}
+function showDetail() {
+  hideViews();
+  $('detailView').style.display = 'flex';
+}
+function showMap() {
+  hideViews();
+  $('mapView').style.display = 'flex';
+  renderMap();
+}
 async function loadSummary() {
   showErr('');
   $('status').textContent = 'Loading…';
@@ -156,6 +215,7 @@ async function loadSummary() {
   state.path = data.path || state.path;
   state.chart = data.chart || [];
   state.periods = data.periods || {years:[], months:[]};
+  state.vendorMap = data.vendor_map || state.vendorMap;
   fillPeriod();
   const ent = data.entity || 'Books';
   const acct = data.account || '';
@@ -166,11 +226,38 @@ async function loadSummary() {
   $('tExp').textContent = money(pnl.expense_total);
   $('tNet').textContent = money(pnl.net);
   const rows = [];
-  (pnl.income || []).forEach(line => { rows.push(pnlRow(line, 'income')); });
-  (pnl.expenses || []).forEach(line => { rows.push(pnlRow(line, 'expense')); });
-  if (pnl.uncategorized && pnl.uncategorized.count) { rows.push(pnlRow(pnl.uncategorized, 'uncat')); }
-  $('pnlBody').innerHTML = rows.join('') || '<tr><td colspan="3" class="muted">No lines in this period.</td></tr>';
+  rows.push(sectionHead('Income'));
+  if ((pnl.income || []).length) {
+    pnl.income.forEach(line => rows.push(pnlRow(line, 'income')));
+  } else {
+    rows.push(emptyRow('No income in this period'));
+  }
+  rows.push(sectionTotal('Total income', pnl.income_total, 'ok'));
+  rows.push(sectionHead('Expenses'));
+  if ((pnl.expenses || []).length) {
+    pnl.expenses.forEach(line => rows.push(pnlRow(line, 'expense')));
+  } else {
+    rows.push(emptyRow('No expenses in this period'));
+  }
+  rows.push(sectionTotal('Total expenses', pnl.expense_total, 'bad'));
+  if (pnl.uncategorized && pnl.uncategorized.count) {
+    rows.push(sectionHead('Uncategorized'));
+    rows.push(pnlRow(pnl.uncategorized, 'uncat'));
+  }
+  rows.push(sectionTotal('Net', pnl.net, ''));
+  $('pnlBody').innerHTML = rows.join('');
   $('status').textContent = '';
+  $('batchCat').innerHTML = chartOptions();
+  $('mapCat').innerHTML = chartOptions();
+}
+function sectionHead(label) {
+  return `<tr class="sec-head"><td colspan="3">${escapeHtml(label)}</td></tr>`;
+}
+function sectionTotal(label, amount, cls) {
+  return `<tr class="sec-total"><td>${escapeHtml(label)}</td><td></td><td class="num ${cls}">${money(amount)}</td></tr>`;
+}
+function emptyRow(label) {
+  return `<tr><td colspan="3" class="muted">${escapeHtml(label)}</td></tr>`;
 }
 function pnlRow(line, kind) {
   const cls = kind === 'expense' ? 'bad' : (kind === 'income' ? 'ok' : '');
@@ -184,22 +271,11 @@ function pnlRow(line, kind) {
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-function showPnl() {
-  state.category = null;
-  $('detailView').style.display = 'none';
-  $('pnlView').classList.remove('hide');
-  document.body.classList.remove('bk-detail');
-}
-function showDetail() {
-  $('pnlView').classList.add('hide');
-  $('detailView').style.display = 'flex';
-  document.body.classList.add('bk-detail');
-}
 async function openCategory(label) {
   state.category = label;
   $('detailTitle').textContent = label;
   showDetail();
-  $('lineBody').innerHTML = '<tr><td colspan="4" class="muted">Loading…</td></tr>';
+  $('lineBody').innerHTML = '<tr><td colspan="5" class="muted">Loading…</td></tr>';
   const p = new URLSearchParams();
   if (state.path) p.set('path', state.path);
   if (state.year) p.set('year', String(state.year));
@@ -207,26 +283,30 @@ async function openCategory(label) {
   p.set('category', label);
   const r = await fetch('/api/books/lines?' + p.toString());
   const data = await r.json();
-  if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="4">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
+  if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="5">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
   state.chart = data.chart || state.chart;
   $('detailCount').textContent = (data.count || 0) + ' lines';
-  const opts = (state.chart || []).map(c =>
-    `<option value="${escapeHtml(c.label)}">${escapeHtml(c.label)}</option>`
-  ).join('');
+  $('batchCat').innerHTML = chartOptions();
+  const opts = chartOptions();
   const body = (data.lines || []).map(line => {
     const sel = `<select data-index="${line.index}" data-was="${escapeHtml(line.category)}">${opts}</select>`;
     return `<tr class="line-row">
+      <td><input type="checkbox" class="check line-check" data-index="${line.index}"></td>
       <td class="muted">${escapeHtml(line.date || '')}</td>
       <td>${escapeHtml(line.payee || '')}</td>
       <td>${sel}</td>
       <td class="num ${line.amount < 0 ? 'bad' : 'ok'}">${money(line.amount)}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="4" class="muted">No lines.</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="muted">No lines.</td></tr>';
   $('lineBody').innerHTML = body;
+  $('chkAll').checked = false;
   $('lineBody').querySelectorAll('select').forEach(sel => {
     sel.value = sel.getAttribute('data-was') || '';
     sel.addEventListener('change', () => saveLine(sel));
   });
+}
+function checkedIndexes() {
+  return Array.from(document.querySelectorAll('.line-check:checked')).map(el => Number(el.getAttribute('data-index')));
 }
 async function saveLine(sel) {
   const index = Number(sel.getAttribute('data-index'));
@@ -245,9 +325,63 @@ async function saveLine(sel) {
     return;
   }
   sel.setAttribute('data-was', category);
-  $('status').innerHTML = '<span class="okmsg">Saved</span>';
+  if (data.vendor_map) state.vendorMap = data.vendor_map;
+  $('status').innerHTML = '<span class="okmsg">Saved · map updated</span>';
   await loadSummary();
   if (state.category) await openCategory(state.category);
+}
+async function applyChecked() {
+  const indexes = checkedIndexes();
+  const category = $('batchCat').value;
+  if (!indexes.length) { showErr('Check the lines you want to move'); return; }
+  if (!category) { showErr('Pick a category'); return; }
+  showErr('');
+  $('status').textContent = 'Saving…';
+  const r = await fetch('/api/books/lines', {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path: state.path, indexes, category })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Save failed');
+    return;
+  }
+  if (data.vendor_map) state.vendorMap = data.vendor_map;
+  $('status').innerHTML = `<span class="okmsg">Placed ${data.updated || indexes.length} · map updated</span>`;
+  await loadSummary();
+  if (state.category) await openCategory(state.category);
+}
+function renderMap() {
+  const rules = state.vendorMap || [];
+  $('mapCount').textContent = rules.length + ' rules';
+  $('mapCat').innerHTML = chartOptions();
+  $('mapBody').innerHTML = rules.map((rule, i) => `
+    <tr>
+      <td>${escapeHtml(rule.phrase)}</td>
+      <td>${escapeHtml(rule.label)}</td>
+      <td><button type="button" data-del="${i}">Remove</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="3" class="muted">No rules yet. A recode teaches the payee, or add one here.</td></tr>';
+}
+async function saveMap(rules) {
+  $('status').textContent = 'Saving map…';
+  const r = await fetch('/api/books/map', {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path: state.path, vendor_map: rules, apply: true })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Map save failed');
+    return;
+  }
+  state.vendorMap = data.vendor_map || rules;
+  $('status').innerHTML = `<span class="okmsg">Map saved${data.applied ? ' · placed ' + data.applied : ''}</span>`;
+  renderMap();
+  await loadSummary();
 }
 $('pnlBody').addEventListener('click', (e) => {
   const tr = e.target.closest('tr[data-cat]');
@@ -255,6 +389,8 @@ $('pnlBody').addEventListener('click', (e) => {
   openCategory(decodeURIComponent(tr.getAttribute('data-cat')));
 });
 $('btnBack').onclick = () => { showPnl(); loadSummary(); };
+$('btnMapBack').onclick = () => { showPnl(); loadSummary(); };
+$('btnMap').onclick = () => { showMap(); };
 $('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
 $('periodSel').onchange = () => {
   const v = $('periodSel').value;
@@ -265,6 +401,26 @@ $('periodSel').onchange = () => {
   } else { state.year = Number(v); state.month = null; }
   loadSummary();
 };
+$('chkAll').onchange = () => {
+  document.querySelectorAll('.line-check').forEach(el => { el.checked = $('chkAll').checked; });
+};
+$('btnApply').onclick = applyChecked;
+$('btnAddRule').onclick = () => {
+  const phrase = ($('mapPhrase').value || '').trim();
+  const label = $('mapCat').value;
+  if (!phrase) { showErr('Enter a vendor or phrase'); return; }
+  const next = (state.vendorMap || []).filter(r => r.phrase !== phrase.toLowerCase());
+  next.push({ phrase, label, source: 'operator' });
+  $('mapPhrase').value = '';
+  saveMap(next);
+};
+$('mapBody').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-del]');
+  if (!btn) return;
+  const i = Number(btn.getAttribute('data-del'));
+  const next = (state.vendorMap || []).filter((_, idx) => idx !== i);
+  saveMap(next);
+});
 document.querySelector('.bk-close').onclick = leaveBooks;
 (function initClose() {
   try {
