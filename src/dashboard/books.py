@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Any
 
 ORGANIZE_PREFIX = "Bookkeeping/Organize"
+MANUAL_LEDGER_NAME = "manual.mapped.json"
+MANUAL_LEDGER_PATH = f"{ORGANIZE_PREFIX}/{MANUAL_LEDGER_NAME}"
 RETURNS_PREFIX = "Bookkeeping/Returns"
 LEDGER_SUFFIX = ".mapped.json"
 UNCATEGORIZED = "Uncategorized"
@@ -86,10 +88,21 @@ def is_all_transactions(path: str) -> bool:
     return p in ("", ALL_TRANSACTIONS, "all-transactions")
 
 
+def is_manual_ledger(path: str) -> bool:
+    raw = (path or "").replace("\\", "/").strip().lstrip("/")
+    if not raw:
+        return False
+    name = raw.split("/")[-1].lower()
+    return name in (MANUAL_LEDGER_NAME, "manual") or raw.lower() == MANUAL_LEDGER_PATH.lower()
+
+
 def ledger_choices(names: list[str], labels: dict[str, str] | None = None) -> list[dict]:
     """All Transactions first, then each Organize mapped file as its own account."""
     out = [{"path": ALL_TRANSACTIONS, "label": "All Transactions"}]
     mapped = sorted(n for n in names if is_mapped_name(n))
+    if MANUAL_LEDGER_NAME in mapped:
+        mapped.remove(MANUAL_LEDGER_NAME)
+        mapped.insert(0, MANUAL_LEDGER_NAME)
     for name in mapped:
         path = ledger_path_from_name(name)
         if not path:
@@ -288,6 +301,29 @@ def available_periods(rows: list[dict]) -> dict:
     }
 
 
+def row_is_disabled(row: dict) -> bool:
+    if not isinstance(row, dict):
+        return False
+    return bool(row.get("disabled") or row.get("excluded"))
+
+
+def row_is_manual(row: dict, source_path: str = "") -> bool:
+    if is_manual_ledger(source_path):
+        return True
+    if not isinstance(row, dict):
+        return False
+    origin = str(row.get("origin") or "").strip().lower()
+    return origin in ("manual", "typed")
+
+
+def active_rows(rows: list) -> list[dict]:
+    out: list[dict] = []
+    for row in rows or []:
+        if isinstance(row, dict) and not row_is_disabled(row):
+            out.append(row)
+    return out
+
+
 def line_preview(row: dict, source_path: str, index: int, account: str = "") -> dict:
     amt = row_signed_amount(row)
     dt = parse_row_date(row)
@@ -302,6 +338,8 @@ def line_preview(row: dict, source_path: str, index: int, account: str = "") -> 
         "category": category_label(row),
         "needs_review": bool(row.get("needs_review")),
         "account": acct,
+        "disabled": row_is_disabled(row),
+        "manual": row_is_manual(row, source_path),
     }
 
 
@@ -349,6 +387,8 @@ def collect_lines(
             continue
         if not in_period(row, year, month):
             continue
+        if row_is_disabled(row) and not all_cats:
+            continue
         if not all_cats and category_label(row) != want:
             continue
         out.append(line_preview(row, source_path, i, account=account))
@@ -366,6 +406,9 @@ def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None =
     used = 0
     for row in rows:
         if not isinstance(row, dict):
+            skipped += 1
+            continue
+        if row_is_disabled(row):
             skipped += 1
             continue
         if not in_period(row, year, month):
@@ -613,6 +656,9 @@ def apply_vendor_map(payload: dict) -> tuple[dict | None, dict | None, str | Non
         if not isinstance(row, dict):
             continue
         label = category_label(row)
+        if row_is_disabled(row):
+            skipped += 1
+            continue
         if label != UNCATEGORIZED and not row.get("needs_review"):
             skipped += 1
             continue
@@ -643,3 +689,109 @@ def apply_vendor_map(payload: dict) -> tuple[dict | None, dict | None, str | Non
         1 for r in rows if isinstance(r, dict) and r.get("needs_review")
     )
     return payload, {"applied": applied, "skipped_placed": skipped}, None
+
+
+def empty_manual_payload(source: dict | None = None) -> dict:
+    src = source if isinstance(source, dict) else {}
+    return {
+        "entity": src.get("entity") or "",
+        "account": "Manual",
+        "origin": "manual",
+        "working_chart": working_chart_from_payload(src),
+        "vendor_map": vendor_map_from_payload(src) if src else [],
+        "rows": [],
+        "needs_review_count": 0,
+    }
+
+
+def build_manual_row(date: str, payee: str, amount: Any, category: str = "", chart: list[dict] | None = None) -> tuple[dict | None, str | None]:
+    payee_s = str(payee or "").strip()
+    if not payee_s:
+        return None, "Payee is required"
+    if len(payee_s) > 200:
+        return None, "Payee is too long"
+    dt = parse_row_date({"Date": date})
+    if dt is None:
+        return None, "Date is required"
+    amt = parse_money(amount)
+    if amt is None:
+        return None, "Amount is required"
+    row = {
+        "origin": "manual",
+        "disabled": False,
+        "needs_review": False,
+        "match_rule": "operator",
+        "fields": {
+            "Date": dt.strftime("%Y-%m-%d"),
+            "Name": payee_s,
+            "Debit/Credit": amt,
+        },
+    }
+    label = str(category or "").strip()
+    if label and label != UNCATEGORIZED:
+        hit = chart_lookup(chart or [], label)
+        if hit is None:
+            return None, "Category is not on the working chart"
+        row["category_label"] = hit["label"]
+        row["category_code"] = hit.get("code")
+        row["category_layer"] = hit.get("layer")
+    return row, None
+
+
+def add_manual_row(payload: dict, date: str, payee: str, amount: Any, category: str = "") -> tuple[dict | None, dict | None, str | None]:
+    if not isinstance(payload, dict):
+        return None, None, "Ledger JSON must be an object"
+    rows = payload.get("rows")
+    if rows is None:
+        rows = []
+        payload["rows"] = rows
+    if not isinstance(rows, list):
+        return None, None, "Ledger has no rows"
+    if len(rows) >= MAX_COMBINED_LINES:
+        return None, None, "Ledger is full"
+    chart = working_chart_from_payload(payload)
+    row, err = build_manual_row(date, payee, amount, category, chart)
+    if err or row is None:
+        return None, None, err
+    rows.append(row)
+    payload["rows"] = rows
+    payload["needs_review_count"] = sum(
+        1 for r in rows if isinstance(r, dict) and r.get("needs_review") and not row_is_disabled(r)
+    )
+    return payload, line_preview(row, MANUAL_LEDGER_PATH, len(rows) - 1, account="Manual"), None
+
+
+def set_row_disabled(payload: dict, index: int, disabled: bool) -> tuple[dict | None, str | None]:
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return None, "Ledger has no rows"
+    if not isinstance(index, int) or index < 0 or index >= len(rows):
+        return None, "Transaction not found"
+    row = rows[index]
+    if not isinstance(row, dict):
+        return None, "Transaction not found"
+    row["disabled"] = bool(disabled)
+    payload["rows"] = rows
+    payload["needs_review_count"] = sum(
+        1 for r in rows if isinstance(r, dict) and r.get("needs_review") and not row_is_disabled(r)
+    )
+    return payload, None
+
+
+def remove_manual_row(payload: dict, index: int) -> tuple[dict | None, str | None]:
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return None, "Ledger has no rows"
+    if not isinstance(index, int) or index < 0 or index >= len(rows):
+        return None, "Transaction not found"
+    row = rows[index]
+    if not isinstance(row, dict):
+        return None, "Transaction not found"
+    if not row_is_manual(row):
+        return None, "Only typed lines can be removed"
+    del rows[index]
+    payload["rows"] = rows
+    payload["needs_review_count"] = sum(
+        1 for r in rows if isinstance(r, dict) and r.get("needs_review") and not row_is_disabled(r)
+    )
+    return payload, None
