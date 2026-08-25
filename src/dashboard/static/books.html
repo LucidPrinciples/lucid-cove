@@ -74,6 +74,9 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <div class="meta" id="hdrMeta">Loading…</div>
 </header>
 <div class="toolbar">
+  <label class="faint">Ledger
+    <select id="ledgerSel"></select>
+  </label>
   <label class="faint">Period
     <select id="periodSel"></select>
   </label>
@@ -122,10 +125,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
     <input id="mapPhrase" type="text" placeholder="Vendor or phrase" autocomplete="off">
     <select id="mapCat"></select>
     <button type="button" class="primary" id="btnAddRule">Add / update</button>
+    <button type="button" id="btnSeed">Fill from placed</button>
   </div>
   <div class="scroll">
     <table>
-      <thead><tr><th>Phrase</th><th>Category</th><th></th></tr></thead>
+      <thead><tr><th>Phrase</th><th>Category</th><th>Source</th><th></th></tr></thead>
       <tbody id="mapBody"></tbody>
     </table>
   </div>
@@ -133,7 +137,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div class="status" id="status"></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { path: '', chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [] };
+const state = { path: '', chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [] };
 
 function money(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -164,6 +168,20 @@ function qs() {
   if (state.month) p.set('month', String(state.month));
   const s = p.toString();
   return s ? ('?' + s) : '';
+}
+function fillLedgers() {
+  const sel = $('ledgerSel');
+  const list = state.ledgers || [];
+  if (!list.length) {
+    sel.innerHTML = '<option value="">No ledger</option>';
+    return;
+  }
+  sel.innerHTML = list.map(p => {
+    const name = String(p).split('/').pop() || p;
+    const selAttr = (p === state.path) ? ' selected' : '';
+    return `<option value="${escapeHtml(p)}"${selAttr}>${escapeHtml(name)}</option>`;
+  }).join('');
+  if (state.path) sel.value = state.path;
 }
 function fillPeriod() {
   const sel = $('periodSel');
@@ -216,11 +234,17 @@ async function loadSummary() {
   state.chart = data.chart || [];
   state.periods = data.periods || {years:[], months:[]};
   state.vendorMap = data.vendor_map || state.vendorMap;
+  state.ledgers = data.ledgers || state.ledgers;
+  fillLedgers();
   fillPeriod();
   const ent = data.entity || 'Books';
   const acct = data.account || '';
   const review = data.needs_review_count != null ? ` · ${data.needs_review_count} need review` : '';
-  $('hdrMeta').textContent = `${ent}${acct ? ' · ' + acct : ''} · ${data.row_count || 0} lines${review}`;
+  const mapN = (state.vendorMap || []).length;
+  $('hdrMeta').textContent = `${ent}${acct ? ' · ' + acct : ''} · ${data.row_count || 0} lines · ${mapN} map rules${review}`;
+  if (data.seeded) {
+    $('status').innerHTML = `<span class="okmsg">Filled ${data.seeded} map rules from placed lines</span>`;
+  }
   const pnl = data.pnl || {};
   $('tInc').textContent = money(pnl.income_total);
   $('tExp').textContent = money(pnl.expense_total);
@@ -246,7 +270,7 @@ async function loadSummary() {
   }
   rows.push(sectionTotal('Net', pnl.net, ''));
   $('pnlBody').innerHTML = rows.join('');
-  $('status').textContent = '';
+  if (!data.seeded) $('status').textContent = '';
   $('batchCat').innerHTML = chartOptions();
   $('mapCat').innerHTML = chartOptions();
 }
@@ -361,9 +385,10 @@ function renderMap() {
     <tr>
       <td>${escapeHtml(rule.phrase)}</td>
       <td>${escapeHtml(rule.label)}</td>
+      <td class="muted">${escapeHtml(rule.source || '')}</td>
       <td><button type="button" data-del="${i}">Remove</button></td>
     </tr>
-  `).join('') || '<tr><td colspan="3" class="muted">No rules yet. A recode teaches the payee, or add one here.</td></tr>';
+  `).join('') || '<tr><td colspan="4" class="muted">No rules yet. Fill from placed lines, recode a payee, or add one here.</td></tr>';
 }
 async function saveMap(rules) {
   $('status').textContent = 'Saving map…';
@@ -392,6 +417,30 @@ $('btnBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMapBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMap').onclick = () => { showMap(); };
 $('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
+$('ledgerSel').onchange = () => {
+  state.path = $('ledgerSel').value || '';
+  loadSummary();
+};
+async function seedFromPlaced() {
+  showErr('');
+  $('status').textContent = 'Filling map from placed lines…';
+  const r = await fetch('/api/books/seed-map', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path: state.path, apply: true })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Seed failed');
+    return;
+  }
+  state.vendorMap = data.vendor_map || state.vendorMap;
+  $('status').innerHTML = `<span class="okmsg">Filled ${data.seeded || 0} · map now ${ (state.vendorMap || []).length } rules${data.applied ? ' · placed ' + data.applied : ''}</span>`;
+  renderMap();
+  await loadSummary();
+}
+$('btnSeed').onclick = seedFromPlaced;
 $('periodSel').onchange = () => {
   const v = $('periodSel').value;
   if (!v) { state.year = null; state.month = null; }

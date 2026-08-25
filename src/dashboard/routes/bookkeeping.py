@@ -1,4 +1,4 @@
-"""BOOKLED2 — presence Bookkeeping P&L + ledger + vendor map.
+"""Presence Bookkeeping P&L + ledger + vendor map.
 
 GET   /books                    statement P&L page
 GET   /api/books/summary        category rollup (optional year/month)
@@ -7,6 +7,7 @@ PATCH /api/books/line           set one category from the working chart
 PATCH /api/books/lines          set many categories at once
 GET   /api/books/map            vendor/phrase rules
 PUT   /api/books/map            replace rules; apply to uncategorized
+POST  /api/books/seed-map       fill map from already-placed payees
 
 Bytes live in the logged-in Presence's Bookkeeping/Organize/*.mapped.json.
 Do not log amounts, payees, or statement text.
@@ -18,7 +19,8 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote
+from xml.etree import ElementTree as ET
 
 import httpx
 from fastapi import APIRouter, Request
@@ -31,7 +33,6 @@ logger = logging.getLogger("bookkeeping")
 router = APIRouter()
 
 STATIC_PAGE = Path(__file__).resolve().parents[1] / "static" / "books.html"
-DEFAULT_LEDGER = "Bookkeeping/Organize/Bluevine-transactions-06032026.mapped.json"
 MAX_LEDGER_BYTES = 2_000_000
 
 
@@ -43,6 +44,53 @@ async def _webdav(request: Request, path: str):
 
 def _quote_path(path: str) -> str:
     return quote(path, safe="/")
+
+
+async def _list_mapped_ledgers(request: Request) -> tuple[list[str], str | None]:
+    webdav_base, _user, auth, werr = await _webdav(request, bk.organize_dir())
+    if werr or not webdav_base or not auth:
+        return [], werr or "Nextcloud not configured"
+    url = f"{webdav_base}/{_quote_path(bk.organize_dir())}"
+    try:
+        async with httpx.AsyncClient(auth=auth, timeout=30.0) as client:
+            resp = await client.request("PROPFIND", url, headers={"Depth": "1"})
+    except Exception as e:
+        logger.warning("books list failed")
+        return [], f"List failed: {e}"
+    if resp.status_code == 404:
+        return [], None
+    if resp.status_code not in (207, 200):
+        return [], f"WebDAV error: HTTP {resp.status_code}"
+    names: list[str] = []
+    try:
+        root = ET.fromstring(resp.text)
+    except ET.ParseError:
+        return [], "Could not read Organize folder"
+    ns = "{DAV:}"
+    for node in root.findall(f"{ns}response"):
+        href = unquote((node.findtext(f"{ns}href") or ""))
+        name = href.rstrip("/").split("/")[-1]
+        if node.find(f".//{ns}collection") is not None:
+            continue
+        if bk.is_mapped_name(name):
+            names.append(name)
+    names.sort()
+    return names[: bk.MAX_LEDGER_LIST], None
+
+
+async def _resolve_ledger_path(request: Request, path: str) -> tuple[str | None, list[str], str | None, int]:
+    names, lerr = await _list_mapped_ledgers(request)
+    if lerr:
+        return None, names, lerr, 502
+    if path:
+        clean, err = bk.clean_books_path(path)
+        if err or not clean:
+            return None, names, err or "Invalid path", 400
+        return clean, names, None, 200
+    picked = bk.pick_default_ledger(names)
+    if not picked:
+        return None, names, "No mapped ledger in Bookkeeping/Organize", 404
+    return picked, names, None, 200
 
 
 async def _read_ledger(request: Request, path: str) -> tuple[dict | None, str, str | None, int]:
@@ -142,10 +190,20 @@ async def books_summary(request: Request, path: str = ""):
     year, month, perr = _parse_period(request)
     if perr:
         return JSONResponse({"ok": False, "error": perr}, status_code=400)
-    ledger_path = path or DEFAULT_LEDGER
+    ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    if rerr or not ledger_path:
+        return JSONResponse({"ok": False, "error": rerr, "ledgers": ledgers}, status_code=rstatus)
     payload, clean, err, status = await _read_ledger(request, ledger_path)
     if err or payload is None:
-        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+        return JSONResponse({"ok": False, "error": err, "path": clean, "ledgers": ledgers}, status_code=status)
+    seeded = 0
+    if not bk.vendor_map_from_payload(payload):
+        payload, stats, serr = bk.seed_vendor_map_from_placed(payload)
+        if payload is not None and not serr and stats and stats.get("added"):
+            payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            werr, _wstatus = await _write_ledger(request, clean, payload)
+            if not werr:
+                seeded = int(stats.get("added") or 0)
     rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
     chart = bk.working_chart_from_payload(payload)
     pnl = bk.pnl_from_rows(rows, year=year, month=month)
@@ -154,14 +212,16 @@ async def books_summary(request: Request, path: str = ""):
         "ok": True,
         "path": clean,
         "entity": payload.get("entity") or "",
-        "account": "Bluevine",
+        "account": bk.account_label(payload, clean),
         "row_count": len(rows),
         "needs_review_count": payload.get("needs_review_count"),
         "year": year,
         "month": month,
         "periods": periods,
+        "ledgers": [bk.ledger_path_from_name(n) for n in ledgers if bk.ledger_path_from_name(n)],
         "chart": chart,
         "vendor_map": bk.vendor_map_from_payload(payload),
+        "seeded": seeded,
         "pnl": pnl,
     })
 
@@ -172,7 +232,9 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
     if perr:
         return JSONResponse({"ok": False, "error": perr}, status_code=400)
     label = (category or "").strip() or bk.UNCATEGORIZED
-    ledger_path = path or DEFAULT_LEDGER
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    if rerr or not ledger_path:
+        return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
     payload, clean, err, status = await _read_ledger(request, ledger_path)
     if err or payload is None:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
@@ -207,7 +269,11 @@ async def books_patch_line(request: Request):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
-    path = (body.get("path") or DEFAULT_LEDGER).strip()
+    path = (body.get("path") or "").strip()
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    if rerr or not ledger_path:
+        return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
+    path = ledger_path
     try:
         index = int(body.get("index"))
     except (TypeError, ValueError):
@@ -244,7 +310,11 @@ async def books_patch_lines(request: Request):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
-    path = (body.get("path") or DEFAULT_LEDGER).strip()
+    path = (body.get("path") or "").strip()
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    if rerr or not ledger_path:
+        return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
+    path = ledger_path
     raw_indexes = body.get("indexes") or body.get("indices") or []
     if not isinstance(raw_indexes, list):
         return JSONResponse({"ok": False, "error": "indexes is required"}, status_code=400)
@@ -281,7 +351,9 @@ async def books_patch_lines(request: Request):
 
 @router.get("/api/books/map")
 async def books_get_map(request: Request, path: str = ""):
-    ledger_path = path or DEFAULT_LEDGER
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    if rerr or not ledger_path:
+        return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
     payload, clean, err, status = await _read_ledger(request, ledger_path)
     if err or payload is None:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
@@ -301,7 +373,11 @@ async def books_put_map(request: Request):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
-    path = (body.get("path") or DEFAULT_LEDGER).strip()
+    path = (body.get("path") or "").strip()
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    if rerr or not ledger_path:
+        return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
+    path = ledger_path
     rules = body.get("vendor_map") or body.get("rules") or []
     if not isinstance(rules, list):
         return JSONResponse({"ok": False, "error": "vendor_map must be a list"}, status_code=400)
@@ -327,6 +403,45 @@ async def books_put_map(request: Request):
         "ok": True,
         "path": clean,
         "vendor_map": bk.vendor_map_from_payload(updated),
+        "applied": (applied or {}).get("applied", 0),
+        "needs_review_count": updated.get("needs_review_count"),
+    })
+
+
+@router.post("/api/books/seed-map")
+async def books_seed_map(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    path = (body.get("path") or "").strip()
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    if rerr or not ledger_path:
+        return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
+    payload, clean, err, status = await _read_ledger(request, ledger_path)
+    if err or payload is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    updated, stats, serr = bk.seed_vendor_map_from_placed(payload)
+    if serr or updated is None:
+        return JSONResponse({"ok": False, "error": serr, "path": clean}, status_code=400)
+    apply_now = body.get("apply", True)
+    applied = {"applied": 0, "skipped_placed": 0}
+    if apply_now:
+        updated, applied, aerr = bk.apply_vendor_map(updated)
+        if aerr or updated is None:
+            return JSONResponse({"ok": False, "error": aerr, "path": clean}, status_code=400)
+    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, clean, updated)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "vendor_map": bk.vendor_map_from_payload(updated),
+        "seeded": (stats or {}).get("added", 0),
+        "kept": (stats or {}).get("kept", 0),
         "applied": (applied or {}).get("applied", 0),
         "needs_review_count": updated.get("needs_review_count"),
     })
