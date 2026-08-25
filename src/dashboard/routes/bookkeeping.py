@@ -82,15 +82,50 @@ async def _resolve_ledger_path(request: Request, path: str) -> tuple[str | None,
     names, lerr = await _list_mapped_ledgers(request)
     if lerr:
         return None, names, lerr, 502
+    if not names:
+        return None, names, "No mapped ledger in Bookkeeping/Organize", 404
+    if bk.is_all_transactions(path):
+        return bk.ALL_TRANSACTIONS, names, None, 200
     if path:
         clean, err = bk.clean_books_path(path)
         if err or not clean:
             return None, names, err or "Invalid path", 400
         return clean, names, None, 200
-    picked = bk.pick_default_ledger(names)
-    if not picked:
-        return None, names, "No mapped ledger in Bookkeeping/Organize", 404
-    return picked, names, None, 200
+    return bk.ALL_TRANSACTIONS, names, None, 200
+
+
+async def _load_named_ledgers(request: Request, names: list[str]) -> list[tuple[str, dict]]:
+    loaded: list[tuple[str, dict]] = []
+    for name in names:
+        path = bk.ledger_path_from_name(name)
+        if not path:
+            continue
+        payload, clean, err, _status = await _read_ledger(request, path)
+        if err or payload is None:
+            continue
+        loaded.append((clean, payload))
+    return loaded
+
+
+async def _maybe_seed(request: Request, payload: dict, clean: str) -> tuple[dict, int]:
+    if bk.vendor_map_from_payload(payload):
+        return payload, 0
+    seeded_payload, stats, serr = bk.seed_vendor_map_from_placed(payload)
+    if seeded_payload is None or serr or not stats or not stats.get("added"):
+        return payload, 0
+    seeded_payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, _wstatus = await _write_ledger(request, clean, seeded_payload)
+    if werr:
+        return payload, 0
+    return seeded_payload, int(stats.get("added") or 0)
+
+
+def _choice_payloads(loaded: list[tuple[str, dict]]) -> list[dict]:
+    labels: dict[str, str] = {}
+    for path, payload in loaded:
+        labels[path] = bk.account_label(payload, path)
+    names = [p.split("/")[-1] for p, _ in loaded]
+    return bk.ledger_choices(names, labels)
 
 
 async def _read_ledger(request: Request, path: str) -> tuple[dict | None, str, str | None, int]:
@@ -192,22 +227,59 @@ async def books_summary(request: Request, path: str = ""):
         return JSONResponse({"ok": False, "error": perr}, status_code=400)
     ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
     if rerr or not ledger_path:
-        return JSONResponse({"ok": False, "error": rerr, "ledgers": ledgers}, status_code=rstatus)
-    payload, clean, err, status = await _read_ledger(request, ledger_path)
-    if err or payload is None:
-        return JSONResponse({"ok": False, "error": err, "path": clean, "ledgers": ledgers}, status_code=status)
+        return JSONResponse({
+            "ok": False,
+            "error": rerr,
+            "ledgers": bk.ledger_choices(ledgers),
+        }, status_code=rstatus)
+    loaded = await _load_named_ledgers(request, ledgers)
+    if not loaded:
+        return JSONResponse({
+            "ok": False,
+            "error": "No mapped ledger in Bookkeeping/Organize",
+            "ledgers": bk.ledger_choices(ledgers),
+        }, status_code=404)
     seeded = 0
-    if not bk.vendor_map_from_payload(payload):
-        payload, stats, serr = bk.seed_vendor_map_from_placed(payload)
-        if payload is not None and not serr and stats and stats.get("added"):
-            payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            werr, _wstatus = await _write_ledger(request, clean, payload)
-            if not werr:
-                seeded = int(stats.get("added") or 0)
+    next_loaded: list[tuple[str, dict]] = []
+    for clean, payload in loaded:
+        payload, added = await _maybe_seed(request, payload, clean)
+        seeded += added
+        next_loaded.append((clean, payload))
+    loaded = next_loaded
+    choices = _choice_payloads(loaded)
+    if bk.is_all_transactions(ledger_path):
+        all_rows: list[dict] = []
+        payloads = []
+        review = 0
+        entity = ""
+        for clean, payload in loaded:
+            payloads.append(payload)
+            rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
+            all_rows.extend(r for r in rows if isinstance(r, dict))
+            review += int(payload.get("needs_review_count") or 0)
+            if not entity:
+                entity = str(payload.get("entity") or "")
+        return JSONResponse({
+            "ok": True,
+            "path": bk.ALL_TRANSACTIONS,
+            "entity": entity,
+            "account": "All Transactions",
+            "row_count": len(all_rows),
+            "needs_review_count": review,
+            "year": year,
+            "month": month,
+            "periods": bk.available_periods(all_rows),
+            "ledgers": choices,
+            "chart": bk.merge_working_charts(payloads),
+            "vendor_map": bk.merge_vendor_maps(payloads),
+            "seeded": seeded,
+            "pnl": bk.pnl_from_rows(all_rows, year=year, month=month),
+        })
+    wanted = next((item for item in loaded if item[0] == ledger_path), None)
+    if wanted is None:
+        return JSONResponse({"ok": False, "error": "Ledger not found", "ledgers": choices}, status_code=404)
+    clean, payload = wanted
     rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
-    chart = bk.working_chart_from_payload(payload)
-    pnl = bk.pnl_from_rows(rows, year=year, month=month)
-    periods = bk.available_periods(rows)
     return JSONResponse({
         "ok": True,
         "path": clean,
@@ -217,12 +289,12 @@ async def books_summary(request: Request, path: str = ""):
         "needs_review_count": payload.get("needs_review_count"),
         "year": year,
         "month": month,
-        "periods": periods,
-        "ledgers": [bk.ledger_path_from_name(n) for n in ledgers if bk.ledger_path_from_name(n)],
-        "chart": chart,
+        "periods": bk.available_periods(rows),
+        "ledgers": choices,
+        "chart": bk.working_chart_from_payload(payload),
         "vendor_map": bk.vendor_map_from_payload(payload),
         "seeded": seeded,
-        "pnl": pnl,
+        "pnl": bk.pnl_from_rows(rows, year=year, month=month),
     })
 
 
@@ -231,31 +303,51 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
     year, month, perr = _parse_period(request)
     if perr:
         return JSONResponse({"ok": False, "error": perr}, status_code=400)
-    label = (category or "").strip() or bk.UNCATEGORIZED
-    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    raw_label = (category or "").strip()
+    label = raw_label or bk.ALL_LINES
+    ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
     if rerr or not ledger_path:
         return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
-    payload, clean, err, status = await _read_ledger(request, ledger_path)
-    if err or payload is None:
-        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    loaded = await _load_named_ledgers(request, ledgers)
+    if not loaded:
+        return JSONResponse({"ok": False, "error": "No mapped ledger in Bookkeeping/Organize"}, status_code=404)
+    if bk.is_all_transactions(ledger_path):
+        lines: list[dict] = []
+        payloads = [payload for _p, payload in loaded]
+        for clean, payload in loaded:
+            rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
+            acct = bk.account_label(payload, clean)
+            remain = bk.MAX_COMBINED_LINES - len(lines)
+            if remain <= 0:
+                break
+            lines.extend(bk.collect_lines(
+                rows, clean, year=year, month=month, category=label, account=acct, limit=remain,
+            ))
+        lines.sort(key=lambda x: (x.get("date") or "", x.get("source_path") or "", x.get("index") or 0))
+        return JSONResponse({
+            "ok": True,
+            "path": bk.ALL_TRANSACTIONS,
+            "category": label,
+            "year": year,
+            "month": month,
+            "chart": bk.merge_working_charts(payloads),
+            "lines": lines,
+            "count": len(lines),
+        })
+    wanted = next((item for item in loaded if item[0] == ledger_path), None)
+    if wanted is None:
+        return JSONResponse({"ok": False, "error": "Ledger not found"}, status_code=404)
+    clean, payload = wanted
     rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
-    chart = bk.working_chart_from_payload(payload)
-    lines = []
-    for i, row in enumerate(rows):
-        if not isinstance(row, dict):
-            continue
-        if not bk.in_period(row, year, month):
-            continue
-        if bk.category_label(row) != label:
-            continue
-        lines.append(bk.line_preview(row, clean, i))
+    acct = bk.account_label(payload, clean)
+    lines = bk.collect_lines(rows, clean, year=year, month=month, category=label, account=acct)
     return JSONResponse({
         "ok": True,
         "path": clean,
         "category": label,
         "year": year,
         "month": month,
-        "chart": chart,
+        "chart": bk.working_chart_from_payload(payload),
         "lines": lines,
         "count": len(lines),
     })
@@ -269,10 +361,12 @@ async def books_patch_line(request: Request):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
-    path = (body.get("path") or "").strip()
-    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
-    if rerr or not ledger_path:
-        return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
+    target = (body.get("source_path") or body.get("path") or "").strip()
+    if bk.is_all_transactions(target):
+        return JSONResponse({"ok": False, "error": "Pick the statement that owns this line"}, status_code=400)
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, target)
+    if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
+        return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
     path = ledger_path
     try:
         index = int(body.get("index"))
@@ -310,53 +404,94 @@ async def books_patch_lines(request: Request):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
-    path = (body.get("path") or "").strip()
-    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
-    if rerr or not ledger_path:
-        return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
-    path = ledger_path
-    raw_indexes = body.get("indexes") or body.get("indices") or []
-    if not isinstance(raw_indexes, list):
-        return JSONResponse({"ok": False, "error": "indexes is required"}, status_code=400)
-    indexes: list[int] = []
-    for item in raw_indexes:
-        try:
-            indexes.append(int(item))
-        except (TypeError, ValueError):
-            return JSONResponse({"ok": False, "error": "indexes must be integers"}, status_code=400)
-    if len(indexes) > 200:
-        return JSONResponse({"ok": False, "error": "Too many lines in one save"}, status_code=400)
     label = (body.get("category") or body.get("category_label") or "").strip()
     if not label:
         return JSONResponse({"ok": False, "error": "category is required"}, status_code=400)
+    raw_items = body.get("items")
+    groups: dict[str, list[int]] = {}
+    if isinstance(raw_items, list) and raw_items:
+        for item in raw_items:
+            if not isinstance(item, dict):
+                return JSONResponse({"ok": False, "error": "items must be objects"}, status_code=400)
+            src = (item.get("source_path") or item.get("path") or "").strip()
+            if bk.is_all_transactions(src):
+                return JSONResponse({"ok": False, "error": "Pick the statement that owns this line"}, status_code=400)
+            try:
+                idx = int(item.get("index"))
+            except (TypeError, ValueError):
+                return JSONResponse({"ok": False, "error": "indexes must be integers"}, status_code=400)
+            groups.setdefault(src, []).append(idx)
+    else:
+        path = (body.get("source_path") or body.get("path") or "").strip()
+        if bk.is_all_transactions(path):
+            return JSONResponse({"ok": False, "error": "Pick the statement that owns this line"}, status_code=400)
+        raw_indexes = body.get("indexes") or body.get("indices") or []
+        if not isinstance(raw_indexes, list):
+            return JSONResponse({"ok": False, "error": "indexes is required"}, status_code=400)
+        indexes: list[int] = []
+        for item in raw_indexes:
+            try:
+                indexes.append(int(item))
+            except (TypeError, ValueError):
+                return JSONResponse({"ok": False, "error": "indexes must be integers"}, status_code=400)
+        groups[path] = indexes
+    total = sum(len(v) for v in groups.values())
+    if total > 200:
+        return JSONResponse({"ok": False, "error": "Too many lines in one save"}, status_code=400)
+    if not groups:
+        return JSONResponse({"ok": False, "error": "indexes is required"}, status_code=400)
 
-    payload, clean, err, status = await _read_ledger(request, path)
-    if err or payload is None:
-        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-    updated, uerr = bk.apply_categories(payload, indexes, label)
-    if uerr or updated is None:
-        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    updated_n = 0
+    last_map: list = []
+    review = 0
+    last_path = ""
+    for src, indexes in groups.items():
+        ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, src)
+        if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
+            return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
+        payload, clean, err, status = await _read_ledger(request, ledger_path)
+        if err or payload is None:
+            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+        updated, uerr = bk.apply_categories(payload, indexes, label)
+        if uerr or updated is None:
+            return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+        updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        werr, wstatus = await _write_ledger(request, clean, updated)
+        if werr:
+            return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+        updated_n += len(set(indexes))
+        last_map = bk.vendor_map_from_payload(updated)
+        review += int(updated.get("needs_review_count") or 0)
+        last_path = clean
     return JSONResponse({
         "ok": True,
-        "path": clean,
-        "updated": len(set(indexes)),
-        "needs_review_count": updated.get("needs_review_count"),
-        "vendor_map": bk.vendor_map_from_payload(updated),
+        "path": last_path,
+        "updated": updated_n,
+        "needs_review_count": review,
+        "vendor_map": last_map,
     })
 
 
 @router.get("/api/books/map")
 async def books_get_map(request: Request, path: str = ""):
-    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
     if rerr or not ledger_path:
         return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
-    payload, clean, err, status = await _read_ledger(request, ledger_path)
-    if err or payload is None:
-        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    loaded = await _load_named_ledgers(request, ledgers)
+    if not loaded:
+        return JSONResponse({"ok": False, "error": "No mapped ledger in Bookkeeping/Organize"}, status_code=404)
+    if bk.is_all_transactions(ledger_path):
+        payloads = [p for _c, p in loaded]
+        return JSONResponse({
+            "ok": True,
+            "path": bk.ALL_TRANSACTIONS,
+            "chart": bk.merge_working_charts(payloads),
+            "vendor_map": bk.merge_vendor_maps(payloads),
+        })
+    wanted = next((item for item in loaded if item[0] == ledger_path), None)
+    if wanted is None:
+        return JSONResponse({"ok": False, "error": "Ledger not found"}, status_code=404)
+    clean, payload = wanted
     return JSONResponse({
         "ok": True,
         "path": clean,
@@ -374,37 +509,48 @@ async def books_put_map(request: Request):
     if not isinstance(body, dict):
         return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
     path = (body.get("path") or "").strip()
-    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
     if rerr or not ledger_path:
         return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
-    path = ledger_path
     rules = body.get("vendor_map") or body.get("rules") or []
     if not isinstance(rules, list):
         return JSONResponse({"ok": False, "error": "vendor_map must be a list"}, status_code=400)
     if len(rules) > 400:
         return JSONResponse({"ok": False, "error": "Too many map rules"}, status_code=400)
-
-    payload, clean, err, status = await _read_ledger(request, path)
-    if err or payload is None:
-        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-    updated, uerr = bk.set_vendor_map(payload, rules)
-    if uerr or updated is None:
-        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-    applied = {"applied": 0, "skipped_placed": 0}
-    if body.get("apply", True):
-        updated, applied, aerr = bk.apply_vendor_map(updated)
-        if aerr or updated is None:
-            return JSONResponse({"ok": False, "error": aerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    targets = [ledger_path]
+    if bk.is_all_transactions(ledger_path):
+        targets = [bk.ledger_path_from_name(n) for n in ledgers]
+        targets = [t for t in targets if t]
+    applied_n = 0
+    review = 0
+    last_map: list = []
+    last_path = ledger_path
+    for target in targets:
+        payload, clean, err, status = await _read_ledger(request, target)
+        if err or payload is None:
+            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+        updated, uerr = bk.set_vendor_map(payload, rules)
+        if uerr or updated is None:
+            return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+        applied = {"applied": 0}
+        if body.get("apply", True):
+            updated, applied, aerr = bk.apply_vendor_map(updated)
+            if aerr or updated is None:
+                return JSONResponse({"ok": False, "error": aerr, "path": clean}, status_code=400)
+        updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        werr, wstatus = await _write_ledger(request, clean, updated)
+        if werr:
+            return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+        applied_n += int((applied or {}).get("applied", 0))
+        review += int(updated.get("needs_review_count") or 0)
+        last_map = bk.vendor_map_from_payload(updated)
+        last_path = clean
     return JSONResponse({
         "ok": True,
-        "path": clean,
-        "vendor_map": bk.vendor_map_from_payload(updated),
-        "applied": (applied or {}).get("applied", 0),
-        "needs_review_count": updated.get("needs_review_count"),
+        "path": bk.ALL_TRANSACTIONS if bk.is_all_transactions(ledger_path) else last_path,
+        "vendor_map": last_map,
+        "applied": applied_n,
+        "needs_review_count": review,
     })
 
 
@@ -417,31 +563,45 @@ async def books_seed_map(request: Request):
     if not isinstance(body, dict):
         body = {}
     path = (body.get("path") or "").strip()
-    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
     if rerr or not ledger_path:
         return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
-    payload, clean, err, status = await _read_ledger(request, ledger_path)
-    if err or payload is None:
-        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-    updated, stats, serr = bk.seed_vendor_map_from_placed(payload)
-    if serr or updated is None:
-        return JSONResponse({"ok": False, "error": serr, "path": clean}, status_code=400)
+    targets = [ledger_path]
+    if bk.is_all_transactions(ledger_path):
+        targets = [bk.ledger_path_from_name(n) for n in ledgers]
+        targets = [t for t in targets if t]
+    seeded = 0
+    applied_n = 0
+    review = 0
+    last_map: list = []
+    last_path = ledger_path
     apply_now = body.get("apply", True)
-    applied = {"applied": 0, "skipped_placed": 0}
-    if apply_now:
-        updated, applied, aerr = bk.apply_vendor_map(updated)
-        if aerr or updated is None:
-            return JSONResponse({"ok": False, "error": aerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    for target in targets:
+        payload, clean, err, status = await _read_ledger(request, target)
+        if err or payload is None:
+            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+        updated, stats, serr = bk.seed_vendor_map_from_placed(payload)
+        if serr or updated is None:
+            return JSONResponse({"ok": False, "error": serr, "path": clean}, status_code=400)
+        applied = {"applied": 0}
+        if apply_now:
+            updated, applied, aerr = bk.apply_vendor_map(updated)
+            if aerr or updated is None:
+                return JSONResponse({"ok": False, "error": aerr, "path": clean}, status_code=400)
+        updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        werr, wstatus = await _write_ledger(request, clean, updated)
+        if werr:
+            return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+        seeded += int((stats or {}).get("added") or 0)
+        applied_n += int((applied or {}).get("applied") or 0)
+        review += int(updated.get("needs_review_count") or 0)
+        last_map = bk.vendor_map_from_payload(updated)
+        last_path = clean
     return JSONResponse({
         "ok": True,
-        "path": clean,
-        "vendor_map": bk.vendor_map_from_payload(updated),
-        "seeded": (stats or {}).get("added", 0),
-        "kept": (stats or {}).get("kept", 0),
-        "applied": (applied or {}).get("applied", 0),
-        "needs_review_count": updated.get("needs_review_count"),
+        "path": bk.ALL_TRANSACTIONS if bk.is_all_transactions(ledger_path) else last_path,
+        "vendor_map": last_map,
+        "seeded": seeded,
+        "applied": applied_n,
+        "needs_review_count": review,
     })

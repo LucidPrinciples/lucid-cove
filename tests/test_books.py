@@ -149,3 +149,43 @@ def test_seed_vendor_map_from_placed_keeps_operator():
     assert phrases["staples store"]["source"] == "placed"
     assert "unknown" not in phrases
     assert stats["added"] == 1
+
+
+def test_ledger_choices_all_first():
+    names = ["b.mapped.json", "a.mapped.json"]
+    choices = bk.ledger_choices(names, {"Bookkeeping/Organize/a.mapped.json": "Checking"})
+    assert choices[0]["path"] == bk.ALL_TRANSACTIONS
+    assert choices[0]["label"] == "All Transactions"
+    assert [c["path"] for c in choices[1:]] == [
+        "Bookkeeping/Organize/a.mapped.json",
+        "Bookkeeping/Organize/b.mapped.json",
+    ]
+    assert choices[1]["label"] == "Checking"
+    assert bk.is_all_transactions("")
+    assert bk.is_all_transactions("all")
+    assert not bk.is_all_transactions("Bookkeeping/Organize/a.mapped.json")
+
+
+def test_collect_all_lines_and_merge():
+    rows_a = [
+        _row("2025-01-15", "-10.00", "Advertising", name="Acme"),
+        _row("2025-01-16", "-4.00", name="Loose"),
+    ]
+    rows_b = [
+        _row("2025-02-01", "20.00", "Other income", name="Client"),
+    ]
+    all_lines = bk.collect_lines(rows_a, "Bookkeeping/Organize/a.mapped.json", category="*")
+    assert len(all_lines) == 2
+    one = bk.collect_lines(rows_a, "Bookkeeping/Organize/a.mapped.json", category="Advertising")
+    assert len(one) == 1
+    charts = bk.merge_working_charts([
+        {"working_chart": [{"label": "Advertising"}]},
+        {"working_chart": [{"label": "Advertising"}, {"label": "Other income"}]},
+    ])
+    assert [c["label"] for c in charts] == ["Advertising", "Other income"]
+    maps = bk.merge_vendor_maps([
+        {"vendor_map": [{"phrase": "acme", "label": "Advertising", "source": "placed"}]},
+        {"vendor_map": [{"phrase": "acme", "label": "Office expense", "source": "operator"}]},
+    ])
+    assert maps[0]["source"] == "operator"
+    assert maps[0]["label"] == "Office expense"

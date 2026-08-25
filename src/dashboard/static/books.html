@@ -81,6 +81,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
     <select id="periodSel"></select>
   </label>
   <button type="button" id="btnAll">All time</button>
+  <button type="button" id="btnTx">Transactions</button>
   <button type="button" id="btnMap">Import map</button>
 </div>
 <div id="err" class="err hide"></div>
@@ -110,7 +111,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
   <div class="scroll">
     <table>
-      <thead><tr><th></th><th>Date</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr></thead>
+      <thead><tr><th></th><th>Date</th><th>Account</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr></thead>
       <tbody id="lineBody"></tbody>
     </table>
   </div>
@@ -137,7 +138,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div class="status" id="status"></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { path: '', chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [] };
+const state = { path: 'all', chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [] };
 
 function money(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -173,15 +174,16 @@ function fillLedgers() {
   const sel = $('ledgerSel');
   const list = state.ledgers || [];
   if (!list.length) {
-    sel.innerHTML = '<option value="">No ledger</option>';
+    sel.innerHTML = '<option value="all">All Transactions</option>';
+    sel.value = 'all';
     return;
   }
-  sel.innerHTML = list.map(p => {
-    const name = String(p).split('/').pop() || p;
-    const selAttr = (p === state.path) ? ' selected' : '';
-    return `<option value="${escapeHtml(p)}"${selAttr}>${escapeHtml(name)}</option>`;
+  sel.innerHTML = list.map(item => {
+    const path = (item && item.path) ? item.path : String(item);
+    const label = (item && item.label) ? item.label : (String(path).split('/').pop() || path);
+    return `<option value="${escapeHtml(path)}">${escapeHtml(label)}</option>`;
   }).join('');
-  if (state.path) sel.value = state.path;
+  sel.value = state.path || 'all';
 }
 function fillPeriod() {
   const sel = $('periodSel');
@@ -297,9 +299,9 @@ function escapeHtml(s) {
 }
 async function openCategory(label) {
   state.category = label;
-  $('detailTitle').textContent = label;
+  $('detailTitle').textContent = (label === '*' ? 'Transactions' : label);
   showDetail();
-  $('lineBody').innerHTML = '<tr><td colspan="5" class="muted">Loading…</td></tr>';
+  $('lineBody').innerHTML = '<tr><td colspan="6" class="muted">Loading…</td></tr>';
   const p = new URLSearchParams();
   if (state.path) p.set('path', state.path);
   if (state.year) p.set('year', String(state.year));
@@ -307,21 +309,23 @@ async function openCategory(label) {
   p.set('category', label);
   const r = await fetch('/api/books/lines?' + p.toString());
   const data = await r.json();
-  if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="5">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
+  if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="6">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
   state.chart = data.chart || state.chart;
   $('detailCount').textContent = (data.count || 0) + ' lines';
   $('batchCat').innerHTML = chartOptions();
   const opts = chartOptions();
   const body = (data.lines || []).map(line => {
-    const sel = `<select data-index="${line.index}" data-was="${escapeHtml(line.category)}">${opts}</select>`;
+    const src = escapeHtml(line.source_path || state.path || '');
+    const sel = `<select data-index="${line.index}" data-source="${src}" data-was="${escapeHtml(line.category)}">${opts}</select>`;
     return `<tr class="line-row">
-      <td><input type="checkbox" class="check line-check" data-index="${line.index}"></td>
+      <td><input type="checkbox" class="check line-check" data-index="${line.index}" data-source="${src}"></td>
       <td class="muted">${escapeHtml(line.date || '')}</td>
+      <td class="muted">${escapeHtml(line.account || '')}</td>
       <td>${escapeHtml(line.payee || '')}</td>
       <td>${sel}</td>
       <td class="num ${line.amount < 0 ? 'bad' : 'ok'}">${money(line.amount)}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5" class="muted">No lines.</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">No lines.</td></tr>';
   $('lineBody').innerHTML = body;
   $('chkAll').checked = false;
   $('lineBody').querySelectorAll('select').forEach(sel => {
@@ -329,17 +333,21 @@ async function openCategory(label) {
     sel.addEventListener('change', () => saveLine(sel));
   });
 }
-function checkedIndexes() {
-  return Array.from(document.querySelectorAll('.line-check:checked')).map(el => Number(el.getAttribute('data-index')));
+function checkedItems() {
+  return Array.from(document.querySelectorAll('.line-check:checked')).map(el => ({
+    index: Number(el.getAttribute('data-index')),
+    source_path: el.getAttribute('data-source') || state.path
+  }));
 }
 async function saveLine(sel) {
   const index = Number(sel.getAttribute('data-index'));
+  const source_path = sel.getAttribute('data-source') || state.path;
   const category = sel.value;
   $('status').textContent = 'Saving…';
   const r = await fetch('/api/books/line', {
     method: 'PATCH',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ path: state.path, index, category })
+    body: JSON.stringify({ path: source_path, source_path, index, category })
   });
   const data = await r.json();
   if (!data.ok) {
@@ -355,16 +363,16 @@ async function saveLine(sel) {
   if (state.category) await openCategory(state.category);
 }
 async function applyChecked() {
-  const indexes = checkedIndexes();
+  const items = checkedItems();
   const category = $('batchCat').value;
-  if (!indexes.length) { showErr('Check the lines you want to move'); return; }
+  if (!items.length) { showErr('Check the lines you want to move'); return; }
   if (!category) { showErr('Pick a category'); return; }
   showErr('');
   $('status').textContent = 'Saving…';
   const r = await fetch('/api/books/lines', {
     method: 'PATCH',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ path: state.path, indexes, category })
+    body: JSON.stringify({ items, category })
   });
   const data = await r.json();
   if (!data.ok) {
@@ -373,7 +381,7 @@ async function applyChecked() {
     return;
   }
   if (data.vendor_map) state.vendorMap = data.vendor_map;
-  $('status').innerHTML = `<span class="okmsg">Placed ${data.updated || indexes.length} · map updated</span>`;
+  $('status').innerHTML = `<span class="okmsg">Placed ${data.updated || items.length} · map updated</span>`;
   await loadSummary();
   if (state.category) await openCategory(state.category);
 }
@@ -416,9 +424,11 @@ $('pnlBody').addEventListener('click', (e) => {
 $('btnBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMapBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMap').onclick = () => { showMap(); };
+$('btnTx').onclick = () => { openCategory('*'); };
 $('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
 $('ledgerSel').onchange = () => {
-  state.path = $('ledgerSel').value || '';
+  state.path = $('ledgerSel').value || 'all';
+  showPnl();
   loadSummary();
 };
 async function seedFromPlaced() {
