@@ -15,8 +15,11 @@ ORGANIZE_PREFIX = "Bookkeeping/Organize"
 RETURNS_PREFIX = "Bookkeeping/Returns"
 LEDGER_SUFFIX = ".mapped.json"
 UNCATEGORIZED = "Uncategorized"
+ALL_TRANSACTIONS = "all"
+ALL_LINES = "*"
 MIN_MAP_PHRASE = 4
 MAX_LEDGER_LIST = 40
+MAX_COMBINED_LINES = 4000
 
 _DATE_FMTS = (
     "%Y-%m-%d",
@@ -76,6 +79,28 @@ def pick_default_ledger(names: list[str]) -> str | None:
         return None
     mapped.sort()
     return ledger_path_from_name(mapped[0])
+
+
+def is_all_transactions(path: str) -> bool:
+    p = (path or "").strip().lower().replace("_", "-")
+    return p in ("", ALL_TRANSACTIONS, "all-transactions")
+
+
+def ledger_choices(names: list[str], labels: dict[str, str] | None = None) -> list[dict]:
+    """All Transactions first, then each Organize mapped file as its own account."""
+    out = [{"path": ALL_TRANSACTIONS, "label": "All Transactions"}]
+    mapped = sorted(n for n in names if is_mapped_name(n))
+    for name in mapped:
+        path = ledger_path_from_name(name)
+        if not path:
+            continue
+        label = ""
+        if labels and path in labels:
+            label = str(labels[path] or "").strip()
+        if not label:
+            label = account_label({}, path)
+        out.append({"path": path, "label": label})
+    return out
 
 
 def account_label(payload: dict, path: str = "") -> str:
@@ -263,9 +288,10 @@ def available_periods(rows: list[dict]) -> dict:
     }
 
 
-def line_preview(row: dict, source_path: str, index: int) -> dict:
+def line_preview(row: dict, source_path: str, index: int, account: str = "") -> dict:
     amt = row_signed_amount(row)
     dt = parse_row_date(row)
+    acct = str(flatten_row(row).get("account") or "").strip() or account or account_label({}, source_path)
     return {
         "id": f"{source_path}#{index}",
         "source_path": source_path,
@@ -275,8 +301,60 @@ def line_preview(row: dict, source_path: str, index: int) -> dict:
         "amount": amt,
         "category": category_label(row),
         "needs_review": bool(row.get("needs_review")),
-        "account": (flatten_row(row).get("account") or ""),
+        "account": acct,
     }
+
+
+def merge_working_charts(payloads: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for payload in payloads:
+        for item in working_chart_from_payload(payload):
+            key = str(item.get("label") or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged
+
+
+def merge_vendor_maps(payloads: list[dict]) -> list[dict]:
+    by_phrase: dict[str, dict] = {}
+    for payload in payloads:
+        for rule in vendor_map_from_payload(payload):
+            phrase = rule["phrase"]
+            prior = by_phrase.get(phrase)
+            if prior is None:
+                by_phrase[phrase] = dict(rule)
+                continue
+            if rule.get("source") == "operator" and prior.get("source") != "operator":
+                by_phrase[phrase] = dict(rule)
+    return sorted(by_phrase.values(), key=lambda x: x["phrase"])
+
+
+def collect_lines(
+    rows: list,
+    source_path: str,
+    year: int | None = None,
+    month: int | None = None,
+    category: str | None = None,
+    account: str = "",
+    limit: int = MAX_COMBINED_LINES,
+) -> list[dict]:
+    want = (category or "").strip()
+    all_cats = not want or want == ALL_LINES
+    out: list[dict] = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        if not in_period(row, year, month):
+            continue
+        if not all_cats and category_label(row) != want:
+            continue
+        out.append(line_preview(row, source_path, i, account=account))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None = None) -> dict:
