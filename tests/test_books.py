@@ -114,3 +114,38 @@ def test_batch_recode_and_vendor_map():
     assert [r["phrase"] for r in cleaned["vendor_map"]] == ["ok phrase"]
     bad, err = bk.set_vendor_map(payload, [{"phrase": "x", "label": "Advertising"}])
     assert bad is None and err
+
+
+def test_pick_default_ledger_and_account_label():
+    assert bk.pick_default_ledger([]) is None
+    assert bk.pick_default_ledger(["notes.txt", "a.mapped.json"]) == "Bookkeeping/Organize/a.mapped.json"
+    assert bk.ledger_path_from_name("../x.mapped.json") == "Bookkeeping/Organize/x.mapped.json"
+    assert bk.ledger_path_from_name("not-mapped.json") is None
+    payload = {"account": "Checking"}
+    assert bk.account_label(payload, "Bookkeeping/Organize/foo.mapped.json") == "Checking"
+    assert "foo" in bk.account_label({}, "Bookkeeping/Organize/foo.mapped.json").lower()
+
+
+def test_seed_vendor_map_from_placed_keeps_operator():
+    payload = {
+        "working_chart": [
+            {"label": "Advertising", "code": None, "layer": "official"},
+            {"label": "Office expense", "code": None, "layer": "official"},
+        ],
+        "vendor_map": [{"phrase": "acme ads", "label": "Advertising", "source": "operator"}],
+        "rows": [
+            _row("2025-01-15", "-10.00", "Advertising", name="Acme Ads"),
+            _row("2025-01-16", "-8.00", "Office expense", name="Staples Store"),
+            _row("2025-01-17", "-3.00", name="Unknown"),
+            _row("2025-01-18", "-2.00", "Advertising", name="Acme Ads"),
+        ],
+    }
+    updated, stats, err = bk.seed_vendor_map_from_placed(payload)
+    assert err is None and updated is not None
+    phrases = {r["phrase"]: r for r in updated["vendor_map"]}
+    assert phrases["acme ads"]["source"] == "operator"
+    assert phrases["acme ads"]["label"] == "Advertising"
+    assert phrases["staples store"]["label"] == "Office expense"
+    assert phrases["staples store"]["source"] == "placed"
+    assert "unknown" not in phrases
+    assert stats["added"] == 1

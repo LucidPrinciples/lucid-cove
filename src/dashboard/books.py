@@ -1,4 +1,4 @@
-"""Bookkeeping ledger helpers (BOOKLED1).
+"""Bookkeeping ledger helpers.
 
 Pure functions so the P&L page and tests share one mapper. Financial bytes
 stay in the Presence Bookkeeping/ tree; this module never logs amounts.
@@ -12,9 +12,11 @@ from datetime import datetime
 from typing import Any
 
 ORGANIZE_PREFIX = "Bookkeeping/Organize"
+RETURNS_PREFIX = "Bookkeeping/Returns"
 LEDGER_SUFFIX = ".mapped.json"
 UNCATEGORIZED = "Uncategorized"
 MIN_MAP_PHRASE = 4
+MAX_LEDGER_LIST = 40
 
 _DATE_FMTS = (
     "%Y-%m-%d",
@@ -50,6 +52,41 @@ def clean_books_path(path: str) -> tuple[str | None, str | None]:
     if len(clean) > 400:
         return None, "Path too long"
     return clean, None
+
+
+def organize_dir() -> str:
+    return ORGANIZE_PREFIX
+
+
+def is_mapped_name(name: str) -> bool:
+    n = (name or "").replace("\\", "/").split("/")[-1].strip()
+    return bool(n) and n.endswith(LEDGER_SUFFIX) and ".." not in n
+
+
+def ledger_path_from_name(name: str) -> str | None:
+    n = (name or "").replace("\\", "/").split("/")[-1].strip()
+    if not is_mapped_name(n):
+        return None
+    return f"{ORGANIZE_PREFIX}/{n}"
+
+
+def pick_default_ledger(names: list[str]) -> str | None:
+    mapped = [n for n in names if is_mapped_name(n)]
+    if not mapped:
+        return None
+    mapped.sort()
+    return ledger_path_from_name(mapped[0])
+
+
+def account_label(payload: dict, path: str = "") -> str:
+    if isinstance(payload, dict):
+        raw = payload.get("account") or payload.get("source_account")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    name = (path or "").replace("\\", "/").split("/")[-1]
+    if name.endswith(LEDGER_SUFFIX):
+        name = name[: -len(LEDGER_SUFFIX)]
+    return name.replace("-", " ").replace("_", " ").strip() or "Statement"
 
 
 def flatten_row(row: dict) -> dict:
@@ -238,7 +275,7 @@ def line_preview(row: dict, source_path: str, index: int) -> dict:
         "amount": amt,
         "category": category_label(row),
         "needs_review": bool(row.get("needs_review")),
-        "account": (flatten_row(row).get("account") or "Bluevine"),
+        "account": (flatten_row(row).get("account") or ""),
     }
 
 
@@ -437,6 +474,50 @@ def set_vendor_map(payload: dict, rules: list[dict]) -> tuple[dict | None, str |
     cleaned.sort(key=lambda x: x["phrase"])
     payload["vendor_map"] = cleaned
     return payload, None
+
+
+def seed_vendor_map_from_placed(payload: dict) -> tuple[dict | None, dict | None, str | None]:
+    """Fill vendor_map from already-placed payees. Operator rules win on a clash."""
+    if not isinstance(payload, dict):
+        return None, None, "Ledger JSON must be an object"
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return None, None, "Ledger has no rows"
+    chart = working_chart_from_payload(payload)
+    existing = vendor_map_from_payload(payload)
+    by_phrase = {r["phrase"]: dict(r) for r in existing}
+    added = 0
+    skipped_conflict = 0
+    seen_phrase: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = category_label(row)
+        if label == UNCATEGORIZED or row.get("needs_review"):
+            continue
+        hit = chart_lookup(chart, label)
+        if hit is None:
+            continue
+        phrase = norm_phrase(row_payee(row) or row_match_text(row))
+        if len(phrase) < MIN_MAP_PHRASE or phrase in seen_phrase:
+            continue
+        seen_phrase.add(phrase)
+        prior = by_phrase.get(phrase)
+        if prior:
+            if prior["label"] != hit["label"] and prior.get("source") == "operator":
+                skipped_conflict += 1
+                continue
+            if prior["label"] == hit["label"]:
+                continue
+        by_phrase[phrase] = {
+            "phrase": phrase,
+            "label": hit["label"],
+            "source": "placed",
+        }
+        added += 1
+    cleaned = sorted(by_phrase.values(), key=lambda x: x["phrase"])
+    payload["vendor_map"] = cleaned
+    return payload, {"added": added, "kept": len(existing), "skipped_conflict": skipped_conflict}, None
 
 
 def apply_vendor_map(payload: dict) -> tuple[dict | None, dict | None, str | None]:
