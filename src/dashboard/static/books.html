@@ -65,6 +65,14 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .map-add select{flex:1;min-width:160px}
 .check{width:18px;height:18px;accent-color:var(--accent)}
 .batch{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.add-line{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--border);flex-shrink:0;align-items:center}
+.add-line input[type="date"]{width:150px}
+.add-line input.amt{width:110px}
+.add-line input.payee{flex:1;min-width:140px}
+.line-row.off td{opacity:.45}
+.line-row.off td:last-child{opacity:1}
+.acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+.acts button{padding:4px 8px;font-size:.78rem}
 </style>
 </head>
 <body>
@@ -83,8 +91,16 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <button type="button" id="btnAll">All time</button>
   <button type="button" id="btnTx">Transactions</button>
   <button type="button" id="btnMap">Import map</button>
+  <button type="button" class="primary" id="btnAdd">Add line</button>
 </div>
 <div id="err" class="err hide"></div>
+<div class="add-line" id="addLineBar">
+  <input id="newDate" type="date">
+  <input id="newPayee" class="payee" type="text" placeholder="Payee" autocomplete="off">
+  <input id="newAmt" class="amt" type="text" inputmode="decimal" placeholder="Amount">
+  <select id="newCat"></select>
+  <button type="button" class="primary" id="btnAddLine">Save line</button>
+</div>
 <div id="pnlView">
   <div class="totals">
     <div class="card ok"><div class="k">Income</div><div class="v" id="tInc">—</div></div>
@@ -111,7 +127,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
   <div class="scroll">
     <table>
-      <thead><tr><th></th><th>Date</th><th>Account</th><th>Payee</th><th>Category</th><th class="num">Amount</th></tr></thead>
+      <thead><tr><th></th><th>Date</th><th>Account</th><th>Payee</th><th>Category</th><th class="num">Amount</th><th></th></tr></thead>
       <tbody id="lineBody"></tbody>
     </table>
   </div>
@@ -212,17 +228,25 @@ function hideViews() {
   $('detailView').style.display = 'none';
   $('mapView').style.display = 'none';
 }
+function showAddBar(on) {
+  const bar = $('addLineBar');
+  if (!bar) return;
+  bar.style.display = on ? 'flex' : 'none';
+}
 function showPnl() {
   state.category = null;
   hideViews();
+  showAddBar(true);
   $('pnlView').classList.remove('hide');
 }
 function showDetail() {
   hideViews();
+  showAddBar(true);
   $('detailView').style.display = 'flex';
 }
 function showMap() {
   hideViews();
+  showAddBar(false);
   $('mapView').style.display = 'flex';
   renderMap();
 }
@@ -275,6 +299,8 @@ async function loadSummary() {
   if (!data.seeded) $('status').textContent = '';
   $('batchCat').innerHTML = chartOptions();
   $('mapCat').innerHTML = chartOptions();
+  if ($('newCat')) $('newCat').innerHTML = chartOptions();
+  if ($('newDate') && !$('newDate').value) $('newDate').value = new Date().toISOString().slice(0,10);
 }
 function sectionHead(label) {
   return `<tr class="sec-head"><td colspan="3">${escapeHtml(label)}</td></tr>`;
@@ -301,7 +327,9 @@ async function openCategory(label) {
   state.category = label;
   $('detailTitle').textContent = (label === '*' ? 'Transactions' : label);
   showDetail();
-  $('lineBody').innerHTML = '<tr><td colspan="6" class="muted">Loading…</td></tr>';
+  if ($('newCat')) $('newCat').innerHTML = chartOptions();
+  if ($('newDate') && !$('newDate').value) $('newDate').value = new Date().toISOString().slice(0,10);
+  $('lineBody').innerHTML = '<tr><td colspan="7" class="muted">Loading…</td></tr>';
   const p = new URLSearchParams();
   if (state.path) p.set('path', state.path);
   if (state.year) p.set('year', String(state.year));
@@ -309,23 +337,28 @@ async function openCategory(label) {
   p.set('category', label);
   const r = await fetch('/api/books/lines?' + p.toString());
   const data = await r.json();
-  if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="6">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
+  if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="7">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
   state.chart = data.chart || state.chart;
   $('detailCount').textContent = (data.count || 0) + ' lines';
   $('batchCat').innerHTML = chartOptions();
   const opts = chartOptions();
   const body = (data.lines || []).map(line => {
     const src = escapeHtml(line.source_path || state.path || '');
-    const sel = `<select data-index="${line.index}" data-source="${src}" data-was="${escapeHtml(line.category)}">${opts}</select>`;
-    return `<tr class="line-row">
-      <td><input type="checkbox" class="check line-check" data-index="${line.index}" data-source="${src}"></td>
+    const sel = `<select data-index="${line.index}" data-source="${src}" data-was="${escapeHtml(line.category)}"${line.disabled ? ' disabled' : ''}>${opts}</select>`;
+    const off = line.disabled ? ' off' : '';
+    const pill = line.disabled ? ' <span class="pill">off</span>' : (line.manual ? ' <span class="pill">typed</span>' : '');
+    const toggle = `<button type="button" data-act="toggle" data-index="${line.index}" data-source="${src}" data-off="${line.disabled ? '1' : '0'}">${line.disabled ? 'Restore' : 'Disable'}</button>`;
+    const remove = line.manual ? `<button type="button" data-act="remove" data-index="${line.index}" data-source="${src}">Remove</button>` : '';
+    return `<tr class="line-row${off}">
+      <td><input type="checkbox" class="check line-check" data-index="${line.index}" data-source="${src}" ${line.disabled ? 'disabled' : ''}></td>
       <td class="muted">${escapeHtml(line.date || '')}</td>
-      <td class="muted">${escapeHtml(line.account || '')}</td>
+      <td class="muted">${escapeHtml(line.account || '')}${pill}</td>
       <td>${escapeHtml(line.payee || '')}</td>
       <td>${sel}</td>
       <td class="num ${line.amount < 0 ? 'bad' : 'ok'}">${money(line.amount)}</td>
+      <td class="acts">${toggle}${remove}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="6" class="muted">No lines.</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">No lines.</td></tr>';
   $('lineBody').innerHTML = body;
   $('chkAll').checked = false;
   $('lineBody').querySelectorAll('select').forEach(sel => {
@@ -425,6 +458,11 @@ $('btnBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMapBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMap').onclick = () => { showMap(); };
 $('btnTx').onclick = () => { openCategory('*'); };
+$('btnAdd').onclick = () => {
+  if ($('mapView').style.display === 'flex') showPnl();
+  showAddBar(true);
+  $('newPayee').focus();
+};
 $('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
 $('ledgerSel').onchange = () => {
   state.path = $('ledgerSel').value || 'all';
@@ -464,6 +502,77 @@ $('chkAll').onchange = () => {
   document.querySelectorAll('.line-check').forEach(el => { el.checked = $('chkAll').checked; });
 };
 $('btnApply').onclick = applyChecked;
+async function addTypedLine() {
+  const date = ($('newDate').value || '').trim();
+  const payee = ($('newPayee').value || '').trim();
+  const amount = ($('newAmt').value || '').trim();
+  const category = $('newCat').value || '';
+  if (!date || !payee || !amount) { showErr('Date, payee, and amount are required'); return; }
+  showErr('');
+  $('status').textContent = 'Adding…';
+  const r = await fetch('/api/books/line', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ date, payee, amount, category })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Add failed');
+    return;
+  }
+  $('newPayee').value = '';
+  $('newAmt').value = '';
+  $('status').innerHTML = '<span class="okmsg">Line added</span>';
+  await loadSummary();
+  await openCategory(state.category || '*');
+}
+async function setLineDisabled(btn) {
+  const index = Number(btn.getAttribute('data-index'));
+  const source_path = btn.getAttribute('data-source') || state.path;
+  const disabled = btn.getAttribute('data-off') !== '1';
+  $('status').textContent = disabled ? 'Disabling…' : 'Restoring…';
+  const r = await fetch('/api/books/line/state', {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path: source_path, source_path, index, disabled })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Update failed');
+    return;
+  }
+  $('status').innerHTML = `<span class="okmsg">${disabled ? 'Disabled' : 'Restored'}</span>`;
+  await loadSummary();
+  if (state.category) await openCategory(state.category);
+}
+async function removeTypedLine(btn) {
+  const index = Number(btn.getAttribute('data-index'));
+  const source_path = btn.getAttribute('data-source') || state.path;
+  $('status').textContent = 'Removing…';
+  const r = await fetch('/api/books/line', {
+    method: 'DELETE',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path: source_path, source_path, index })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Remove failed');
+    return;
+  }
+  $('status').innerHTML = '<span class="okmsg">Removed</span>';
+  await loadSummary();
+  if (state.category) await openCategory(state.category);
+}
+$('btnAddLine').onclick = addTypedLine;
+$('lineBody').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  if (btn.getAttribute('data-act') === 'toggle') setLineDisabled(btn);
+  if (btn.getAttribute('data-act') === 'remove') removeTypedLine(btn);
+});
 $('btnAddRule').onclick = () => {
   const phrase = ($('mapPhrase').value || '').trim();
   const label = $('mapCat').value;

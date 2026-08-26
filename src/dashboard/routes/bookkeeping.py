@@ -8,6 +8,9 @@ PATCH /api/books/lines          set many categories at once
 GET   /api/books/map            vendor/phrase rules
 PUT   /api/books/map            replace rules; apply to uncategorized
 POST  /api/books/seed-map       fill map from already-placed payees
+POST  /api/books/line           add a typed line on the Manual book
+PATCH /api/books/line/state     disable or restore a statement or typed line
+DELETE /api/books/line          remove a typed line only
 
 Bytes live in the logged-in Presence's Bookkeeping/Organize/*.mapped.json.
 Do not log amounts, payees, or statement text.
@@ -82,10 +85,14 @@ async def _resolve_ledger_path(request: Request, path: str) -> tuple[str | None,
     names, lerr = await _list_mapped_ledgers(request)
     if lerr:
         return None, names, lerr, 502
+    if bk.is_all_transactions(path):
+        if not names:
+            return None, names, "No mapped ledger in Bookkeeping/Organize", 404
+        return bk.ALL_TRANSACTIONS, names, None, 200
+    if bk.is_manual_ledger(path):
+        return bk.MANUAL_LEDGER_PATH, names, None, 200
     if not names:
         return None, names, "No mapped ledger in Bookkeeping/Organize", 404
-    if bk.is_all_transactions(path):
-        return bk.ALL_TRANSACTIONS, names, None, 200
     if path:
         clean, err = bk.clean_books_path(path)
         if err or not clean:
@@ -126,6 +133,20 @@ def _choice_payloads(loaded: list[tuple[str, dict]]) -> list[dict]:
         labels[path] = bk.account_label(payload, path)
     names = [p.split("/")[-1] for p, _ in loaded]
     return bk.ledger_choices(names, labels)
+
+
+
+async def _ensure_manual_ledger(request: Request, loaded: list[tuple[str, dict]]) -> tuple[str, dict, str | None, int]:
+    wanted = next((item for item in loaded if item[0] == bk.MANUAL_LEDGER_PATH), None)
+    if wanted is not None:
+        return wanted[0], wanted[1], None, 200
+    source = loaded[0][1] if loaded else {}
+    payload = bk.empty_manual_payload(source)
+    payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, bk.MANUAL_LEDGER_PATH, payload)
+    if werr:
+        return bk.MANUAL_LEDGER_PATH, payload, werr, wstatus
+    return bk.MANUAL_LEDGER_PATH, payload, None, 200
 
 
 async def _read_ledger(request: Request, path: str) -> tuple[dict | None, str, str | None, int]:
@@ -323,7 +344,7 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
             lines.extend(bk.collect_lines(
                 rows, clean, year=year, month=month, category=label, account=acct, limit=remain,
             ))
-        lines.sort(key=lambda x: (x.get("date") or "", x.get("source_path") or "", x.get("index") or 0))
+        lines.sort(key=lambda x: (x.get("date") or "", x.get("source_path") or "", x.get("index") or 0), reverse=True)
         return JSONResponse({
             "ok": True,
             "path": bk.ALL_TRANSACTIONS,
@@ -341,6 +362,7 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
     rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
     acct = bk.account_label(payload, clean)
     lines = bk.collect_lines(rows, clean, year=year, month=month, category=label, account=acct)
+    lines.sort(key=lambda x: (x.get("date") or "", x.get("index") or 0), reverse=True)
     return JSONResponse({
         "ok": True,
         "path": clean,
@@ -605,3 +627,119 @@ async def books_seed_map(request: Request):
         "applied": applied_n,
         "needs_review_count": review,
     })
+
+
+@router.post("/api/books/line")
+async def books_create_line(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    names, lerr = await _list_mapped_ledgers(request)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    loaded = await _load_named_ledgers(request, names)
+    clean, payload, err, status = await _ensure_manual_ledger(request, loaded)
+    if err:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    updated, line, uerr = bk.add_manual_row(
+        payload,
+        date=(body.get("date") or "").strip(),
+        payee=body.get("payee") or body.get("name") or "",
+        amount=body.get("amount"),
+        category=(body.get("category") or body.get("category_label") or "").strip(),
+    )
+    if uerr or updated is None:
+        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, clean, updated)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "line": line,
+        "needs_review_count": updated.get("needs_review_count"),
+    })
+
+
+@router.patch("/api/books/line/state")
+async def books_line_state(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    target = (body.get("source_path") or body.get("path") or "").strip()
+    if bk.is_all_transactions(target):
+        return JSONResponse({"ok": False, "error": "Pick the statement that owns this line"}, status_code=400)
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, target)
+    if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
+        return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
+    try:
+        index = int(body.get("index"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "index is required"}, status_code=400)
+    if "disabled" in body:
+        disabled = bool(body.get("disabled"))
+    else:
+        disabled = True
+    payload, clean, err, status = await _read_ledger(request, ledger_path)
+    if err or payload is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    updated, uerr = bk.set_row_disabled(payload, index, disabled)
+    if uerr or updated is None:
+        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, clean, updated)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    row = updated["rows"][index]
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "line": bk.line_preview(row, clean, index),
+        "needs_review_count": updated.get("needs_review_count"),
+    })
+
+
+@router.delete("/api/books/line")
+async def books_delete_line(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    target = (body.get("source_path") or body.get("path") or "").strip()
+    if bk.is_all_transactions(target):
+        return JSONResponse({"ok": False, "error": "Pick the typed line to remove"}, status_code=400)
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, target)
+    if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
+        return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
+    if not bk.is_manual_ledger(ledger_path):
+        return JSONResponse({"ok": False, "error": "Statement lines can be disabled, not removed"}, status_code=400)
+    try:
+        index = int(body.get("index"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "index is required"}, status_code=400)
+    payload, clean, err, status = await _read_ledger(request, ledger_path)
+    if err or payload is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    updated, uerr = bk.remove_manual_row(payload, index)
+    if uerr or updated is None:
+        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, clean, updated)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "removed": True,
+        "needs_review_count": updated.get("needs_review_count"),
+    })
+

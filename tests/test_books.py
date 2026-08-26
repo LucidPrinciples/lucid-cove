@@ -189,3 +189,59 @@ def test_collect_all_lines_and_merge():
     ])
     assert maps[0]["source"] == "operator"
     assert maps[0]["label"] == "Office expense"
+
+
+def test_manual_add_disable_remove():
+    payload = {
+        "account": "Manual",
+        "working_chart": [{"label": "Advertising", "code": None, "layer": "official"}],
+        "rows": [],
+    }
+    updated, line, err = bk.add_manual_row(payload, "2025-03-02", "Studio Rent", "-40.00", "Advertising")
+    assert err is None and updated is not None and line is not None
+    assert line["manual"] is True
+    assert line["disabled"] is False
+    assert updated["rows"][0]["origin"] == "manual"
+    assert bk.row_signed_amount(updated["rows"][0]) == -40.0
+
+    missing, _line, err = bk.add_manual_row(payload, "2025-03-02", "Studio Rent", "-5.00", "Invented")
+    assert missing is None and err
+
+    statement = {
+        "working_chart": [{"label": "Advertising"}],
+        "rows": [_row("2025-01-15", "-10.00", "Advertising", name="Bank Fee")],
+    }
+    disabled, err = bk.set_row_disabled(statement, 0, True)
+    assert err is None and disabled is not None
+    assert bk.row_is_disabled(disabled["rows"][0])
+    pnl = bk.pnl_from_rows(disabled["rows"])
+    assert pnl["row_count"] == 0
+    all_lines = bk.collect_lines(disabled["rows"], "Bookkeeping/Organize/a.mapped.json", category="*")
+    assert len(all_lines) == 1 and all_lines[0]["disabled"] is True
+    cat_lines = bk.collect_lines(disabled["rows"], "Bookkeeping/Organize/a.mapped.json", category="Advertising")
+    assert cat_lines == []
+
+    restored, err = bk.set_row_disabled(disabled, 0, False)
+    assert err is None
+    assert not bk.row_is_disabled(restored["rows"][0])
+
+    blocked, err = bk.remove_manual_row(statement, 0)
+    assert blocked is None and err
+
+    gone, err = bk.remove_manual_row(updated, 0)
+    assert err is None and gone is not None
+    assert gone["rows"] == []
+
+
+def test_manual_ledger_choice_order():
+    names = ["b.mapped.json", "manual.mapped.json", "a.mapped.json"]
+    choices = bk.ledger_choices(names)
+    assert [c["path"] for c in choices] == [
+        "all",
+        "Bookkeeping/Organize/manual.mapped.json",
+        "Bookkeeping/Organize/a.mapped.json",
+        "Bookkeeping/Organize/b.mapped.json",
+    ]
+    assert bk.is_manual_ledger("manual")
+    assert bk.is_manual_ledger("Bookkeeping/Organize/manual.mapped.json")
+    assert not bk.is_manual_ledger("Bookkeeping/Organize/a.mapped.json")
