@@ -91,8 +91,16 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <button type="button" id="btnAll">All time</button>
   <button type="button" id="btnTx">Transactions</button>
   <button type="button" id="btnMap">Import map</button>
+  <button type="button" class="primary" id="btnAdd">Add line</button>
 </div>
 <div id="err" class="err hide"></div>
+<div class="add-line" id="addLineBar">
+  <input id="newDate" type="date">
+  <input id="newPayee" class="payee" type="text" placeholder="Payee" autocomplete="off">
+  <input id="newAmt" class="amt" type="text" inputmode="decimal" placeholder="Amount">
+  <select id="newCat"></select>
+  <button type="button" class="primary" id="btnAddLine">Save line</button>
+</div>
 <div id="pnlView">
   <div class="totals">
     <div class="card ok"><div class="k">Income</div><div class="v" id="tInc">—</div></div>
@@ -116,13 +124,6 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
     <label class="faint"><input type="checkbox" class="check" id="chkAll"> All</label>
     <select id="batchCat"></select>
     <button type="button" class="primary" id="btnApply">Apply to checked</button>
-  </div>
-  <div class="add-line" id="addLineBar">
-    <input id="newDate" type="date">
-    <input id="newPayee" class="payee" type="text" placeholder="Payee" autocomplete="off">
-    <input id="newAmt" class="amt" type="text" inputmode="decimal" placeholder="Amount">
-    <select id="newCat"></select>
-    <button type="button" class="primary" id="btnAddLine">Add line</button>
   </div>
   <div class="scroll">
     <table>
@@ -227,17 +228,25 @@ function hideViews() {
   $('detailView').style.display = 'none';
   $('mapView').style.display = 'none';
 }
+function showAddBar(on) {
+  const bar = $('addLineBar');
+  if (!bar) return;
+  bar.style.display = on ? 'flex' : 'none';
+}
 function showPnl() {
   state.category = null;
   hideViews();
+  showAddBar(true);
   $('pnlView').classList.remove('hide');
 }
 function showDetail() {
   hideViews();
+  showAddBar(true);
   $('detailView').style.display = 'flex';
 }
 function showMap() {
   hideViews();
+  showAddBar(false);
   $('mapView').style.display = 'flex';
   renderMap();
 }
@@ -291,6 +300,7 @@ async function loadSummary() {
   $('batchCat').innerHTML = chartOptions();
   $('mapCat').innerHTML = chartOptions();
   if ($('newCat')) $('newCat').innerHTML = chartOptions();
+  if ($('newDate') && !$('newDate').value) $('newDate').value = new Date().toISOString().slice(0,10);
 }
 function sectionHead(label) {
   return `<tr class="sec-head"><td colspan="3">${escapeHtml(label)}</td></tr>`;
@@ -448,6 +458,11 @@ $('btnBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMapBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMap').onclick = () => { showMap(); };
 $('btnTx').onclick = () => { openCategory('*'); };
+$('btnAdd').onclick = () => {
+  if ($('mapView').style.display === 'flex') showPnl();
+  showAddBar(true);
+  $('newPayee').focus();
+};
 $('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
 $('ledgerSel').onchange = () => {
   state.path = $('ledgerSel').value || 'all';
