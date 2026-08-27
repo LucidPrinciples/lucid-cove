@@ -706,7 +706,14 @@ def collect_lines(
     return out
 
 
-def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None = None, filing_book: str = ALL_BOOKS, payload: dict | None = None) -> dict:
+def pnl_from_rows(
+    rows: list[dict],
+    year: int | None = None,
+    month: int | None = None,
+    filing_book: str = ALL_BOOKS,
+    payload: dict | None = None,
+    chart: list[dict] | None = None,
+) -> dict:
     """Category rollup. Totals are floats for the UI; callers must not log them."""
     income: dict[str, dict] = defaultdict(lambda: {"total": 0.0, "count": 0})
     expense: dict[str, dict] = defaultdict(lambda: {"total": 0.0, "count": 0})
@@ -714,6 +721,7 @@ def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None =
     skipped = 0
     used = 0
     book = normalize_filing_book(filing_book, default=ALL_BOOKS)
+    chart_items = chart if isinstance(chart, list) else working_chart_from_payload(payload or {})
     for row in rows:
         if not isinstance(row, dict):
             skipped += 1
@@ -736,7 +744,9 @@ def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None =
             uncat["total"] += amt
             uncat["count"] += 1
             continue
-        bucket = income if amt >= 0 else expense
+        hit = chart_lookup(chart_items, label)
+        kind = chart_kind(label, hit)
+        bucket = income if kind == INCOME_KIND else expense
         bucket[label]["total"] += amt
         bucket[label]["count"] += 1
 
@@ -747,7 +757,7 @@ def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None =
             items.append({
                 "label": label,
                 "count": rec["count"],
-                "total": -total if expenses else total,
+                "total": abs(total) if expenses else total,
             })
         items.sort(key=lambda x: (-abs(x["total"]), x["label"].lower()))
         return items
@@ -1033,6 +1043,17 @@ def build_manual_row(date: str, payee: str, amount: Any, category: str = "", cha
     bid = normalize_filing_book(filing_book, default="chords")
     if bid not in _FILING_IDS:
         bid = "chords"
+    label = str(category or "").strip()
+    hit = None
+    if label and label != UNCATEGORIZED:
+        hit = chart_lookup(chart or [], label)
+        if hit is None:
+            return None, "Category is not on the working chart"
+        kind = chart_kind(hit["label"], hit)
+        if kind == EXPENSE_KIND and amt > 0:
+            amt = -amt
+        elif kind == INCOME_KIND and amt < 0:
+            amt = abs(amt)
     row = {
         "origin": "manual",
         "disabled": False,
@@ -1045,11 +1066,7 @@ def build_manual_row(date: str, payee: str, amount: Any, category: str = "", cha
             "Debit/Credit": amt,
         },
     }
-    label = str(category or "").strip()
-    if label and label != UNCATEGORIZED:
-        hit = chart_lookup(chart or [], label)
-        if hit is None:
-            return None, "Category is not on the working chart"
+    if hit is not None:
         row["category_label"] = hit["label"]
         row["category_code"] = hit.get("code")
         row["category_layer"] = hit.get("layer")
