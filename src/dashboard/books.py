@@ -31,11 +31,19 @@ GROSS_RECEIPTS_LABELS = (
 )
 INCOME_KIND = "income"
 EXPENSE_KIND = "expense"
+TRANSFER_KIND = "transfer"
+OWNER_LOAN_LABEL = "Owner Loan"
 INCOME_LABEL_NEEDLES = (
     "gross receipts",
     "gross sales",
     "other income",
     "returns and allowance",
+)
+TRANSFER_LABEL_NEEDLES = (
+    "owner loan",
+    "shareholder loan",
+    "due to owner",
+    "due from owner",
 )
 
 FILING_BOOKS = (
@@ -523,19 +531,40 @@ def category_label(row: dict) -> str:
 
 
 def chart_kind(label: str, item: dict | None = None) -> str:
-    """Income vs expense for dropdown grouping. Explicit kind wins."""
+    """Income, expense, or transfer (balance-sheet) for grouping. Explicit kind wins."""
     if isinstance(item, dict):
         raw = str(item.get("kind") or item.get("side") or "").strip().lower()
-        if raw in (INCOME_KIND, EXPENSE_KIND):
+        if raw in ("balance", "liability", "asset", "equity"):
+            return TRANSFER_KIND
+        if raw in (INCOME_KIND, EXPENSE_KIND, TRANSFER_KIND):
             return raw
     lab = (label or "").strip().lower()
     if not lab:
         return EXPENSE_KIND
+    if any(needle in lab for needle in TRANSFER_LABEL_NEEDLES):
+        return TRANSFER_KIND
     if any(needle in lab for needle in INCOME_LABEL_NEEDLES):
         return INCOME_KIND
     if "income" in lab:
         return INCOME_KIND
     return EXPENSE_KIND
+
+
+def owner_loan_chart_item() -> dict:
+    return {
+        "label": OWNER_LOAN_LABEL,
+        "code": None,
+        "layer": "builtin",
+        "kind": TRANSFER_KIND,
+    }
+
+
+def ensure_builtin_chart(items: list[dict]) -> list[dict]:
+    out = list(items or [])
+    seen = {str(c.get("label") or "").strip().lower() for c in out}
+    if OWNER_LOAN_LABEL.lower() not in seen:
+        out.append(owner_loan_chart_item())
+    return out
 
 
 def working_chart_from_payload(payload: dict) -> list[dict]:
@@ -561,7 +590,7 @@ def working_chart_from_payload(payload: dict) -> list[dict]:
             seen.add(label.lower())
             rec["kind"] = chart_kind(label, item if isinstance(item, dict) else rec)
             out.append(rec)
-    return out
+    return ensure_builtin_chart(out)
 
 
 def chart_lookup(chart: list[dict], label: str) -> dict | None:
@@ -652,12 +681,14 @@ def merge_working_charts(payloads: list[dict]) -> list[dict]:
     seen: set[str] = set()
     for payload in payloads:
         for item in working_chart_from_payload(payload):
+            if str(item.get("layer") or "") == "builtin":
+                continue
             key = str(item.get("label") or "").strip().lower()
             if not key or key in seen:
                 continue
             seen.add(key)
             merged.append(item)
-    return merged
+    return ensure_builtin_chart(merged)
 
 
 def merge_vendor_maps(payloads: list[dict]) -> list[dict]:
@@ -717,6 +748,7 @@ def pnl_from_rows(
     """Category rollup. Totals are floats for the UI; callers must not log them."""
     income: dict[str, dict] = defaultdict(lambda: {"total": 0.0, "count": 0})
     expense: dict[str, dict] = defaultdict(lambda: {"total": 0.0, "count": 0})
+    transfer: dict[str, dict] = defaultdict(lambda: {"total": 0.0, "count": 0})
     uncat = {"total": 0.0, "count": 0}
     skipped = 0
     used = 0
@@ -746,7 +778,12 @@ def pnl_from_rows(
             continue
         hit = chart_lookup(chart_items, label)
         kind = chart_kind(label, hit)
-        bucket = income if kind == INCOME_KIND else expense
+        if kind == INCOME_KIND:
+            bucket = income
+        elif kind == TRANSFER_KIND:
+            bucket = transfer
+        else:
+            bucket = expense
         bucket[label]["total"] += amt
         bucket[label]["count"] += 1
 
@@ -764,11 +801,14 @@ def pnl_from_rows(
 
     income_lines = _lines(income, expenses=False)
     expense_lines = _lines(expense, expenses=True)
+    transfer_lines = _lines(transfer, expenses=False)
     income_total = sum(x["total"] for x in income_lines)
     expense_total = sum(x["total"] for x in expense_lines)
+    transfer_total = sum(x["total"] for x in transfer_lines)
     return {
         "income": income_lines,
         "expenses": expense_lines,
+        "transfers": transfer_lines,
         "uncategorized": {
             "label": UNCATEGORIZED,
             "count": uncat["count"],
@@ -776,6 +816,7 @@ def pnl_from_rows(
         },
         "income_total": income_total,
         "expense_total": expense_total,
+        "transfer_total": transfer_total,
         "net": income_total - expense_total + uncat["total"],
         "row_count": used,
         "skipped": skipped,

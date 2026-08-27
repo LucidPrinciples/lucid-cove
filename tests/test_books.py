@@ -182,7 +182,7 @@ def test_collect_all_lines_and_merge():
         {"working_chart": [{"label": "Advertising"}]},
         {"working_chart": [{"label": "Advertising"}, {"label": "Other income"}]},
     ])
-    assert [c["label"] for c in charts] == ["Advertising", "Other income"]
+    assert [c["label"] for c in charts] == ["Advertising", "Other income", "Owner Loan"]
     maps = bk.merge_vendor_maps([
         {"vendor_map": [{"phrase": "acme", "label": "Advertising", "source": "placed"}]},
         {"vendor_map": [{"phrase": "acme", "label": "Office expense", "source": "operator"}]},
@@ -351,3 +351,23 @@ def test_manual_expense_amount_is_stored_negative():
     income, line, err = bk.add_manual_row(updated, "2025-03-02", "Payer", "-50.00", "Gross receipts or sales")
     assert err is None
     assert bk.row_signed_amount(income["rows"][-1]) == 50.0
+
+
+def test_owner_loan_is_transfer_not_income():
+    payload = {"working_chart": [{"label": "Advertising"}], "rows": []}
+    chart = bk.working_chart_from_payload(payload)
+    labels = [c["label"] for c in chart]
+    assert bk.OWNER_LOAN_LABEL in labels
+    kinds = {c["label"]: c["kind"] for c in chart}
+    assert kinds[bk.OWNER_LOAN_LABEL] == bk.TRANSFER_KIND
+    assert kinds["Advertising"] == bk.EXPENSE_KIND
+
+    updated, _line, err = bk.add_manual_row(payload, "2025-04-01", "Owner", "250.00", "Owner Loan")
+    assert err is None
+    assert bk.row_signed_amount(updated["rows"][0]) == 250.0
+    pnl = bk.pnl_from_rows(updated["rows"], payload=updated)
+    assert pnl["income_total"] == 0.0
+    assert pnl["expense_total"] == 0.0
+    assert pnl["net"] == 0.0
+    assert pnl["transfer_total"] == 250.0
+    assert pnl["transfers"][0]["label"] == "Owner Loan"
