@@ -316,3 +316,38 @@ def test_chart_kind_splits_income_and_expense():
     assert kinds["Office expense"] == "expense"
     assert kinds["Cost of goods sold"] == "expense"
     assert bk.gross_receipts_label(chart) == "Gross receipts or sales"
+
+
+def test_pnl_places_expense_labels_even_when_amount_is_positive():
+    rows = [
+        _row("2025-03-01", "40.00", "Supplies"),
+        _row("2025-03-02", "200.00", "Computer hardware"),
+        _row("2025-03-03", "100.00", "Gross receipts or sales"),
+    ]
+    chart = [
+        {"label": "Supplies"},
+        {"label": "Computer hardware"},
+        {"label": "Gross receipts or sales"},
+    ]
+    pnl = bk.pnl_from_rows(rows, chart=chart)
+    expense_labels = [x["label"] for x in pnl["expenses"]]
+    income_labels = [x["label"] for x in pnl["income"]]
+    assert "Supplies" in expense_labels
+    assert "Computer hardware" in expense_labels
+    assert "Gross receipts or sales" in income_labels
+    assert "Supplies" not in income_labels
+    assert pnl["expense_total"] == 240.0
+    assert pnl["income_total"] == 100.0
+
+
+def test_manual_expense_amount_is_stored_negative():
+    payload = {
+        "working_chart": [{"label": "Supplies"}, {"label": "Gross receipts or sales"}],
+        "rows": [],
+    }
+    updated, line, err = bk.add_manual_row(payload, "2025-03-02", "Store", "40.00", "Supplies")
+    assert err is None and line is not None
+    assert bk.row_signed_amount(updated["rows"][0]) == -40.0
+    income, line, err = bk.add_manual_row(updated, "2025-03-02", "Payer", "-50.00", "Gross receipts or sales")
+    assert err is None
+    assert bk.row_signed_amount(income["rows"][-1]) == 50.0

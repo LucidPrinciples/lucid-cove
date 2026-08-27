@@ -312,7 +312,13 @@ async def books_summary(request: Request, path: str = ""):
             "chart": bk.merge_working_charts(payloads),
             "vendor_map": bk.merge_vendor_maps(payloads),
             "seeded": seeded,
-            "pnl": bk.pnl_from_rows(all_rows, year=year, month=month, filing_book=book),
+            "pnl": bk.pnl_from_rows(
+                all_rows,
+                year=year,
+                month=month,
+                filing_book=book,
+                chart=bk.merge_working_charts(payloads),
+            ),
         })
     wanted = next((item for item in loaded if item[0] == ledger_path), None)
     if wanted is None:
@@ -336,7 +342,14 @@ async def books_summary(request: Request, path: str = ""):
         "chart": bk.working_chart_from_payload(payload),
         "vendor_map": bk.vendor_map_from_payload(payload),
         "seeded": seeded,
-        "pnl": bk.pnl_from_rows(rows, year=year, month=month, filing_book=book, payload=payload),
+        "pnl": bk.pnl_from_rows(
+            rows,
+            year=year,
+            month=month,
+            filing_book=book,
+            payload=payload,
+            chart=bk.working_chart_from_payload(payload),
+        ),
     })
 
 
