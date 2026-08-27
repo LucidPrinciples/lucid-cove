@@ -253,7 +253,7 @@ function chartKind(item) {
   if (item && (item.kind === 'income' || item.kind === 'expense' || item.kind === 'transfer')) return item.kind;
   const lab = String((item && item.label) || '').toLowerCase();
   if (!lab) return 'expense';
-  if (lab.includes('owner loan') || lab.includes('shareholder loan') || lab.includes('due to owner') || lab.includes('due from owner')) return 'transfer';
+  if (lab.includes('owner loan') || lab.includes('shareholder loan') || lab.includes('due to owner') || lab.includes('due from owner') || lab === 'merrick' || lab.includes('merrick')) return 'transfer';
   if (lab.includes('gross receipts') || lab.includes('gross sales') || lab.includes('other income') || lab.includes('returns and allowance') || lab.includes('income')) return 'income';
   return 'expense';
 }
@@ -360,7 +360,7 @@ async function loadSummary() {
   if ((pnl.transfers || []).length) {
     rows.push(sectionHead('Transfers'));
     pnl.transfers.forEach(line => rows.push(pnlRow(line, 'transfer')));
-    rows.push(sectionTotal('Owner Loan', pnl.transfer_total, ''));
+    rows.push(sectionTotal('Transfers', pnl.transfer_total, ''));
   }
   if (pnl.uncategorized && pnl.uncategorized.count) {
     rows.push(sectionHead('Uncategorized'));
