@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 ORGANIZE_PREFIX = "Bookkeeping/Organize"
+DROP_PREFIX = "Bookkeeping/Drop"
 MANUAL_LEDGER_NAME = "manual.mapped.json"
 MANUAL_LEDGER_PATH = f"{ORGANIZE_PREFIX}/{MANUAL_LEDGER_NAME}"
 RETURNS_PREFIX = "Bookkeeping/Returns"
@@ -24,6 +25,20 @@ MIN_MAP_PHRASE = 4
 MAX_LEDGER_LIST = 40
 MAX_COMBINED_LINES = 4000
 MAX_PASTE_LINES = 200
+MAX_ACCOUNT_LABEL = 40
+MAX_DROP_FILES = 40
+MAX_DROP_FILE_BYTES = 200_000
+TEXT_DROP_EXTS = (".csv", ".txt", ".tsv")
+PENDING_DROP_EXTS = (".pdf", ".png", ".jpg", ".jpeg", ".heic", ".webp")
+_RESERVED_STEMS = frozenset({
+    "manual",
+    "all",
+    "all-transactions",
+    "all-books",
+    "organize",
+    "drop",
+    "returns",
+})
 GROSS_RECEIPTS_LABELS = (
     "gross receipts or sales",
     "gross receipts",
@@ -103,6 +118,168 @@ def clean_books_path(path: str) -> tuple[str | None, str | None]:
 
 def organize_dir() -> str:
     return ORGANIZE_PREFIX
+
+
+def drop_dir() -> str:
+    return DROP_PREFIX
+
+
+def drop_folder_for_stem(stem: str) -> str | None:
+    s = account_stem(stem)
+    if not s:
+        return None
+    return f"{DROP_PREFIX}/{s}"
+
+
+def account_stem(label: str) -> str:
+    raw = (label or "").strip()
+    raw = raw.replace("\\", "/").split("/")[-1]
+    if raw.lower().endswith(LEDGER_SUFFIX):
+        raw = raw[: -len(LEDGER_SUFFIX)]
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", raw).strip("-._")
+    cleaned = re.sub(r"-{2,}", "-", cleaned)
+    if len(cleaned) > MAX_ACCOUNT_LABEL:
+        cleaned = cleaned[:MAX_ACCOUNT_LABEL].rstrip("-._")
+    return cleaned
+
+
+def ledger_filename_for_stem(stem: str) -> str | None:
+    s = account_stem(stem)
+    if not s:
+        return None
+    return f"{s}{LEDGER_SUFFIX}"
+
+
+def is_reserved_account_stem(stem: str) -> bool:
+    s = account_stem(stem).lower()
+    return not s or s in _RESERVED_STEMS
+
+
+def new_account_spec(label: str) -> tuple[dict | None, str | None]:
+    """Name a blank ledger + Drop folder. Does not write."""
+    wanted = (label or "").strip()
+    if not wanted:
+        return None, "Account name is required"
+    if len(wanted) > MAX_ACCOUNT_LABEL:
+        return None, f"Account name is over {MAX_ACCOUNT_LABEL} characters"
+    stem = account_stem(wanted)
+    if not stem:
+        return None, "Account name needs a letter or number"
+    if is_reserved_account_stem(stem):
+        return None, "That name is reserved"
+    filename = ledger_filename_for_stem(stem)
+    folder = drop_folder_for_stem(stem)
+    if not filename or not folder:
+        return None, "Account name is not valid"
+    return {
+        "label": stem,
+        "stem": stem,
+        "filename": filename,
+        "path": f"{ORGANIZE_PREFIX}/{filename}",
+        "drop_folder": folder,
+    }, None
+
+
+def empty_account_payload(label: str, source: dict | None = None) -> dict:
+    src = source if isinstance(source, dict) else {}
+    stem = account_stem(label) or "Account"
+    return {
+        "entity": src.get("entity") or "",
+        "account": stem,
+        "origin": "account",
+        "filing_book": infer_filing_book(src),
+        "working_chart": working_chart_from_payload(src),
+        "vendor_map": vendor_map_from_payload(src) if src else [],
+        "rows": [],
+        "needs_review_count": 0,
+    }
+
+
+def drop_file_kind(name: str) -> str:
+    n = (name or "").replace("\\", "/").split("/")[-1].strip().lower()
+    if not n or n.startswith("."):
+        return ""
+    for ext in TEXT_DROP_EXTS:
+        if n.endswith(ext):
+            return "text"
+    for ext in PENDING_DROP_EXTS:
+        if n.endswith(ext):
+            return "pending"
+    return ""
+
+
+def statement_fingerprint(date: str, payee: str, amount: Any) -> str:
+    dt = str(date or "").strip()
+    who = re.sub(r"\s+", " ", str(payee or "").strip().lower())
+    amt = parse_money(amount)
+    cents = "" if amt is None else f"{amt:.2f}"
+    return f"{dt}|{who}|{cents}"
+
+
+def row_fingerprint(row: dict) -> str:
+    flat = flatten_row(row) if isinstance(row, dict) else {}
+    date = flat.get("Date") or flat.get("date") or ""
+    payee = flat.get("Name") or flat.get("payee") or ""
+    amt = row_signed_amount(row) if isinstance(row, dict) else None
+    return statement_fingerprint(str(date), str(payee), amt)
+
+
+def append_imported_rows(
+    payload: dict,
+    items: list[dict],
+    source_file: str = "",
+) -> tuple[dict | None, int, int, str | None]:
+    """Append parsed statement rows; skip exact date/payee/amount dupes."""
+    if not isinstance(payload, dict):
+        return None, 0, 0, "Ledger JSON must be an object"
+    if not isinstance(items, list):
+        return None, 0, 0, "No rows to add"
+    rows = payload.get("rows")
+    if rows is None:
+        rows = []
+        payload["rows"] = rows
+    if not isinstance(rows, list):
+        return None, 0, 0, "Ledger has no rows"
+    seen = {row_fingerprint(r) for r in rows if isinstance(r, dict)}
+    added = 0
+    skipped = 0
+    src = (source_file or "").replace("\\", "/").split("/")[-1].strip()
+    for item in items:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+        date = str(item.get("date") or "").strip()
+        payee = str(item.get("payee") or item.get("name") or "").strip()
+        amt = parse_money(item.get("amount"))
+        if not date or not payee or amt is None:
+            skipped += 1
+            continue
+        key = statement_fingerprint(date, payee, amt)
+        if key in seen:
+            skipped += 1
+            continue
+        if len(rows) >= MAX_COMBINED_LINES:
+            return None, added, skipped, "Ledger is full"
+        row = {
+            "origin": "statement",
+            "disabled": False,
+            "needs_review": True,
+            "match_rule": "import",
+            "source_file": src,
+            "fields": {
+                "Date": date,
+                "Name": payee[:200],
+                "Debit/Credit": amt,
+            },
+        }
+        rows.append(row)
+        seen.add(key)
+        added += 1
+    payload["rows"] = rows
+    payload["needs_review_count"] = sum(
+        1 for r in rows if isinstance(r, dict) and r.get("needs_review") and not row_is_disabled(r)
+    )
+    return payload, added, skipped, None
 
 
 def is_mapped_name(name: str) -> bool:
