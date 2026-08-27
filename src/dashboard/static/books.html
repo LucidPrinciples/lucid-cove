@@ -245,12 +245,29 @@ function fillPeriod() {
   sel.innerHTML = opts.join('');
   sel.value = cur;
 }
+function chartKind(item) {
+  if (item && (item.kind === 'income' || item.kind === 'expense')) return item.kind;
+  const lab = String((item && item.label) || '').toLowerCase();
+  if (!lab) return 'expense';
+  if (lab.includes('gross receipts') || lab.includes('gross sales') || lab.includes('other income') || lab.includes('returns and allowance') || lab.includes('income')) return 'income';
+  return 'expense';
+}
 function chartOptions(selected) {
-  return (state.chart || []).map(c => {
+  const items = state.chart || [];
+  const income = [];
+  const expense = [];
+  items.forEach(c => {
+    (chartKind(c) === 'income' ? income : expense).push(c);
+  });
+  const opt = (c) => {
     const lab = escapeHtml(c.label);
     const sel = (selected && selected === c.label) ? ' selected' : '';
     return `<option value="${lab}"${sel}>${lab}</option>`;
-  }).join('');
+  };
+  const parts = [];
+  if (income.length) parts.push('<optgroup label="Income">' + income.map(opt).join('') + '</optgroup>');
+  if (expense.length) parts.push('<optgroup label="Expenses">' + expense.map(opt).join('') + '</optgroup>');
+  return parts.join('') || items.map(opt).join('');
 }
 function hideViews() {
   $('pnlView').classList.add('hide');

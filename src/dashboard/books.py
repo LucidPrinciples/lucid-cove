@@ -29,6 +29,14 @@ GROSS_RECEIPTS_LABELS = (
     "gross receipts",
     "gross sales",
 )
+INCOME_KIND = "income"
+EXPENSE_KIND = "expense"
+INCOME_LABEL_NEEDLES = (
+    "gross receipts",
+    "gross sales",
+    "other income",
+    "returns and allowance",
+)
 
 FILING_BOOKS = (
     {"id": "chords", "label": "Chords of Truth, LLC", "form": "Schedule C"},
@@ -514,6 +522,22 @@ def category_label(row: dict) -> str:
     return UNCATEGORIZED
 
 
+def chart_kind(label: str, item: dict | None = None) -> str:
+    """Income vs expense for dropdown grouping. Explicit kind wins."""
+    if isinstance(item, dict):
+        raw = str(item.get("kind") or item.get("side") or "").strip().lower()
+        if raw in (INCOME_KIND, EXPENSE_KIND):
+            return raw
+    lab = (label or "").strip().lower()
+    if not lab:
+        return EXPENSE_KIND
+    if any(needle in lab for needle in INCOME_LABEL_NEEDLES):
+        return INCOME_KIND
+    if "income" in lab:
+        return INCOME_KIND
+    return EXPENSE_KIND
+
+
 def working_chart_from_payload(payload: dict) -> list[dict]:
     chart = payload.get("working_chart") if isinstance(payload, dict) else None
     out: list[dict] = []
@@ -535,6 +559,7 @@ def working_chart_from_payload(payload: dict) -> list[dict]:
             if not label or label.lower() in seen:
                 continue
             seen.add(label.lower())
+            rec["kind"] = chart_kind(label, item if isinstance(item, dict) else rec)
             out.append(rec)
     return out
 
