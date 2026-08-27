@@ -33,6 +33,7 @@ INCOME_KIND = "income"
 EXPENSE_KIND = "expense"
 TRANSFER_KIND = "transfer"
 OWNER_LOAN_LABEL = "Owner Loan"
+MERRICK_LABEL = "MERRICK"
 INCOME_LABEL_NEEDLES = (
     "gross receipts",
     "gross sales",
@@ -44,6 +45,11 @@ TRANSFER_LABEL_NEEDLES = (
     "shareholder loan",
     "due to owner",
     "due from owner",
+    "merrick",
+)
+BUILTIN_TRANSFER_LABELS = (
+    OWNER_LOAN_LABEL,
+    MERRICK_LABEL,
 )
 
 FILING_BOOKS = (
@@ -575,19 +581,31 @@ def chart_kind(label: str, item: dict | None = None) -> str:
 
 
 def owner_loan_chart_item() -> dict:
+    return builtin_transfer_item(OWNER_LOAN_LABEL)
+
+
+def builtin_transfer_item(label: str) -> dict:
     return {
-        "label": OWNER_LOAN_LABEL,
+        "label": str(label or "").strip(),
         "code": None,
         "layer": "builtin",
         "kind": TRANSFER_KIND,
     }
 
 
-def ensure_builtin_chart(items: list[dict]) -> list[dict]:
+def ensure_builtin_chart(
+    items: list[dict],
+    exclude_labels: list[str] | None = None,
+) -> list[dict]:
     out = list(items or [])
     seen = {str(c.get("label") or "").strip().lower() for c in out}
-    if OWNER_LOAN_LABEL.lower() not in seen:
-        out.append(owner_loan_chart_item())
+    skip = {str(s or "").strip().lower() for s in (exclude_labels or []) if str(s or "").strip()}
+    for label in BUILTIN_TRANSFER_LABELS:
+        key = label.lower()
+        if key in seen or key in skip:
+            continue
+        out.append(builtin_transfer_item(label))
+        seen.add(key)
     return out
 
 
@@ -627,7 +645,7 @@ def merge_chart_with_accounts(
         rec = transfer_account_item(label)
         out.append(rec)
         by_key[key] = rec
-    return ensure_builtin_chart(out)
+    return ensure_builtin_chart(out, exclude_labels=list(skip))
 
 
 def working_chart_from_payload(payload: dict) -> list[dict]:
@@ -918,7 +936,7 @@ def apply_categories(
             "layer": hit.get("layer") or "account",
             "kind": chart_kind(hit["label"], hit),
         })
-        payload["working_chart"] = stored
+    payload["working_chart"] = stored
     seen: set[int] = set()
     for index in indexes:
         if not isinstance(index, int) or index < 0 or index >= len(rows):

@@ -182,7 +182,7 @@ def test_collect_all_lines_and_merge():
         {"working_chart": [{"label": "Advertising"}]},
         {"working_chart": [{"label": "Advertising"}, {"label": "Other income"}]},
     ])
-    assert [c["label"] for c in charts] == ["Advertising", "Other income", "Owner Loan"]
+    assert [c["label"] for c in charts] == ["Advertising", "Other income", "Owner Loan", "MERRICK"]
     maps = bk.merge_vendor_maps([
         {"vendor_map": [{"phrase": "acme", "label": "Advertising", "source": "placed"}]},
         {"vendor_map": [{"phrase": "acme", "label": "Office expense", "source": "operator"}]},
@@ -358,8 +358,10 @@ def test_owner_loan_is_transfer_not_income():
     chart = bk.working_chart_from_payload(payload)
     labels = [c["label"] for c in chart]
     assert bk.OWNER_LOAN_LABEL in labels
+    assert bk.MERRICK_LABEL in labels
     kinds = {c["label"]: c["kind"] for c in chart}
     assert kinds[bk.OWNER_LOAN_LABEL] == bk.TRANSFER_KIND
+    assert kinds[bk.MERRICK_LABEL] == bk.TRANSFER_KIND
     assert kinds["Advertising"] == bk.EXPENSE_KIND
 
     updated, _line, err = bk.add_manual_row(payload, "2025-04-01", "Owner", "250.00", "Owner Loan")
@@ -371,6 +373,25 @@ def test_owner_loan_is_transfer_not_income():
     assert pnl["net"] == 0.0
     assert pnl["transfer_total"] == 250.0
     assert pnl["transfers"][0]["label"] == "Owner Loan"
+
+
+def test_merrick_is_builtin_transfer_without_mapped_file():
+    payload = {
+        "account": "Bluevine",
+        "working_chart": [{"label": "Advertising"}],
+        "rows": [
+            {"fields": {"Date": "2025-04-01", "Debit/Credit": "-80.00", "Name": "Card payoff"}},
+        ],
+    }
+    chart = bk.working_chart_from_payload(payload)
+    assert bk.MERRICK_LABEL in [c["label"] for c in chart]
+    updated, err = bk.apply_category(payload, 0, bk.MERRICK_LABEL, chart=chart)
+    assert err is None
+    assert updated["rows"][0]["category_label"] == bk.MERRICK_LABEL
+    pnl = bk.pnl_from_rows(updated["rows"], payload=updated)
+    assert pnl["expense_total"] == 0.0
+    assert pnl["income_total"] == 0.0
+    assert any(x["label"] == bk.MERRICK_LABEL for x in pnl["transfers"])
 
 
 def test_other_statement_accounts_are_transfer_targets():
