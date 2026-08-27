@@ -20,6 +20,7 @@ Do not log amounts, payees, or statement text.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -39,6 +40,8 @@ router = APIRouter()
 
 STATIC_PAGE = Path(__file__).resolve().parents[1] / "static" / "books.html"
 MAX_LEDGER_BYTES = 2_000_000
+_TRANSIENT_DAV = {423, 429, 500, 502, 503, 504}
+_RETRY_DELAYS = (0.4, 0.8, 1.6, 3.2)
 
 
 async def _webdav(request: Request, path: str):
@@ -199,17 +202,28 @@ async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str
     body = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
     if len(body) > MAX_LEDGER_BYTES:
         return "Ledger file is too large", 413
+    last = "no response"
     try:
         async with httpx.AsyncClient(auth=auth, timeout=60.0) as client:
-            resp = await client.put(
-                url, content=body, headers={"Content-Type": "application/json"}
-            )
+            for delay in (0.0, *_RETRY_DELAYS):
+                if delay:
+                    await asyncio.sleep(delay)
+                try:
+                    resp = await client.put(
+                        url, content=body, headers={"Content-Type": "application/json"}
+                    )
+                except httpx.TimeoutException as e:
+                    last = f"timeout: {e}"
+                    continue
+                if resp.status_code in (200, 201, 204):
+                    return None, 200
+                last = f"HTTP {resp.status_code}"
+                if resp.status_code not in _TRANSIENT_DAV:
+                    break
     except Exception as e:
         logger.warning("books write failed")
         return f"Write failed: {e}", 502
-    if resp.status_code not in (200, 201, 204):
-        return f"Write failed: HTTP {resp.status_code}", 502
-    return None, 200
+    return f"Write failed: {last}", 502
 
 
 def _parse_book(request: Request, body: dict | None = None) -> str:
@@ -474,6 +488,8 @@ async def books_patch_lines(request: Request):
             src = (item.get("source_path") or item.get("path") or "").strip()
             if bk.is_all_transactions(src):
                 return JSONResponse({"ok": False, "error": "Pick the statement that owns this line"}, status_code=400)
+            clean_src, _cerr = bk.clean_books_path(src)
+            src = clean_src or src
             try:
                 idx = int(item.get("index"))
             except (TypeError, ValueError):
