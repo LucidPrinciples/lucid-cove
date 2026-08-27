@@ -371,3 +371,35 @@ def test_owner_loan_is_transfer_not_income():
     assert pnl["net"] == 0.0
     assert pnl["transfer_total"] == 250.0
     assert pnl["transfers"][0]["label"] == "Owner Loan"
+
+
+def test_other_statement_accounts_are_transfer_targets():
+    names = ["bluevine.mapped.json", "MERRICK.mapped.json", "manual.mapped.json"]
+    labels = bk.account_labels_from_names(names, exclude_path="Bookkeeping/Organize/bluevine.mapped.json")
+    assert labels == ["MERRICK"]
+    chart = bk.merge_chart_with_accounts(
+        [{"label": "Advertising", "kind": "expense"}],
+        labels,
+        exclude_labels=["Bluevine"],
+    )
+    kinds = {c["label"]: c["kind"] for c in chart}
+    assert kinds["MERRICK"] == bk.TRANSFER_KIND
+    assert kinds["Advertising"] == bk.EXPENSE_KIND
+    assert kinds[bk.OWNER_LOAN_LABEL] == bk.TRANSFER_KIND
+
+    payload = {
+        "account": "Bluevine",
+        "working_chart": [{"label": "Advertising"}],
+        "rows": [
+            {"fields": {"Date": "2025-04-01", "Debit/Credit": "-80.00", "Name": "Merrick"}},
+        ],
+    }
+    updated, err = bk.apply_category(payload, 0, "MERRICK", chart=chart)
+    assert err is None
+    assert updated["rows"][0]["category_label"] == "MERRICK"
+    stored = {c["label"]: c["kind"] for c in updated["working_chart"]}
+    assert stored["MERRICK"] == bk.TRANSFER_KIND
+    pnl = bk.pnl_from_rows(updated["rows"], payload=updated, chart=chart)
+    assert pnl["expense_total"] == 0.0
+    assert pnl["income_total"] == 0.0
+    assert any(x["label"] == "MERRICK" for x in pnl["transfers"])

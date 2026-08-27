@@ -140,6 +140,34 @@ def _choice_payloads(loaded: list[tuple[str, dict]]) -> list[dict]:
     return bk.ledger_choices(names, labels)
 
 
+def _chart_with_accounts(
+    loaded: list[tuple[str, dict]],
+    current_path: str = "",
+    current_payload: dict | None = None,
+) -> list[dict]:
+    others: list[str] = []
+    seen: set[str] = set()
+    current = (current_path or "").replace("\\", "/").strip().lower()
+    skip_current = bool(current) and not bk.is_all_transactions(current_path)
+    for path, payload in loaded:
+        if bk.is_manual_ledger(path):
+            continue
+        if skip_current and path.replace("\\", "/").strip().lower() == current:
+            continue
+        lab = bk.account_label(payload, path)
+        key = lab.lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        others.append(lab)
+    if skip_current and current_payload is not None:
+        base = bk.working_chart_from_payload(current_payload)
+        self_label = bk.account_label(current_payload, current_path)
+        return bk.merge_chart_with_accounts(base, others, exclude_labels=[self_label])
+    payloads = [payload for _p, payload in loaded]
+    return bk.merge_chart_with_accounts(bk.merge_working_charts(payloads), others)
+
+
 
 async def _ensure_manual_ledger(request: Request, loaded: list[tuple[str, dict]]) -> tuple[str, dict, str | None, int]:
     wanted = next((item for item in loaded if item[0] == bk.MANUAL_LEDGER_PATH), None)
@@ -323,7 +351,7 @@ async def books_summary(request: Request, path: str = ""):
             "month": month,
             "periods": bk.available_periods(all_rows),
             "ledgers": choices,
-            "chart": bk.merge_working_charts(payloads),
+            "chart": _chart_with_accounts(loaded),
             "vendor_map": bk.merge_vendor_maps(payloads),
             "seeded": seeded,
             "pnl": bk.pnl_from_rows(
@@ -331,7 +359,7 @@ async def books_summary(request: Request, path: str = ""):
                 year=year,
                 month=month,
                 filing_book=book,
-                chart=bk.merge_working_charts(payloads),
+                chart=_chart_with_accounts(loaded),
             ),
         })
     wanted = next((item for item in loaded if item[0] == ledger_path), None)
@@ -353,7 +381,7 @@ async def books_summary(request: Request, path: str = ""):
         "month": month,
         "periods": bk.available_periods(rows),
         "ledgers": choices,
-        "chart": bk.working_chart_from_payload(payload),
+        "chart": _chart_with_accounts(loaded, clean, payload),
         "vendor_map": bk.vendor_map_from_payload(payload),
         "seeded": seeded,
         "pnl": bk.pnl_from_rows(
@@ -362,7 +390,7 @@ async def books_summary(request: Request, path: str = ""):
             month=month,
             filing_book=book,
             payload=payload,
-            chart=bk.working_chart_from_payload(payload),
+            chart=_chart_with_accounts(loaded, clean, payload),
         ),
     })
 
@@ -401,7 +429,7 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
             "category": label,
             "year": year,
             "month": month,
-            "chart": bk.merge_working_charts(payloads),
+            "chart": _chart_with_accounts(loaded),
             "lines": lines,
             "count": len(lines),
         })
@@ -419,7 +447,7 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
         "category": label,
         "year": year,
         "month": month,
-        "chart": bk.working_chart_from_payload(payload),
+        "chart": _chart_with_accounts(loaded, clean, payload),
         "lines": lines,
         "count": len(lines),
     })
@@ -436,7 +464,7 @@ async def books_patch_line(request: Request):
     target = (body.get("source_path") or body.get("path") or "").strip()
     if bk.is_all_transactions(target):
         return JSONResponse({"ok": False, "error": "Pick the statement that owns this line"}, status_code=400)
-    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, target)
+    ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, target)
     if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
         return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
     path = ledger_path
@@ -451,7 +479,9 @@ async def books_patch_line(request: Request):
     payload, clean, err, status = await _read_ledger(request, path)
     if err or payload is None:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-    updated, uerr = bk.apply_category(payload, index, label)
+    loaded = await _load_named_ledgers(request, ledgers)
+    chart = _chart_with_accounts(loaded, clean, payload)
+    updated, uerr = bk.apply_category(payload, index, label, chart=chart)
     if uerr or updated is None:
         return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
     updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -520,13 +550,15 @@ async def books_patch_lines(request: Request):
     review = 0
     last_path = ""
     for src, indexes in groups.items():
-        ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, src)
+        ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, src)
         if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
             return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
         payload, clean, err, status = await _read_ledger(request, ledger_path)
         if err or payload is None:
             return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-        updated, uerr = bk.apply_categories(payload, indexes, label)
+        loaded = await _load_named_ledgers(request, ledgers)
+        chart = _chart_with_accounts(loaded, clean, payload)
+        updated, uerr = bk.apply_categories(payload, indexes, label, chart=chart)
         if uerr or updated is None:
             return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
         updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

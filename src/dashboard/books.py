@@ -387,6 +387,28 @@ def parse_pasted_lines(text: str, default_year: int | None = None) -> tuple[list
         errors.append("No rows found")
     return rows, errors
 
+def account_labels_from_names(names: list[str], exclude_path: str = "") -> list[str]:
+    """Other Organize ledgers as transfer-account labels (filename stem)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    excl = (exclude_path or "").replace("\\", "/").strip().lower()
+    excl_name = excl.split("/")[-1]
+    for name in names or []:
+        path = ledger_path_from_name(name) or ""
+        if not path or is_manual_ledger(path):
+            continue
+        low = path.lower()
+        if excl and (low == excl or low.split("/")[-1] == excl_name):
+            continue
+        label = account_label({}, path)
+        key = label.lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(label)
+    return out
+
+
 def ledger_choices(names: list[str], labels: dict[str, str] | None = None) -> list[dict]:
     """All Transactions first, then each Organize mapped file as its own account."""
     out = [{"path": ALL_TRANSACTIONS, "label": "All Transactions"}]
@@ -533,6 +555,8 @@ def category_label(row: dict) -> str:
 def chart_kind(label: str, item: dict | None = None) -> str:
     """Income, expense, or transfer (balance-sheet) for grouping. Explicit kind wins."""
     if isinstance(item, dict):
+        if str(item.get("layer") or "").strip().lower() == "account":
+            return TRANSFER_KIND
         raw = str(item.get("kind") or item.get("side") or "").strip().lower()
         if raw in ("balance", "liability", "asset", "equity"):
             return TRANSFER_KIND
@@ -565,6 +589,45 @@ def ensure_builtin_chart(items: list[dict]) -> list[dict]:
     if OWNER_LOAN_LABEL.lower() not in seen:
         out.append(owner_loan_chart_item())
     return out
+
+
+def transfer_account_item(label: str) -> dict:
+    return {
+        "label": str(label or "").strip(),
+        "code": None,
+        "layer": "account",
+        "kind": TRANSFER_KIND,
+    }
+
+
+def merge_chart_with_accounts(
+    chart: list[dict],
+    account_labels: list[str],
+    exclude_labels: list[str] | None = None,
+) -> list[dict]:
+    """Other statement accounts are transfer targets, not income or expense."""
+    out = list(chart or [])
+    by_key: dict[str, dict] = {}
+    for item in out:
+        key = str(item.get("label") or "").strip().lower()
+        if key:
+            by_key[key] = item
+    skip = {str(s or "").strip().lower() for s in (exclude_labels or []) if str(s or "").strip()}
+    for raw in account_labels or []:
+        label = str(raw or "").strip()
+        if not label:
+            continue
+        key = label.lower()
+        if key in skip:
+            continue
+        if key in by_key:
+            by_key[key]["kind"] = TRANSFER_KIND
+            by_key[key]["layer"] = "account"
+            continue
+        rec = transfer_account_item(label)
+        out.append(rec)
+        by_key[key] = rec
+    return ensure_builtin_chart(out)
 
 
 def working_chart_from_payload(payload: dict) -> list[dict]:
@@ -823,20 +886,39 @@ def pnl_from_rows(
     }
 
 
-def apply_category(payload: dict, index: int, label: str) -> tuple[dict | None, str | None]:
-    return apply_categories(payload, [index], label)
+def apply_category(
+    payload: dict,
+    index: int,
+    label: str,
+    chart: list[dict] | None = None,
+) -> tuple[dict | None, str | None]:
+    return apply_categories(payload, [index], label, chart=chart)
 
 
-def apply_categories(payload: dict, indexes: list[int], label: str) -> tuple[dict | None, str | None]:
+def apply_categories(
+    payload: dict,
+    indexes: list[int],
+    label: str,
+    chart: list[dict] | None = None,
+) -> tuple[dict | None, str | None]:
     rows = payload.get("rows") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
         return None, "Ledger has no rows"
     if not indexes:
         return None, "No transactions selected"
-    chart = working_chart_from_payload(payload)
-    hit = chart_lookup(chart, label)
+    chart_items = chart if isinstance(chart, list) else working_chart_from_payload(payload)
+    hit = chart_lookup(chart_items, label)
     if hit is None:
         return None, "Category is not on the working chart"
+    stored = working_chart_from_payload(payload)
+    if chart_lookup(stored, hit["label"]) is None:
+        stored.append({
+            "label": hit["label"],
+            "code": hit.get("code"),
+            "layer": hit.get("layer") or "account",
+            "kind": chart_kind(hit["label"], hit),
+        })
+        payload["working_chart"] = stored
     seen: set[int] = set()
     for index in indexes:
         if not isinstance(index, int) or index < 0 or index >= len(rows):

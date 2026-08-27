@@ -360,7 +360,7 @@ async function loadSummary() {
   if ((pnl.transfers || []).length) {
     rows.push(sectionHead('Transfers'));
     pnl.transfers.forEach(line => rows.push(pnlRow(line, 'transfer')));
-    rows.push(sectionTotal('Owner Loan', pnl.transfer_total, ''));
+    rows.push(sectionTotal('Transfers', pnl.transfer_total, ''));
   }
   if (pnl.uncategorized && pnl.uncategorized.count) {
     rows.push(sectionHead('Uncategorized'));
