@@ -295,3 +295,24 @@ def test_filing_books_and_paste():
     assert err is None and n == 1
     assert with_income["rows"][-1]["category_label"] == "Gross receipts or sales"
     assert bk.row_signed_amount(with_income["rows"][-1]) == 100.0
+
+
+def test_chart_kind_splits_income_and_expense():
+    chart = bk.working_chart_from_payload({
+        "working_chart": [
+            {"label": "Gross receipts or sales"},
+            {"label": "Other income"},
+            {"label": "Advertising"},
+            {"label": "Office expense"},
+            {"label": "Cost of goods sold", "kind": "expense"},
+            {"label": "Returns and allowances"},
+        ]
+    })
+    kinds = {c["label"]: c["kind"] for c in chart}
+    assert kinds["Gross receipts or sales"] == "income"
+    assert kinds["Other income"] == "income"
+    assert kinds["Returns and allowances"] == "income"
+    assert kinds["Advertising"] == "expense"
+    assert kinds["Office expense"] == "expense"
+    assert kinds["Cost of goods sold"] == "expense"
+    assert bk.gross_receipts_label(chart) == "Gross receipts or sales"
