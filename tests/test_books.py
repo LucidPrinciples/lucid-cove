@@ -245,3 +245,53 @@ def test_manual_ledger_choice_order():
     assert bk.is_manual_ledger("manual")
     assert bk.is_manual_ledger("Bookkeeping/Organize/manual.mapped.json")
     assert not bk.is_manual_ledger("Bookkeeping/Organize/a.mapped.json")
+
+
+def test_filing_books_and_paste():
+    assert bk.normalize_filing_book("Chords of Truth, LLC") == "chords"
+    assert bk.normalize_filing_book("pickle") == "pickleball"
+    assert bk.infer_filing_book({"entity": "Chords of Truth, LLC"}) == "chords"
+    rows = [
+        _row("2025-01-15", "-10.00", "Advertising", name="Acme"),
+        dict(_row("2025-02-01", "50.00", "Other income", name="Client"), filing_book="pickleball"),
+    ]
+    chords = bk.pnl_from_rows(rows, filing_book="chords")
+    pickle = bk.pnl_from_rows(rows, filing_book="pickleball")
+    assert chords["row_count"] == 1
+    assert pickle["row_count"] == 1
+    assert pickle["income_total"] == 50.0
+
+    payload = {
+        "entity": "Chords of Truth, LLC",
+        "working_chart": [
+            {"label": "Advertising"},
+            {"label": "Gross receipts or sales"},
+        ],
+        "rows": list(rows),
+    }
+    updated, err = bk.set_row_filing_book(payload, 0, "pickleball")
+    assert err is None
+    assert bk.row_filing_book(updated["rows"][0]) == "pickleball"
+
+    parsed, errors = bk.parse_pasted_lines(
+        "Trans Date Post Date Description Amount\n"
+        "Jan 31 Feb 1 Sample Vendor Co $12.00\n"
+        "Mar 2 Other Vendor 8.50",
+        default_year=2025,
+    )
+    assert not errors
+    assert len(parsed) == 2
+    assert parsed[0]["date"] == "2025-01-31"
+    assert parsed[0]["amount"] == 12.0
+    assert "sample vendor" in parsed[0]["payee"].lower()
+
+    added, n, aerr = bk.add_manual_rows(payload, parsed, filing_book="pickleball")
+    assert aerr is None and n == 2
+    assert added["rows"][-1]["filing_book"] == "pickleball"
+
+    income_parsed, _err = bk.parse_pasted_lines("2025-06-01 Payer LLC 100.00", default_year=2025)
+    labeled = [{**income_parsed[0], "category": "Gross receipts or sales", "amount": abs(income_parsed[0]["amount"])}]
+    with_income, n, err = bk.add_manual_rows(payload, labeled, filing_book="pickleball")
+    assert err is None and n == 1
+    assert with_income["rows"][-1]["category_label"] == "Gross receipts or sales"
+    assert bk.row_signed_amount(with_income["rows"][-1]) == 100.0

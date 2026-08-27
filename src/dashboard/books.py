@@ -19,9 +19,27 @@ LEDGER_SUFFIX = ".mapped.json"
 UNCATEGORIZED = "Uncategorized"
 ALL_TRANSACTIONS = "all"
 ALL_LINES = "*"
+ALL_BOOKS = "all-books"
 MIN_MAP_PHRASE = 4
 MAX_LEDGER_LIST = 40
 MAX_COMBINED_LINES = 4000
+MAX_PASTE_LINES = 200
+GROSS_RECEIPTS_LABELS = (
+    "gross receipts or sales",
+    "gross receipts",
+    "gross sales",
+)
+
+FILING_BOOKS = (
+    {"id": "chords", "label": "Chords of Truth, LLC", "form": "Schedule C"},
+    {"id": "pickleball", "label": "Pickleball", "form": "Schedule C"},
+    {"id": "personal", "label": "Personal", "form": "not on a C"},
+)
+_FILING_IDS = {b["id"] for b in FILING_BOOKS}
+_MONTH_PREFIX = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
 
 _DATE_FMTS = (
     "%Y-%m-%d",
@@ -33,6 +51,8 @@ _DATE_FMTS = (
     "%B %d, %Y",
     "%b %d %Y",
     "%B %d %Y",
+    "%b %d",
+    "%B %d",
 )
 
 
@@ -95,6 +115,261 @@ def is_manual_ledger(path: str) -> bool:
     name = raw.split("/")[-1].lower()
     return name in (MANUAL_LEDGER_NAME, "manual") or raw.lower() == MANUAL_LEDGER_PATH.lower()
 
+
+def filing_book_choices() -> list[dict]:
+    return [{"id": ALL_BOOKS, "label": "All books"}] + [dict(b) for b in FILING_BOOKS]
+
+
+def normalize_filing_book(value: Any, default: str = "chords") -> str:
+    raw = str(value or "").strip().lower()
+    if raw in (ALL_BOOKS, "all-books", "*"):
+        return ALL_BOOKS
+    if not raw:
+        if default == ALL_BOOKS or default in _FILING_IDS:
+            return default
+        return "chords"
+    aliases = {
+        "chords of truth": "chords",
+        "chords of truth, llc": "chords",
+        "chords of truth llc": "chords",
+        "cot": "chords",
+        "llc": "chords",
+        "pickle": "pickleball",
+        "pickle ball": "pickleball",
+        "not on a c": "personal",
+        "off c": "personal",
+    }
+    if raw in _FILING_IDS:
+        return raw
+    compact = " ".join(raw.replace(",", " ").split())
+    if compact in aliases:
+        return aliases[compact]
+    if "pickle" in raw:
+        return "pickleball"
+    if "chord" in raw:
+        return "chords"
+    if "personal" in raw:
+        return "personal"
+    if default == ALL_BOOKS or default in _FILING_IDS:
+        return default
+    return "chords"
+
+
+def filing_book_label(book_id: str) -> str:
+    bid = normalize_filing_book(book_id, default="chords")
+    if bid == ALL_BOOKS:
+        return "All books"
+    for item in FILING_BOOKS:
+        if item["id"] == bid:
+            return item["label"]
+    return "Chords of Truth, LLC"
+
+
+def infer_filing_book(payload: dict | None = None, row: dict | None = None) -> str:
+    if isinstance(row, dict):
+        for key in ("filing_book", "book", "schedule"):
+            val = row.get(key)
+            if val not in (None, ""):
+                hit = normalize_filing_book(val, default="")
+                if hit in _FILING_IDS:
+                    return hit
+    if isinstance(payload, dict):
+        for key in ("filing_book", "book", "default_filing_book"):
+            val = payload.get(key)
+            if val not in (None, ""):
+                hit = normalize_filing_book(val, default="")
+                if hit in _FILING_IDS:
+                    return hit
+        ent = str(payload.get("entity") or "").strip().lower()
+        if ent:
+            hit = normalize_filing_book(ent, default="")
+            if hit in _FILING_IDS:
+                return hit
+            if "chord" in ent:
+                return "chords"
+            if "pickle" in ent:
+                return "pickleball"
+            if "jason" in ent or "personal" in ent or "garriotte" in ent:
+                return "personal"
+    return "chords"
+
+
+def row_filing_book(row: dict, payload: dict | None = None) -> str:
+    return infer_filing_book(payload, row)
+
+
+def filter_rows_by_book(rows: list, book: str, payload: dict | None = None) -> list[dict]:
+    want = normalize_filing_book(book, default=ALL_BOOKS)
+    out: list[dict] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if want == ALL_BOOKS or row_filing_book(row, payload) == want:
+            out.append(row)
+    return out
+
+
+def set_row_filing_book(payload: dict, index: int, book: str) -> tuple[dict | None, str | None]:
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return None, "Ledger has no rows"
+    if not isinstance(index, int) or index < 0 or index >= len(rows):
+        return None, "Transaction not found"
+    row = rows[index]
+    if not isinstance(row, dict):
+        return None, "Transaction not found"
+    bid = normalize_filing_book(book, default="")
+    if bid not in _FILING_IDS:
+        return None, "Unknown filing book"
+    row["filing_book"] = bid
+    payload["rows"] = rows
+    return payload, None
+
+
+def gross_receipts_label(chart: list[dict] | None = None) -> str:
+    items = chart or []
+    for needle in GROSS_RECEIPTS_LABELS:
+        for item in items:
+            lab = str(item.get("label") or "").strip()
+            if not lab:
+                continue
+            low = lab.lower()
+            if low == needle or needle in low:
+                return lab
+    return "Gross receipts or sales"
+
+
+def parse_loose_date(value: str, default_year: int | None = None) -> datetime | None:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    hit = parse_row_date({"Date": s})
+    if hit is not None:
+        return hit
+    m = re.fullmatch(r"([A-Za-z]{3,9})\s+(\d{1,2})", s)
+    if not m:
+        return None
+    month = _MONTH_PREFIX.get(m.group(1)[:3].lower())
+    if not month:
+        return None
+    year = default_year or datetime.utcnow().year
+    try:
+        return datetime(year, month, int(m.group(2)))
+    except ValueError:
+        return None
+
+
+def coalesce_month_day(cells: list[str]) -> list[str]:
+    out: list[str] = []
+    i = 0
+    while i < len(cells):
+        tok = cells[i]
+        if i + 1 < len(cells) and tok[:3].lower() in _MONTH_PREFIX and re.fullmatch(r"\d{1,2}", cells[i + 1] or ""):
+            out.append(f"{tok} {cells[i + 1]}")
+            i += 2
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
+def split_paste_cells(line: str) -> list[str]:
+    raw = (line or "").strip()
+    if not raw:
+        return []
+    if "\t" in raw:
+        return [c.strip() for c in raw.split("\t")]
+    if "," in raw and re.search(r"\d", raw):
+        return [c.strip() for c in raw.split(",")]
+    parts = re.split(r"\s{2,}", raw)
+    if len(parts) >= 3:
+        return [c.strip() for c in parts if c.strip()]
+    return raw.split()
+
+
+def looks_like_header(cells: list[str]) -> bool:
+    blob = " ".join(cells).lower()
+    if "amount" in blob and "date" in blob:
+        return True
+    if blob.startswith("trans date") or blob.startswith("post date"):
+        return True
+    return blob in ("date", "description", "amount")
+
+
+def parse_pasted_lines(text: str, default_year: int | None = None) -> tuple[list[dict], list[str]]:
+    """Parse copied statement rows. Never log payees or amounts."""
+    errors: list[str] = []
+    rows: list[dict] = []
+    if not isinstance(text, str) or not text.strip():
+        return [], ["Paste is empty"]
+    raw_lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    lines = [ln.strip() for ln in raw_lines if ln.strip()]
+    if len(lines) > MAX_PASTE_LINES:
+        return [], [f"Paste is over {MAX_PASTE_LINES} lines"]
+    year = default_year
+    for i, line in enumerate(lines, start=1):
+        cells = coalesce_month_day(split_paste_cells(line))
+        if not cells:
+            continue
+        if i == 1 and looks_like_header(cells):
+            continue
+        money_idx = None
+        for idx in range(len(cells) - 1, 0, -1):
+            cell = cells[idx]
+            if parse_money(cell) is not None and re.search(r"\d", cell):
+                money_idx = idx
+                break
+        if money_idx is None:
+            blob = " ".join(cells[1:]) if len(cells) > 1 else line
+            m = re.search(r"(-?\$?\(?[0-9][0-9,]*(?:\.[0-9]{2})?\)?)$", blob.strip())
+            if not m:
+                errors.append(f"Line {i}: no amount")
+                continue
+            amount_s = m.group(1)
+            payee_s = blob[: m.start()].strip()
+            dt = parse_loose_date(cells[0], year)
+            start_payee_from_second = False
+            if dt is None and len(cells) >= 2:
+                dt = parse_loose_date(cells[1], year)
+                start_payee_from_second = True
+                if start_payee_from_second and payee_s.lower().startswith(str(cells[1]).lower()):
+                    payee_s = payee_s[len(cells[1]):].strip()
+            if dt is None:
+                errors.append(f"Line {i}: no date")
+                continue
+            if not payee_s:
+                errors.append(f"Line {i}: no payee")
+                continue
+            amt = parse_money(amount_s)
+            if amt is None:
+                errors.append(f"Line {i}: no amount")
+                continue
+            rows.append({"date": dt.strftime("%Y-%m-%d"), "payee": payee_s, "amount": amt})
+            continue
+        amount_s = cells[money_idx]
+        dt = parse_loose_date(cells[0], year)
+        start = 1
+        if len(cells) > 3:
+            post = parse_loose_date(cells[1], year)
+            if post is not None:
+                if dt is None:
+                    dt = post
+                start = 2
+        if dt is None:
+            errors.append(f"Line {i}: no date")
+            continue
+        payee_s = " ".join(c for c in cells[start:money_idx] if c).strip()
+        amt = parse_money(amount_s)
+        if amt is None:
+            errors.append(f"Line {i}: no amount")
+            continue
+        if not payee_s:
+            errors.append(f"Line {i}: no payee")
+            continue
+        rows.append({"date": dt.strftime("%Y-%m-%d"), "payee": payee_s, "amount": amt})
+    if not rows and not errors:
+        errors.append("No rows found")
+    return rows, errors
 
 def ledger_choices(names: list[str], labels: dict[str, str] | None = None) -> list[dict]:
     """All Transactions first, then each Organize mapped file as its own account."""
@@ -197,7 +472,10 @@ def parse_row_date(row: dict) -> datetime | None:
             return None
     for fmt in _DATE_FMTS:
         try:
-            return datetime.strptime(s, fmt)
+            hit = datetime.strptime(s, fmt)
+            if "%Y" not in fmt:
+                return None
+            return hit
         except ValueError:
             continue
     return None
@@ -340,6 +618,7 @@ def line_preview(row: dict, source_path: str, index: int, account: str = "") -> 
         "account": acct,
         "disabled": row_is_disabled(row),
         "manual": row_is_manual(row, source_path),
+        "filing_book": row_filing_book(row),
     }
 
 
@@ -378,12 +657,17 @@ def collect_lines(
     category: str | None = None,
     account: str = "",
     limit: int = MAX_COMBINED_LINES,
+    filing_book: str = ALL_BOOKS,
+    payload: dict | None = None,
 ) -> list[dict]:
     want = (category or "").strip()
     all_cats = not want or want == ALL_LINES
+    book = normalize_filing_book(filing_book, default=ALL_BOOKS)
     out: list[dict] = []
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
+            continue
+        if book != ALL_BOOKS and row_filing_book(row, payload) != book:
             continue
         if not in_period(row, year, month):
             continue
@@ -397,18 +681,22 @@ def collect_lines(
     return out
 
 
-def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None = None) -> dict:
+def pnl_from_rows(rows: list[dict], year: int | None = None, month: int | None = None, filing_book: str = ALL_BOOKS, payload: dict | None = None) -> dict:
     """Category rollup. Totals are floats for the UI; callers must not log them."""
     income: dict[str, dict] = defaultdict(lambda: {"total": 0.0, "count": 0})
     expense: dict[str, dict] = defaultdict(lambda: {"total": 0.0, "count": 0})
     uncat = {"total": 0.0, "count": 0}
     skipped = 0
     used = 0
+    book = normalize_filing_book(filing_book, default=ALL_BOOKS)
     for row in rows:
         if not isinstance(row, dict):
             skipped += 1
             continue
         if row_is_disabled(row):
+            skipped += 1
+            continue
+        if book != ALL_BOOKS and row_filing_book(row, payload) != book:
             skipped += 1
             continue
         if not in_period(row, year, month):
@@ -697,6 +985,7 @@ def empty_manual_payload(source: dict | None = None) -> dict:
         "entity": src.get("entity") or "",
         "account": "Manual",
         "origin": "manual",
+        "filing_book": infer_filing_book(src),
         "working_chart": working_chart_from_payload(src),
         "vendor_map": vendor_map_from_payload(src) if src else [],
         "rows": [],
@@ -704,7 +993,7 @@ def empty_manual_payload(source: dict | None = None) -> dict:
     }
 
 
-def build_manual_row(date: str, payee: str, amount: Any, category: str = "", chart: list[dict] | None = None) -> tuple[dict | None, str | None]:
+def build_manual_row(date: str, payee: str, amount: Any, category: str = "", chart: list[dict] | None = None, filing_book: str = "chords") -> tuple[dict | None, str | None]:
     payee_s = str(payee or "").strip()
     if not payee_s:
         return None, "Payee is required"
@@ -716,11 +1005,15 @@ def build_manual_row(date: str, payee: str, amount: Any, category: str = "", cha
     amt = parse_money(amount)
     if amt is None:
         return None, "Amount is required"
+    bid = normalize_filing_book(filing_book, default="chords")
+    if bid not in _FILING_IDS:
+        bid = "chords"
     row = {
         "origin": "manual",
         "disabled": False,
         "needs_review": False,
         "match_rule": "operator",
+        "filing_book": bid,
         "fields": {
             "Date": dt.strftime("%Y-%m-%d"),
             "Name": payee_s,
@@ -738,7 +1031,7 @@ def build_manual_row(date: str, payee: str, amount: Any, category: str = "", cha
     return row, None
 
 
-def add_manual_row(payload: dict, date: str, payee: str, amount: Any, category: str = "") -> tuple[dict | None, dict | None, str | None]:
+def add_manual_row(payload: dict, date: str, payee: str, amount: Any, category: str = "", filing_book: str = "") -> tuple[dict | None, dict | None, str | None]:
     if not isinstance(payload, dict):
         return None, None, "Ledger JSON must be an object"
     rows = payload.get("rows")
@@ -750,7 +1043,8 @@ def add_manual_row(payload: dict, date: str, payee: str, amount: Any, category: 
     if len(rows) >= MAX_COMBINED_LINES:
         return None, None, "Ledger is full"
     chart = working_chart_from_payload(payload)
-    row, err = build_manual_row(date, payee, amount, category, chart)
+    book = filing_book or infer_filing_book(payload)
+    row, err = build_manual_row(date, payee, amount, category, chart, filing_book=book)
     if err or row is None:
         return None, None, err
     rows.append(row)
@@ -795,3 +1089,35 @@ def remove_manual_row(payload: dict, index: int) -> tuple[dict | None, str | Non
         1 for r in rows if isinstance(r, dict) and r.get("needs_review") and not row_is_disabled(r)
     )
     return payload, None
+
+
+def add_manual_rows(payload: dict, items: list[dict], filing_book: str = "", default_category: str = "") -> tuple[dict | None, int, str | None]:
+    if not isinstance(payload, dict):
+        return None, 0, "Ledger JSON must be an object"
+    if not isinstance(items, list) or not items:
+        return None, 0, "No rows to add"
+    if len(items) > MAX_PASTE_LINES:
+        return None, 0, f"Paste is over {MAX_PASTE_LINES} lines"
+    added = 0
+    last_err = None
+    for item in items:
+        if not isinstance(item, dict):
+            last_err = "Row must be an object"
+            continue
+        updated, _line, err = add_manual_row(
+            payload,
+            date=str(item.get("date") or ""),
+            payee=item.get("payee") or item.get("name") or "",
+            amount=item.get("amount"),
+            category=str(item.get("category") or default_category or ""),
+            filing_book=str(item.get("filing_book") or filing_book or ""),
+        )
+        if err or updated is None:
+            last_err = err
+            continue
+        payload = updated
+        added += 1
+    if added == 0:
+        return None, 0, last_err or "No rows added"
+    return payload, added, None
+

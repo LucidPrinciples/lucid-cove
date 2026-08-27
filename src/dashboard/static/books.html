@@ -69,6 +69,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .add-line input[type="date"]{width:150px}
 .add-line input.amt{width:110px}
 .add-line input.payee{flex:1;min-width:140px}
+.add-line textarea{width:100%;min-height:90px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;resize:vertical}
 .line-row.off td{opacity:.45}
 .line-row.off td:last-child{opacity:1}
 .acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
@@ -82,6 +83,9 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <div class="meta" id="hdrMeta">Loading…</div>
 </header>
 <div class="toolbar">
+  <label class="faint">Book
+    <select id="bookSel"></select>
+  </label>
   <label class="faint">Ledger
     <select id="ledgerSel"></select>
   </label>
@@ -92,6 +96,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <button type="button" id="btnTx">Transactions</button>
   <button type="button" id="btnMap">Import map</button>
   <button type="button" class="primary" id="btnAdd">Add line</button>
+  <button type="button" id="btnPaste">Paste rows</button>
 </div>
 <div id="err" class="err hide"></div>
 <div class="add-line" id="addLineBar">
@@ -100,6 +105,13 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <input id="newAmt" class="amt" type="text" inputmode="decimal" placeholder="Amount">
   <select id="newCat"></select>
   <button type="button" class="primary" id="btnAddLine">Save line</button>
+</div>
+<div class="add-line" id="pasteBar" style="display:none;flex-direction:column;align-items:stretch">
+  <textarea id="pasteText" rows="5" placeholder="Paste copied statement rows here. They stay on this page — not in chat."></textarea>
+  <div class="batch">
+    <label class="faint"><input type="checkbox" class="check" id="pasteIncome"> These are income / 1099 receipts</label>
+    <button type="button" class="primary" id="btnPasteSave">Add pasted rows</button>
+  </div>
 </div>
 <div id="pnlView">
   <div class="totals">
@@ -154,7 +166,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div class="status" id="status"></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { path: 'all', chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [] };
+const state = { path: 'all', book: 'chords', books: [], chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [] };
 
 function money(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -181,10 +193,27 @@ function leaveBooks() {
 function qs() {
   const p = new URLSearchParams();
   if (state.path) p.set('path', state.path);
+  if (state.book) p.set('book', state.book);
   if (state.year) p.set('year', String(state.year));
   if (state.month) p.set('month', String(state.month));
   const s = p.toString();
   return s ? ('?' + s) : '';
+}
+function fillBooks() {
+  const sel = $('bookSel');
+  if (!sel) return;
+  const list = state.books && state.books.length ? state.books : [
+    {id:'all-books', label:'All books'},
+    {id:'chords', label:'Chords of Truth, LLC'},
+    {id:'pickleball', label:'Pickleball'},
+    {id:'personal', label:'Personal'}
+  ];
+  sel.innerHTML = list.map(item => {
+    const id = item.id || item;
+    const label = item.label || id;
+    return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+  }).join('');
+  sel.value = state.book || 'chords';
 }
 function fillLedgers() {
   const sel = $('ledgerSel');
@@ -228,10 +257,16 @@ function hideViews() {
   $('detailView').style.display = 'none';
   $('mapView').style.display = 'none';
 }
+function showPasteBar(on) {
+  const bar = $('pasteBar');
+  if (!bar) return;
+  bar.style.display = on ? 'flex' : 'none';
+}
 function showAddBar(on) {
   const bar = $('addLineBar');
   if (!bar) return;
   bar.style.display = on ? 'flex' : 'none';
+  if (on) showPasteBar(false);
 }
 function showPnl() {
   state.category = null;
@@ -247,6 +282,7 @@ function showDetail() {
 function showMap() {
   hideViews();
   showAddBar(false);
+  showPasteBar(false);
   $('mapView').style.display = 'flex';
   renderMap();
 }
@@ -261,9 +297,12 @@ async function loadSummary() {
   state.periods = data.periods || {years:[], months:[]};
   state.vendorMap = data.vendor_map || state.vendorMap;
   state.ledgers = data.ledgers || state.ledgers;
+  state.books = data.books || state.books;
+  if (data.filing_book) state.book = data.filing_book;
+  fillBooks();
   fillLedgers();
   fillPeriod();
-  const ent = data.entity || 'Books';
+  const ent = data.filing_book_label || data.entity || 'Books';
   const acct = data.account || '';
   const review = data.needs_review_count != null ? ` · ${data.needs_review_count} need review` : '';
   const mapN = (state.vendorMap || []).length;
@@ -332,6 +371,7 @@ async function openCategory(label) {
   $('lineBody').innerHTML = '<tr><td colspan="7" class="muted">Loading…</td></tr>';
   const p = new URLSearchParams();
   if (state.path) p.set('path', state.path);
+  if (state.book) p.set('book', state.book);
   if (state.year) p.set('year', String(state.year));
   if (state.month) p.set('month', String(state.month));
   p.set('category', label);
@@ -460,12 +500,50 @@ $('btnMap').onclick = () => { showMap(); };
 $('btnTx').onclick = () => { openCategory('*'); };
 $('btnAdd').onclick = () => {
   if ($('mapView').style.display === 'flex') showPnl();
+  showPasteBar(false);
   showAddBar(true);
   $('newPayee').focus();
 };
+$('btnPaste').onclick = () => {
+  if ($('mapView').style.display === 'flex') showPnl();
+  showAddBar(false);
+  showPasteBar(true);
+  $('pasteText').focus();
+};
+async function addPastedRows() {
+  const text = ($('pasteText').value || '').trim();
+  if (!text) { showErr('Paste the copied rows on this page'); return; }
+  showErr('');
+  $('status').textContent = 'Adding pasted rows…';
+  const r = await fetch('/api/books/lines/paste', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      text,
+      filing_book: state.book === 'all-books' ? 'pickleball' : state.book,
+      year: state.year || 2025,
+      income: $('pasteIncome').checked
+    })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Paste failed');
+    return;
+  }
+  $('pasteText').value = '';
+  $('status').innerHTML = `<span class="okmsg">Added ${data.added || 0} line${data.added === 1 ? '' : 's'}</span>`;
+  await loadSummary();
+  await openCategory(state.category || '*');
+}
 $('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
 $('ledgerSel').onchange = () => {
   state.path = $('ledgerSel').value || 'all';
+  showPnl();
+  loadSummary();
+};
+$('bookSel').onchange = () => {
+  state.book = $('bookSel').value || 'chords';
   showPnl();
   loadSummary();
 };
@@ -513,7 +591,7 @@ async function addTypedLine() {
   const r = await fetch('/api/books/line', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ date, payee, amount, category })
+    body: JSON.stringify({ date, payee, amount, category, filing_book: state.book === 'all-books' ? 'chords' : state.book })
   });
   const data = await r.json();
   if (!data.ok) {
@@ -567,6 +645,7 @@ async function removeTypedLine(btn) {
   if (state.category) await openCategory(state.category);
 }
 $('btnAddLine').onclick = addTypedLine;
+$('btnPasteSave').onclick = addPastedRows;
 $('lineBody').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act]');
   if (!btn) return;

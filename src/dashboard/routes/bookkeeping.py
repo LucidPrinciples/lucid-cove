@@ -9,7 +9,9 @@ GET   /api/books/map            vendor/phrase rules
 PUT   /api/books/map            replace rules; apply to uncategorized
 POST  /api/books/seed-map       fill map from already-placed payees
 POST  /api/books/line           add a typed line on the Manual book
+POST  /api/books/lines/paste    bulk-add copied statement rows on the Manual book
 PATCH /api/books/line/state     disable or restore a statement or typed line
+PATCH /api/books/line/book      move a line onto a filing book
 DELETE /api/books/line          remove a typed line only
 
 Bytes live in the logged-in Presence's Bookkeeping/Organize/*.mapped.json.
@@ -210,7 +212,19 @@ async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str
     return None, 200
 
 
+def _parse_book(request: Request, body: dict | None = None) -> str:
+    raw = ""
+    if isinstance(body, dict):
+        raw = str(body.get("filing_book") or body.get("book") or "").strip()
+    if not raw:
+        raw = (request.query_params.get("book") or request.query_params.get("filing_book") or "").strip()
+    if not raw:
+        return "chords"
+    return bk.normalize_filing_book(raw, default="chords")
+
+
 def _parse_period(request: Request) -> tuple[int | None, int | None, str | None]:
+
     year_raw = (request.query_params.get("year") or "").strip()
     month_raw = (request.query_params.get("month") or "").strip()
     year = None
@@ -246,6 +260,7 @@ async def books_summary(request: Request, path: str = ""):
     year, month, perr = _parse_period(request)
     if perr:
         return JSONResponse({"ok": False, "error": perr}, status_code=400)
+    book = _parse_book(request)
     ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
     if rerr or not ledger_path:
         return JSONResponse({
@@ -285,6 +300,9 @@ async def books_summary(request: Request, path: str = ""):
             "path": bk.ALL_TRANSACTIONS,
             "entity": entity,
             "account": "All Transactions",
+            "filing_book": book,
+            "filing_book_label": bk.filing_book_label(book),
+            "books": bk.filing_book_choices(),
             "row_count": len(all_rows),
             "needs_review_count": review,
             "year": year,
@@ -294,7 +312,7 @@ async def books_summary(request: Request, path: str = ""):
             "chart": bk.merge_working_charts(payloads),
             "vendor_map": bk.merge_vendor_maps(payloads),
             "seeded": seeded,
-            "pnl": bk.pnl_from_rows(all_rows, year=year, month=month),
+            "pnl": bk.pnl_from_rows(all_rows, year=year, month=month, filing_book=book),
         })
     wanted = next((item for item in loaded if item[0] == ledger_path), None)
     if wanted is None:
@@ -306,6 +324,9 @@ async def books_summary(request: Request, path: str = ""):
         "path": clean,
         "entity": payload.get("entity") or "",
         "account": bk.account_label(payload, clean),
+        "filing_book": book,
+        "filing_book_label": bk.filing_book_label(book),
+        "books": bk.filing_book_choices(),
         "row_count": len(rows),
         "needs_review_count": payload.get("needs_review_count"),
         "year": year,
@@ -315,7 +336,7 @@ async def books_summary(request: Request, path: str = ""):
         "chart": bk.working_chart_from_payload(payload),
         "vendor_map": bk.vendor_map_from_payload(payload),
         "seeded": seeded,
-        "pnl": bk.pnl_from_rows(rows, year=year, month=month),
+        "pnl": bk.pnl_from_rows(rows, year=year, month=month, filing_book=book, payload=payload),
     })
 
 
@@ -324,6 +345,7 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
     year, month, perr = _parse_period(request)
     if perr:
         return JSONResponse({"ok": False, "error": perr}, status_code=400)
+    book = _parse_book(request)
     raw_label = (category or "").strip()
     label = raw_label or bk.ALL_LINES
     ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
@@ -343,6 +365,7 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
                 break
             lines.extend(bk.collect_lines(
                 rows, clean, year=year, month=month, category=label, account=acct, limit=remain,
+                filing_book=book, payload=payload,
             ))
         lines.sort(key=lambda x: (x.get("date") or "", x.get("source_path") or "", x.get("index") or 0), reverse=True)
         return JSONResponse({
@@ -361,7 +384,7 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
     clean, payload = wanted
     rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
     acct = bk.account_label(payload, clean)
-    lines = bk.collect_lines(rows, clean, year=year, month=month, category=label, account=acct)
+    lines = bk.collect_lines(rows, clean, year=year, month=month, category=label, account=acct, filing_book=book, payload=payload)
     lines.sort(key=lambda x: (x.get("date") or "", x.get("index") or 0), reverse=True)
     return JSONResponse({
         "ok": True,
@@ -629,6 +652,114 @@ async def books_seed_map(request: Request):
     })
 
 
+
+@router.post("/api/books/lines/paste")
+async def books_paste_lines(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    text = body.get("text") or body.get("paste") or ""
+    if not isinstance(text, str):
+        return JSONResponse({"ok": False, "error": "Paste is required"}, status_code=400)
+    year = body.get("year")
+    try:
+        year_i = int(year) if year not in (None, "") else None
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "year must be an integer"}, status_code=400)
+    parsed, errors = bk.parse_pasted_lines(text, default_year=year_i)
+    if not parsed:
+        return JSONResponse({"ok": False, "error": (errors or ["No rows found"])[0], "skipped": len(errors)}, status_code=400)
+    book = _parse_book(request, body)
+    if book == bk.ALL_BOOKS:
+        book = "pickleball"
+    names, lerr = await _list_mapped_ledgers(request)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    loaded = await _load_named_ledgers(request, names)
+    clean, payload, err, status = await _ensure_manual_ledger(request, loaded)
+    if err:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    chart = bk.working_chart_from_payload(payload)
+    category = (body.get("category") or body.get("category_label") or "").strip()
+    income = bool(body.get("income"))
+    if income and not category:
+        category = bk.gross_receipts_label(chart)
+    if category and bk.chart_lookup(chart, category) is None:
+        category = ""
+    items = []
+    for rec in parsed:
+        amt = rec["amount"]
+        if not income and amt > 0:
+            amt = -amt
+        if income and amt < 0:
+            amt = abs(amt)
+        items.append({
+            "date": rec["date"],
+            "payee": rec["payee"],
+            "amount": amt,
+            "category": category,
+            "filing_book": book,
+        })
+    updated, added, uerr = bk.add_manual_rows(payload, items, filing_book=book, default_category=category)
+    if uerr or updated is None:
+        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, clean, updated)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "added": added,
+        "skipped": len(errors),
+        "filing_book": book,
+        "needs_review_count": updated.get("needs_review_count"),
+    })
+
+
+@router.patch("/api/books/line/book")
+async def books_line_book(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    target = (body.get("source_path") or body.get("path") or "").strip()
+    if bk.is_all_transactions(target):
+        return JSONResponse({"ok": False, "error": "Pick the statement that owns this line"}, status_code=400)
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, target)
+    if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
+        return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
+    try:
+        index = int(body.get("index"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "index is required"}, status_code=400)
+    book = _parse_book(request, body)
+    if book == bk.ALL_BOOKS:
+        return JSONResponse({"ok": False, "error": "Pick a filing book"}, status_code=400)
+    payload, clean, err, status = await _read_ledger(request, ledger_path)
+    if err or payload is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    updated, uerr = bk.set_row_filing_book(payload, index, book)
+    if uerr or updated is None:
+        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
+    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, clean, updated)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    row = updated["rows"][index]
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "line": bk.line_preview(row, clean, index),
+        "needs_review_count": updated.get("needs_review_count"),
+    })
+
+
 @router.post("/api/books/line")
 async def books_create_line(request: Request):
     try:
@@ -644,12 +775,16 @@ async def books_create_line(request: Request):
     clean, payload, err, status = await _ensure_manual_ledger(request, loaded)
     if err:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    book = _parse_book(request, body)
+    if book == bk.ALL_BOOKS:
+        book = "chords"
     updated, line, uerr = bk.add_manual_row(
         payload,
         date=(body.get("date") or "").strip(),
         payee=body.get("payee") or body.get("name") or "",
         amount=body.get("amount"),
         category=(body.get("category") or body.get("category_label") or "").strip(),
+        filing_book=book,
     )
     if uerr or updated is None:
         return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
