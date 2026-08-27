@@ -92,6 +92,8 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <label class="faint">Ledger
     <select id="ledgerSel"></select>
   </label>
+  <button type="button" id="btnNewAcct">New account</button>
+  <button type="button" id="btnProcess">Process</button>
   <label class="faint">Period
     <select id="periodSel"></select>
   </label>
@@ -575,6 +577,57 @@ $('ledgerSel').onchange = () => {
   showPnl();
   loadSummary();
 };
+async function createAccount() {
+  const name = (window.prompt('New ledger name (creates an empty account and a Drop folder)', '') || '').trim();
+  if (!name) return;
+  showErr('');
+  $('status').textContent = 'Creating account…';
+  const r = await fetch('/api/books/account', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Could not create account');
+    return;
+  }
+  state.path = data.path || state.path;
+  if (data.ledgers) state.ledgers = data.ledgers;
+  fillLedgers();
+  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.account || name)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}</span>`;
+  await loadSummary();
+}
+async function processDrop() {
+  const path = state.path || '';
+  if (!path || path === 'all') {
+    showErr('Open the ledger first, then Process');
+    return;
+  }
+  showErr('');
+  $('status').textContent = 'Processing Drop folder…';
+  const r = await fetch('/api/books/process', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path, year: state.year || 2025 })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Process failed');
+    return;
+  }
+  const bits = [];
+  if (data.added) bits.push(`added ${data.added}`);
+  if (data.skipped) bits.push(`skipped ${data.skipped} duplicates`);
+  if (data.pending) bits.push(`${data.pending} image/PDF left in Drop (text/CSV only this pass)`);
+  if (!bits.length) bits.push('nothing new');
+  $('status').innerHTML = `<span class="okmsg">${escapeHtml(bits.join(' · '))}</span>`;
+  await loadSummary();
+}
+$('btnNewAcct').onclick = createAccount;
+$('btnProcess').onclick = processDrop;
 $('bookSel').onchange = () => {
   state.book = $('bookSel').value || 'chords';
   showPnl();

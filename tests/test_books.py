@@ -424,3 +424,45 @@ def test_other_statement_accounts_are_transfer_targets():
     assert pnl["expense_total"] == 0.0
     assert pnl["income_total"] == 0.0
     assert any(x["label"] == "MERRICK" for x in pnl["transfers"])
+
+
+def test_new_account_spec_and_drop_folder():
+    spec, err = bk.new_account_spec("MERRICK")
+    assert err is None and spec is not None
+    assert spec["path"] == "Bookkeeping/Organize/MERRICK.mapped.json"
+    assert spec["drop_folder"] == "Bookkeeping/Drop/MERRICK"
+    assert spec["filename"] == "MERRICK.mapped.json"
+    bad, err = bk.new_account_spec("manual")
+    assert bad is None and err
+    empty, err = bk.new_account_spec("   ")
+    assert empty is None and err
+    assert bk.drop_file_kind("JUNStatementImage.pdf") == "pending"
+    assert bk.drop_file_kind("july.csv") == "text"
+    assert bk.drop_file_kind("notes.md") == ""
+
+
+def test_empty_account_is_transfer_target_without_rows():
+    names = ["bluevine.mapped.json", "MERRICK.mapped.json"]
+    labels = bk.account_labels_from_names(names, exclude_path="Bookkeeping/Organize/bluevine.mapped.json")
+    assert labels == ["MERRICK"]
+    payload = bk.empty_account_payload("MERRICK")
+    assert payload["account"] == "MERRICK"
+    assert payload["rows"] == []
+    chart = bk.merge_chart_with_accounts([{"label": "Advertising", "kind": bk.EXPENSE_KIND}], labels)
+    assert any(c["label"] == "MERRICK" and c["kind"] == bk.TRANSFER_KIND for c in chart)
+
+
+def test_append_imported_rows_skips_duplicates():
+    payload = bk.empty_account_payload("MERRICK")
+    items = [
+        {"date": "2025-06-01", "payee": "Store", "amount": -12.5},
+        {"date": "2025-06-01", "payee": "Store", "amount": -12.5},
+        {"date": "2025-06-02", "payee": "Other", "amount": -4.0},
+    ]
+    updated, added, skipped, err = bk.append_imported_rows(payload, items, source_file="JUN.csv")
+    assert err is None and updated is not None
+    assert added == 2 and skipped == 1
+    assert updated["needs_review_count"] == 2
+    again, added2, skipped2, err2 = bk.append_imported_rows(updated, items[:1], source_file="JUN.csv")
+    assert err2 is None
+    assert added2 == 0 and skipped2 == 1

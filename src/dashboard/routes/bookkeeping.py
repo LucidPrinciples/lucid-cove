@@ -8,6 +8,8 @@ PATCH /api/books/lines          set many categories at once
 GET   /api/books/map            vendor/phrase rules
 PUT   /api/books/map            replace rules; apply to uncategorized
 POST  /api/books/seed-map       fill map from already-placed payees
+POST  /api/books/account        create a blank ledger + Drop folder
+POST  /api/books/process        ingest text/CSV from that ledger's Drop folder
 POST  /api/books/line           add a typed line on the Manual book
 POST  /api/books/lines/paste    bulk-add copied statement rows on the Manual book
 PATCH /api/books/line/state     disable or restore a statement or typed line
@@ -252,6 +254,105 @@ async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str
         logger.warning("books write failed")
         return f"Write failed: {e}", 502
     return f"Write failed: {last}", 502
+
+
+async def _mkcol(request: Request, path: str) -> tuple[str | None, int]:
+    rel = (path or "").replace("\\", "/").strip().strip("/")
+    if not rel or ".." in rel.split("/") or not rel.startswith("Bookkeeping"):
+        return "Invalid path", 400
+    webdav_base, _user, auth, werr = await _webdav(request, rel)
+    if werr or not webdav_base or not auth:
+        return werr or "Nextcloud not configured", 503
+    url = f"{webdav_base}/{_quote_path(rel)}"
+    try:
+        async with httpx.AsyncClient(auth=auth, timeout=30.0) as client:
+            resp = await client.request("MKCOL", url)
+    except Exception as e:
+        logger.warning("books mkdir failed")
+        return f"Folder create failed: {e}", 502
+    if resp.status_code in (201, 204, 405):
+        return None, 200
+    return f"Folder create failed: HTTP {resp.status_code}", 502
+
+
+async def _ensure_drop_folder(request: Request, folder: str) -> tuple[str | None, int]:
+    parts = [p for p in (folder or "").replace("\\", "/").split("/") if p]
+    if not parts or parts[0] != "Bookkeeping":
+        return "Invalid path", 400
+    built = ""
+    for part in parts:
+        built = f"{built}/{part}" if built else part
+        err, status = await _mkcol(request, built)
+        if err:
+            return err, status
+    return None, 200
+
+
+async def _list_drop_files(request: Request, folder: str) -> tuple[list[str], str | None]:
+    rel = (folder or "").replace("\\", "/").strip().strip("/")
+    if not rel.startswith(bk.DROP_PREFIX):
+        return [], "Invalid path"
+    webdav_base, _user, auth, werr = await _webdav(request, rel)
+    if werr or not webdav_base or not auth:
+        return [], werr or "Nextcloud not configured"
+    url = f"{webdav_base}/{_quote_path(rel)}"
+    try:
+        async with httpx.AsyncClient(auth=auth, timeout=30.0) as client:
+            resp = await client.request("PROPFIND", url, headers={"Depth": "1"})
+    except Exception as e:
+        logger.warning("books drop list failed")
+        return [], f"List failed: {e}"
+    if resp.status_code == 404:
+        return [], None
+    if resp.status_code not in (207, 200):
+        return [], f"WebDAV error: HTTP {resp.status_code}"
+    names: list[str] = []
+    try:
+        root = ET.fromstring(resp.text)
+    except ET.ParseError:
+        return [], "Could not read Drop folder"
+    ns = "{DAV:}"
+    folder_name = rel.rstrip("/").split("/")[-1].lower()
+    for node in root.findall(f"{ns}response"):
+        href = unquote((node.findtext(f"{ns}href") or ""))
+        name = href.rstrip("/").split("/")[-1]
+        if not name or name.lower() == folder_name:
+            continue
+        if node.find(f".//{ns}collection") is not None:
+            continue
+        if bk.drop_file_kind(name):
+            names.append(name)
+    names.sort()
+    return names[: bk.MAX_DROP_FILES], None
+
+
+async def _read_drop_text(request: Request, folder: str, name: str) -> tuple[str | None, str | None, int]:
+    kind = bk.drop_file_kind(name)
+    if kind != "text":
+        return None, "Not a text statement", 400
+    rel = f"{folder.rstrip('/')}/{name.split('/')[-1]}"
+    if ".." in rel.split("/"):
+        return None, "Invalid path", 400
+    webdav_base, _user, auth, werr = await _webdav(request, rel)
+    if werr or not webdav_base or not auth:
+        return None, werr or "Nextcloud not configured", 503
+    url = f"{webdav_base}/{_quote_path(rel)}"
+    try:
+        async with httpx.AsyncClient(auth=auth, timeout=60.0) as client:
+            resp = await client.get(url)
+    except Exception as e:
+        logger.warning("books drop read failed")
+        return None, f"Read failed: {e}", 502
+    if resp.status_code == 404:
+        return None, "Not found", 404
+    if resp.status_code != 200:
+        return None, f"WebDAV error: HTTP {resp.status_code}", 502
+    if len(resp.content) > bk.MAX_DROP_FILE_BYTES:
+        return None, "Statement file is too large", 413
+    try:
+        return resp.content.decode("utf-8-sig"), None, 200
+    except UnicodeDecodeError:
+        return None, "Statement must be UTF-8 text", 415
 
 
 def _parse_book(request: Request, body: dict | None = None) -> str:
@@ -937,5 +1038,129 @@ async def books_delete_line(request: Request):
         "path": clean,
         "removed": True,
         "needs_review_count": updated.get("needs_review_count"),
+    })
+
+
+@router.post("/api/books/account")
+async def books_create_account(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    spec, serr = bk.new_account_spec(str(body.get("name") or body.get("label") or ""))
+    if serr or spec is None:
+        return JSONResponse({"ok": False, "error": serr or "Account name is required"}, status_code=400)
+    names, lerr = await _list_mapped_ledgers(request)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    wanted = spec["filename"].lower()
+    if any(n.lower() == wanted for n in names):
+        return JSONResponse({
+            "ok": False,
+            "error": "That ledger already exists",
+            "path": spec["path"],
+        }, status_code=409)
+    loaded = await _load_named_ledgers(request, names)
+    source = loaded[0][1] if loaded else {}
+    payload = bk.empty_account_payload(spec["label"], source)
+    payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ferr, fstatus = await _ensure_drop_folder(request, spec["drop_folder"])
+    if ferr:
+        return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
+    werr, wstatus = await _write_ledger(request, spec["path"], payload)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": spec["path"]}, status_code=wstatus)
+    names.append(spec["filename"])
+    return JSONResponse({
+        "ok": True,
+        "path": spec["path"],
+        "account": spec["label"],
+        "drop_folder": spec["drop_folder"],
+        "ledgers": bk.ledger_choices(names),
+    })
+
+
+@router.post("/api/books/process")
+async def books_process_drop(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    target = (body.get("path") or "").strip()
+    if bk.is_all_transactions(target) or bk.is_manual_ledger(target):
+        return JSONResponse({"ok": False, "error": "Pick a statement ledger to process"}, status_code=400)
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, target)
+    if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
+        return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
+    if bk.is_manual_ledger(ledger_path):
+        return JSONResponse({"ok": False, "error": "Paste rows on Manual instead"}, status_code=400)
+    payload, clean, err, status = await _read_ledger(request, ledger_path)
+    if err or payload is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    label = bk.account_label(payload, clean)
+    folder = bk.drop_folder_for_stem(label)
+    if not folder:
+        return JSONResponse({"ok": False, "error": "Could not resolve Drop folder"}, status_code=400)
+    ferr, fstatus = await _ensure_drop_folder(request, folder)
+    if ferr:
+        return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
+    files, lerr = await _list_drop_files(request, folder)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    year = body.get("year")
+    try:
+        year_i = int(year) if year not in (None, "") else None
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "year must be an integer"}, status_code=400)
+    added = 0
+    skipped = 0
+    pending = 0
+    processed = 0
+    last_err = None
+    for name in files:
+        kind = bk.drop_file_kind(name)
+        if kind == "pending":
+            pending += 1
+            continue
+        if kind != "text":
+            continue
+        text, rerr2, rstatus2 = await _read_drop_text(request, folder, name)
+        if rerr2 or text is None:
+            last_err = rerr2
+            continue
+        parsed, errors = bk.parse_pasted_lines(text, default_year=year_i)
+        if not parsed:
+            last_err = (errors or ["No rows found"])[0]
+            continue
+        updated, n_added, n_skipped, uerr = bk.append_imported_rows(payload, parsed, source_file=name)
+        if uerr or updated is None:
+            last_err = uerr
+            continue
+        payload = updated
+        added += n_added
+        skipped += n_skipped
+        processed += 1
+    if added:
+        payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        werr, wstatus = await _write_ledger(request, clean, payload)
+        if werr:
+            return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    elif processed == 0 and pending == 0 and last_err:
+        return JSONResponse({"ok": False, "error": last_err, "path": clean, "drop_folder": folder}, status_code=400)
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "account": label,
+        "drop_folder": folder,
+        "added": added,
+        "skipped": skipped,
+        "pending": pending,
+        "processed": processed,
+        "files": len(files),
+        "needs_review_count": payload.get("needs_review_count"),
     })
 
