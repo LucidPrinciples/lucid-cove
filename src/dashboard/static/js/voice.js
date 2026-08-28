@@ -634,7 +634,44 @@ function micConnectVoice() {
     micWs.onerror = () => { micWs = null; };
 }
 
+function isHallucinatedTranscript(text) {
+    if (!text || !String(text).trim()) return true;
+    const words = String(text).toLowerCase().match(/[a-z']+/g) || [];
+    if (!words.length) return true;
+    const n = words.length;
+    const unique = new Set(words);
+    if (n >= 8 && unique.size <= 3 && (unique.size / n) <= 0.25) return true;
+    const maxPeriod = Math.min(4, Math.floor(n / 4));
+    for (let period = 1; period <= maxPeriod; period++) {
+        const unit = words.slice(0, period);
+        const repeats = Math.floor(n / period);
+        if (repeats < 4) continue;
+        let ok = true;
+        for (let r = 0; r < repeats * period; r++) {
+            if (words[r] !== unit[r % period]) { ok = false; break; }
+        }
+        if (ok) return true;
+    }
+    const counts = {};
+    let max = 0;
+    for (const w of words) {
+        counts[w] = (counts[w] || 0) + 1;
+        if (counts[w] > max) max = counts[w];
+    }
+    if (max >= 8 && (max / n) >= 0.6) return true;
+    let run = 1, maxRun = 1;
+    for (let i = 1; i < n; i++) {
+        run = words[i] === words[i - 1] ? run + 1 : 1;
+        if (run > maxRun) maxRun = run;
+    }
+    return maxRun >= 6;
+}
+
 function handleVoiceTranscript(text) {
+    if (isHallucinatedTranscript(text)) {
+        updateMicState('listening');
+        return;
+    }
     const lower = text.toLowerCase().replace(/[.,!?;:]/g, '').trim();
 
     // Check for trigger phrase at end of transcript
@@ -700,6 +737,11 @@ function micConnect() {
                 // Only process transcript AFTER user tapped stop (micProcessing=true).
                 // Ignores server-side partials during recording that caused premature sends.
                 if (!micProcessing) return;
+                if (isHallucinatedTranscript(msg.text)) {
+                    addSystemMessage("Didn't catch that — tap to talk again.");
+                    micStopProcessing();
+                    return;
+                }
                 const input = document.getElementById('chat-input');
                 if (input) {
                     input.value = msg.text;
@@ -708,10 +750,21 @@ function micConnect() {
                 }
                 sendMessage();
             }
-            if (msg.type === 'done' || msg.type === 'silence' || msg.type === 'error') {
+            if (msg.type === 'silence') {
+                if (micProcessing) {
+                    addSystemMessage("Didn't catch that — tap to talk again.");
+                    micStopProcessing();
+                }
+            }
+            if (msg.type === 'done' || msg.type === 'error') {
                 // Only reset UI during processing phase (after user tapped stop).
                 // Server sends silence/done during recording — ignore those.
-                if (micProcessing) micStopProcessing();
+                if (micProcessing) {
+                    if (msg.type === 'error') {
+                        addSystemMessage('Voice: ' + (msg.message || 'error'));
+                    }
+                    micStopProcessing();
+                }
             }
         } catch (ex) {}
     };
@@ -724,24 +777,24 @@ async function micStart() {
     const btn = getMicBtn();
     if (!btn || micProcessing || sending) return;
 
-    // Connect WebSocket if not connected
-    // Always create a fresh WebSocket per recording session.
-    // Server resets audio buffer after end_audio — reusing a connection drops audio.
-    if (micWs) { try { micWs.close(); } catch(e) {} micWs = null; }
-    micConnect();
-    {
-        // Wait for connection
-        await new Promise((resolve, reject) => {
-            const check = setInterval(() => {
-                if (micWs && micWs.readyState === WebSocket.OPEN) {
-                    clearInterval(check); resolve();
-                }
-            }, 100);
-            setTimeout(() => { clearInterval(check); reject(new Error('Voice server timeout')); }, 5000);
-        }).catch(err => {
+    // Reuse an open socket. start_recording clears the server buffer so a
+    // second tap does not need a new WebSocket (that was doubling /ws).
+    if (!micWs || micWs.readyState !== WebSocket.OPEN) {
+        if (micWs) { try { micWs.close(); } catch(e) {} micWs = null; }
+        micConnect();
+        try {
+            await new Promise((resolve, reject) => {
+                const check = setInterval(() => {
+                    if (micWs && micWs.readyState === WebSocket.OPEN) {
+                        clearInterval(check); resolve();
+                    }
+                }, 100);
+                setTimeout(() => { clearInterval(check); reject(new Error('Voice server timeout')); }, 5000);
+            });
+        } catch (err) {
             console.error('[mic] WS connect FAILED:', err);
             return;
-        });
+        }
     }
 
     // Tell server which mode we're in so it doesn't auto-clear the buffer

@@ -13,6 +13,12 @@ import numpy as np
 from typing import Optional, Tuple
 from pathlib import Path
 
+from src.stt_guards import (
+    LIVE_WHISPER_TRANSCRIBE_KWARGS,
+    finalize_live_transcript,
+    keep_whisper_segment,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -126,12 +132,27 @@ class WhisperSTTTransport:
             self.is_initialized = True
             logger.info(f"Whisper model loaded successfully on {device}")
             return True
-            
-        except ImportError:
-            logger.error("faster-whisper not installed. Run: pip install faster-whisper")
-            return False
-        except Exception as e:
-            logger.error(f"Failed to load Whisper model: {e}")
+        except Exception as load_err:
+            # Live mic must still work if large-v3-turbo fails to load.
+            if self.model_size != "small":
+                logger.warning(
+                    "Whisper %s failed (%s); falling back to CPU small",
+                    self.model_size,
+                    load_err,
+                )
+                try:
+                    from faster_whisper import WhisperModel
+                    self.model = WhisperModel(
+                        "small", device="cpu", compute_type="int8"
+                    )
+                    self.model_size = "small"
+                    self.is_initialized = True
+                    logger.info("Whisper model loaded successfully on cpu (small)")
+                    return True
+                except Exception as small_err:
+                    logger.error("CPU small Whisper fallback failed: %s", small_err)
+                    return False
+            logger.error(f"Failed to load Whisper model: {load_err}")
             return False
     
     def audio_bytes_to_numpy(self, audio_bytes: bytes, sample_rate: int = 16000) -> np.ndarray:
@@ -172,28 +193,25 @@ class WhisperSTTTransport:
             # Convert to numpy
             audio_np = self.audio_bytes_to_numpy(audio_bytes)
             
-            # Run transcription
-            segments, info = self.model.transcribe(
-                audio_np,
-                language=language,
-                beam_size=5,
-                vad_filter=True,
-                vad_parameters=dict(min_silence_duration_ms=500)
-            )
-            
-            # Collect all text segments
+            kwargs = dict(LIVE_WHISPER_TRANSCRIBE_KWARGS)
+            kwargs["language"] = language
+            segments, info = self.model.transcribe(audio_np, **kwargs)
+
             text_parts = []
             for segment in segments:
-                text_parts.append(segment.text.strip())
-            
-            full_text = " ".join(text_parts).strip()
-            
+                if keep_whisper_segment(segment):
+                    text_parts.append(segment.text.strip())
+
+            full_text = finalize_live_transcript(text_parts)
             if full_text:
-                logger.debug(f"Transcribed: '{full_text[:50]}...' "
-                           f"(lang: {info.language}, prob: {info.language_probability:.2f})")
+                logger.debug(
+                    "Transcribed: '%s...' (lang: %s, prob: %.2f)",
+                    full_text[:50],
+                    getattr(info, "language", "?"),
+                    float(getattr(info, "language_probability", 0) or 0),
+                )
                 return full_text
-            else:
-                return None
+            return None
                 
         except Exception as e:
             logger.error(f"Transcription error: {e}")

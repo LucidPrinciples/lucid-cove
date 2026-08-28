@@ -55,6 +55,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif data.get("type") == "start_recording":
                     mode = data.get("mode", "full")
                     manager.connection_modes[client_id] = mode
+                    buffer = manager.audio_buffers.get(client_id)
+                    if buffer:
+                        buffer.clear()
                     logger.info(f"Client {client_id} started recording (mode={mode})")
                 elif data.get("type") == "end_audio":
                     mode = data.get("mode", "full")  # "full" or "transcribe"
