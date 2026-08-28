@@ -148,14 +148,20 @@ manager = ConnectionManager()
 def _transcribe_file(stt, filepath: str) -> str:
     """Transcribe an audio file using the STT model. Runs in thread pool."""
     try:
-        segments, info = stt.model.transcribe(
-            filepath,
-            language="en",
-            beam_size=5,
-            vad_filter=True,
+        from src.stt_guards import (
+            LIVE_WHISPER_TRANSCRIBE_KWARGS,
+            finalize_live_transcript,
+            keep_whisper_segment,
         )
-        parts = [seg.text.strip() for seg in segments if seg.text.strip()]
-        return "\n\n".join(parts) if parts else ""
+        segments, info = stt.model.transcribe(
+            filepath, **LIVE_WHISPER_TRANSCRIBE_KWARGS
+        )
+        parts = [
+            seg.text.strip()
+            for seg in segments
+            if keep_whisper_segment(seg)
+        ]
+        return finalize_live_transcript(parts) or ""
     except Exception as e:
         logger.error(f"Transcription error: {e}")
         return ""
