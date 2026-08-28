@@ -129,7 +129,8 @@ async def test_ensure_merchant_in_family_invites_live_mxid():
         "token": "mtok",
         "user_id": "@mercer:matrix.clearfield.localhost",
     }
-    with patch.object(ms, "_invite", side_effect=fake_invite), \
+    with patch.object(ms, "_joined_rooms", AsyncMock(return_value=set())), \
+         patch.object(ms, "_invite", side_effect=fake_invite), \
          patch.object(ms, "_join_room", side_effect=fake_join):
         await ms.ensure_merchant_in_family(
             merchant,
@@ -140,6 +141,103 @@ async def test_ensure_merchant_in_family_invites_live_mxid():
 
     assert invited == [("stok", ["!space", "!fam"], ["@mercer:matrix.clearfield.localhost"])]
     assert joined == [("mtok", "!space"), ("mtok", "!fam")]
+
+
+@pytest.mark.asyncio
+async def test_ensure_merchant_in_family_skips_join_when_already_in():
+    invited = []
+    joined = []
+
+    async def fake_invite(token, rooms, user_ids):
+        invited.append((token, rooms, user_ids))
+
+    async def fake_join(token, room_id):
+        joined.append((token, room_id))
+
+    merchant = {
+        "user": "mercer",
+        "token": "mtok",
+        "user_id": "@mercer:matrix.clearfield.localhost",
+    }
+    with patch.object(ms, "_joined_rooms", AsyncMock(return_value={"!space", "!fam"})), \
+         patch.object(ms, "_invite", side_effect=fake_invite), \
+         patch.object(ms, "_join_room", side_effect=fake_join):
+        await ms.ensure_merchant_in_family(
+            merchant,
+            steward_token="stok",
+            space_id="!space",
+            room_id="!fam",
+        )
+
+    assert invited == []
+    assert joined == []
+
+
+@pytest.mark.asyncio
+async def test_invite_skips_users_already_joined():
+    calls = []
+
+    async def fake_http(method, path, token=None, body=None):
+        calls.append((method, path, body))
+        if method == "GET" and path.endswith("/joined_members"):
+            return 200, {"joined": {"@mercer:x": {}, "@jag:x": {}}}
+        return 200, {}
+
+    with patch.object(ms, "_http", side_effect=fake_http):
+        await ms._invite("stok", ["!fam"], ["@mercer:x", "@new:x"])
+
+    posts = [c for c in calls if c[0] == "POST"]
+    assert len(posts) == 1
+    assert posts[0][2] == {"user_id": "@new:x"}
+
+
+@pytest.mark.asyncio
+async def test_join_room_skips_when_already_joined():
+    calls = []
+
+    async def fake_http(method, path, token=None, body=None):
+        calls.append((method, path))
+        if method == "GET" and path.endswith("/joined_rooms"):
+            return 200, {"joined_rooms": ["!fam"]}
+        return 200, {}
+
+    with patch.object(ms, "_http", side_effect=fake_http):
+        await ms._join_room("mtok", "!fam")
+
+    assert not any(c[0] == "POST" for c in calls)
+
+
+@pytest.mark.asyncio
+async def test_displayname_put_skipped_when_already_set():
+    calls = []
+
+    async def fake_http(method, path, token=None, body=None):
+        calls.append((method, path, body))
+        if method == "GET":
+            return 200, {"displayname": "Stuart"}
+        return 200, {}
+
+    with patch.object(ms, "_http", side_effect=fake_http):
+        await ms._set_cove_steward_displayname("tok", "@steward:x", "Stuart")
+
+    assert [c[0] for c in calls] == ["GET"]
+
+
+@pytest.mark.asyncio
+async def test_displayname_put_when_label_changed():
+    calls = []
+
+    async def fake_http(method, path, token=None, body=None):
+        calls.append((method, path, body))
+        if method == "GET":
+            return 200, {"displayname": "steward"}
+        return 200, {}
+
+    with patch.object(ms, "_http", side_effect=fake_http):
+        await ms._set_cove_steward_displayname("tok", "@steward:x", "Stuart")
+
+    assert [c[0] for c in calls] == ["GET", "PUT"]
+    assert calls[1][2] == {"displayname": "Stuart"}
 
 
 def test_invite_presence_routes_through_ensure():
