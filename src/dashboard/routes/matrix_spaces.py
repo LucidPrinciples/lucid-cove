@@ -272,16 +272,19 @@ def _cove_steward_label() -> str:
 
 
 async def _set_cove_steward_displayname(token: str, user_id: str, name: str) -> None:
-    """PUT the Cove steward profile displayname. Best-effort, idempotent."""
+    """PUT the Cove steward profile displayname. Best-effort, idempotent.
+
+    GET first — a same-name PUT can still emit a profile event some clients
+    render in the room timeline.
+    """
     label = (name or "").strip()
     if not (token and user_id and label):
         return
-    s, _ = await _http(
-        "PUT",
-        "/_matrix/client/v3/profile/%s/displayname" % _up.quote(user_id),
-        token,
-        {"displayname": label},
-    )
+    path = "/_matrix/client/v3/profile/%s/displayname" % _up.quote(user_id)
+    s, data = await _http("GET", path, token)
+    if s == 200 and ((data or {}).get("displayname") or "").strip() == label:
+        return
+    s, _ = await _http("PUT", path, token, {"displayname": label})
     if s != 200:
         log.info("cove steward displayname set returned %s", s)
 
@@ -334,10 +337,11 @@ def merchant_mxid(merchant: dict | None) -> str:
 async def ensure_merchant_in_family(
     merchant: dict | None, *, steward_token: str, space_id: str, room_id: str
 ) -> None:
-    """Invite + join the merchant into Space/Family. Idempotent.
+    """Invite + join the merchant into Space/Family if they are not already in.
 
-    Worker bind must call this even when the rooms already exist — minting
-    the account is not membership. Invite uses the live login MXID.
+    Minting the account is not membership, so bind still calls this after a
+    restart — but a repeated POST /join while already joined emits a new
+    membership event and clients show “joined the room” on every tick.
     """
     if not (merchant and merchant.get("token") and room_id and steward_token):
         return
@@ -345,17 +349,48 @@ async def ensure_merchant_in_family(
     if not mid:
         return
     try:
-        await _invite(steward_token, [space_id, room_id], [mid])
-        if space_id:
-            await _join_room(merchant["token"], space_id)
-        await _join_room(merchant["token"], room_id)
+        already = await _joined_rooms(merchant["token"])
+        need = [rid for rid in (space_id, room_id) if rid and rid not in already]
+        if not need:
+            return
+        await _invite(steward_token, need, [mid])
+        for rid in need:
+            await _join_room(merchant["token"], rid)
     except Exception as e:
         log.info("merchant family join skipped: %s", e)
+
+
+async def _joined_rooms(token: str) -> set[str]:
+    """Room ids this token is already joined to. Empty on error (fail open)."""
+    if not token:
+        return set()
+    s, r = await _http("GET", "/_matrix/client/v3/joined_rooms", token)
+    if s != 200:
+        return set()
+    rooms = (r or {}).get("joined_rooms") or []
+    return {rid for rid in rooms if rid}
+
+
+async def _joined_user_ids(token: str, room_id: str) -> set[str]:
+    """MXIDs already joined to this room, from the steward's view."""
+    if not (token and room_id):
+        return set()
+    s, r = await _http(
+        "GET",
+        "/_matrix/client/v3/rooms/%s/joined_members" % _up.quote(room_id),
+        token,
+    )
+    if s != 200:
+        return set()
+    joined = (r or {}).get("joined") or {}
+    return set(joined.keys())
 
 
 async def _join_room(token: str, room_id: str) -> None:
     """Join a room we were invited to (merchant into steward-owned Family)."""
     if not (token and room_id):
+        return
+    if room_id in await _joined_rooms(token):
         return
     s, r = await _http(
         "POST",
@@ -372,8 +407,11 @@ async def _invite(token: str, rooms: list, user_ids: list):
     for room in rooms:
         if not room:
             continue
+        already = await _joined_user_ids(token, room)
         rq = _up.quote(room)
         for uid in user_ids:
+            if uid in already:
+                continue
             s, r = await _http("POST", "/_matrix/client/v3/rooms/%s/invite" % rq, token,
                                {"user_id": uid})
             # Already-joined / already-invited come back M_FORBIDDEN — that's fine.
