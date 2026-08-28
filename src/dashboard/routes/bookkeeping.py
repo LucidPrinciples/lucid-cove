@@ -9,7 +9,7 @@ GET   /api/books/map            vendor/phrase rules
 PUT   /api/books/map            replace rules; apply to uncategorized
 POST  /api/books/seed-map       fill map from already-placed payees
 POST  /api/books/account        create a blank ledger + Drop folder
-POST  /api/books/process        ingest text/CSV from that ledger's Drop folder
+POST  /api/books/process        ingest CSV/text/PDF from that ledger's Drop folder
 POST  /api/books/line           add a typed line on the Manual book
 POST  /api/books/lines/paste    bulk-add copied statement rows on the Manual book
 PATCH /api/books/line/state     disable or restore a statement or typed line
@@ -326,10 +326,10 @@ async def _list_drop_files(request: Request, folder: str) -> tuple[list[str], st
     return names[: bk.MAX_DROP_FILES], None
 
 
-async def _read_drop_text(request: Request, folder: str, name: str) -> tuple[str | None, str | None, int]:
+async def _read_drop_bytes(request: Request, folder: str, name: str) -> tuple[bytes | None, str | None, int]:
     kind = bk.drop_file_kind(name)
-    if kind != "text":
-        return None, "Not a text statement", 400
+    if kind not in ("text", "pdf", "image"):
+        return None, "Not a statement file", 400
     rel = f"{folder.rstrip('/')}/{name.split('/')[-1]}"
     if ".." in rel.split("/"):
         return None, "Invalid path", 400
@@ -349,10 +349,7 @@ async def _read_drop_text(request: Request, folder: str, name: str) -> tuple[str
         return None, f"WebDAV error: HTTP {resp.status_code}", 502
     if len(resp.content) > bk.MAX_DROP_FILE_BYTES:
         return None, "Statement file is too large", 413
-    try:
-        return resp.content.decode("utf-8-sig"), None, 200
-    except UnicodeDecodeError:
-        return None, "Statement must be UTF-8 text", 415
+    return resp.content, None, 200
 
 
 def _parse_book(request: Request, body: dict | None = None) -> str:
@@ -1120,30 +1117,44 @@ async def books_process_drop(request: Request):
     skipped = 0
     pending = 0
     processed = 0
+    ocr_used = 0
     last_err = None
     for name in files:
         kind = bk.drop_file_kind(name)
-        if kind == "pending":
+        if kind not in ("text", "pdf", "image"):
+            continue
+        blob, rerr2, _rstatus2 = await _read_drop_bytes(request, folder, name)
+        if rerr2 or blob is None:
+            last_err = rerr2
             pending += 1
             continue
-        if kind != "text":
+        text, how = bk.extract_statement_text(blob, kind)
+        if how in ("missing", "empty", "error") or not text:
+            last_err = {
+                "missing": "PDF tools are not in this app image yet",
+                "empty": "No readable text in that statement",
+                "error": "Could not read that statement",
+            }.get(how, "Could not read that statement")
+            pending += 1
             continue
-        text, rerr2, rstatus2 = await _read_drop_text(request, folder, name)
-        if rerr2 or text is None:
-            last_err = rerr2
-            continue
-        parsed, errors = bk.parse_pasted_lines(text, default_year=year_i)
+        parsed, errors = bk.parse_pasted_lines(
+            text, default_year=year_i, max_lines=bk.MAX_IMPORT_LINES
+        )
         if not parsed:
             last_err = (errors or ["No rows found"])[0]
+            pending += 1
             continue
         updated, n_added, n_skipped, uerr = bk.append_imported_rows(payload, parsed, source_file=name)
         if uerr or updated is None:
             last_err = uerr
+            pending += 1
             continue
         payload = updated
         added += n_added
         skipped += n_skipped
         processed += 1
+        if how == "ocr":
+            ocr_used += 1
     if added:
         payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         werr, wstatus = await _write_ledger(request, clean, payload)
@@ -1160,6 +1171,7 @@ async def books_process_drop(request: Request):
         "skipped": skipped,
         "pending": pending,
         "processed": processed,
+        "ocr": ocr_used,
         "files": len(files),
         "needs_review_count": payload.get("needs_review_count"),
     })

@@ -621,7 +621,8 @@ async function processDrop() {
   const bits = [];
   if (data.added) bits.push(`added ${data.added}`);
   if (data.skipped) bits.push(`skipped ${data.skipped} duplicates`);
-  if (data.pending) bits.push(`${data.pending} image/PDF left in Drop (text/CSV only this pass)`);
+  if (data.ocr) bits.push(`${data.ocr} from images`);
+  if (data.pending) bits.push(`${data.pending} still unread`);
   if (!bits.length) bits.push('nothing new');
   $('status').innerHTML = `<span class="okmsg">${escapeHtml(bits.join(' · '))}</span>`;
   await loadSummary();
