@@ -1128,8 +1128,11 @@ async def books_process_drop(request: Request):
             last_err = rerr2
             pending += 1
             continue
-        text, how = bk.extract_statement_text(blob, kind)
-        if how in ("missing", "empty", "error") or not text:
+        file_year = bk.year_from_drop_name(name, year_i)
+        parsed, how, errors = bk.extract_and_parse_statement(
+            blob, kind, default_year=file_year
+        )
+        if how in ("missing", "empty", "error"):
             last_err = {
                 "missing": "PDF tools are not in this app image yet",
                 "empty": "No readable text in that statement",
@@ -1137,9 +1140,6 @@ async def books_process_drop(request: Request):
             }.get(how, "Could not read that statement")
             pending += 1
             continue
-        parsed, errors = bk.parse_pasted_lines(
-            text, default_year=year_i, max_lines=bk.MAX_IMPORT_LINES
-        )
         if not parsed:
             last_err = (errors or ["No rows found"])[0]
             pending += 1

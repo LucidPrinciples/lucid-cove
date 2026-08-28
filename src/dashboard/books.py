@@ -29,7 +29,10 @@ MAX_ACCOUNT_LABEL = 40
 MAX_DROP_FILES = 40
 MAX_DROP_FILE_BYTES = 8_000_000
 MAX_IMPORT_LINES = 2000
-MAX_PDF_PAGES = 12
+MAX_PDF_PAGES = 24
+MIN_STATEMENT_PAYEE = 3
+MIN_PDF_TEXT_CHARS = 120
+MIN_PDF_TEXT_LINES = 8
 TEXT_DROP_EXTS = (".csv", ".txt", ".tsv")
 PDF_DROP_EXTS = (".pdf",)
 IMAGE_DROP_EXTS = (".png", ".jpg", ".jpeg", ".heic", ".webp")
@@ -233,7 +236,7 @@ def extract_pdf_text(data: bytes) -> tuple[str, str]:
             if chunk.strip():
                 parts.append(chunk)
         text = "\n".join(parts).strip()
-        return text, "text" if len(text) >= 40 else "empty"
+        return text, "text" if pdf_text_looks_usable(text) else "empty"
     except Exception:
         return "", "error"
 
@@ -263,7 +266,7 @@ def extract_ocr_text(data: bytes, kind: str) -> tuple[str, str]:
         if kind == "pdf":
             images = convert_from_bytes(
                 data,
-                dpi=120,
+                dpi=200,
                 first_page=1,
                 last_page=MAX_PDF_PAGES,
             )
@@ -271,7 +274,8 @@ def extract_ocr_text(data: bytes, kind: str) -> tuple[str, str]:
             images = [Image.open(io.BytesIO(data))]
         parts: list[str] = []
         for im in images[:MAX_PDF_PAGES]:
-            chunk = pytesseract.image_to_string(im) or ""
+            work = im.convert("L") if hasattr(im, "convert") else im
+            chunk = pytesseract.image_to_string(work, config="--psm 6") or ""
             if chunk.strip():
                 parts.append(chunk)
         text = "\n".join(parts).strip()
@@ -303,6 +307,48 @@ def extract_statement_text(data: bytes, kind: str) -> tuple[str, str]:
             return text, "ocr"
         return "", mode
     return "", "empty"
+
+
+def extract_and_parse_statement(
+    data: bytes,
+    kind: str,
+    default_year: int | None = None,
+) -> tuple[list[dict], str, list[str]]:
+    """Pick digital text or OCR by how many real rows parse. Never log contents."""
+    if kind == "text":
+        text, how = extract_statement_text(data, kind)
+        if not text:
+            return [], how or "empty", ["No readable text in that statement"]
+        rows, errors = parse_pasted_lines(
+            text, default_year=default_year, max_lines=MAX_IMPORT_LINES
+        )
+        return rows, how, errors
+    candidates: list[tuple[list[dict], str, list[str]]] = []
+    if kind == "pdf":
+        dtext, dmode = extract_pdf_text(data)
+        if dmode == "missing":
+            return [], "missing", ["PDF tools are not in this app image yet"]
+        if dtext:
+            drows, derr = parse_pasted_lines(
+                dtext, default_year=default_year, max_lines=MAX_IMPORT_LINES
+            )
+            candidates.append((drows, "text", derr))
+    ocr_kind = "pdf" if kind == "pdf" else "image"
+    otext, omode = extract_ocr_text(data, ocr_kind)
+    if omode == "missing":
+        if not candidates:
+            return [], "missing", ["PDF tools are not in this app image yet"]
+    elif otext:
+        orows, oerr = parse_pasted_lines(
+            otext, default_year=default_year, max_lines=MAX_IMPORT_LINES
+        )
+        candidates.append((orows, "ocr", oerr))
+    if not candidates:
+        return [], omode if kind != "pdf" else "empty", ["No readable text in that statement"]
+    best = max(candidates, key=lambda item: len(item[0]))
+    if best[0]:
+        return best
+    return [], best[1], best[2] or ["No rows found"]
 
 
 def statement_fingerprint(date: str, payee: str, amount: Any) -> str:
@@ -542,13 +588,19 @@ def parse_loose_date(value: str, default_year: int | None = None) -> datetime | 
     hit = parse_row_date({"Date": s})
     if hit is not None:
         return hit
+    year = default_year or datetime.utcnow().year
+    m = re.fullmatch(r"(\d{1,2})/(\d{1,2})", s)
+    if m:
+        try:
+            return datetime(year, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            return None
     m = re.fullmatch(r"([A-Za-z]{3,9})\s+(\d{1,2})", s)
     if not m:
         return None
     month = _MONTH_PREFIX.get(m.group(1)[:3].lower())
     if not month:
         return None
-    year = default_year or datetime.utcnow().year
     try:
         return datetime(year, month, int(m.group(2)))
     except ValueError:
@@ -592,6 +644,95 @@ def looks_like_header(cells: list[str]) -> bool:
     return blob in ("date", "description", "amount")
 
 
+def pdf_text_looks_usable(text: str) -> bool:
+    """Thin PDF text layers (a few glyphs) should lose to OCR."""
+    s = (text or "").strip()
+    if len(s) < MIN_PDF_TEXT_CHARS:
+        return False
+    lines = [ln for ln in s.splitlines() if ln.strip()]
+    if len(lines) < MIN_PDF_TEXT_LINES:
+        return False
+    money = len(re.findall(r"\$?\d{1,3}(?:,\d{3})*\.\d{2}", s))
+    dates = len(re.findall(r"\b(?:\d{1,2}/\d{1,2}(?:/\d{2,4})?|[A-Za-z]{3,9}\s+\d{1,2})\b", s))
+    return money >= 3 and dates >= 3
+
+
+def year_from_drop_name(name: str, fallback: int | None = None) -> int | None:
+    n = (name or "").replace("\\", "/").split("/")[-1]
+    m = re.search(r"(20\d{2})", n)
+    if m:
+        return int(m.group(1))
+    return fallback
+
+
+def is_statement_amount(cell: str) -> bool:
+    s = str(cell or "").strip()
+    if not s or parse_money(s) is None:
+        return False
+    if not re.search(r"\d", s):
+        return False
+    if "$" in s or "," in s or re.search(r"\.\d{2}\b", s):
+        return True
+    return False
+
+
+def clean_statement_payee(value: str) -> str:
+    s = re.sub(r"\s+", " ", str(value or "").strip())
+    s = re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9.)%/-]+$", "", s)
+    return s.strip(" -")
+
+
+def payee_is_usable(value: str) -> bool:
+    s = clean_statement_payee(value)
+    letters = re.sub(r"[^A-Za-z]", "", s)
+    if len(s) < MIN_STATEMENT_PAYEE or len(letters) < MIN_STATEMENT_PAYEE:
+        return False
+    low = s.lower()
+    if low in {
+        "total", "amount", "date", "description", "balance", "payment",
+        "purchases", "fees", "interest", "page", "continued",
+    }:
+        return False
+    return True
+
+
+def stitch_statement_lines(lines: list[str]) -> list[str]:
+    """Join wrapped OCR rows so date and amount land on one line."""
+    out: list[str] = []
+    buf = ""
+    for raw in lines:
+        line = (raw or "").strip()
+        if not line:
+            continue
+        if buf:
+            buf = f"{buf} {line}"
+            if _line_has_amount(buf):
+                out.append(buf)
+                buf = ""
+            continue
+        if _line_has_date(line) and not _line_has_amount(line):
+            buf = line
+            continue
+        out.append(line)
+    if buf:
+        out.append(buf)
+    return out
+
+
+def _line_has_date(line: str) -> bool:
+    cells = coalesce_month_day(split_paste_cells(line))
+    if cells and parse_loose_date(cells[0]) is not None:
+        return True
+    return bool(re.search(
+        r"\b(?:\d{1,2}/\d{1,2}(?:/\d{2,4})?|[A-Za-z]{3,9}\s+\d{1,2})\b",
+        line or "",
+    ))
+
+
+def _line_has_amount(line: str) -> bool:
+    return bool(re.search(r"\$?\d{1,3}(?:,\d{3})*\.\d{2}", line or ""))
+
+
 def parse_pasted_lines(
     text: str,
     default_year: int | None = None,
@@ -608,42 +749,39 @@ def parse_pasted_lines(
     if len(lines) > cap:
         return [], [f"Paste is over {cap} lines"]
     year = default_year
+    lines = stitch_statement_lines(lines)
+    if len(lines) > cap:
+        lines = lines[:cap]
     for i, line in enumerate(lines, start=1):
         cells = coalesce_month_day(split_paste_cells(line))
         if not cells:
             continue
-        if i == 1 and looks_like_header(cells):
+        if looks_like_header(cells):
             continue
         money_idx = None
         for idx in range(len(cells) - 1, 0, -1):
-            cell = cells[idx]
-            if parse_money(cell) is not None and re.search(r"\d", cell):
+            if is_statement_amount(cells[idx]):
                 money_idx = idx
                 break
         if money_idx is None:
             blob = " ".join(cells[1:]) if len(cells) > 1 else line
-            m = re.search(r"(-?\$?\(?[0-9][0-9,]*(?:\.[0-9]{2})?\)?)$", blob.strip())
+            m = re.search(
+                r"(-?\$?\(?[0-9][0-9,]*(?:\.[0-9]{2})\)?-?)$",
+                blob.strip(),
+            )
             if not m:
-                errors.append(f"Line {i}: no amount")
                 continue
             amount_s = m.group(1)
-            payee_s = blob[: m.start()].strip()
+            payee_s = clean_statement_payee(blob[: m.start()])
             dt = parse_loose_date(cells[0], year)
-            start_payee_from_second = False
             if dt is None and len(cells) >= 2:
                 dt = parse_loose_date(cells[1], year)
-                start_payee_from_second = True
-                if start_payee_from_second and payee_s.lower().startswith(str(cells[1]).lower()):
-                    payee_s = payee_s[len(cells[1]):].strip()
-            if dt is None:
-                errors.append(f"Line {i}: no date")
-                continue
-            if not payee_s:
-                errors.append(f"Line {i}: no payee")
+                if dt is not None and payee_s.lower().startswith(str(cells[1]).lower()):
+                    payee_s = clean_statement_payee(payee_s[len(cells[1]):])
+            if dt is None or not payee_is_usable(payee_s):
                 continue
             amt = parse_money(amount_s)
             if amt is None:
-                errors.append(f"Line {i}: no amount")
                 continue
             rows.append({"date": dt.strftime("%Y-%m-%d"), "payee": payee_s, "amount": amt})
             continue
@@ -657,18 +795,13 @@ def parse_pasted_lines(
                     dt = post
                 start = 2
         if dt is None:
-            errors.append(f"Line {i}: no date")
             continue
-        payee_s = " ".join(c for c in cells[start:money_idx] if c).strip()
+        payee_s = clean_statement_payee(" ".join(c for c in cells[start:money_idx] if c))
         amt = parse_money(amount_s)
-        if amt is None:
-            errors.append(f"Line {i}: no amount")
-            continue
-        if not payee_s:
-            errors.append(f"Line {i}: no payee")
+        if amt is None or not payee_is_usable(payee_s):
             continue
         rows.append({"date": dt.strftime("%Y-%m-%d"), "payee": payee_s, "amount": amt})
-    if not rows and not errors:
+    if not rows:
         errors.append("No rows found")
     return rows, errors
 

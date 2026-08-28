@@ -483,3 +483,59 @@ def test_append_imported_rows_skips_duplicates():
     again, added2, skipped2, err2 = bk.append_imported_rows(updated, items[:1], source_file="JUN.csv")
     assert err2 is None
     assert added2 == 0 and skipped2 == 1
+
+
+def test_pdf_text_layer_loses_when_it_has_no_rows():
+    thin = "Page 1\nAB\nCD\nBalance"
+    assert bk.pdf_text_looks_usable(thin) is False
+    dense = (
+        "Trans Date Description Amount\n"
+        "Jun 01 Sample Vendor Co $12.00\n"
+        "Jun 02 Other Merchant LLC $8.50\n"
+        "Jun 03 Third Place Shop $4.25\n"
+        "Jun 04 Fourth Store Inc $1.00\n"
+        "Jun 05 Fifth Vendor LLC $2.00\n"
+        "Jun 06 Sixth Market Co $3.00\n"
+        "Jun 07 Seventh Depot $6.00\n"
+    )
+    assert bk.pdf_text_looks_usable(dense) is True
+
+
+def test_statement_parser_skips_two_letter_payee_and_stitches_wrap():
+    junk, errors = bk.parse_pasted_lines(
+        "Jun 01 AB 12.00\nPage 2 3 4",
+        default_year=2025,
+        max_lines=bk.MAX_IMPORT_LINES,
+    )
+    assert junk == []
+    assert errors
+
+    wrapped, werr = bk.parse_pasted_lines(
+        "Jun 01\nSample Vendor Co $12.00\n"
+        "06/02 Other Merchant LLC 8.50",
+        default_year=2025,
+        max_lines=bk.MAX_IMPORT_LINES,
+    )
+    assert not werr
+    assert len(wrapped) == 2
+    assert wrapped[0]["date"] == "2025-06-01"
+    assert "sample vendor" in wrapped[0]["payee"].lower()
+    assert wrapped[0]["amount"] == 12.0
+    assert wrapped[1]["date"] == "2025-06-02"
+    assert "other merchant" in wrapped[1]["payee"].lower()
+
+
+def test_year_from_drop_name_and_extract_picks_row_richer_pass():
+    assert bk.year_from_drop_name("JUNStatementImage.pdf", 2025) == 2025
+    assert bk.year_from_drop_name("statement-2024.pdf", 2025) == 2024
+    from io import BytesIO
+    from pypdf import PdfWriter
+
+    buf = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.write(buf)
+    rows, how, errors = bk.extract_and_parse_statement(buf.getvalue(), "pdf", default_year=2025)
+    assert rows == []
+    assert how in ("empty", "error", "missing", "ocr", "text")
+    assert isinstance(errors, list)
