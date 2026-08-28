@@ -539,3 +539,45 @@ def test_year_from_drop_name_and_extract_picks_row_richer_pass():
     assert rows == []
     assert how in ("empty", "error", "missing", "ocr", "text")
     assert isinstance(errors, list)
+
+
+def test_pnl_expense_kind_wins_without_minus():
+    rows = [
+        _row("2025-03-01", "40.00", "Advertising"),
+        _row("2025-03-02", "-12.00", "Advertising"),
+        _row("2025-03-03", "25.00", "Owner Loan"),
+    ]
+    chart = [
+        {"label": "Advertising", "kind": bk.EXPENSE_KIND},
+        {"label": "Owner Loan", "kind": bk.TRANSFER_KIND},
+    ]
+    pnl = bk.pnl_from_rows(rows, chart=chart)
+    assert pnl["expense_total"] == 52.0
+    assert pnl["income_total"] == 0.0
+    assert pnl["net"] == -52.0
+    assert any(x["label"] == "Owner Loan" for x in pnl["transfers"])
+    assert pnl["disabled_count"] == 0
+
+
+def test_update_row_details_and_disabled_list():
+    payload = {
+        "working_chart": [{"label": "Advertising", "kind": "expense"}],
+        "rows": [_row("2025-03-01", "40.00", "Advertising", name="Studio")],
+    }
+    updated, err = bk.update_row_details(
+        payload, 0, amount="40.00", category="Advertising", payee="Studio Rent", date="2025-03-04"
+    )
+    assert err is None and updated is not None
+    assert bk.row_signed_amount(updated["rows"][0]) == -40.0
+    assert bk.row_payee(updated["rows"][0]) == "Studio Rent"
+    disabled, err = bk.set_row_disabled(updated, 0, True)
+    assert err is None
+    hidden = bk.collect_lines(disabled["rows"], "Bookkeeping/Organize/manual.mapped.json", category="Advertising")
+    assert hidden == []
+    shown = bk.collect_lines(
+        disabled["rows"], "Bookkeeping/Organize/manual.mapped.json", category=bk.DISABLED_LINES
+    )
+    assert len(shown) == 1 and shown[0]["disabled"] is True
+    pnl = bk.pnl_from_rows(disabled["rows"])
+    assert pnl["disabled_count"] == 1
+    assert pnl["row_count"] == 0
