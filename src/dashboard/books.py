@@ -27,9 +27,12 @@ MAX_COMBINED_LINES = 4000
 MAX_PASTE_LINES = 200
 MAX_ACCOUNT_LABEL = 40
 MAX_DROP_FILES = 40
-MAX_DROP_FILE_BYTES = 200_000
+MAX_DROP_FILE_BYTES = 8_000_000
+MAX_IMPORT_LINES = 2000
+MAX_PDF_PAGES = 12
 TEXT_DROP_EXTS = (".csv", ".txt", ".tsv")
-PENDING_DROP_EXTS = (".pdf", ".png", ".jpg", ".jpeg", ".heic", ".webp")
+PDF_DROP_EXTS = (".pdf",)
+IMAGE_DROP_EXTS = (".png", ".jpg", ".jpeg", ".heic", ".webp")
 _RESERVED_STEMS = frozenset({
     "manual",
     "all",
@@ -202,10 +205,104 @@ def drop_file_kind(name: str) -> str:
     for ext in TEXT_DROP_EXTS:
         if n.endswith(ext):
             return "text"
-    for ext in PENDING_DROP_EXTS:
+    for ext in PDF_DROP_EXTS:
         if n.endswith(ext):
-            return "pending"
+            return "pdf"
+    for ext in IMAGE_DROP_EXTS:
+        if n.endswith(ext):
+            return "image"
     return ""
+
+
+def extract_pdf_text(data: bytes) -> tuple[str, str]:
+    """Pull selectable text from a PDF. Never log the contents."""
+    if not data:
+        return "", "empty"
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return "", "missing"
+    try:
+        import io
+
+        reader = PdfReader(io.BytesIO(data))
+        pages = list(reader.pages)[:MAX_PDF_PAGES]
+        parts: list[str] = []
+        for page in pages:
+            chunk = page.extract_text() or ""
+            if chunk.strip():
+                parts.append(chunk)
+        text = "\n".join(parts).strip()
+        return text, "text" if len(text) >= 40 else "empty"
+    except Exception:
+        return "", "error"
+
+
+def ocr_available() -> bool:
+    try:
+        import pytesseract  # noqa: F401
+        from pdf2image import convert_from_bytes  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def extract_ocr_text(data: bytes, kind: str) -> tuple[str, str]:
+    """OCR a PDF or image. Never log the contents."""
+    if not data:
+        return "", "empty"
+    try:
+        import pytesseract
+        from pdf2image import convert_from_bytes
+        from PIL import Image
+        import io
+    except ImportError:
+        return "", "missing"
+    try:
+        images = []
+        if kind == "pdf":
+            images = convert_from_bytes(
+                data,
+                dpi=120,
+                first_page=1,
+                last_page=MAX_PDF_PAGES,
+            )
+        else:
+            images = [Image.open(io.BytesIO(data))]
+        parts: list[str] = []
+        for im in images[:MAX_PDF_PAGES]:
+            chunk = pytesseract.image_to_string(im) or ""
+            if chunk.strip():
+                parts.append(chunk)
+        text = "\n".join(parts).strip()
+        return text, "text" if len(text) >= 40 else "empty"
+    except Exception:
+        return "", "error"
+
+
+def extract_statement_text(data: bytes, kind: str) -> tuple[str, str]:
+    """Return (text, how). how is text, ocr, empty, missing, or error."""
+    if kind == "text":
+        try:
+            return data.decode("utf-8-sig"), "text"
+        except UnicodeDecodeError:
+            return "", "error"
+    if kind == "pdf":
+        text, mode = extract_pdf_text(data)
+        if mode == "text":
+            return text, "text"
+        ocr_text, omode = extract_ocr_text(data, "pdf")
+        if omode == "text":
+            return ocr_text, "ocr"
+        if mode == "missing" or omode == "missing":
+            return "", "missing"
+        return "", omode if omode != "empty" else mode
+    if kind == "image":
+        text, mode = extract_ocr_text(data, "image")
+        if mode == "text":
+            return text, "ocr"
+        return "", mode
+    return "", "empty"
 
 
 def statement_fingerprint(date: str, payee: str, amount: Any) -> str:
@@ -495,7 +592,11 @@ def looks_like_header(cells: list[str]) -> bool:
     return blob in ("date", "description", "amount")
 
 
-def parse_pasted_lines(text: str, default_year: int | None = None) -> tuple[list[dict], list[str]]:
+def parse_pasted_lines(
+    text: str,
+    default_year: int | None = None,
+    max_lines: int | None = None,
+) -> tuple[list[dict], list[str]]:
     """Parse copied statement rows. Never log payees or amounts."""
     errors: list[str] = []
     rows: list[dict] = []
@@ -503,8 +604,9 @@ def parse_pasted_lines(text: str, default_year: int | None = None) -> tuple[list
         return [], ["Paste is empty"]
     raw_lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     lines = [ln.strip() for ln in raw_lines if ln.strip()]
-    if len(lines) > MAX_PASTE_LINES:
-        return [], [f"Paste is over {MAX_PASTE_LINES} lines"]
+    cap = MAX_PASTE_LINES if max_lines is None else int(max_lines)
+    if len(lines) > cap:
+        return [], [f"Paste is over {cap} lines"]
     year = default_year
     for i, line in enumerate(lines, start=1):
         cells = coalesce_month_day(split_paste_cells(line))

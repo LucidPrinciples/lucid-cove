@@ -30,6 +30,9 @@ dependencies = [
     "cryptography>=42.0",
     "pillow>=10.4",
     "pillow-heif>=0.18",
+    "pypdf>=5.0",
+    "pdf2image>=1.17",
+    "pytesseract>=0.3",
     "qrcode>=7.4",
     "lucid-tuner-protocol>=0.4.0",
 ]

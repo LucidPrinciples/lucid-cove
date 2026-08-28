@@ -436,9 +436,26 @@ def test_new_account_spec_and_drop_folder():
     assert bad is None and err
     empty, err = bk.new_account_spec("   ")
     assert empty is None and err
-    assert bk.drop_file_kind("JUNStatementImage.pdf") == "pending"
+    assert bk.drop_file_kind("JUNStatementImage.pdf") == "pdf"
     assert bk.drop_file_kind("july.csv") == "text"
+    assert bk.drop_file_kind("shot.png") == "image"
     assert bk.drop_file_kind("notes.md") == ""
+
+
+def test_extract_pdf_text_from_digital_statement():
+    from io import BytesIO
+    from pypdf import PdfWriter, PdfReader
+
+    buf = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.write(buf)
+    data = buf.getvalue()
+    text, mode = bk.extract_pdf_text(data)
+    assert mode in ("empty", "text")
+    assert isinstance(text, str)
+    reader = PdfReader(BytesIO(data))
+    assert len(reader.pages) == 1
 
 
 def test_empty_account_is_transfer_target_without_rows():

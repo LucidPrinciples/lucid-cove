@@ -111,6 +111,9 @@ zstandard==0.25.0
 cryptography==49.0.0
 pillow==12.3.0
 pillow-heif==1.4.0
+pdf2image==1.17.0
+pypdf==6.16.2
+pytesseract==0.3.13
 qrcode==8.2
 # Dev dependencies (not needed in production)
 # iniconfig==2.3.0

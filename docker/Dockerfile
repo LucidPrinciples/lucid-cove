@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     openssh-client \
     postgresql-client \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Install Python dependencies ─────────────────────────────────────────
