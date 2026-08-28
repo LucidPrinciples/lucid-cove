@@ -57,9 +57,9 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .line-row select{max-width:220px}
 .status{padding:6px 16px;font-size:.8rem;color:var(--dim);flex-shrink:0}
 .hide{display:none}
-#pnlView,#detailView,#mapView{flex:1;min-height:0;flex-direction:column}
+#pnlView,#detailView,#mapView,#txView{flex:1;min-height:0;flex-direction:column}
 #pnlView{display:flex}
-#pnlView.hide,#detailView.hide,#mapView.hide{display:none}
+#pnlView.hide,#detailView.hide,#mapView.hide,#txView.hide{display:none}
 .sec-head td{padding-top:18px;padding-bottom:6px;font-size:.72rem;letter-spacing:.08em;
   text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border);background:var(--bg)}
 .sec-total td{font-weight:600;border-bottom:none;padding-top:8px}
@@ -77,6 +77,14 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .line-row.off td:last-child{opacity:1}
 .acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 .acts button{padding:4px 8px;font-size:.78rem}
+#txView{flex:1;min-height:0;flex-direction:column}
+#txView.hide{display:none}
+.tx-form{display:flex;flex-direction:column;gap:12px;padding:16px;max-width:560px}
+.tx-form label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--dim)}
+.tx-form .row{display:flex;gap:8px;flex-wrap:wrap}
+.tx-form .row label{flex:1;min-width:140px}
+.xfer-toggle td{color:var(--dim)}
+.line-row td.payee{cursor:pointer}
 </style>
 </head>
 <body>
@@ -150,6 +158,28 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
     </table>
   </div>
 </div>
+<div id="txView" class="hide" style="display:none;flex-direction:column;flex:1;min-height:0">
+  <div class="detail-bar">
+    <button type="button" id="btnTxBack">← Transactions</button>
+    <h2>Transaction</h2>
+  </div>
+  <div class="scroll">
+    <form class="tx-form" id="txForm">
+      <div class="row">
+        <label>Date <input id="txDate" type="date"></label>
+        <label>Amount <input id="txAmt" class="amt" type="text" inputmode="decimal"></label>
+      </div>
+      <label>Payee <input id="txPayee" type="text" autocomplete="off"></label>
+      <label>Category <select id="txCat"></select></label>
+      <label>Book <select id="txBook"></select></label>
+      <div class="batch">
+        <button type="button" class="primary" id="btnTxSave">Save</button>
+        <button type="button" id="btnTxDisable">Disable</button>
+        <button type="button" id="btnTxRemove" class="hide">Remove</button>
+      </div>
+    </form>
+  </div>
+</div>
 <div id="mapView" class="hide" style="display:none;flex-direction:column;flex:1;min-height:0">
   <div class="map-bar">
     <button type="button" id="btnMapBack">← P&amp;L</button>
@@ -172,7 +202,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div class="status" id="status"></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { path: 'all', book: 'chords', books: [], chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [] };
+const state = { path: 'all', book: 'chords', books: [], chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [], transfersOpen: false, tx: null };
 
 function money(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -285,6 +315,7 @@ function hideViews() {
   $('pnlView').classList.add('hide');
   $('detailView').style.display = 'none';
   $('mapView').style.display = 'none';
+  if ($('txView')) $('txView').style.display = 'none';
 }
 function showPasteBar(on) {
   const bar = $('pasteBar');
@@ -315,6 +346,37 @@ function showMap() {
   $('mapView').style.display = 'flex';
   renderMap();
 }
+function showTx() {
+  hideViews();
+  showAddBar(false);
+  showPasteBar(false);
+  $('txView').style.display = 'flex';
+}
+function fillTxBooks(selected) {
+  const sel = $('txBook');
+  if (!sel) return;
+  const list = (state.books || []).filter(b => (b.id || b) !== 'all-books');
+  sel.innerHTML = list.map(item => {
+    const id = item.id || item;
+    const label = item.label || id;
+    const on = selected && selected === id ? ' selected' : '';
+    return `<option value="${escapeHtml(id)}"${on}>${escapeHtml(label)}</option>`;
+  }).join('');
+}
+function openTx(line) {
+  state.tx = line;
+  fillTxBooks(line.filing_book || state.book);
+  $('txDate').value = line.date || '';
+  $('txPayee').value = line.payee || '';
+  const amt = Number(line.amount);
+  $('txAmt').value = Number.isNaN(amt) ? '' : String(amt);
+  $('txCat').innerHTML = chartOptions(line.category);
+  $('txCat').value = line.category || '';
+  $('btnTxDisable').textContent = line.disabled ? 'Restore' : 'Disable';
+  if (line.manual) $('btnTxRemove').classList.remove('hide');
+  else $('btnTxRemove').classList.add('hide');
+  showTx();
+}
 async function loadSummary() {
   showErr('');
   $('status').textContent = 'Loading…';
@@ -343,7 +405,7 @@ async function loadSummary() {
   $('tInc').textContent = money(pnl.income_total);
   $('tExp').textContent = money(pnl.expense_total);
   $('tNet').textContent = money(pnl.net);
-  if ($('tLoan')) $('tLoan').textContent = money(pnl.transfer_total);
+  if ($('tLoan')) $('tLoan').textContent = money(pnl.owner_loan_total != null ? pnl.owner_loan_total : pnl.transfer_total);
   const rows = [];
   rows.push(sectionHead('Income'));
   if ((pnl.income || []).length) {
@@ -359,16 +421,22 @@ async function loadSummary() {
     rows.push(emptyRow('No expenses in this period'));
   }
   rows.push(sectionTotal('Total expenses', pnl.expense_total, 'bad'));
-  if ((pnl.transfers || []).length) {
-    rows.push(sectionHead('Transfers'));
-    pnl.transfers.forEach(line => rows.push(pnlRow(line, 'transfer')));
-    rows.push(sectionTotal('Transfers', pnl.transfer_total, ''));
-  }
   if (pnl.uncategorized && pnl.uncategorized.count) {
     rows.push(sectionHead('Uncategorized'));
     rows.push(pnlRow(pnl.uncategorized, 'uncat'));
   }
   rows.push(sectionTotal('Net', pnl.net, ''));
+  const xfers = pnl.transfers || [];
+  const xferCount = xfers.reduce((n, line) => n + (line.count || 0), 0);
+  const openMark = state.transfersOpen ? '▾' : '▸';
+  rows.push(`<tr class="clickable xfer-toggle" data-xfer="1"><td colspan="2">${openMark} Transfers <span class="pill">offset</span></td><td class="num">${money(pnl.transfer_total)}</td></tr>`);
+  if (state.transfersOpen) {
+    if (xfers.length) xfers.forEach(line => rows.push(pnlRow(line, 'transfer')));
+    else rows.push(emptyRow('No transfers in this period'));
+  }
+  if (pnl.disabled_count) {
+    rows.push(`<tr class="clickable" data-cat="${encodeURIComponent('__disabled__')}"><td>Disabled <span class="pill">restore</span></td><td class="num muted">${pnl.disabled_count}</td><td></td></tr>`);
+  }
   $('pnlBody').innerHTML = rows.join('');
   if (!data.seeded) $('status').textContent = '';
   $('batchCat').innerHTML = chartOptions();
@@ -399,7 +467,8 @@ function escapeHtml(s) {
 }
 async function openCategory(label) {
   state.category = label;
-  $('detailTitle').textContent = (label === '*' ? 'Transactions' : label);
+  const titles = {'*': 'Transactions', '__disabled__': 'Disabled'};
+  $('detailTitle').textContent = titles[label] || label;
   showDetail();
   if ($('newCat')) $('newCat').innerHTML = chartOptions();
   if ($('newDate') && !$('newDate').value) $('newDate').value = new Date().toISOString().slice(0,10);
@@ -417,6 +486,7 @@ async function openCategory(label) {
   $('detailCount').textContent = (data.count || 0) + ' lines';
   $('batchCat').innerHTML = chartOptions();
   const opts = chartOptions();
+  state.lines = data.lines || [];
   const body = (data.lines || []).map(line => {
     const src = escapeHtml(line.source_path || state.path || '');
     const sel = `<select data-index="${line.index}" data-source="${src}" data-was="${escapeHtml(line.category)}"${line.disabled ? ' disabled' : ''}>${opts}</select>`;
@@ -424,11 +494,11 @@ async function openCategory(label) {
     const pill = line.disabled ? ' <span class="pill">off</span>' : (line.manual ? ' <span class="pill">typed</span>' : '');
     const toggle = `<button type="button" data-act="toggle" data-index="${line.index}" data-source="${src}" data-off="${line.disabled ? '1' : '0'}">${line.disabled ? 'Restore' : 'Disable'}</button>`;
     const remove = line.manual ? `<button type="button" data-act="remove" data-index="${line.index}" data-source="${src}">Remove</button>` : '';
-    return `<tr class="line-row${off}">
+    return `<tr class="line-row${off}" data-open="1">
       <td><input type="checkbox" class="check line-check" data-index="${line.index}" data-source="${src}" ${line.disabled ? 'disabled' : ''}></td>
       <td class="muted">${escapeHtml(line.date || '')}</td>
       <td class="muted">${escapeHtml(line.account || '')}${pill}</td>
-      <td>${escapeHtml(line.payee || '')}</td>
+      <td class="payee">${escapeHtml(line.payee || '')}</td>
       <td>${sel}</td>
       <td class="num ${line.amount < 0 ? 'bad' : 'ok'}">${money(line.amount)}</td>
       <td class="acts">${toggle}${remove}</td>
@@ -525,11 +595,18 @@ async function saveMap(rules) {
   await loadSummary();
 }
 $('pnlBody').addEventListener('click', (e) => {
+  const xfer = e.target.closest('tr[data-xfer]');
+  if (xfer) {
+    state.transfersOpen = !state.transfersOpen;
+    loadSummary();
+    return;
+  }
   const tr = e.target.closest('tr[data-cat]');
   if (!tr) return;
   openCategory(decodeURIComponent(tr.getAttribute('data-cat')));
 });
 $('btnBack').onclick = () => { showPnl(); loadSummary(); };
+$('btnTxBack').onclick = () => { if (state.category) openCategory(state.category); else { showPnl(); loadSummary(); } };
 $('btnMapBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMap').onclick = () => { showMap(); };
 $('btnTx').onclick = () => { openCategory('*'); };
@@ -735,10 +812,68 @@ $('btnAddLine').onclick = addTypedLine;
 $('btnPasteSave').onclick = addPastedRows;
 $('lineBody').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-act]');
-  if (!btn) return;
-  if (btn.getAttribute('data-act') === 'toggle') setLineDisabled(btn);
-  if (btn.getAttribute('data-act') === 'remove') removeTypedLine(btn);
+  if (btn) {
+    if (btn.getAttribute('data-act') === 'toggle') setLineDisabled(btn);
+    if (btn.getAttribute('data-act') === 'remove') removeTypedLine(btn);
+    return;
+  }
+  if (e.target.closest('select, input, button')) return;
+  const tr = e.target.closest('tr.line-row');
+  if (!tr) return;
+  const sel = tr.querySelector('select[data-index]');
+  if (!sel) return;
+  const index = Number(sel.getAttribute('data-index'));
+  const source = sel.getAttribute('data-source');
+  const line = (state.lines || []).find(x => x.index === index && (x.source_path || state.path) === source);
+  if (line) openTx(line);
 });
+async function saveTxDetails() {
+  const line = state.tx;
+  if (!line) return;
+  const source_path = line.source_path || state.path;
+  showErr('');
+  $('status').textContent = 'Saving…';
+  const r = await fetch('/api/books/line', {
+    method: 'PATCH',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      path: source_path,
+      source_path,
+      index: line.index,
+      date: $('txDate').value,
+      payee: $('txPayee').value,
+      amount: $('txAmt').value,
+      category: $('txCat').value,
+      filing_book: $('txBook').value
+    })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Save failed');
+    return;
+  }
+  $('status').innerHTML = '<span class="okmsg">Saved</span>';
+  await loadSummary();
+  if (state.category) await openCategory(state.category);
+  else showPnl();
+}
+$('btnTxSave').onclick = saveTxDetails;
+$('btnTxDisable').onclick = () => {
+  if (!state.tx) return;
+  const fake = document.createElement('button');
+  fake.setAttribute('data-index', String(state.tx.index));
+  fake.setAttribute('data-source', state.tx.source_path || state.path);
+  fake.setAttribute('data-off', state.tx.disabled ? '1' : '0');
+  setLineDisabled(fake);
+};
+$('btnTxRemove').onclick = () => {
+  if (!state.tx) return;
+  const fake = document.createElement('button');
+  fake.setAttribute('data-index', String(state.tx.index));
+  fake.setAttribute('data-source', state.tx.source_path || state.path);
+  removeTypedLine(fake);
+};
 $('btnAddRule').onclick = () => {
   const phrase = ($('mapPhrase').value || '').trim();
   const label = $('mapCat').value;

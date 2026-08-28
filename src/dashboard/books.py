@@ -21,6 +21,7 @@ UNCATEGORIZED = "Uncategorized"
 ALL_TRANSACTIONS = "all"
 ALL_LINES = "*"
 ALL_BOOKS = "all-books"
+DISABLED_LINES = "__disabled__"
 MIN_MAP_PHRASE = 4
 MAX_LEDGER_LIST = 40
 MAX_COMBINED_LINES = 4000
@@ -912,6 +913,58 @@ def row_signed_amount(row: dict) -> float | None:
     return None
 
 
+def signed_amount_for_kind(amount: float, kind: str) -> float:
+    """Expenses are outflows; income is inflow. Transfers keep the stored sign."""
+    if kind == EXPENSE_KIND:
+        return -abs(amount)
+    if kind == INCOME_KIND:
+        return abs(amount)
+    return float(amount)
+
+
+def write_row_amount(row: dict, amount: float) -> None:
+    fields = row.get("fields")
+    if not isinstance(fields, dict):
+        fields = {}
+        row["fields"] = fields
+    fields["Debit/Credit"] = amount
+    if "Amount" in fields:
+        fields["Amount"] = amount
+    row["amount"] = amount
+
+
+def write_row_payee(row: dict, payee: str) -> None:
+    fields = row.get("fields")
+    if not isinstance(fields, dict):
+        fields = {}
+        row["fields"] = fields
+    fields["Name"] = payee
+    row["payee"] = payee
+
+
+def write_row_date(row: dict, date: str) -> str | None:
+    dt = parse_row_date({"Date": date})
+    if dt is None:
+        return "Date is required"
+    stamp = dt.strftime("%Y-%m-%d")
+    fields = row.get("fields")
+    if not isinstance(fields, dict):
+        fields = {}
+        row["fields"] = fields
+    fields["Date"] = stamp
+    row["date"] = stamp
+    return None
+
+
+def coerce_row_amount(row: dict, kind: str) -> None:
+    amt = row_signed_amount(row)
+    if amt is None:
+        return
+    coerced = signed_amount_for_kind(amt, kind)
+    if coerced != amt:
+        write_row_amount(row, coerced)
+
+
 def parse_row_date(row: dict) -> datetime | None:
     row = flatten_row(row)
     raw = row.get("Date") or row.get("date") or row.get("Posted") or ""
@@ -1153,6 +1206,7 @@ def line_preview(row: dict, source_path: str, index: int, account: str = "") -> 
     amt = row_signed_amount(row)
     dt = parse_row_date(row)
     acct = str(flatten_row(row).get("account") or "").strip() or account or account_label({}, source_path)
+    cat = category_label(row)
     return {
         "id": f"{source_path}#{index}",
         "source_path": source_path,
@@ -1160,12 +1214,13 @@ def line_preview(row: dict, source_path: str, index: int, account: str = "") -> 
         "date": dt.strftime("%Y-%m-%d") if dt else "",
         "payee": row_payee(row),
         "amount": amt,
-        "category": category_label(row),
+        "category": cat,
         "needs_review": bool(row.get("needs_review")),
         "account": acct,
         "disabled": row_is_disabled(row),
         "manual": row_is_manual(row, source_path),
         "filing_book": row_filing_book(row),
+        "kind": chart_kind(cat),
     }
 
 
@@ -1211,6 +1266,7 @@ def collect_lines(
 ) -> list[dict]:
     want = (category or "").strip()
     all_cats = not want or want == ALL_LINES
+    disabled_only = want == DISABLED_LINES
     book = normalize_filing_book(filing_book, default=ALL_BOOKS)
     out: list[dict] = []
     for i, row in enumerate(rows):
@@ -1220,9 +1276,12 @@ def collect_lines(
             continue
         if not in_period(row, year, month):
             continue
-        if row_is_disabled(row) and not all_cats:
+        if disabled_only:
+            if not row_is_disabled(row):
+                continue
+        elif row_is_disabled(row) and not all_cats:
             continue
-        if not all_cats and category_label(row) != want:
+        if not all_cats and not disabled_only and category_label(row) != want:
             continue
         out.append(line_preview(row, source_path, i, account=account))
         if len(out) >= limit:
@@ -1273,11 +1332,13 @@ def pnl_from_rows(
         kind = chart_kind(label, hit)
         if kind == INCOME_KIND:
             bucket = income
+            bucket[label]["total"] += abs(amt)
         elif kind == TRANSFER_KIND:
             bucket = transfer
+            bucket[label]["total"] += amt
         else:
             bucket = expense
-        bucket[label]["total"] += amt
+            bucket[label]["total"] += abs(amt)
         bucket[label]["count"] += 1
 
     def _lines(store: dict[str, dict], *, expenses: bool) -> list[dict]:
@@ -1298,6 +1359,18 @@ def pnl_from_rows(
     income_total = sum(x["total"] for x in income_lines)
     expense_total = sum(x["total"] for x in expense_lines)
     transfer_total = sum(x["total"] for x in transfer_lines)
+    owner_loan_total = sum(
+        x["total"] for x in transfer_lines if str(x["label"]).strip().lower() == OWNER_LOAN_LABEL.lower()
+    )
+    disabled_count = 0
+    for row in rows:
+        if not isinstance(row, dict) or not row_is_disabled(row):
+            continue
+        if book != ALL_BOOKS and row_filing_book(row, payload) != book:
+            continue
+        if not in_period(row, year, month):
+            continue
+        disabled_count += 1
     return {
         "income": income_lines,
         "expenses": expense_lines,
@@ -1310,6 +1383,8 @@ def pnl_from_rows(
         "income_total": income_total,
         "expense_total": expense_total,
         "transfer_total": transfer_total,
+        "owner_loan_total": owner_loan_total,
+        "disabled_count": disabled_count,
         "net": income_total - expense_total + uncat["total"],
         "row_count": used,
         "skipped": skipped,
@@ -1361,6 +1436,7 @@ def apply_categories(
         row["category_label"] = hit["label"]
         row["category_code"] = hit.get("code")
         row["category_layer"] = hit.get("layer")
+        coerce_row_amount(row, chart_kind(hit["label"], hit))
         row["needs_review"] = False
         row["match_rule"] = "operator"
         seen.add(index)
@@ -1603,10 +1679,7 @@ def build_manual_row(date: str, payee: str, amount: Any, category: str = "", cha
         if hit is None:
             return None, "Category is not on the working chart"
         kind = chart_kind(hit["label"], hit)
-        if kind == EXPENSE_KIND and amt > 0:
-            amt = -amt
-        elif kind == INCOME_KIND and amt < 0:
-            amt = abs(amt)
+        amt = signed_amount_for_kind(amt, kind)
     row = {
         "origin": "manual",
         "disabled": False,
@@ -1648,6 +1721,86 @@ def add_manual_row(payload: dict, date: str, payee: str, amount: Any, category: 
         1 for r in rows if isinstance(r, dict) and r.get("needs_review") and not row_is_disabled(r)
     )
     return payload, line_preview(row, MANUAL_LEDGER_PATH, len(rows) - 1, account="Manual"), None
+
+
+def update_row_details(
+    payload: dict,
+    index: int,
+    *,
+    date: str | None = None,
+    payee: str | None = None,
+    amount: Any = None,
+    category: str | None = None,
+    filing_book: str | None = None,
+    chart: list[dict] | None = None,
+) -> tuple[dict | None, str | None]:
+    """Edit any field on a ledger line. Dropdown values must be on the chart."""
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return None, "Ledger has no rows"
+    if not isinstance(index, int) or index < 0 or index >= len(rows):
+        return None, "Transaction not found"
+    row = rows[index]
+    if not isinstance(row, dict):
+        return None, "Transaction not found"
+    chart_items = chart if isinstance(chart, list) else working_chart_from_payload(payload)
+    hit = None
+    label = None if category is None else str(category).strip()
+    if label:
+        if label == UNCATEGORIZED:
+            row.pop("category_label", None)
+            row.pop("category_code", None)
+            row.pop("category_layer", None)
+            row["needs_review"] = True
+        else:
+            hit = chart_lookup(chart_items, label)
+            if hit is None:
+                return None, "Category is not on the working chart"
+            stored = working_chart_from_payload(payload)
+            if chart_lookup(stored, hit["label"]) is None:
+                stored.append({
+                    "label": hit["label"],
+                    "code": hit.get("code"),
+                    "layer": hit.get("layer") or "account",
+                    "kind": chart_kind(hit["label"], hit),
+                })
+            payload["working_chart"] = stored
+            row["category_label"] = hit["label"]
+            row["category_code"] = hit.get("code")
+            row["category_layer"] = hit.get("layer")
+            row["needs_review"] = False
+            row["match_rule"] = "operator"
+    if date is not None:
+        derr = write_row_date(row, date)
+        if derr:
+            return None, derr
+    if payee is not None:
+        payee_s = str(payee).strip()
+        if not payee_s:
+            return None, "Payee is required"
+        if len(payee_s) > 200:
+            return None, "Payee is too long"
+        write_row_payee(row, payee_s)
+    if amount is not None and amount != "":
+        amt = parse_money(amount)
+        if amt is None:
+            return None, "Amount is required"
+        kind = chart_kind(category_label(row), hit or chart_lookup(chart_items, category_label(row)))
+        if kind in (EXPENSE_KIND, INCOME_KIND):
+            amt = signed_amount_for_kind(amt, kind)
+        write_row_amount(row, amt)
+    elif hit is not None:
+        coerce_row_amount(row, chart_kind(hit["label"], hit))
+    if filing_book is not None and str(filing_book).strip():
+        bid = normalize_filing_book(filing_book, default="")
+        if bid not in _FILING_IDS:
+            return None, "Unknown filing book"
+        row["filing_book"] = bid
+    payload["rows"] = rows
+    payload["needs_review_count"] = sum(
+        1 for r in rows if isinstance(r, dict) and r.get("needs_review") and not row_is_disabled(r)
+    )
+    return payload, None
 
 
 def set_row_disabled(payload: dict, index: int, disabled: bool) -> tuple[dict | None, str | None]:

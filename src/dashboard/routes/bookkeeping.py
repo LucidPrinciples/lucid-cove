@@ -571,7 +571,8 @@ async def books_patch_line(request: Request):
     except (TypeError, ValueError):
         return JSONResponse({"ok": False, "error": "index is required"}, status_code=400)
     label = (body.get("category") or body.get("category_label") or "").strip()
-    if not label:
+    details = any(k in body for k in ("date", "payee", "name", "amount", "filing_book"))
+    if not label and not details:
         return JSONResponse({"ok": False, "error": "category is required"}, status_code=400)
 
     payload, clean, err, status = await _read_ledger(request, path)
@@ -579,7 +580,22 @@ async def books_patch_line(request: Request):
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
     loaded = await _load_named_ledgers(request, ledgers)
     chart = _chart_with_accounts(loaded, clean, payload)
-    updated, uerr = bk.apply_category(payload, index, label, chart=chart)
+    if details:
+        payee = None
+        if "payee" in body or "name" in body:
+            payee = body.get("payee") or body.get("name") or ""
+        updated, uerr = bk.update_row_details(
+            payload,
+            index,
+            date=body.get("date") if "date" in body else None,
+            payee=payee,
+            amount=body.get("amount") if "amount" in body else None,
+            category=label or None,
+            filing_book=body.get("filing_book") if "filing_book" in body else None,
+            chart=chart,
+        )
+    else:
+        updated, uerr = bk.apply_category(payload, index, label, chart=chart)
     if uerr or updated is None:
         return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
     updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
