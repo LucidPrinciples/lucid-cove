@@ -187,14 +187,20 @@ def new_account_spec(label: str) -> tuple[dict | None, str | None]:
     }, None
 
 
-def empty_account_payload(label: str, source: dict | None = None) -> dict:
+def empty_account_payload(
+    label: str,
+    source: dict | None = None,
+    filing_book: str = "",
+) -> dict:
     src = source if isinstance(source, dict) else {}
     stem = account_stem(label) or "Account"
+    chosen = normalize_filing_book(filing_book, default="")
+    book = chosen if chosen in _FILING_IDS else infer_filing_book(src)
     return {
         "entity": src.get("entity") or "",
         "account": stem,
         "origin": "account",
-        "filing_book": infer_filing_book(src),
+        "filing_book": book,
         "working_chart": working_chart_from_payload(src),
         "vendor_map": vendor_map_from_payload(src) if src else [],
         "rows": [],
@@ -372,6 +378,7 @@ def append_imported_rows(
     payload: dict,
     items: list[dict],
     source_file: str = "",
+    filing_book: str = "",
 ) -> tuple[dict | None, int, int, str | None]:
     """Append parsed statement rows; skip exact date/payee/amount dupes."""
     if not isinstance(payload, dict):
@@ -384,6 +391,10 @@ def append_imported_rows(
         payload["rows"] = rows
     if not isinstance(rows, list):
         return None, 0, 0, "Ledger has no rows"
+    chosen = normalize_filing_book(filing_book, default="")
+    book = chosen if chosen in _FILING_IDS else infer_filing_book(payload)
+    if book in _FILING_IDS:
+        payload["filing_book"] = book
     seen = {row_fingerprint(r) for r in rows if isinstance(r, dict)}
     added = 0
     skipped = 0
@@ -416,6 +427,8 @@ def append_imported_rows(
                 "Debit/Credit": amt,
             },
         }
+        if book in _FILING_IDS:
+            row["filing_book"] = book
         rows.append(row)
         seen.add(key)
         added += 1
@@ -424,6 +437,36 @@ def append_imported_rows(
         1 for r in rows if isinstance(r, dict) and r.get("needs_review") and not row_is_disabled(r)
     )
     return payload, added, skipped, None
+
+
+def apply_payload_filing_book(
+    payload: dict,
+    book: str,
+    stamp_unstamped_rows: bool = True,
+) -> tuple[dict | None, int, str | None]:
+    """Set the ledger Book and stamp rows that have none yet."""
+    if not isinstance(payload, dict):
+        return None, 0, "Ledger JSON must be an object"
+    bid = normalize_filing_book(book, default="")
+    if bid not in _FILING_IDS:
+        return None, 0, "Pick a filing book"
+    payload["filing_book"] = bid
+    stamped = 0
+    if not stamp_unstamped_rows:
+        return payload, 0, None
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return payload, 0, None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        existing = row.get("filing_book") or row.get("book") or row.get("schedule")
+        if existing not in (None, ""):
+            continue
+        row["filing_book"] = bid
+        stamped += 1
+    payload["rows"] = rows
+    return payload, stamped, None
 
 
 def is_mapped_name(name: str) -> bool:
