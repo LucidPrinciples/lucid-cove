@@ -2,6 +2,7 @@
 
 GET   /books                    statement P&L page
 GET   /api/books/summary        category rollup (optional year/month)
+POST  /api/books/setup          first-open book + ledger when Organize is empty
 GET   /api/books/lines          transactions for one category
 PATCH /api/books/line           set one category from the working chart
 PATCH /api/books/lines          set many categories at once
@@ -402,6 +403,27 @@ async def books_summary(request: Request, path: str = ""):
         return JSONResponse({"ok": False, "error": perr}, status_code=400)
     book = _parse_book(request)
     ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
+    if (rerr or not ledger_path) and rstatus == 404 and not ledgers:
+        return JSONResponse({
+            "ok": True,
+            "needs_setup": True,
+            "path": "",
+            "entity": "",
+            "account": "",
+            "filing_book": "",
+            "filing_book_label": "",
+            "books": bk.filing_book_choices(),
+            "row_count": 0,
+            "needs_review_count": 0,
+            "year": year,
+            "month": month,
+            "periods": {"years": [], "months": []},
+            "ledgers": [],
+            "chart": bk.official_schedule_c_chart(),
+            "vendor_map": [],
+            "seeded": 0,
+            "pnl": {"income": [], "expenses": [], "transfers": [], "income_total": 0, "expense_total": 0, "net": 0},
+        })
     if rerr or not ledger_path:
         return JSONResponse({
             "ok": False,
@@ -411,10 +433,25 @@ async def books_summary(request: Request, path: str = ""):
     loaded = await _load_named_ledgers(request, ledgers)
     if not loaded:
         return JSONResponse({
-            "ok": False,
-            "error": "No mapped ledger in Bookkeeping/Organize",
-            "ledgers": bk.ledger_choices(ledgers),
-        }, status_code=404)
+            "ok": True,
+            "needs_setup": True,
+            "path": "",
+            "entity": "",
+            "account": "",
+            "filing_book": "",
+            "filing_book_label": "",
+            "books": bk.filing_book_choices(),
+            "row_count": 0,
+            "needs_review_count": 0,
+            "year": year,
+            "month": month,
+            "periods": {"years": [], "months": []},
+            "ledgers": [],
+            "chart": bk.official_schedule_c_chart(),
+            "vendor_map": [],
+            "seeded": 0,
+            "pnl": {"income": [], "expenses": [], "transfers": [], "income_total": 0, "expense_total": 0, "net": 0},
+        })
     seeded = 0
     next_loaded: list[tuple[str, dict]] = []
     for clean, payload in loaded:
@@ -442,7 +479,8 @@ async def books_summary(request: Request, path: str = ""):
             "account": "All Transactions",
             "filing_book": book,
             "filing_book_label": bk.filing_book_label(book),
-            "books": bk.filing_book_choices(),
+            "books": bk.filing_book_choices(payloads),
+            "needs_setup": False,
             "row_count": len(all_rows),
             "needs_review_count": review,
             "year": year,
@@ -472,7 +510,8 @@ async def books_summary(request: Request, path: str = ""):
         "account": bk.account_label(payload, clean),
         "filing_book": book,
         "filing_book_label": bk.filing_book_label(book),
-        "books": bk.filing_book_choices(),
+        "books": bk.filing_book_choices([p for _, p in loaded]),
+        "needs_setup": False,
         "row_count": len(rows),
         "needs_review_count": payload.get("needs_review_count"),
         "year": year,
@@ -1053,6 +1092,60 @@ async def books_delete_line(request: Request):
         "needs_review_count": updated.get("needs_review_count"),
     })
 
+
+
+
+@router.post("/api/books/setup")
+async def books_setup(request: Request):
+    """First-open only: name a book, create one empty ledger, seed Schedule C."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    names, lerr = await _list_mapped_ledgers(request)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    if names:
+        return JSONResponse({
+            "ok": False,
+            "error": "Books already has a ledger",
+            "needs_setup": False,
+            "ledgers": bk.ledger_choices(names),
+        }, status_code=409)
+    spec, serr = bk.first_open_setup_spec(
+        str(body.get("book") or body.get("book_label") or body.get("name") or ""),
+        str(body.get("account") or body.get("ledger") or ""),
+    )
+    if serr or spec is None:
+        return JSONResponse({"ok": False, "error": serr or "Book name is required"}, status_code=400)
+    acct = spec["account"]
+    for folder in (bk.ORGANIZE_PREFIX, bk.DROP_PREFIX, bk.RETURNS_PREFIX, acct["drop_folder"]):
+        ferr, fstatus = await _ensure_drop_folder(request, folder)
+        if ferr:
+            return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
+    payload = bk.empty_account_payload(acct["label"], {}, filing_book=spec["book_id"])
+    payload["entity"] = spec["book_label"]
+    payload["filing_book"] = spec["book_id"]
+    payload["working_chart"] = bk.official_schedule_c_chart()
+    payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, acct["path"], payload)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": acct["path"]}, status_code=wstatus)
+    names.append(acct["filename"])
+    return JSONResponse({
+        "ok": True,
+        "needs_setup": False,
+        "path": acct["path"],
+        "account": acct["label"],
+        "drop_folder": acct["drop_folder"],
+        "returns_folder": bk.RETURNS_PREFIX,
+        "filing_book": spec["book_id"],
+        "filing_book_label": spec["book_label"],
+        "ledgers": bk.ledger_choices(names),
+        "books": bk.filing_book_choices([payload]),
+    })
 
 @router.post("/api/books/account")
 async def books_create_account(request: Request):

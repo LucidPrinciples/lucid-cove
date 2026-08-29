@@ -639,3 +639,42 @@ def test_update_row_details_and_disabled_list():
     pnl = bk.pnl_from_rows(disabled["rows"])
     assert pnl["disabled_count"] == 1
     assert pnl["row_count"] == 0
+
+
+
+def test_official_schedule_c_seeds_empty_chart():
+    chart = bk.working_chart_from_payload({})
+    labels = [c["label"] for c in chart]
+    assert "Gross receipts or sales" in labels
+    assert "Advertising" in labels
+    assert "Office expense" in labels
+    assert bk.OWNER_LOAN_LABEL in labels
+    kinds = {c["label"]: c["kind"] for c in chart}
+    assert kinds["Gross receipts or sales"] == bk.INCOME_KIND
+    assert kinds["Advertising"] == bk.EXPENSE_KIND
+
+
+def test_first_open_setup_spec_and_custom_book():
+    spec, err = bk.first_open_setup_spec("Parents LLC", "Checking")
+    assert err is None
+    assert spec["book_id"] == "parents-llc"
+    assert spec["book_label"] == "Parents LLC"
+    assert spec["account"]["stem"] == "Checking"
+    payload = bk.empty_account_payload(spec["account"]["label"], {}, filing_book=spec["book_id"])
+    assert payload["filing_book"] == "parents-llc"
+    updated, added, skipped, ierr = bk.append_imported_rows(
+        payload, [{"date": "2025-06-01", "payee": "Store", "amount": -12.5}],
+        source_file="JUN.csv", filing_book="parents-llc",
+    )
+    assert ierr is None and added == 1
+    assert updated["rows"][0]["filing_book"] == "parents-llc"
+    reserved, rerr = bk.first_open_setup_spec("manual")
+    assert reserved is None and rerr
+
+
+def test_existing_presence_chart_is_not_replaced():
+    payload = {"working_chart": [{"label": "Advertising"}]}
+    chart = bk.working_chart_from_payload(payload)
+    labels = [c["label"] for c in chart]
+    assert "Advertising" in labels
+    assert "Car and truck expenses" not in labels

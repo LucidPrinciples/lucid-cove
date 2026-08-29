@@ -82,6 +82,30 @@ FILING_BOOKS = (
     {"id": "personal", "label": "Personal", "form": "not on a C"},
 )
 _FILING_IDS = {b["id"] for b in FILING_BOOKS}
+_BOOK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+OFFICIAL_SCHEDULE_C = (
+    {"label": "Gross receipts or sales", "kind": INCOME_KIND, "layer": "official", "code": "1"},
+    {"label": "Returns and allowances", "kind": INCOME_KIND, "layer": "official", "code": "2"},
+    {"label": "Other income", "kind": INCOME_KIND, "layer": "official", "code": "6"},
+    {"label": "Advertising", "kind": EXPENSE_KIND, "layer": "official", "code": "8"},
+    {"label": "Car and truck expenses", "kind": EXPENSE_KIND, "layer": "official", "code": "9"},
+    {"label": "Commissions and fees", "kind": EXPENSE_KIND, "layer": "official", "code": "10"},
+    {"label": "Contract labor", "kind": EXPENSE_KIND, "layer": "official", "code": "11"},
+    {"label": "Depreciation", "kind": EXPENSE_KIND, "layer": "official", "code": "13"},
+    {"label": "Insurance", "kind": EXPENSE_KIND, "layer": "official", "code": "15"},
+    {"label": "Interest", "kind": EXPENSE_KIND, "layer": "official", "code": "16"},
+    {"label": "Legal and professional services", "kind": EXPENSE_KIND, "layer": "official", "code": "17"},
+    {"label": "Office expense", "kind": EXPENSE_KIND, "layer": "official", "code": "18"},
+    {"label": "Rent or lease", "kind": EXPENSE_KIND, "layer": "official", "code": "20"},
+    {"label": "Repairs and maintenance", "kind": EXPENSE_KIND, "layer": "official", "code": "21"},
+    {"label": "Supplies", "kind": EXPENSE_KIND, "layer": "official", "code": "22"},
+    {"label": "Taxes and licenses", "kind": EXPENSE_KIND, "layer": "official", "code": "23"},
+    {"label": "Travel", "kind": EXPENSE_KIND, "layer": "official", "code": "24a"},
+    {"label": "Deductible meals", "kind": EXPENSE_KIND, "layer": "official", "code": "24b"},
+    {"label": "Utilities", "kind": EXPENSE_KIND, "layer": "official", "code": "25"},
+    {"label": "Wages", "kind": EXPENSE_KIND, "layer": "official", "code": "26"},
+    {"label": "Other expenses", "kind": EXPENSE_KIND, "layer": "official", "code": "27a"},
+)
 _MONTH_PREFIX = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
@@ -197,7 +221,7 @@ def empty_account_payload(
     src = source if isinstance(source, dict) else {}
     stem = account_stem(label) or "Account"
     chosen = normalize_filing_book(filing_book, default="")
-    book = chosen if chosen in _FILING_IDS else infer_filing_book(src)
+    book = chosen if is_filing_book_id(chosen) else infer_filing_book(src)
     return {
         "entity": src.get("entity") or "",
         "account": stem,
@@ -394,8 +418,8 @@ def append_imported_rows(
     if not isinstance(rows, list):
         return None, 0, 0, "Ledger has no rows"
     chosen = normalize_filing_book(filing_book, default="")
-    book = chosen if chosen in _FILING_IDS else infer_filing_book(payload)
-    if book in _FILING_IDS:
+    book = chosen if is_filing_book_id(chosen) else infer_filing_book(payload)
+    if is_filing_book_id(book):
         payload["filing_book"] = book
     seen = {row_fingerprint(r) for r in rows if isinstance(r, dict)}
     added = 0
@@ -429,7 +453,7 @@ def append_imported_rows(
                 "Debit/Credit": amt,
             },
         }
-        if book in _FILING_IDS:
+        if is_filing_book_id(book):
             row["filing_book"] = book
         rows.append(row)
         seen.add(key)
@@ -450,7 +474,7 @@ def apply_payload_filing_book(
     if not isinstance(payload, dict):
         return None, 0, "Ledger JSON must be an object"
     bid = normalize_filing_book(book, default="")
-    if bid not in _FILING_IDS:
+    if not is_filing_book_id(bid):
         return None, 0, "Pick a filing book"
     payload["filing_book"] = bid
     stamped = 0
@@ -504,8 +528,55 @@ def is_manual_ledger(path: str) -> bool:
     return name in (MANUAL_LEDGER_NAME, "manual") or raw.lower() == MANUAL_LEDGER_PATH.lower()
 
 
-def filing_book_choices() -> list[dict]:
-    return [{"id": ALL_BOOKS, "label": "All books"}] + [dict(b) for b in FILING_BOOKS]
+def is_filing_book_id(value: str) -> bool:
+    raw = str(value or "").strip().lower()
+    if not raw or raw == ALL_BOOKS:
+        return False
+    if raw in _FILING_IDS:
+        return True
+    if raw in _RESERVED_STEMS or raw in ("all", "expenses", "income", "transfers"):
+        return False
+    return bool(_BOOK_ID_RE.match(raw))
+
+
+def filing_book_id_from_label(label: str) -> str:
+    raw = " ".join(str(label or "").split())
+    if not raw:
+        return ""
+    key = raw.lower()
+    if key in _RESERVED_STEMS or key in ("all", "expenses", "income", "transfers", ALL_BOOKS):
+        return ""
+    if key in _FILING_IDS:
+        return key
+    slug = re.sub(r"[^a-z0-9]+", "-", key).strip("-")[:40]
+    if slug in _RESERVED_STEMS:
+        return ""
+    return slug if is_filing_book_id(slug) else ""
+
+
+def official_schedule_c_chart() -> list[dict]:
+    out = []
+    for item in OFFICIAL_SCHEDULE_C:
+        rec = dict(item)
+        rec["kind"] = chart_kind(rec["label"], rec)
+        out.append(rec)
+    return ensure_builtin_chart(out)
+
+
+def filing_book_choices(payloads: list | None = None) -> list[dict]:
+    seen: dict[str, str] = {}
+    for payload in payloads or []:
+        if not isinstance(payload, dict):
+            continue
+        bid = infer_filing_book(payload)
+        if not is_filing_book_id(bid):
+            continue
+        label = str(payload.get("entity") or payload.get("filing_book_label") or "").strip()
+        if bid not in seen:
+            seen[bid] = label or next((b["label"] for b in FILING_BOOKS if b["id"] == bid), bid)
+    extra = [{"id": k, "label": v, "form": "Schedule C"} for k, v in seen.items()]
+    extra.sort(key=lambda b: (0 if b["id"] in _FILING_IDS else 1, b["label"].lower()))
+    return [{"id": ALL_BOOKS, "label": "All books"}] + extra
 
 
 def normalize_filing_book(value: Any, default: str = "chords") -> str:
@@ -513,7 +584,7 @@ def normalize_filing_book(value: Any, default: str = "chords") -> str:
     if raw in (ALL_BOOKS, "all-books", "*"):
         return ALL_BOOKS
     if not raw:
-        if default == ALL_BOOKS or default in _FILING_IDS:
+        if default == ALL_BOOKS or is_filing_book_id(default):
             return default
         return "chords"
     aliases = {
@@ -536,21 +607,27 @@ def normalize_filing_book(value: Any, default: str = "chords") -> str:
         return "pickleball"
     if "chord" in raw:
         return "chords"
-    if "personal" in raw:
+    if raw == "personal" or raw.startswith("personal "):
         return "personal"
-    if default == ALL_BOOKS or default in _FILING_IDS:
+    slug = re.sub(r"[^a-z0-9]+", "-", compact).strip("-")[:40]
+    if is_filing_book_id(slug):
+        return slug
+    if default == ALL_BOOKS or is_filing_book_id(default):
         return default
     return "chords"
 
 
-def filing_book_label(book_id: str) -> str:
+def filing_book_label(book_id: str, payloads: list | None = None) -> str:
     bid = normalize_filing_book(book_id, default="chords")
     if bid == ALL_BOOKS:
         return "All books"
+    for item in filing_book_choices(payloads):
+        if item["id"] == bid:
+            return item["label"]
     for item in FILING_BOOKS:
         if item["id"] == bid:
             return item["label"]
-    return "Chords of Truth, LLC"
+    return bid.replace("-", " ").title() if bid else "Books"
 
 
 def infer_filing_book(payload: dict | None = None, row: dict | None = None) -> str:
@@ -559,19 +636,19 @@ def infer_filing_book(payload: dict | None = None, row: dict | None = None) -> s
             val = row.get(key)
             if val not in (None, ""):
                 hit = normalize_filing_book(val, default="")
-                if hit in _FILING_IDS:
+                if is_filing_book_id(hit):
                     return hit
     if isinstance(payload, dict):
         for key in ("filing_book", "book", "default_filing_book"):
             val = payload.get(key)
             if val not in (None, ""):
                 hit = normalize_filing_book(val, default="")
-                if hit in _FILING_IDS:
+                if is_filing_book_id(hit):
                     return hit
         ent = str(payload.get("entity") or "").strip().lower()
         if ent:
             hit = normalize_filing_book(ent, default="")
-            if hit in _FILING_IDS:
+            if is_filing_book_id(hit):
                 return hit
             if "chord" in ent:
                 return "chords"
@@ -607,7 +684,7 @@ def set_row_filing_book(payload: dict, index: int, book: str) -> tuple[dict | No
     if not isinstance(row, dict):
         return None, "Transaction not found"
     bid = normalize_filing_book(book, default="")
-    if bid not in _FILING_IDS:
+    if not is_filing_book_id(bid):
         return None, "Unknown filing book"
     row["filing_book"] = bid
     payload["rows"] = rows
@@ -1181,6 +1258,8 @@ def working_chart_from_payload(payload: dict) -> list[dict]:
             seen.add(label.lower())
             rec["kind"] = chart_kind(label, item if isinstance(item, dict) else rec)
             out.append(rec)
+    if not out:
+        return official_schedule_c_chart()
     return ensure_builtin_chart(out)
 
 
@@ -1747,7 +1826,7 @@ def build_manual_row(date: str, payee: str, amount: Any, category: str = "", cha
     if amt is None:
         return None, "Amount is required"
     bid = normalize_filing_book(filing_book, default="chords")
-    if bid not in _FILING_IDS:
+    if not is_filing_book_id(bid):
         bid = "chords"
     label = str(category or "").strip()
     hit = None
@@ -1879,7 +1958,7 @@ def update_row_details(
         coerce_row_amount(row, chart_kind(hit["label"], hit))
     if filing_book is not None and str(filing_book).strip():
         bid = normalize_filing_book(filing_book, default="")
-        if bid not in _FILING_IDS:
+        if not is_filing_book_id(bid):
             return None, "Unknown filing book"
         row["filing_book"] = bid
     payload["rows"] = rows
@@ -1955,3 +2034,24 @@ def add_manual_rows(payload: dict, items: list[dict], filing_book: str = "", def
         return None, 0, last_err or "No rows added"
     return payload, added, None
 
+
+
+def first_open_setup_spec(book_label: str, account: str = "") -> tuple[dict | None, str | None]:
+    """Name the first filing book and statement ledger for an empty Presence."""
+    label = " ".join(str(book_label or "").split())
+    if not label:
+        return None, "Book name is required"
+    if len(label) > MAX_ACCOUNT_LABEL:
+        return None, f"Book name is over {MAX_ACCOUNT_LABEL} characters"
+    book_id = filing_book_id_from_label(label)
+    if not book_id:
+        return None, "Book name is reserved"
+    acct = " ".join(str(account or "").split()) or "Checking"
+    spec, err = new_account_spec(acct)
+    if err or spec is None:
+        return None, err or "Account name is required"
+    return {
+        "book_id": book_id,
+        "book_label": label,
+        "account": spec,
+    }, None

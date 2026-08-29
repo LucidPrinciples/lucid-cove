@@ -85,6 +85,16 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .tx-form .row label{flex:1;min-width:140px}
 .xfer-toggle td{color:var(--dim)}
 .line-row td.payee{cursor:pointer}
+.setup-view{flex:1;min-height:0;display:flex;align-items:flex-start;justify-content:center;padding:28px 16px;overflow:auto}
+.setup-view.hide{display:none}
+.setup-card{max-width:480px;width:100%;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 20px}
+.setup-card h2{font-size:1.05rem;margin-bottom:8px}
+.setup-card .dim{color:var(--dim);font-size:.88rem;line-height:1.4;margin-bottom:14px}
+.setup-card .small{font-size:.78rem;margin-top:14px;margin-bottom:0}
+.setup-fields{display:flex;flex-direction:column;gap:12px}
+.setup-fields label{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:var(--dim)}
+.setup-actions{margin-top:16px}
+#toolbar.hide,#addLineBar.hide{display:none}
 </style>
 </head>
 <body>
@@ -93,7 +103,25 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <h1>Bookkeeping</h1>
   <div class="meta" id="hdrMeta">Loading…</div>
 </header>
-<div class="toolbar">
+<div id="setupView" class="setup-view hide">
+  <div class="setup-card">
+    <h2>Create your first books</h2>
+    <p class="dim">This Presence has no ledgers yet. Name your business and create a first account to get started.</p>
+    <div class="setup-fields">
+      <label>Business name (filing book)
+        <input id="setupBook" type="text" placeholder="e.g., Parents LLC" autocomplete="off">
+      </label>
+      <label>First statement account
+        <input id="setupAcct" type="text" placeholder="e.g., Checking" autocomplete="off">
+      </label>
+    </div>
+    <div class="setup-actions">
+      <button type="button" class="primary" id="btnSetupCreate">Create books</button>
+    </div>
+    <p class="dim small">Later you can upload a prior-year return into Files → Bookkeeping/Returns to seed custom categories.</p>
+  </div>
+</div>
+<div class="toolbar" id="toolbar">
   <label class="faint">Book
     <select id="bookSel"></select>
   </label>
@@ -239,10 +267,7 @@ function fillBooks() {
   const sel = $('bookSel');
   if (!sel) return;
   const list = state.books && state.books.length ? state.books : [
-    {id:'all-books', label:'All books'},
-    {id:'chords', label:'Chords of Truth, LLC'},
-    {id:'pickleball', label:'Pickleball'},
-    {id:'personal', label:'Personal'}
+    {id:'all-books', label:'All books'}
   ];
   sel.innerHTML = list.map(item => {
     const id = item.id || item;
@@ -331,6 +356,21 @@ function hideViews() {
   $('detailView').style.display = 'none';
   $('mapView').style.display = 'none';
   if ($('txView')) $('txView').style.display = 'none';
+  if ($('setupView')) $('setupView').classList.add('hide');
+}
+function showSetup(on) {
+  const setup = $('setupView');
+  const bar = $('toolbar');
+  const add = $('addLineBar');
+  if (setup) setup.classList.toggle('hide', !on);
+  if (bar) bar.classList.toggle('hide', !!on);
+  if (add) add.classList.toggle('hide', !!on);
+  if (on) {
+    hideViews();
+    if (setup) setup.classList.remove('hide');
+    $('hdrMeta').textContent = 'First-open setup';
+    $('status').textContent = '';
+  }
 }
 function showPasteBar(on) {
   const bar = $('pasteBar');
@@ -398,6 +438,13 @@ async function loadSummary() {
   const r = await fetch('/api/books/summary' + qs());
   const data = await r.json();
   if (!data.ok) { showErr(data.error || 'Could not load books'); $('status').textContent = ''; return; }
+  if (data.needs_setup) {
+    showSetup(true);
+    return;
+  }
+  const wasSetup = $('setupView') && !$('setupView').classList.contains('hide');
+  showSetup(false);
+  if (wasSetup) showPnl();
   state.path = data.path || state.path;
   state.chart = data.chart || [];
   state.periods = data.periods || {years:[], months:[]};
@@ -725,6 +772,31 @@ async function processDrop() {
   $('status').innerHTML = `<span class="okmsg">${escapeHtml(bits.join(' · '))}</span>`;
   await loadSummary();
 }
+async function createFirstBooks() {
+  const book = ($('setupBook').value || '').trim();
+  const account = ($('setupAcct').value || '').trim() || 'Checking';
+  if (!book) { showErr('Name the business first'); return; }
+  showErr('');
+  $('status').textContent = 'Creating books…';
+  const r = await fetch('/api/books/setup', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ book, account })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Could not create books');
+    return;
+  }
+  state.path = data.path || state.path;
+  if (data.filing_book) state.book = data.filing_book;
+  if (data.ledgers) state.ledgers = data.ledgers;
+  if (data.books) state.books = data.books;
+  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.filing_book_label || book)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}. Prior returns go in Files → ${escapeHtml(data.returns_folder || 'Bookkeeping/Returns')}.</span>`;
+  await loadSummary();
+}
+$('btnSetupCreate').onclick = createFirstBooks;
 $('btnNewAcct').onclick = createAccount;
 $('btnProcess').onclick = processDrop;
 $('bookSel').onchange = () => {
