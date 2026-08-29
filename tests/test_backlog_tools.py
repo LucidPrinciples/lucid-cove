@@ -116,6 +116,44 @@ def test_ticket_title():
     assert t.startswith("#D52 Effect-verification") and len(t) <= 70
 
 
+def test_next_numeric_ticket_id_matches_jules_scan():
+    assert bt.next_numeric_ticket_id(BOARD) == 1627  # max of #D52 and #1626
+    assert bt.next_numeric_ticket_id("## Now\n") == 1
+
+
+def test_add_ticket_line_mints_and_inserts_later():
+    text, msg = bt.add_ticket_line(
+        BOARD, "Park local video gen", desc="Wan 2.2 on the lab GPU",
+        lane="later", source="day")
+    assert "Added #1627 to Later" in msg
+    idx, lane = bt.find_ticket(text, "#1627")
+    assert lane == "Later"
+    line = text.split("\n")[idx]
+    assert line.startswith("- [ ] **#1627 Park local video gen.**")
+    assert "`[day]`" in line and "*(day)*" in line
+    # existing rows stay put
+    assert "#D52" in text and "#1626" in text
+
+
+def test_add_ticket_line_named_id_and_duplicate_refused():
+    text, msg = bt.add_ticket_line(
+        BOARD, "Local Wan 2.2 video gen", lane="later", ticket="P620VID1")
+    assert "Added P620VID1 to Later" in msg
+    idx, lane = bt.find_ticket(text, "P620VID1")
+    assert lane == "Later"
+    assert "**P620VID1 " in text.split("\n")[idx]
+    again, msg2 = bt.add_ticket_line(text, "dup", ticket="P620VID1")
+    assert again == text and "already exists" in msg2
+
+
+def test_add_ticket_line_creates_missing_lane():
+    text, msg = bt.add_ticket_line(BOARD, "Needs a person", lane="interactive")
+    assert "Added #1627 to Interactive" in msg
+    assert "## Interactive" in text
+    _, lane = bt.find_ticket(text, "#1627")
+    assert lane == "Interactive"
+
+
 # =============================================================================
 # Tools (board I/O + queue mocked)
 # =============================================================================
@@ -202,6 +240,28 @@ async def test_backlog_update_requires_an_action(monkeypatch):
     assert "Nothing to do" in out
 
 
+@pytest.mark.asyncio
+async def test_backlog_add_writes_named_later_ticket(monkeypatch):
+    saved = _wire(monkeypatch)
+    out = await bt.backlog_add.coroutine(
+        "Park local video gen", lane="later", ticket="P620VID1",
+        note="Wan 2.2 ComfyUI on the lab GPU", source="jules-1555")
+    assert "Added P620VID1 to Later" in out
+    assert "knight's board" in out
+    idx, lane = bt.find_ticket(saved.text, "P620VID1")
+    assert lane == "Later"
+    line = saved.text.split("\n")[idx]
+    assert "Wan 2.2" in line and "jules-1555" in line
+
+
+@pytest.mark.asyncio
+async def test_backlog_add_refuses_empty_title(monkeypatch):
+    saved = _wire(monkeypatch)
+    out = await bt.backlog_add.coroutine("  ")
+    assert "Nothing to add" in out
+    assert saved.text is None
+
+
 # =============================================================================
 # Wiring: steward channel gets the module universally; no leak to merchant
 # =============================================================================
@@ -226,7 +286,7 @@ def test_steward_prompt_includes_intake_geography():
     from src.agents.identity import _dev_workflow_block
     block = _dev_workflow_block({"archetype": "steward", "name": "stuart",
                                  "can_delegate_to": ["mercer"]})
-    assert "backlog_board" in block and "backlog_pull" in block
+    assert "backlog_board" in block and "backlog_add" in block and "backlog_pull" in block
     member = _dev_workflow_block({"archetype": "companion", "name": "atlas"})
     assert "backlog_pull" not in member
 

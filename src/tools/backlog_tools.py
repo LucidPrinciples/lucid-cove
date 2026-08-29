@@ -4,9 +4,10 @@ Backlog board tools — the steward's window onto the operator's dev-intake boar
 Geography (locked 2026-07-11, Chords): the operator's jules backlog
 (`AgentSkills/Ops/jules-backlog.md` in the OPERATOR'S Nextcloud space) is INTAKE —
 where dev work lands. The steward_queue is EXECUTION — where the team runs it.
-These tools connect them: the steward READS the intake board, PULLS tickets into
-the queue, and UPDATES board lines (lane moves, notes, done marks) so the operator
-and the team are always looking at the same truth.
+These tools connect them: the steward READS the intake board, ADDS new tickets
+(the same append path untagged jules already uses), PULLS tickets into the queue,
+and UPDATES board lines (lane moves, notes, done marks) so the operator and the
+team are always looking at the same truth.
 
 Why this exists: on 07-11 Stuart was asked about #D52, grepped his OWN NC scope
 (agents' NC tools are scoped to their own user), honestly found nothing — while
@@ -15,7 +16,7 @@ scope boundary, through the board OWNER'S credentials, resolved server-side.
 
 Tier assignments:
   AUTO    — backlog_board (read-only)
-  NOTIFY  — backlog_pull, backlog_update (board writes are visible, not gated)
+  NOTIFY  — backlog_add, backlog_pull, backlog_update (board writes are visible, not gated)
 
 The intake owner defaults to the Cove's admin operator (cove_role='admin');
 override with the `dev_intake_account_id` setting. Writes go through WebDAV as
@@ -193,6 +194,69 @@ def clear_completed_items(text: str):
     if removed == 0:
         return text, "Completed lane is already empty."
     return "\n".join(kept), f"Cleared {removed} completed item{'s' if removed != 1 else ''} from the board."
+
+
+
+def next_numeric_ticket_id(text: str) -> int:
+    """Next free ``#N`` after the max of ``#N`` / ``#DN`` on checklist lines.
+
+    Same scan as jules_process._append_items so Day/chat minting cannot collide
+    with voice-note numbering. Named ids (YTREC1, JL-2) do not count.
+    """
+    nums = []
+    for line in text.split("\n"):
+        if line.strip().startswith("- ["):
+            m = re.search(r"\*\*#(?:D)?(\d+)\s", line)
+            if m:
+                nums.append(int(m.group(1)))
+    return (max(nums) + 1) if nums else 1
+
+
+def add_ticket_line(text: str, title: str, desc: str = "", lane: str = "soon",
+                    ticket: str = "", source: str = "day"):
+    """Insert a new checklist row at the top of ``lane``. Returns (new_text, msg).
+
+    If ``ticket`` is empty, mints the next ``#N``. A supplied id that already
+    exists is refused (board unchanged). Missing lane headers are created.
+    """
+    title = (title or "").strip().replace("\n", " ")[:120]
+    if not title:
+        return text, "Title is required."
+    desc = (desc or "").strip().replace("\n", " ")[:400]
+    source = (source or "day").strip().replace("\n", " ")[:80] or "day"
+    lane_key = (lane or "soon").strip().lower()
+    if lane_key not in _LANE_ALIASES:
+        return text, (
+            f"Unknown lane '{lane}'. Use now, soon, later, projects, "
+            "completed, interactive, or blocked."
+        )
+    lane_name = _LANE_ALIASES[lane_key]
+    raw_id = (ticket or "").strip().replace("\n", " ")
+    if raw_id:
+        bare = raw_id.lstrip("#").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,47}", bare):
+            return text, "Ticket id must be letters, numbers, dot, underscore, or hyphen."
+        idx, _ = find_ticket(text, bare)
+        if idx is not None:
+            return text, f"Ticket {raw_id if raw_id.startswith('#') else '#' + bare} already exists on the board."
+        display = raw_id if raw_id.startswith("#") else bare
+    else:
+        display = f"#{next_numeric_ticket_id(text)}"
+    body = f"{desc} " if desc else ""
+    line = f"- [ ] **{display} {title}.** {body}`[day]` *({source})*".rstrip()
+    lines = text.split("\n")
+    hdr = _lane_header_index(lines, lane_key)
+    if hdr is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([f"## {lane_name}", "", line])
+        return "\n".join(lines), f"Added {display} to {lane_name}."
+    idx = hdr + 1
+    insert = [line]
+    if idx < len(lines) and lines[idx].strip():
+        insert = [""] + insert
+    lines[idx:idx] = insert
+    return "\n".join(lines), f"Added {display} to {lane_name}."
 
 
 def ticket_title(text: str, ticket: str) -> str:
@@ -439,6 +503,48 @@ async def backlog_pull(ticket: str, assignee: str = "") -> str:
             f"as [{qid}] ({'assigned to ' + assignee if assignee else 'queued'}). {board_note}")
 
 
+
+@notify
+@tool
+async def backlog_add(title: str, lane: str = "soon", note: str = "",
+                      ticket: str = "", source: str = "day") -> str:
+    """Add a NEW ticket to the operator's intake board (same write path as
+    untagged jules processing). Use this from Day chat or addressed jules
+    when work should land on the board and no ticket id exists yet.
+
+    Args:
+        title: short imperative title (required)
+        lane: now / soon / later / projects (default soon)
+        note: one-sentence description on the line — optional
+        ticket: optional id (e.g. P620VID1). Empty mints the next #N.
+        source: provenance tag, default 'day'
+    """
+    title = (title or "").strip()
+    if not title:
+        return "Nothing to add — pass a title."
+
+    def _apply(t):
+        nt, m = add_ticket_line(
+            t, title, desc=note, lane=lane, ticket=ticket, source=source)
+        return nt, [m]
+
+    try:
+        msgs, label, saved = await _cas_edit(_apply)
+    except Exception as e:
+        return f"Board write failed, nothing saved: {e}"
+    if msgs and any(
+        m.startswith("Title is required")
+        or m.startswith("Unknown lane")
+        or m.startswith("Ticket id must")
+        or ("already exists" in m)
+        for m in msgs
+    ):
+        return " ".join(msgs)
+    if not saved:
+        return " ".join(msgs)
+    return " ".join(msgs) + f" (on {label})"
+
+
 @notify
 @tool
 async def backlog_update(ticket: str, lane: str = "", note: str = "",
@@ -503,5 +609,5 @@ async def backlog_clear_completed() -> str:
     return " ".join(msgs) + f" (on {label})"
 
 
-ALL_BACKLOG_TOOLS = [backlog_board, backlog_pull, backlog_update, backlog_clear_completed]
+ALL_BACKLOG_TOOLS = [backlog_board, backlog_add, backlog_pull, backlog_update, backlog_clear_completed]
 TOOLS = ALL_BACKLOG_TOOLS  # channel loader entry point (_load_tools)

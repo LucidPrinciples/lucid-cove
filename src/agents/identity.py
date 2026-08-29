@@ -430,7 +430,8 @@ def _dev_workflow_block(agent: dict) -> str:
             "Dev intake geography: the OPERATOR'S backlog board (their "
             "`AgentSkills/Ops/jules-backlog.md`) is INTAKE — where dev work lands; your "
             "steward queue is EXECUTION. The board lives in the operator's space, not "
-            "yours: read it with `backlog_board`, pull a ticket into the queue with "
+            "yours: read it with `backlog_board`, add a new ticket with `backlog_add` "
+            "(same mint path as untagged jules), pull a ticket into the queue with "
             "`backlog_pull`, move/annotate/close board lines with `backlog_update`. A "
             "ticket you can't find in your own files is not missing — check the board."
         )
