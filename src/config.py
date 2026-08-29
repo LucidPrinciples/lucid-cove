@@ -157,6 +157,7 @@ _PRESENCE_DEFAULT_MODULES = (
     "tools.site_tools",     # Tier B Site Builder — list/edit/deploy own NC Sites only (#TIER1)
     "tools.research_tools",  # #GABS-V1 Phase 0 — web_search/fetch for personal agents (Atlas+)
     "tools.video_pipeline_tools",  # #VP-ATLAS1 — presence video pipeline read model
+    "tools.backlog_tools",  # Presence /backlog mint — own NC board, not operator intake
 )
 
 

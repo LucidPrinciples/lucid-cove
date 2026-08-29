@@ -257,6 +257,7 @@ def _build_manager_prompt_from_config(cfg, tuning_state=None) -> str:
         _host_hands_block,
         _operator_brevity_block,
         _public_repo_voice_block,
+        _dev_workflow_block,
     )
 
     name = cfg.get("name", "Stuart")
@@ -309,6 +310,13 @@ def _build_manager_prompt_from_config(cfg, tuning_state=None) -> str:
         "Recall is Cove-wide for family coordination; do not invent privacy walls "
         "unless the operator sets that product rule. Prefer quoting who/when when "
         "it matters.",
+        "",
+        _dev_workflow_block({
+            "name": name,
+            "archetype": archetype,
+            "role": role,
+            "can_delegate_to": ["team"] if "steward" in f"{archetype} {name}".lower() else [],
+        }),
     ]
 
     # Skills catalog (agentskills.io) — name+description only; full body on use_skill().
@@ -589,6 +597,11 @@ def _channel_tool_modules(channel: str):
                         mods.append("tools.briefs_tools")
                     if "tools.table_tools" not in mods:
                         mods.append("tools.table_tools")
+                    # Same board mint as steward/personal: Mercer's Day can file
+                    # onto operator intake. Pull-to-queue still no-ops as a
+                    # presence-board guard; merchant should not run the queue.
+                    if "tools.backlog_tools" not in mods:
+                        mods.append("tools.backlog_tools")
                 return mods
     except Exception:
         pass

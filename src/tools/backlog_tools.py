@@ -1,26 +1,27 @@
 """
-Backlog board tools — the steward's window onto the operator's dev-intake board.
+Backlog board tools — mint and maintain `AgentSkills/Ops/jules-backlog.md`.
 
-Geography (locked 2026-07-11, Chords): the operator's jules backlog
-(`AgentSkills/Ops/jules-backlog.md` in the OPERATOR'S Nextcloud space) is INTAKE —
-where dev work lands. The steward_queue is EXECUTION — where the team runs it.
-These tools connect them: the steward READS the intake board, PULLS tickets into
-the queue, and UPDATES board lines (lane moves, notes, done marks) so the operator
-and the team are always looking at the same truth.
+Two boards, same path, different Nextcloud users:
 
-Why this exists: on 07-11 Stuart was asked about #D52, grepped his OWN NC scope
-(agents' NC tools are scoped to their own user), honestly found nothing — while
-the ticket sat on the operator's board. The board must be reachable across that
-scope boundary, through the board OWNER'S credentials, resolved server-side.
+- Manager / build-team turns (acting channel set; admin NC bound): the
+  OPERATOR intake board. Resolved through the intake owner's credentials,
+  never the Cove admin user. Steward queue pull lives only here.
+- Personal-agent turns (request NC creds bound, no acting channel): THAT
+  presence's own board — the same file `/backlog` shows in their MC.
+
+Do not fall back from a personal turn onto the founding operator's board.
+A missed credential bind must fail, not silently write the wrong file.
+
+Geography (locked 2026-07-11, Chords): operator intake is INTAKE; the
+steward_queue is EXECUTION. Personal boards are presence work, not the
+Cove execution queue.
 
 Tier assignments:
   AUTO    — backlog_board (read-only)
-  NOTIFY  — backlog_pull, backlog_update (board writes are visible, not gated)
+  NOTIFY  — backlog_add, backlog_pull, backlog_update (board writes are visible, not gated)
 
 The intake owner defaults to the Cove's admin operator (cove_role='admin');
-override with the `dev_intake_account_id` setting. Writes go through WebDAV as
-the intake owner (same path the jules processor writes), so NC versioning and
-file ownership stay correct.
+override with the `dev_intake_account_id` setting.
 
 CONCURRENCY (OPS-5b, 2026-07-12): board writes are CONDITIONAL — every PUT
 carries the ETag of the read it was based on (`If-Match`), so a writer holding
@@ -40,6 +41,22 @@ from src.tools.approval import auto, notify
 
 BOARD_RELPATH = "AgentSkills/Ops/jules-backlog.md"
 MAX_BOARD_BYTES = 512 * 1024  # refuse to rewrite something that isn't a board
+
+_PRESENCE_BOARD_SKELETON = """# jules backlog
+
+> Auto-maintained: jules voice notes are processed into items here.
+> Lanes: Now / Soon / Later / Projects / Completed.
+
+## Now
+
+## Soon
+
+## Later
+
+## Projects
+
+## Completed
+"""
 
 # Lane headers the board understands (## Now, ## Soon, ...). Unknown headers are
 # preserved verbatim; #D43: INTERACTIVE/BLOCKED are their own lanes, never NOW.
@@ -195,6 +212,69 @@ def clear_completed_items(text: str):
     return "\n".join(kept), f"Cleared {removed} completed item{'s' if removed != 1 else ''} from the board."
 
 
+
+def next_numeric_ticket_id(text: str) -> int:
+    """Next free ``#N`` after the max of ``#N`` / ``#DN`` on checklist lines.
+
+    Same scan as jules_process._append_items so Day/chat minting cannot collide
+    with voice-note numbering. Named ids (YTREC1, JL-2) do not count.
+    """
+    nums = []
+    for line in text.split("\n"):
+        if line.strip().startswith("- ["):
+            m = re.search(r"\*\*#(?:D)?(\d+)\s", line)
+            if m:
+                nums.append(int(m.group(1)))
+    return (max(nums) + 1) if nums else 1
+
+
+def add_ticket_line(text: str, title: str, desc: str = "", lane: str = "soon",
+                    ticket: str = "", source: str = "day"):
+    """Insert a new checklist row at the top of ``lane``. Returns (new_text, msg).
+
+    If ``ticket`` is empty, mints the next ``#N``. A supplied id that already
+    exists is refused (board unchanged). Missing lane headers are created.
+    """
+    title = (title or "").strip().replace("\n", " ")[:120]
+    if not title:
+        return text, "Title is required."
+    desc = (desc or "").strip().replace("\n", " ")[:400]
+    source = (source or "day").strip().replace("\n", " ")[:80] or "day"
+    lane_key = (lane or "soon").strip().lower()
+    if lane_key not in _LANE_ALIASES:
+        return text, (
+            f"Unknown lane '{lane}'. Use now, soon, later, projects, "
+            "completed, interactive, or blocked."
+        )
+    lane_name = _LANE_ALIASES[lane_key]
+    raw_id = (ticket or "").strip().replace("\n", " ")
+    if raw_id:
+        bare = raw_id.lstrip("#").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,47}", bare):
+            return text, "Ticket id must be letters, numbers, dot, underscore, or hyphen."
+        idx, _ = find_ticket(text, bare)
+        if idx is not None:
+            return text, f"Ticket {raw_id if raw_id.startswith('#') else '#' + bare} already exists on the board."
+        display = raw_id if raw_id.startswith("#") else bare
+    else:
+        display = f"#{next_numeric_ticket_id(text)}"
+    body = f"{desc} " if desc else ""
+    line = f"- [ ] **{display} {title}.** {body}`[day]` *({source})*".rstrip()
+    lines = text.split("\n")
+    hdr = _lane_header_index(lines, lane_key)
+    if hdr is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([f"## {lane_name}", "", line])
+        return "\n".join(lines), f"Added {display} to {lane_name}."
+    idx = hdr + 1
+    insert = [line]
+    if idx < len(lines) and lines[idx].strip():
+        insert = [""] + insert
+    lines[idx:idx] = insert
+    return "\n".join(lines), f"Added {display} to {lane_name}."
+
+
 def ticket_title(text: str, ticket: str) -> str:
     """Short queue title from the ticket's board line."""
     idx, _ = find_ticket(text, ticket)
@@ -210,9 +290,36 @@ def ticket_title(text: str, ticket: str) -> str:
 # Board I/O (through the intake owner's NC credentials)
 # =============================================================================
 
+def _presence_board_creds():
+    """Bound presence NC creds when this is a personal-agent turn.
+
+    Chat binds request NC for personal agents and does NOT set an acting
+    channel. Manager/team turns set acting channel + admin NC. Background
+    jobs have neither — those stay on operator intake.
+    """
+    try:
+        from src.tools.nextcloud_tools import get_acting_channel, _nc_creds_ctx
+    except Exception:
+        return None
+    if get_acting_channel():
+        return None
+    bound = _nc_creds_ctx.get()
+    if not bound or not bound[1] or not bound[2]:
+        return None
+    url, user, password = bound
+    return url, user, password, user
+
+
 async def _intake_creds():
-    """(nc_url, nc_user, nc_pass, label) for the Cove's dev-intake owner.
-    Setting `dev_intake_account_id` overrides; default = the admin operator."""
+    """(nc_url, nc_user, nc_pass, label) for the board this turn may write.
+
+    Personal-agent chat with bound NC creds → that presence's board.
+    Manager/team/background → operator intake (dev_intake_account_id or
+    the admin-role operator). Never the Cove admin NC user.
+    """
+    presence = _presence_board_creds()
+    if presence:
+        return presence
     nc_url = env("NEXTCLOUD_URL")
     if not nc_url:
         raise RuntimeError("NEXTCLOUD_URL not configured")
@@ -276,6 +383,10 @@ async def _board_get():
                         f"{label or nc_user}'s board ({nc_user}:{BOARD_RELPATH})",
                         resp.headers.get("etag", ""))
             if resp.status_code == 404:
+                if _presence_board_creds():
+                    return (_PRESENCE_BOARD_SKELETON,
+                            f"{label or nc_user}'s board ({nc_user}:{BOARD_RELPATH})",
+                            "")
                 raise RuntimeError(f"No board file yet at {nc_user}:{BOARD_RELPATH}")
             last = f"HTTP {resp.status_code}"
             if resp.status_code not in _TRANSIENT_DAV:
@@ -372,8 +483,10 @@ async def _insert_queue_row(source: str, title: str, assignee: str) -> int:
 @auto
 @tool
 async def backlog_board(lane: str = "") -> str:
-    """Read the operator's dev-intake backlog board (cross-scope: the board
-    lives in the OPERATOR'S space, not yours — this tool reaches it for you).
+    """Read the acting backlog board.
+
+    Steward/Day uses operator intake. A personal agent uses this
+    presence board at AgentSkills/Ops/jules-backlog.md.
 
     Args:
         lane: optional lane filter (now/soon/later/projects/completed/...)
@@ -403,13 +516,18 @@ async def backlog_board(lane: str = "") -> str:
 @notify
 @tool
 async def backlog_pull(ticket: str, assignee: str = "") -> str:
-    """Pull a ticket from the operator's intake board into the steward queue
-    (creates the queue row, annotates the board line with the queue id).
+    """Pull a ticket from the operator intake board into the steward queue.
+
+    Creates the queue row and annotates the board line with the queue id.
 
     Args:
         ticket: the board ticket id, e.g. '#D52' or '#1626'
-        assignee: who takes it now (your agent id) — optional, else it queues
+        assignee: who takes it now (your agent id); optional, else it queues
     """
+    if _presence_board_creds():
+        return ("backlog_pull is for the operator intake board only. "
+                "This turn is on a presence board — add or update there, "
+                "or ask the steward to pull Cove work.")
     try:
         text, label, _etag = await _board_get()
     except Exception as e:
@@ -439,11 +557,55 @@ async def backlog_pull(ticket: str, assignee: str = "") -> str:
             f"as [{qid}] ({'assigned to ' + assignee if assignee else 'queued'}). {board_note}")
 
 
+
+@notify
+@tool
+async def backlog_add(title: str, lane: str = "soon", note: str = "",
+                      ticket: str = "", source: str = "day") -> str:
+    """Add a NEW ticket to the acting board.
+
+    Steward/Day writes the operator intake board. A personal agent writes
+    that presence board (the same file /backlog shows). Use when work
+    should land and no ticket id exists yet.
+
+    Args:
+        title: short imperative title (required)
+        lane: now / soon / later / projects (default soon)
+        note: one-sentence description on the line — optional
+        ticket: optional id (e.g. P620VID1). Empty mints the next #N.
+        source: provenance tag, default 'day'
+    """
+    title = (title or "").strip()
+    if not title:
+        return "Nothing to add — pass a title."
+
+    def _apply(t):
+        nt, m = add_ticket_line(
+            t, title, desc=note, lane=lane, ticket=ticket, source=source)
+        return nt, [m]
+
+    try:
+        msgs, label, saved = await _cas_edit(_apply)
+    except Exception as e:
+        return f"Board write failed, nothing saved: {e}"
+    if msgs and any(
+        m.startswith("Title is required")
+        or m.startswith("Unknown lane")
+        or m.startswith("Ticket id must")
+        or ("already exists" in m)
+        for m in msgs
+    ):
+        return " ".join(msgs)
+    if not saved:
+        return " ".join(msgs)
+    return " ".join(msgs) + f" (on {label})"
+
+
 @notify
 @tool
 async def backlog_update(ticket: str, lane: str = "", note: str = "",
                          done: bool = False) -> str:
-    """Update a ticket ON the operator's intake board: move lanes, append a
+    """Update a ticket on the acting board: move lanes, append a
     note, or mark it done. (Queue rows update via queue_update — this is the
     board side.)
 
@@ -483,7 +645,7 @@ async def backlog_update(ticket: str, lane: str = "", note: str = "",
 @notify
 @tool
 async def backlog_clear_completed() -> str:
-    """Purge the Completed lane on the operator's intake board.
+    """Purge the Completed lane on the acting board.
 
     Done items stay in COMPLETED as a retention window until this runs.
     Removes every checklist row under ## Completed (header + prose stay).
@@ -503,5 +665,5 @@ async def backlog_clear_completed() -> str:
     return " ".join(msgs) + f" (on {label})"
 
 
-ALL_BACKLOG_TOOLS = [backlog_board, backlog_pull, backlog_update, backlog_clear_completed]
+ALL_BACKLOG_TOOLS = [backlog_board, backlog_add, backlog_pull, backlog_update, backlog_clear_completed]
 TOOLS = ALL_BACKLOG_TOOLS  # channel loader entry point (_load_tools)
