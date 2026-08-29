@@ -73,8 +73,10 @@ def test_apply_category_uses_working_chart_only():
     assert updated["rows"][0]["needs_review"] is False
     assert updated["rows"][0]["match_rule"] == "operator"
 
-    bad, err = bk.apply_category(payload, 0, "Invented account")
-    assert bad is None and err
+    written, werr = bk.apply_category(payload, 0, "Court fees")
+    assert werr is None and written is not None
+    assert written["rows"][0]["category_label"] == "Court fees"
+    assert any(c["label"] == "Court fees" and c["kind"] == bk.EXPENSE_KIND and c["layer"] == "write-in" for c in written["working_chart"])
     missing, err = bk.apply_category(payload, 9, "Advertising")
     assert missing is None and err
     assert any(r["phrase"] == "vendor" for r in bk.vendor_map_from_payload(updated))
@@ -204,8 +206,16 @@ def test_manual_add_disable_remove():
     assert updated["rows"][0]["origin"] == "manual"
     assert bk.row_signed_amount(updated["rows"][0]) == -40.0
 
-    missing, _line, err = bk.add_manual_row(payload, "2025-03-02", "Studio Rent", "-5.00", "Invented")
-    assert missing is None and err
+    extra = {
+        "account": "Manual",
+        "working_chart": [{"label": "Advertising", "code": None, "layer": "official"}],
+        "rows": [],
+    }
+    written, wline, werr = bk.add_manual_row(extra, "2025-03-02", "Studio Rent", "-5.00", "Invented")
+    assert werr is None and written is not None and wline is not None
+    assert written["rows"][-1]["category_label"] == "Invented"
+    reserved, _rline, rerr = bk.add_manual_row(extra, "2025-03-02", "Studio Rent", "-5.00", "manual")
+    assert reserved is None and rerr
 
     statement = {
         "working_chart": [{"label": "Advertising"}],
@@ -483,6 +493,21 @@ def test_append_imported_rows_skips_duplicates():
     again, added2, skipped2, err2 = bk.append_imported_rows(updated, items[:1], source_file="JUN.csv")
     assert err2 is None
     assert added2 == 0 and skipped2 == 1
+
+
+def test_write_in_expense_stays_on_presence_chart():
+    payload = {
+        "working_chart": [{"label": "Advertising", "layer": "official", "kind": bk.EXPENSE_KIND}],
+        "rows": [_row("2025-01-15", "-10.00")],
+    }
+    updated, rec, err = bk.add_write_in_expense(payload, "  Court fees  ")
+    assert err is None and rec["label"] == "Court fees"
+    assert rec["kind"] == bk.EXPENSE_KIND and rec["layer"] == "write-in"
+    again, rec2, err2 = bk.add_write_in_expense(updated, "Court fees")
+    assert err2 is None and rec2["label"] == "Court fees"
+    assert sum(1 for c in again["working_chart"] if c["label"] == "Court fees") == 1
+    bad, rec3, berr = bk.add_write_in_expense(payload, "manual")
+    assert rec3 is None and berr
 
 
 def test_empty_account_and_import_honor_filing_book():
