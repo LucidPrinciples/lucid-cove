@@ -1065,6 +1065,9 @@ async def books_create_account(request: Request):
     spec, serr = bk.new_account_spec(str(body.get("name") or body.get("label") or ""))
     if serr or spec is None:
         return JSONResponse({"ok": False, "error": serr or "Account name is required"}, status_code=400)
+    book = _parse_book(request, body)
+    if book == bk.ALL_BOOKS:
+        return JSONResponse({"ok": False, "error": "Pick a filing book"}, status_code=400)
     names, lerr = await _list_mapped_ledgers(request)
     if lerr:
         return JSONResponse({"ok": False, "error": lerr}, status_code=502)
@@ -1077,7 +1080,7 @@ async def books_create_account(request: Request):
         }, status_code=409)
     loaded = await _load_named_ledgers(request, names)
     source = loaded[0][1] if loaded else {}
-    payload = bk.empty_account_payload(spec["label"], source)
+    payload = bk.empty_account_payload(spec["label"], source, filing_book=book)
     payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     ferr, fstatus = await _ensure_drop_folder(request, spec["drop_folder"])
     if ferr:
@@ -1091,6 +1094,7 @@ async def books_create_account(request: Request):
         "path": spec["path"],
         "account": spec["label"],
         "drop_folder": spec["drop_folder"],
+        "filing_book": book,
         "ledgers": bk.ledger_choices(names),
     })
 
@@ -1111,9 +1115,13 @@ async def books_process_drop(request: Request):
         return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
     if bk.is_manual_ledger(ledger_path):
         return JSONResponse({"ok": False, "error": "Paste rows on Manual instead"}, status_code=400)
+    book = _parse_book(request, body)
+    if book == bk.ALL_BOOKS:
+        return JSONResponse({"ok": False, "error": "Pick a filing book"}, status_code=400)
     payload, clean, err, status = await _read_ledger(request, ledger_path)
     if err or payload is None:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+    ledger_book_before = bk.infer_filing_book(payload)
     label = bk.account_label(payload, clean)
     folder = bk.drop_folder_for_stem(label)
     if not folder:
@@ -1160,7 +1168,9 @@ async def books_process_drop(request: Request):
             last_err = (errors or ["No rows found"])[0]
             pending += 1
             continue
-        updated, n_added, n_skipped, uerr = bk.append_imported_rows(payload, parsed, source_file=name)
+        updated, n_added, n_skipped, uerr = bk.append_imported_rows(
+            payload, parsed, source_file=name, filing_book=book
+        )
         if uerr or updated is None:
             last_err = uerr
             pending += 1
@@ -1171,7 +1181,12 @@ async def books_process_drop(request: Request):
         processed += 1
         if how == "ocr":
             ocr_used += 1
-    if added:
+    applied, stamped, aerr = bk.apply_payload_filing_book(payload, book)
+    if aerr or applied is None:
+        return JSONResponse({"ok": False, "error": aerr or "Pick a filing book", "path": clean}, status_code=400)
+    payload = applied
+    if added or stamped or ledger_book_before != book:
+        payload["filing_book"] = book
         payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         werr, wstatus = await _write_ledger(request, clean, payload)
         if werr:
@@ -1183,10 +1198,12 @@ async def books_process_drop(request: Request):
         "path": clean,
         "account": label,
         "drop_folder": folder,
+        "filing_book": book,
         "added": added,
         "skipped": skipped,
         "pending": pending,
         "processed": processed,
+        "stamped": stamped,
         "ocr": ocr_used,
         "files": len(files),
         "needs_review_count": payload.get("needs_review_count"),

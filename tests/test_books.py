@@ -485,6 +485,39 @@ def test_append_imported_rows_skips_duplicates():
     assert added2 == 0 and skipped2 == 1
 
 
+def test_empty_account_and_import_honor_filing_book():
+    payload = bk.empty_account_payload("Card", filing_book="pickleball")
+    assert payload["filing_book"] == "pickleball"
+    items = [{"date": "2025-06-01", "payee": "Store", "amount": -12.5}]
+    updated, added, skipped, err = bk.append_imported_rows(
+        payload, items, source_file="JUN.csv", filing_book="pickleball"
+    )
+    assert err is None and added == 1 and skipped == 0
+    assert updated["filing_book"] == "pickleball"
+    assert updated["rows"][0]["filing_book"] == "pickleball"
+
+
+def test_apply_payload_filing_book_stamps_unstamped_only():
+    payload = {
+        "filing_book": "chords",
+        "rows": [
+            {"fields": {"Date": "2025-06-01", "Name": "Store", "Debit/Credit": -1}},
+            {
+                "fields": {"Date": "2025-06-02", "Name": "Other", "Debit/Credit": -2},
+                "filing_book": "chords",
+            },
+        ],
+    }
+    updated, stamped, err = bk.apply_payload_filing_book(payload, "pickleball")
+    assert err is None and updated is not None
+    assert stamped == 1
+    assert updated["filing_book"] == "pickleball"
+    assert updated["rows"][0]["filing_book"] == "pickleball"
+    assert updated["rows"][1]["filing_book"] == "chords"
+    bad, n, berr = bk.apply_payload_filing_book(payload, "all-books")
+    assert bad is None and n == 0 and berr
+
+
 def test_pdf_text_layer_loses_when_it_has_no_rows():
     thin = "Page 1\nAB\nCD\nBalance"
     assert bk.pdf_text_looks_usable(thin) is False

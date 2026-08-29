@@ -659,10 +659,12 @@ async function createAccount() {
   if (!name) return;
   showErr('');
   $('status').textContent = 'Creating account…';
+  const book = state.book === 'all-books' ? '' : (state.book || 'chords');
+  if (!book) { showErr('Pick a filing book before creating an account'); return; }
   const r = await fetch('/api/books/account', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ name, filing_book: book })
   });
   const data = await r.json();
   if (!data.ok) {
@@ -682,12 +684,14 @@ async function processDrop() {
     showErr('Open the ledger first, then Process');
     return;
   }
+  const book = state.book === 'all-books' ? '' : (state.book || 'chords');
+  if (!book) { showErr('Pick a filing book before Process'); return; }
   showErr('');
   $('status').textContent = 'Processing Drop folder…';
   const r = await fetch('/api/books/process', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ path, year: state.year || 2025 })
+    body: JSON.stringify({ path, year: state.year || 2025, filing_book: book })
   });
   const data = await r.json();
   if (!data.ok) {
@@ -698,6 +702,7 @@ async function processDrop() {
   const bits = [];
   if (data.added) bits.push(`added ${data.added}`);
   if (data.skipped) bits.push(`skipped ${data.skipped} duplicates`);
+  if (data.stamped) bits.push(`stamped ${data.stamped} onto ${data.filing_book || book}`);
   if (data.ocr) bits.push(`${data.ocr} from images`);
   if (data.pending) bits.push(`${data.pending} still unread`);
   if (!bits.length) bits.push('nothing new');
