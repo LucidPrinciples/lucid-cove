@@ -411,6 +411,7 @@ def _dev_workflow_block(agent: dict) -> str:
     centralized presences hardcode that empty, so we also read archetype/role."""
     role_text = f"{agent.get('archetype', '')} {agent.get('role', '')} {agent.get('name', '')}".lower()
     is_steward = bool(agent.get("can_delegate_to")) or "steward" in role_text
+    is_merchant = (not is_steward) and "merchant" in role_text
 
     # Discover actual repos at runtime
     from pathlib import Path as _P
@@ -431,15 +432,34 @@ def _dev_workflow_block(agent: dict) -> str:
             "`AgentSkills/Ops/jules-backlog.md`) is INTAKE — where dev work lands; your "
             "steward queue is EXECUTION. The board lives in the operator's space, not "
             "yours: read it with `backlog_board`, add a new ticket with `backlog_add` "
-            "(same mint path as untagged jules), pull a ticket into the queue with "
+            "(same mint path as the Backlog auto chip), pull a ticket into the queue with "
             "`backlog_pull`, move/annotate/close board lines with `backlog_update`. A "
             "ticket you can't find in your own files is not missing — check the board."
+        )
+    elif is_merchant:
+        lines.append(
+            "The operator's intake board (`AgentSkills/Ops/jules-backlog.md`) is the "
+            "Cove work board you share with the steward. Read it with `backlog_board`, "
+            "add a ticket with `backlog_add`, move/annotate/close with `backlog_update`. "
+            "Do not `backlog_pull` into the steward queue — that is the steward's "
+            "execution lane."
         )
     else:
         lines.append(
             "You work within your own scope — your presence's repo. Anything beyond that "
             "scope, or any change to a Cove-level repo, you hand to the steward to build with "
             "the team. You don't take those on alone."
+        )
+        lines.append(
+            "Your work board is THIS presence's `AgentSkills/Ops/jules-backlog.md` "
+            "(the `/backlog` page in this Mission Control). It is a primary tool: "
+            "when asked to add something to the backlog, use `backlog_add` — do not "
+            "invent a list in chat or drop a note in a random Nextcloud folder. "
+            "Read with `backlog_board`, move/annotate/close with `backlog_update`. "
+            "Do not pull tickets into the steward queue; that is Cove intake, not "
+            "this board. Jules chips: Hold waits in Inbox; Backlog (auto) extracts "
+            "silently onto THIS board; a personal-agent chip stays in this Inbox "
+            "for you to file with `backlog_add` if asked."
         )
     lines.append(
         f"The Cove repos available: {_repo_list} (at /app/data/projects/). "

@@ -262,6 +262,52 @@ async def test_backlog_add_refuses_empty_title(monkeypatch):
     assert saved.text is None
 
 
+@pytest.mark.asyncio
+async def test_backlog_pull_refused_on_presence_board(monkeypatch):
+    saved = _wire(monkeypatch)
+    monkeypatch.setattr(bt, "_presence_board_creds",
+                        lambda: ("http://nc", "jeff", "pw", "jeff"))
+    out = await bt.backlog_pull.coroutine("#D52")
+    assert "presence board" in out
+    assert saved.text is None
+    assert not hasattr(saved, "queue")
+
+
+def test_presence_board_creds_uses_bound_nc_not_intake(monkeypatch):
+    class _Var:
+        def get(self):
+            return ("http://nc", "jeffreydavid", "secret",)
+
+    monkeypatch.setattr("src.tools.nextcloud_tools.get_acting_channel",
+                        lambda: None)
+    monkeypatch.setattr("src.tools.nextcloud_tools._nc_creds_ctx", _Var())
+    got = bt._presence_board_creds()
+    assert got[1] == "jeffreydavid"
+    assert got[3] == "jeffreydavid"
+
+
+def test_presence_board_creds_skips_when_acting_channel_set(monkeypatch):
+    class _Var:
+        def get(self):
+            return ("http://nc", "adminclearfield", "secret",)
+
+    monkeypatch.setattr("src.tools.nextcloud_tools.get_acting_channel",
+                        lambda: "stuart-day")
+    monkeypatch.setattr("src.tools.nextcloud_tools._nc_creds_ctx", _Var())
+    assert bt._presence_board_creds() is None
+
+
+def test_presence_board_creds_skips_unbound(monkeypatch):
+    class _Var:
+        def get(self):
+            return None
+
+    monkeypatch.setattr("src.tools.nextcloud_tools.get_acting_channel",
+                        lambda: None)
+    monkeypatch.setattr("src.tools.nextcloud_tools._nc_creds_ctx", _Var())
+    assert bt._presence_board_creds() is None
+
+
 # =============================================================================
 # Wiring: steward channel gets the module universally; no leak to merchant
 # =============================================================================
@@ -279,7 +325,25 @@ def test_steward_channel_gets_backlog_tools_universally():
     with patch.object(ch, "_is_manager_channel", return_value=True), \
          patch.object(ch, "_get_manager_config", return_value=(cfg2, "merchant")):
         mods2 = ch._channel_tool_modules("mercer-day")
-    assert "tools.backlog_tools" not in mods2
+    assert "tools.backlog_tools" in mods2
+
+
+def test_presence_defaults_include_backlog_tools():
+    from src import config as cfg
+    assert "tools.backlog_tools" in cfg._PRESENCE_DEFAULT_MODULES
+    text = __import__("pathlib").Path("provision/centralized.py").read_text()
+    assert "tools.backlog_tools" in text
+
+
+def test_personal_prompt_teaches_own_board():
+    from src.agents.identity import _dev_workflow_block
+    block = _dev_workflow_block({"archetype": "companion", "name": "knight"})
+    assert "backlog_add" in block
+    assert "THIS presence" in block
+    assert "Do not pull tickets into the steward queue" in block
+    merchant = _dev_workflow_block({"archetype": "The Merchant", "name": "mercer"})
+    assert "backlog_add" in merchant
+    assert "Do not `backlog_pull`" in merchant
 
 
 def test_steward_prompt_includes_intake_geography():
@@ -288,7 +352,8 @@ def test_steward_prompt_includes_intake_geography():
                                  "can_delegate_to": ["mercer"]})
     assert "backlog_board" in block and "backlog_add" in block and "backlog_pull" in block
     member = _dev_workflow_block({"archetype": "companion", "name": "atlas"})
-    assert "backlog_pull" not in member
+    assert "backlog_add" in member
+    assert "steward queue" in member.lower() or "Do not pull" in member
 
 
 # =============================================================================
