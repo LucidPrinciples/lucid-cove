@@ -309,7 +309,22 @@ function chartOptions(selected) {
   if (income.length) parts.push('<optgroup label="Income">' + income.map(opt).join('') + '</optgroup>');
   if (expense.length) parts.push('<optgroup label="Expenses">' + expense.map(opt).join('') + '</optgroup>');
   if (transfer.length) parts.push('<optgroup label="Transfers">' + transfer.map(opt).join('') + '</optgroup>');
+  parts.push('<option value="__write_in_expense__">Add expense…</option>');
   return parts.join('') || items.map(opt).join('');
+}
+function promptExpenseWriteIn(sel) {
+  const name = (window.prompt('New expense name (stays on this Presence)', '') || '').trim();
+  if (!name) {
+    if (sel) sel.value = sel.getAttribute('data-was') || '';
+    return '';
+  }
+  return name;
+}
+function resolveCategoryValue(sel) {
+  if (!sel) return '';
+  let category = sel.value || '';
+  if (category === '__write_in_expense__') category = promptExpenseWriteIn(sel);
+  return category;
 }
 function hideViews() {
   $('pnlView').classList.add('hide');
@@ -520,7 +535,8 @@ function checkedItems() {
 async function saveLine(sel) {
   const index = Number(sel.getAttribute('data-index'));
   const source_path = sel.getAttribute('data-source') || state.path;
-  const category = sel.value;
+  const category = resolveCategoryValue(sel);
+  if (!category) return;
   $('status').textContent = 'Saving…';
   const r = await fetch('/api/books/line', {
     method: 'PATCH',
@@ -542,7 +558,7 @@ async function saveLine(sel) {
 }
 async function applyChecked() {
   const items = checkedItems();
-  const category = $('batchCat').value;
+  const category = resolveCategoryValue($('batchCat'));
   if (!items.length) { showErr('Check the lines you want to move'); return; }
   if (!category) { showErr('Pick a category'); return; }
   showErr('');
@@ -753,8 +769,9 @@ async function addTypedLine() {
   const date = ($('newDate').value || '').trim();
   const payee = ($('newPayee').value || '').trim();
   const amount = ($('newAmt').value || '').trim();
-  const category = $('newCat').value || '';
+  const category = resolveCategoryValue($('newCat'));
   if (!date || !payee || !amount) { showErr('Date, payee, and amount are required'); return; }
+  if ($('newCat').value === '__write_in_expense__' && !category) return;
   showErr('');
   $('status').textContent = 'Adding…';
   const r = await fetch('/api/books/line', {
@@ -836,6 +853,8 @@ async function saveTxDetails() {
   const line = state.tx;
   if (!line) return;
   const source_path = line.source_path || state.path;
+  const category = resolveCategoryValue($('txCat'));
+  if (!category && $('txCat').value === '__write_in_expense__') return;
   showErr('');
   $('status').textContent = 'Saving…';
   const r = await fetch('/api/books/line', {
@@ -848,7 +867,7 @@ async function saveTxDetails() {
       date: $('txDate').value,
       payee: $('txPayee').value,
       amount: $('txAmt').value,
-      category: $('txCat').value,
+      category,
       filing_book: $('txBook').value
     })
   });

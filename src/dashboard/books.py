@@ -27,6 +27,8 @@ MAX_LEDGER_LIST = 40
 MAX_COMBINED_LINES = 4000
 MAX_PASTE_LINES = 200
 MAX_ACCOUNT_LABEL = 40
+MAX_CATEGORY_LABEL = 60
+WRITE_IN_EXPENSE = "__write_in_expense__"
 MAX_DROP_FILES = 40
 MAX_DROP_FILE_BYTES = 8_000_000
 MAX_IMPORT_LINES = 2000
@@ -1192,6 +1194,35 @@ def chart_lookup(chart: list[dict], label: str) -> dict | None:
     return None
 
 
+def add_write_in_expense(payload: dict, label: str) -> tuple[dict | None, dict | None, str | None]:
+    """Add a Presence-local expense bucket. Does not change the product chart."""
+    if not isinstance(payload, dict):
+        return None, None, "Ledger JSON must be an object"
+    wanted = " ".join(str(label or "").split())
+    if not wanted or wanted == WRITE_IN_EXPENSE:
+        return None, None, "Expense name is required"
+    if len(wanted) > MAX_CATEGORY_LABEL:
+        return None, None, f"Expense name is over {MAX_CATEGORY_LABEL} characters"
+    key = wanted.lower()
+    reserved = {UNCATEGORIZED.lower(), ALL_BOOKS, "all", "expenses", "income", "transfers"}
+    reserved.update(s.lower() for s in _RESERVED_STEMS)
+    if key in reserved:
+        return None, None, "That name is reserved"
+    stored = working_chart_from_payload(payload)
+    hit = chart_lookup(stored, wanted)
+    if hit is not None:
+        return payload, hit, None
+    rec = {
+        "label": wanted,
+        "code": None,
+        "layer": "write-in",
+        "kind": EXPENSE_KIND,
+    }
+    stored.append(rec)
+    payload["working_chart"] = stored
+    return payload, rec, None
+
+
 def in_period(row: dict, year: int | None, month: int | None) -> bool:
     if year is None and month is None:
         return True
@@ -1457,7 +1488,10 @@ def apply_categories(
     chart_items = chart if isinstance(chart, list) else working_chart_from_payload(payload)
     hit = chart_lookup(chart_items, label)
     if hit is None:
-        return None, "Category is not on the working chart"
+        payload, hit, werr = add_write_in_expense(payload, label)
+        if werr or hit is None:
+            return None, werr or "Category is not on the working chart"
+        chart_items = working_chart_from_payload(payload)
     stored = working_chart_from_payload(payload)
     if chart_lookup(stored, hit["label"]) is None:
         stored.append({
@@ -1755,6 +1789,12 @@ def add_manual_row(payload: dict, date: str, payee: str, amount: Any, category: 
         return None, None, "Ledger is full"
     chart = working_chart_from_payload(payload)
     book = filing_book or infer_filing_book(payload)
+    label = str(category or "").strip()
+    if label and label != UNCATEGORIZED and chart_lookup(chart, label) is None:
+        payload, _hit, werr = add_write_in_expense(payload, label)
+        if werr:
+            return None, None, werr
+        chart = working_chart_from_payload(payload)
     row, err = build_manual_row(date, payee, amount, category, chart, filing_book=book)
     if err or row is None:
         return None, None, err
@@ -1798,7 +1838,10 @@ def update_row_details(
         else:
             hit = chart_lookup(chart_items, label)
             if hit is None:
-                return None, "Category is not on the working chart"
+                payload, hit, werr = add_write_in_expense(payload, label)
+                if werr or hit is None:
+                    return None, werr or "Category is not on the working chart"
+                chart_items = working_chart_from_payload(payload)
             stored = working_chart_from_payload(payload)
             if chart_lookup(stored, hit["label"]) is None:
                 stored.append({
