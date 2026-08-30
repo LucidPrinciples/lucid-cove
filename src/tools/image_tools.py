@@ -24,7 +24,12 @@ from langchain_core.tools import tool
 
 from src.env import env
 from src.tools.approval import auto
-from src.tools.nextcloud_tools import _auth, _find_sibling_by_ws, _webdav_url
+from src.tools.nextcloud_tools import (
+    _auth,
+    _find_sibling_by_ws,
+    _webdav_url,
+    check_nc_path_access,
+)
 
 # Formats the vision API accepts directly (no conversion needed)
 _DIRECT_MIME = {
@@ -72,6 +77,10 @@ async def view_image(path: str, question: str = "") -> str:
         question: What you want to know. Blank = describe it + transcribe text.
     """
     import httpx
+
+    denied = check_nc_path_access(path, write=False)
+    if denied:
+        return denied
 
     ext = (path.rsplit(".", 1)[-1] if "." in path else "").lower()
     if ext not in _DIRECT_MIME and ext not in _HEIC_EXTS:

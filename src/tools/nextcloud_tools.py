@@ -220,6 +220,11 @@ _OPERATOR_SHARED_NAMES = (
     "CoveShared",  # legacy name still denied if anything remains
 )
 
+# Bookkeeping (statements, returns, mapped ledgers) stays on-box. Humans use
+# /books and Files; Process is local extract. Agent Nextcloud tools — including
+# steward and presence-unbound chat — must not pull this tree to an API model.
+_BOOKKEEPING_ROOT = "bookkeeping"
+
 
 def set_acting_channel(channel: str | None):
     """Bind the acting channel for this request/task. Returns a reset token."""
@@ -310,6 +315,17 @@ def _norm_nc_path(path: str) -> str:
     return p.lstrip("/")
 
 
+def _is_bookkeeping_nc_path(path: str) -> bool:
+    """True if path is the Presence Bookkeeping tree (root or any child)."""
+    first = (_norm_nc_path(path).split("/", 1)[0] if path else "").lower()
+    return first == _BOOKKEEPING_ROOT
+
+
+def _filter_bookkeeping_hits(paths: list[str]) -> list[str]:
+    """Drop Bookkeeping matches from a search/list of NC paths."""
+    return [p for p in paths if not _is_bookkeeping_nc_path(p)]
+
+
 def _under_agentskills(norm: str) -> tuple[bool, str]:
     """Return (is_under_agentskills, relative_under_agentskills).
 
@@ -362,15 +378,22 @@ def _path_allowed(norm: str, prefixes: list[str], *, unrestricted: bool = False)
 def check_nc_path_access(path: str, write: bool = False) -> str | None:
     """Return an error message if the acting role may not access `path`, else None.
 
-    No acting team role → no scoping (presence own-space unchanged).
+    No acting team role → no scoping (presence own-space unchanged), except
+    Bookkeeping which is denied for every agent tool call.
     Steward → unrestricted under AgentSkills/.
     Writes need an rw prefix; reads allow rw + ro.
     """
+    norm = _norm_nc_path(path)
+    if _is_bookkeeping_nc_path(norm):
+        return (
+            "Access denied: Bookkeeping is private to the Presence Books page "
+            "— agents cannot access statements, returns, or ledger files."
+        )
+
     role, agent_id = resolve_acting_role()
     if role is None:
         return None  # presence / unbound — do not scope
 
-    norm = _norm_nc_path(path)
     scope = _scope_for_role(role, agent_id)
     rw = list(scope.get("rw") or [])
     ro = list(scope.get("ro") or [])
@@ -636,6 +659,9 @@ async def nextcloud_list(path: str = "/") -> str:
                 name = unquote(href.rstrip("/").split("/")[-1])
                 if not name:
                     continue
+                child = f"{_norm_nc_path(path).rstrip('/')}/{name}".lstrip("/")
+                if _is_bookkeeping_nc_path(child):
+                    continue
                 resource_type = response.find(".//d:resourcetype/d:collection", ns)
                 kind = "📁" if resource_type is not None else "📄"
                 size_el = response.findtext(".//d:getcontentlength", namespaces=ns)
@@ -685,6 +711,9 @@ async def nextcloud_search(query: str, path: str = "/") -> str:
         query: Search term
         path: Directory to search in (default: all files)
     """
+    denied = check_nc_path_access(path or "/", write=False)
+    if denied:
+        return denied
     nc_user = _nc_user()
     url = f"{_nc_url()}/remote.php/dav"
     search_body = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -717,6 +746,7 @@ async def nextcloud_search(query: str, path: str = "/") -> str:
                     # Strip the WebDAV prefix to get readable path
                     readable = unquote(href.replace(f"/remote.php/dav/files/{nc_user}", ""))
                     results.append(readable)
+            results = _filter_bookkeeping_hits(results)
             if results:
                 return f"Search results for '{query}':\n" + "\n".join(results)
             return f"No files found matching '{query}'"
