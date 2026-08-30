@@ -1127,6 +1127,7 @@ async def books_setup(request: Request):
             return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
     payload = bk.empty_account_payload(acct["label"], {}, filing_book=spec["book_id"])
     payload["entity"] = spec["book_label"]
+    payload["filing_book_label"] = spec["book_label"]
     payload["filing_book"] = spec["book_id"]
     payload["working_chart"] = bk.official_schedule_c_chart()
     payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -654,6 +654,31 @@ def test_official_schedule_c_seeds_empty_chart():
     assert kinds["Advertising"] == bk.EXPENSE_KIND
 
 
+def test_filing_book_labels_ignore_copied_entity():
+    chords = {
+        "entity": "Chords of Truth, LLC",
+        "filing_book": "chords",
+        "rows": [],
+    }
+    pickle = {
+        "entity": "Chords of Truth, LLC",
+        "filing_book": "pickleball",
+        "rows": [],
+    }
+    choices = {item["id"]: item["label"] for item in bk.filing_book_choices([chords, pickle])}
+    assert choices["chords"] == "Chords of Truth, LLC"
+    assert choices["pickleball"] == "Pickleball"
+    assert bk.filing_book_label("pickleball", [chords, pickle]) == "Pickleball"
+
+    copied = bk.empty_account_payload("CAPITAL-ONE", chords, filing_book="pickleball")
+    assert copied["filing_book"] == "pickleball"
+    assert copied["entity"] == ""
+    assert copied["filing_book_label"] == "Pickleball"
+
+    same = bk.empty_account_payload("Bluevine", chords, filing_book="chords")
+    assert same["entity"] == "Chords of Truth, LLC"
+
+
 def test_first_open_setup_spec_and_custom_book():
     spec, err = bk.first_open_setup_spec("Parents LLC", "Checking")
     assert err is None

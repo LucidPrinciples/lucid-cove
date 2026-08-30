@@ -222,8 +222,13 @@ def empty_account_payload(
     stem = account_stem(label) or "Account"
     chosen = normalize_filing_book(filing_book, default="")
     book = chosen if is_filing_book_id(chosen) else infer_filing_book(src)
+    src_book = infer_filing_book(src) if src else ""
+    same_book = bool(src) and src_book == book
+    entity = str(src.get("entity") or "").strip() if same_book else ""
+    stored_label = str(src.get("filing_book_label") or "").strip() if same_book else ""
     return {
-        "entity": src.get("entity") or "",
+        "entity": entity,
+        "filing_book_label": stored_label or _builtin_filing_book_label(book),
         "account": stem,
         "origin": "account",
         "filing_book": book,
@@ -554,6 +559,28 @@ def filing_book_id_from_label(label: str) -> str:
     return slug if is_filing_book_id(slug) else ""
 
 
+def _builtin_filing_book_label(book_id: str) -> str:
+    bid = str(book_id or "").strip().lower()
+    for item in FILING_BOOKS:
+        if item["id"] == bid:
+            return item["label"]
+    if is_filing_book_id(bid):
+        return bid.replace("-", " ").title()
+    return ""
+
+
+def entity_matches_filing_book(entity: str, book_id: str) -> bool:
+    """True when entity text names this filing book, not a sibling ledger's copy."""
+    bid = str(book_id or "").strip().lower()
+    if not is_filing_book_id(bid):
+        return False
+    raw = " ".join(str(entity or "").split())
+    if not raw:
+        return False
+    hit = normalize_filing_book(raw, default="")
+    return hit == bid
+
+
 def official_schedule_c_chart() -> list[dict]:
     out = []
     for item in OFFICIAL_SCHEDULE_C:
@@ -561,6 +588,23 @@ def official_schedule_c_chart() -> list[dict]:
         rec["kind"] = chart_kind(rec["label"], rec)
         out.append(rec)
     return ensure_builtin_chart(out)
+
+
+def filing_book_display_label(payload: dict | None, book_id: str = "") -> str:
+    """Name for a filing book. Ignore entity text copied from a sibling ledger."""
+    bid = str(book_id or "").strip().lower()
+    if not is_filing_book_id(bid) and isinstance(payload, dict):
+        bid = infer_filing_book(payload)
+    if not is_filing_book_id(bid):
+        return _builtin_filing_book_label("chords") or "Books"
+    src = payload if isinstance(payload, dict) else {}
+    stored = str(src.get("filing_book_label") or "").strip()
+    if stored and entity_matches_filing_book(stored, bid):
+        return stored
+    entity = str(src.get("entity") or "").strip()
+    if entity_matches_filing_book(entity, bid):
+        return entity
+    return _builtin_filing_book_label(bid) or bid.replace("-", " ").title()
 
 
 def filing_book_choices(payloads: list | None = None) -> list[dict]:
@@ -571,9 +615,9 @@ def filing_book_choices(payloads: list | None = None) -> list[dict]:
         bid = infer_filing_book(payload)
         if not is_filing_book_id(bid):
             continue
-        label = str(payload.get("entity") or payload.get("filing_book_label") or "").strip()
+        label = filing_book_display_label(payload, bid)
         if bid not in seen:
-            seen[bid] = label or next((b["label"] for b in FILING_BOOKS if b["id"] == bid), bid)
+            seen[bid] = label
     extra = [{"id": k, "label": v, "form": "Schedule C"} for k, v in seen.items()]
     extra.sort(key=lambda b: (0 if b["id"] in _FILING_IDS else 1, b["label"].lower()))
     return [{"id": ALL_BOOKS, "label": "All books"}] + extra
@@ -621,13 +665,14 @@ def filing_book_label(book_id: str, payloads: list | None = None) -> str:
     bid = normalize_filing_book(book_id, default="chords")
     if bid == ALL_BOOKS:
         return "All books"
-    for item in filing_book_choices(payloads):
-        if item["id"] == bid:
-            return item["label"]
-    for item in FILING_BOOKS:
-        if item["id"] == bid:
-            return item["label"]
-    return bid.replace("-", " ").title() if bid else "Books"
+    match = None
+    for payload in payloads or []:
+        if not isinstance(payload, dict):
+            continue
+        if infer_filing_book(payload) == bid:
+            match = payload
+            break
+    return filing_book_display_label(match, bid)
 
 
 def infer_filing_book(payload: dict | None = None, row: dict | None = None) -> str:
