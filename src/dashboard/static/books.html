@@ -122,6 +122,10 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
 </div>
 <div class="toolbar" id="toolbar">
+  <label class="faint hide" id="presenceWrap">Books for
+    <select id="presenceSel"></select>
+  </label>
+  <button type="button" id="btnShare" class="hide">Share books</button>
   <label class="faint">Book
     <select id="bookSel"></select>
   </label>
@@ -138,6 +142,16 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <button type="button" id="btnMap">Import map</button>
   <button type="button" class="primary" id="btnAdd">Add line</button>
   <button type="button" id="btnPaste">Paste rows</button>
+</div>
+<div id="shareView" class="setup-view hide">
+  <div class="setup-card">
+    <h2>Share books</h2>
+    <p class="dim">A Cove member with manage can keep these books on their Books page. Statements still drop in this Presence’s Files. Chat cannot read them.</p>
+    <div id="shareList" class="setup-fields"></div>
+    <div class="setup-actions">
+      <button type="button" id="btnShareClose">Done</button>
+    </div>
+  </div>
 </div>
 <div id="err" class="err hide"></div>
 <div class="add-line" id="addLineBar">
@@ -230,7 +244,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div class="status" id="status"></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { path: 'all', book: 'chords', books: [], chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [], transfersOpen: false, tx: null };
+const state = { path: 'all', book: 'chords', books: [], chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [], transfersOpen: false, tx: null, presence: '', presenceLabel: '', mine: true, spaces: [], members: [] };
 
 function money(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -260,8 +274,42 @@ function qs() {
   if (state.book) p.set('book', state.book);
   if (state.year) p.set('year', String(state.year));
   if (state.month) p.set('month', String(state.month));
+  if (state.presence) p.set('presence', state.presence);
   const s = p.toString();
   return s ? ('?' + s) : '';
+}
+function withPresence(obj) {
+  const out = obj && typeof obj === 'object' ? Object.assign({}, obj) : {};
+  if (state.presence) out.presence = state.presence;
+  return out;
+}
+function booksHeaders() {
+  const h = {'Content-Type':'application/json'};
+  if (state.presence) h['X-Books-Presence'] = state.presence;
+  return h;
+}
+function fillSpaces() {
+  const wrap = $('presenceWrap');
+  const sel = $('presenceSel');
+  const share = $('btnShare');
+  const list = state.spaces || [];
+  if (sel) {
+    sel.innerHTML = list.map(item => {
+      const id = item.id || '';
+      const label = item.label || id;
+      const mine = item.mine ? ' (yours)' : '';
+      return `<option value="${escapeHtml(id)}">${escapeHtml(label + mine)}</option>`;
+    }).join('');
+    if (state.presence) sel.value = state.presence;
+  }
+  if (wrap) {
+    if (list.length > 1) wrap.classList.remove('hide');
+    else wrap.classList.add('hide');
+  }
+  if (share) {
+    if (state.mine) share.classList.remove('hide');
+    else share.classList.add('hide');
+  }
 }
 function fillBooks() {
   const sel = $('bookSel');
@@ -432,6 +480,44 @@ function openTx(line) {
   else $('btnTxRemove').classList.add('hide');
   showTx();
 }
+function renderShareList() {
+  const box = $('shareList');
+  if (!box) return;
+  const members = state.members || [];
+  if (!members.length) {
+    box.innerHTML = '<p class="dim">No other Cove members to share with yet.</p>';
+    return;
+  }
+  box.innerHTML = members.map(m => {
+    const on = m.granted ? 'true' : 'false';
+    const verb = m.granted ? 'Revoke' : 'Grant manage';
+    return `<div class="setup-actions" style="justify-content:space-between">
+      <span>${escapeHtml(m.label || m.id)}</span>
+      <button type="button" data-grant="${escapeHtml(m.id)}" data-on="${on}">${verb}</button>
+    </div>`;
+  }).join('');
+}
+function showShare(on) {
+  const view = $('shareView');
+  if (!view) return;
+  if (on) {
+    view.classList.remove('hide');
+    renderShareList();
+  } else {
+    view.classList.add('hide');
+  }
+}
+async function loadAccess() {
+  const r = await fetch('/api/books/access' + (state.presence ? ('?presence=' + encodeURIComponent(state.presence)) : ''));
+  const data = await r.json();
+  if (!data.ok) return;
+  state.spaces = data.spaces || [];
+  state.members = data.members || [];
+  state.mine = !!data.mine;
+  if (data.presence) state.presence = data.presence;
+  if (data.presence_label) state.presenceLabel = data.presence_label;
+  fillSpaces();
+}
 async function loadSummary() {
   showErr('');
   $('status').textContent = 'Loading…';
@@ -459,7 +545,8 @@ async function loadSummary() {
   const acct = data.account || '';
   const review = data.needs_review_count != null ? ` · ${data.needs_review_count} need review` : '';
   const mapN = (state.vendorMap || []).length;
-  $('hdrMeta').textContent = `${ent}${acct ? ' · ' + acct : ''} · ${data.row_count || 0} lines · ${mapN} map rules${review}`;
+  const who = (!state.mine && state.presenceLabel) ? `${state.presenceLabel} · ` : '';
+  $('hdrMeta').textContent = `${who}${ent}${acct ? ' · ' + acct : ''} · ${data.row_count || 0} lines · ${mapN} map rules${review}`;
   if (data.seeded) {
     $('status').innerHTML = `<span class="okmsg">Filled ${data.seeded} map rules from placed lines</span>`;
   }
@@ -541,6 +628,7 @@ async function openCategory(label) {
   if (state.year) p.set('year', String(state.year));
   if (state.month) p.set('month', String(state.month));
   p.set('category', label);
+  if (state.presence) p.set('presence', state.presence);
   const r = await fetch('/api/books/lines?' + p.toString());
   const data = await r.json();
   if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="7">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
@@ -587,8 +675,8 @@ async function saveLine(sel) {
   $('status').textContent = 'Saving…';
   const r = await fetch('/api/books/line', {
     method: 'PATCH',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ path: source_path, source_path, index, category })
+    headers: booksHeaders(),
+    body: JSON.stringify(withPresence({ path: source_path, source_path, index, category }))
   });
   const data = await r.json();
   if (!data.ok) {
@@ -612,8 +700,8 @@ async function applyChecked() {
   $('status').textContent = 'Saving…';
   const r = await fetch('/api/books/lines', {
     method: 'PATCH',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ items, category })
+    headers: booksHeaders(),
+    body: JSON.stringify(withPresence({ items, category }))
   });
   const data = await r.json();
   if (!data.ok) {
@@ -643,7 +731,7 @@ async function saveMap(rules) {
   $('status').textContent = 'Saving map…';
   const r = await fetch('/api/books/map', {
     method: 'PUT',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({ path: state.path, vendor_map: rules, apply: true })
   });
   const data = await r.json();
@@ -692,7 +780,7 @@ async function addPastedRows() {
   $('status').textContent = 'Adding pasted rows…';
   const r = await fetch('/api/books/lines/paste', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({
       text,
       filing_book: state.book === 'all-books' ? 'pickleball' : state.book,
@@ -726,7 +814,7 @@ async function createAccount() {
   if (!book) { showErr('Pick a filing book before creating an account'); return; }
   const r = await fetch('/api/books/account', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({ name, filing_book: book })
   });
   const data = await r.json();
@@ -753,7 +841,7 @@ async function processDrop() {
   $('status').textContent = 'Processing Drop folder…';
   const r = await fetch('/api/books/process', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({ path, year: state.year || 2025, filing_book: book })
   });
   const data = await r.json();
@@ -780,7 +868,7 @@ async function createFirstBooks() {
   $('status').textContent = 'Creating books…';
   const r = await fetch('/api/books/setup', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({ book, account })
   });
   const data = await r.json();
@@ -809,7 +897,7 @@ async function seedFromPlaced() {
   $('status').textContent = 'Filling map from placed lines…';
   const r = await fetch('/api/books/seed-map', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({ path: state.path, apply: true })
   });
   const data = await r.json();
@@ -848,7 +936,7 @@ async function addTypedLine() {
   $('status').textContent = 'Adding…';
   const r = await fetch('/api/books/line', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({ date, payee, amount, category, filing_book: state.book === 'all-books' ? 'chords' : state.book })
   });
   const data = await r.json();
@@ -870,7 +958,7 @@ async function setLineDisabled(btn) {
   $('status').textContent = disabled ? 'Disabling…' : 'Restoring…';
   const r = await fetch('/api/books/line/state', {
     method: 'PATCH',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({ path: source_path, source_path, index, disabled })
   });
   const data = await r.json();
@@ -889,7 +977,7 @@ async function removeTypedLine(btn) {
   $('status').textContent = 'Removing…';
   const r = await fetch('/api/books/line', {
     method: 'DELETE',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({ path: source_path, source_path, index })
   });
   const data = await r.json();
@@ -931,7 +1019,7 @@ async function saveTxDetails() {
   $('status').textContent = 'Saving…';
   const r = await fetch('/api/books/line', {
     method: 'PATCH',
-    headers: {'Content-Type':'application/json'},
+    headers: booksHeaders(),
     body: JSON.stringify({
       path: source_path,
       source_path,
@@ -994,7 +1082,39 @@ document.querySelector('.bk-close').onclick = leaveBooks;
     if (inOverlay || want === 'links') document.body.classList.add('bk-show-close');
   } catch (e) {}
 })();
-loadSummary();
+async function toggleGrant(id, on) {
+  showErr('');
+  $('status').textContent = on ? 'Revoking…' : 'Granting…';
+  const r = await fetch('/api/books/grants', {
+    method: on ? 'DELETE' : 'POST',
+    headers: booksHeaders(),
+    body: JSON.stringify({ grantee: id })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Could not update grant');
+    return;
+  }
+  $('status').innerHTML = `<span class="okmsg">${on ? 'Revoked' : 'Granted manage'}</span>`;
+  await loadAccess();
+  renderShareList();
+}
+$('btnShare').onclick = () => { showShare(true); };
+$('btnShareClose').onclick = () => { showShare(false); };
+$('shareList').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-grant]');
+  if (!btn) return;
+  toggleGrant(btn.getAttribute('data-grant'), btn.getAttribute('data-on') === 'true');
+});
+$('presenceSel').onchange = () => {
+  state.presence = $('presenceSel').value || '';
+  state.path = 'all';
+  showShare(false);
+  showPnl();
+  loadAccess().then(loadSummary);
+};
+loadAccess().then(loadSummary);
 </script>
 </body>
 </html>

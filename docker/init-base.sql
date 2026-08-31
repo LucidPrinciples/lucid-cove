@@ -1067,3 +1067,17 @@ CREATE TABLE IF NOT EXISTS profile_mirror (
     links             JSONB DEFAULT '{}'::jsonb,
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
+
+
+-- Human manage grants for another Presence's Bookkeeping (BOOKPRIV1).
+-- Owner grants a Cove member manage on /books. Agent chat tools stay denied.
+CREATE TABLE IF NOT EXISTS books_grants (
+    owner_presence_id    UUID NOT NULL,
+    grantee_presence_id  UUID NOT NULL,
+    role                 TEXT NOT NULL DEFAULT 'manage',
+    created_at           TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (owner_presence_id, grantee_presence_id),
+    CONSTRAINT books_grants_role_check CHECK (role IN ('manage'))
+);
+CREATE INDEX IF NOT EXISTS idx_books_grants_grantee
+    ON books_grants (grantee_presence_id);

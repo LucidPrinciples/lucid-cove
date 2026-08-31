@@ -1,6 +1,9 @@
 """Presence Bookkeeping P&L + ledger + vendor map.
 
 GET   /books                    statement P&L page
+GET   /api/books/access         spaces this human may open + grant roster
+POST  /api/books/grants         owner grants another Cove member manage
+DELETE /api/books/grants        owner revokes that grant
 GET   /api/books/summary        category rollup (optional year/month)
 POST  /api/books/setup          first-open book + ledger when Organize is empty
 GET   /api/books/lines          transactions for one category
@@ -17,8 +20,10 @@ PATCH /api/books/line/state     disable or restore a statement or typed line
 PATCH /api/books/line/book      move a line onto a filing book
 DELETE /api/books/line          remove a typed line only
 
-Bytes live in the logged-in Presence's Bookkeeping/Organize/*.mapped.json.
-Do not log amounts, payees, or statement text.
+Bytes live in the target Presence's Bookkeeping/Organize/*.mapped.json.
+A Cove member may open another Presence's tree only with a human manage
+grant. Agent file tools stay denied on Bookkeeping. Do not log amounts,
+payees, or statement text.
 """
 
 from __future__ import annotations
@@ -35,7 +40,16 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from src.env import env
 from src.dashboard import books as bk
+from src.dashboard.books_access import (
+    books_grant_allowed,
+    grantable_cove_role,
+    parse_books_presence_id,
+    parse_requested_presence,
+    presence_books_label,
+    requested_books_owner,
+)
 
 logger = logging.getLogger("bookkeeping")
 
@@ -50,7 +64,163 @@ _RETRY_DELAYS = (0.4, 0.8, 1.6, 3.2)
 async def _webdav(request: Request, path: str):
     from src.dashboard.routes.files import _resolve_webdav
 
-    return await _resolve_webdav(request, path)
+    # Own books (and steward-door Cove books) stay on the existing Files mapping.
+    # Only a granted other Presence switches the WebDAV user.
+    want = parse_requested_presence(request)
+    actor = await _actor_presence(request)
+    actor_id = str(actor["id"]) if actor and actor.get("id") else ""
+    if not want or not actor_id or want == actor_id:
+        return await _resolve_webdav(request, path)
+    granted = await _has_books_grant(want, actor_id)
+    if not books_grant_allowed(actor_id, want, granted):
+        return None, None, None, "No manage grant for those books"
+    owner = await _lookup_presence(want)
+    if not owner or not owner.get("active", True):
+        return None, None, None, "Those books are not available"
+    nc_url = env("NEXTCLOUD_URL")
+    nc_user = str(owner.get("nc_username") or "").strip()
+    nc_pass = str(owner.get("nc_password") or "").strip()
+    if not nc_user or not nc_pass:
+        return None, None, None, "Nextcloud not configured"
+    webdav_base = f"{nc_url}/remote.php/dav/files/{nc_user}"
+    return webdav_base, nc_user, (nc_user, nc_pass), None
+
+
+async def _actor_presence(request: Request):
+    from src.dashboard.routes.presence import get_current_presence
+
+    return await get_current_presence(request)
+
+
+async def _lookup_presence(presence_id: str) -> dict | None:
+    pid = parse_books_presence_id(presence_id)
+    if not pid:
+        return None
+    from src.memory.database import get_db
+
+    async with get_db() as conn:
+        result = await conn.execute(
+            """SELECT id, display_name, username, cove_role, active,
+                      nc_username, nc_password
+               FROM accounts WHERE id = %s""",
+            (pid,),
+        )
+        row = await result.fetchone()
+    return dict(row) if row else None
+
+
+async def _has_books_grant(owner_id: str, grantee_id: str) -> bool:
+    owner = parse_books_presence_id(owner_id)
+    grantee = parse_books_presence_id(grantee_id)
+    if not owner or not grantee:
+        return False
+    from src.memory.database import get_db
+
+    try:
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT 1 FROM books_grants
+                   WHERE owner_presence_id = %s AND grantee_presence_id = %s
+                     AND role = 'manage'""",
+                (owner, grantee),
+            )
+            return await result.fetchone() is not None
+    except Exception:
+        logger.warning("books grant lookup failed")
+        return False
+
+
+async def _books_target(request: Request, body: dict | None = None):
+    actor = await _actor_presence(request)
+    if not actor or not actor.get("id"):
+        return None, None, "Sign in to open books"
+    actor_id = str(actor["id"])
+    owner_id = requested_books_owner(actor_id, parse_requested_presence(request, body))
+    if owner_id == actor_id:
+        return actor, actor, None
+    granted = await _has_books_grant(owner_id, actor_id)
+    if not books_grant_allowed(actor_id, owner_id, granted):
+        return None, actor, "No manage grant for those books"
+    owner = await _lookup_presence(owner_id)
+    if not owner or not owner.get("active", True):
+        return None, actor, "Those books are not available"
+    return owner, actor, None
+
+
+def _presence_card(row: dict, *, mine: bool = False, granted: bool = False) -> dict:
+    pid = str(row.get("id") or "")
+    return {
+        "id": pid,
+        "label": presence_books_label(row),
+        "mine": mine,
+        "granted": granted,
+    }
+
+
+async def _list_active_presences() -> list[dict]:
+    from src.memory.database import get_db
+
+    async with get_db() as conn:
+        result = await conn.execute(
+            """SELECT id, display_name, username, cove_role, active
+               FROM accounts WHERE active = TRUE ORDER BY display_name"""
+        )
+        rows = await result.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def _grants_for_owner(owner_id: str) -> list[str]:
+    owner = parse_books_presence_id(owner_id)
+    if not owner:
+        return []
+    from src.memory.database import get_db
+
+    try:
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT grantee_presence_id FROM books_grants
+                   WHERE owner_presence_id = %s AND role = 'manage'""",
+                (owner,),
+            )
+            rows = await result.fetchall()
+    except Exception:
+        logger.warning("books grant list failed")
+        return []
+    out = []
+    for row in rows:
+        rec = dict(row)
+        gid = parse_books_presence_id(rec.get("grantee_presence_id"))
+        if gid:
+            out.append(gid)
+    return out
+
+
+async def _spaces_for_actor(actor: dict) -> list[dict]:
+    actor_id = str(actor.get("id") or "")
+    spaces = [_presence_card(actor, mine=True)]
+    from src.memory.database import get_db
+
+    try:
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT a.id, a.display_name, a.username, a.cove_role, a.active
+                   FROM books_grants g
+                   JOIN accounts a ON a.id = g.owner_presence_id
+                   WHERE g.grantee_presence_id = %s AND g.role = 'manage'
+                     AND a.active = TRUE
+                   ORDER BY a.display_name""",
+                (actor_id,),
+            )
+            rows = await result.fetchall()
+    except Exception:
+        logger.warning("books spaces list failed")
+        rows = []
+    for row in rows:
+        rec = dict(row)
+        if str(rec.get("id") or "") == actor_id:
+            continue
+        spaces.append(_presence_card(rec, granted=True))
+    return spaces
 
 
 def _quote_path(path: str) -> str:
@@ -387,6 +557,115 @@ def _parse_period(request: Request) -> tuple[int | None, int | None, str | None]
         if year is None:
             return None, None, "month requires year"
     return year, month, None
+
+
+def _access_error(err: str, status: int = 403) -> JSONResponse:
+    code = 401 if err == "Sign in to open books" else status
+    return JSONResponse({"ok": False, "error": err}, status_code=code)
+
+
+@router.get("/api/books/access")
+async def books_access(request: Request):
+    actor = await _actor_presence(request)
+    if not actor or not actor.get("id"):
+        return _access_error("Sign in to open books")
+    owner, _act, err = await _books_target(request)
+    if err or owner is None:
+        return _access_error(err or "No manage grant for those books")
+    actor_id = str(actor["id"])
+    owner_id = str(owner["id"])
+    mine = owner_id == actor_id
+    grant_ids = await _grants_for_owner(owner_id) if mine else []
+    members = []
+    if mine:
+        for row in await _list_active_presences():
+            pid = str(row.get("id") or "")
+            if pid == actor_id:
+                continue
+            if not grantable_cove_role(str(row.get("cove_role") or "")):
+                continue
+            members.append({
+                "id": pid,
+                "label": presence_books_label(row),
+                "granted": pid in grant_ids,
+            })
+    return JSONResponse({
+        "ok": True,
+        "presence": owner_id,
+        "presence_label": presence_books_label(owner),
+        "mine": mine,
+        "can_grant": mine,
+        "spaces": await _spaces_for_actor(actor),
+        "members": members,
+    })
+
+
+@router.post("/api/books/grants")
+async def books_grant_create(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    actor = await _actor_presence(request)
+    if not actor or not actor.get("id"):
+        return _access_error("Sign in to open books")
+    actor_id = str(actor["id"])
+    grantee_id = parse_books_presence_id(body.get("grantee") or body.get("presence_id"))
+    if not grantee_id:
+        return JSONResponse({"ok": False, "error": "Pick a Cove member"}, status_code=400)
+    if grantee_id == actor_id:
+        return JSONResponse({"ok": False, "error": "That is already your books"}, status_code=400)
+    target = await _lookup_presence(grantee_id)
+    if not target or not target.get("active", True):
+        return JSONResponse({"ok": False, "error": "That Presence is not available"}, status_code=404)
+    if not grantable_cove_role(str(target.get("cove_role") or "")):
+        return JSONResponse({"ok": False, "error": "Guests cannot manage books"}, status_code=400)
+    from src.memory.database import get_db
+
+    try:
+        async with get_db() as conn:
+            await conn.execute(
+                """INSERT INTO books_grants (owner_presence_id, grantee_presence_id, role)
+                   VALUES (%s, %s, 'manage')
+                   ON CONFLICT (owner_presence_id, grantee_presence_id) DO NOTHING""",
+                (actor_id, grantee_id),
+            )
+    except Exception:
+        logger.warning("books grant write failed")
+        return JSONResponse({"ok": False, "error": "Could not save grant"}, status_code=502)
+    return JSONResponse({"ok": True, "grantee": grantee_id, "role": "manage"})
+
+
+@router.delete("/api/books/grants")
+async def books_grant_revoke(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    actor = await _actor_presence(request)
+    if not actor or not actor.get("id"):
+        return _access_error("Sign in to open books")
+    actor_id = str(actor["id"])
+    grantee_id = parse_books_presence_id(body.get("grantee") or body.get("presence_id"))
+    if not grantee_id:
+        return JSONResponse({"ok": False, "error": "Pick a Cove member"}, status_code=400)
+    from src.memory.database import get_db
+
+    try:
+        async with get_db() as conn:
+            await conn.execute(
+                """DELETE FROM books_grants
+                   WHERE owner_presence_id = %s AND grantee_presence_id = %s""",
+                (actor_id, grantee_id),
+            )
+    except Exception:
+        logger.warning("books grant revoke failed")
+        return JSONResponse({"ok": False, "error": "Could not revoke grant"}, status_code=502)
+    return JSONResponse({"ok": True, "grantee": grantee_id, "revoked": True})
 
 
 @router.get("/books", response_class=HTMLResponse)
