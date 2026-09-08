@@ -255,7 +255,7 @@
     opacity: 1;
   }
 </style>
-<script defer src="https://analytics.lucidcove.org/script.js" data-website-id="9e5cc04a-7136-44f0-948e-d3889457ddfd" data-domains="app.lucidcove.org" data-performance="true"></script>
+<script defer src="https://analytics.lucidcove.org/script.js" data-website-id="9e5cc04a-7136-44f0-948e-d3889457ddfd" data-domains="app.lucidcove.org,app.lucidtuner.com" data-performance="true"></script>
 </head>
 <body>
 
@@ -339,6 +339,28 @@
 </div>
 
 <script>
+// Public Tuner door (app.lucidtuner.com): same hub accounts, Tuner chrome.
+(function brandPublicTuner() {
+  var host = (location.hostname || '').toLowerCase();
+  if (host !== 'app.lucidtuner.com') return;
+  document.title = 'Lucid Tuner';
+  var mark = document.querySelector('.logo-mark');
+  if (mark) mark.textContent = 'Lucid Tuner';
+  var tag = document.querySelector('.tagline');
+  if (tag) tag.innerHTML = 'Align Your Broadcast.<br>Daily Drop, music, one account.';
+  var features = document.querySelector('.features');
+  if (features) {
+    features.innerHTML =
+      '<div class="features-title">Free Lucid Tuner</div>' +
+      '<div class="feature-row"><span class="feature-dot"></span> One Tune a day — Pro is unlimited</div>' +
+      '<div class="feature-row"><span class="feature-dot"></span> Music player and the daily Drop</div>' +
+      '<div class="feature-row"><span class="feature-dot"></span> The full Canon</div>' +
+      '<div class="feature-row"><span class="feature-dot"></span> Optional: connect this to your Hermes team</div>';
+  }
+  var foot = document.querySelector('.footer-link');
+  if (foot) foot.innerHTML = '<a href="https://lucidtuner.com">lucidtuner.com</a> · <a href="https://lucidprinciples.com/open">Open source</a>';
+})();
+
 // Capture referral code and signup source from URL params
 const params = new URLSearchParams(location.search);
 const signupSource = params.get('source') || 'direct';

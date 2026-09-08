@@ -628,6 +628,7 @@ def create_app() -> FastAPI:
     _cors_origins = [
         "https://lucidtuner.com",
         "https://www.lucidtuner.com",
+        "https://app.lucidtuner.com",
         "https://lucidcove.org",
         "https://www.lucidcove.org",
     ]

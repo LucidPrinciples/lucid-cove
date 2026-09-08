@@ -295,15 +295,15 @@ async function enablePublicCove(btn) {
 
 // =============================================================================
 // Move/copy your Cove — its own section at the BOTTOM of Settings. (#1522c)
-// Available to EVERY signed-in account (Tuner/Operator/Cove), since self-hosting is
-// exactly the path FROM Tuner/Operator → Cove. Mints + reveals the connect token once
-// (their @handle shows with it), to paste into a self-host install's connect panel.
+// Available to EVERY signed-in account (Tuner/Operator/Cove). Optional Hermes-connect:
+// mint a connect key here, paste it into Lucid Cove on Hermes (or any self-host).
+// CF-65 carry pulls tuning history. Unconnected stays the habit floor.
 // =============================================================================
 async function loadSettingsSelfHost() {
     const el = document.getElementById('settings-selfhost');
     if (!el) return;
     el.innerHTML = `
-        <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">Take your account onto a new box, or stand up a second copy. Get the connect key + config it needs to join the network as <strong>your @handle</strong>. Your current login stays active.</div>
+        <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">Connect this to your Hermes team. Get a connect key for <strong>your @handle</strong> and paste it into Lucid Cove on Hermes (or a self-host). Tuning history carries over if you want it. Your current login stays active.</div>
         <button class="btn-sm" onclick="getSelfHostConfig(this)">Get my connect key</button>
         <div id="self-host-config-out" style="display:none;margin-top:8px;font-size:0.7rem;"></div>`;
 }
@@ -854,7 +854,7 @@ async function getSelfHostConfig(btn) {
             out.style.display = 'block';
             out.innerHTML =
                 '<div style="color:var(--orange);margin-bottom:6px;">Your <strong>connect key</strong> — shown once, copy it now.</div>'
-                + '<div style="color:var(--dim);margin-bottom:4px;">Paste it into the Cove setup wizard where it asks for your connect key:</div>'
+                + '<div style="color:var(--dim);margin-bottom:4px;">Paste it into Lucid Cove on Hermes (or the Cove setup wizard) where it asks for your connect key:</div>'
                 + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">'
                 +   '<input type="text" readonly id="connect-key-out" value="' + ESC(d.token || '') + '"'
                 +     ' style="flex:1;font-family:monospace;font-size:0.72rem;padding:6px;background:var(--bg-card);color:var(--text);border:1px solid var(--border);border-radius:5px;min-width:0;">'
