@@ -91,3 +91,30 @@ def test_copied_assets_exist():
         "work.css",
     ):
         assert (SHELL / name).is_file(), name
+
+
+def test_tuner_home_is_square_two_by_two_not_cove_stack():
+    html = (SHELL / "index.html").read_text()
+    css = (SHELL / "free-tuner.css").read_text()
+    assert 'class="home-grid"' in html
+    assert ">Field<" in html
+    assert ">Tune<" in html
+    assert "pro-badge" in html
+    assert "Signal &amp; genre streams" in html or "Signal & genre streams" in html
+    assert "grid-template-columns: 1fr 1fr" in css or "grid-template-columns:1fr 1fr" in css
+    assert "#pane-app .home-grid" in css
+    assert "#pane-app .button-stack" not in css
+
+
+def test_tuner_host_pro_modal_is_unlimited_tune_not_operator():
+    js = (SHELL / "adapter.js").read_text()
+    assert "function showUpgradeModal" in js
+    assert "window.showUpgradeModal = window.showUpgradeModal || function () {};" not in js
+    assert "$9" in js
+    assert "Start Pro" in js
+    assert "pro_monthly" in js
+    assert "Become an Operator" not in js
+    assert "Creation Flows" not in js
+    flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    assert "free: 1" in flow
+    assert "pro: -1" in flow
