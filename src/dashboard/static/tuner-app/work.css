@@ -1,0 +1,134 @@
+:root {
+  --bg: #0a0a0f;
+  --freq-primary: #5ce1e6;
+  --freq-secondary: #7c5cff;
+  --freq-glow: rgba(92, 225, 230, 0.45);
+  --text: #e8e8f0;
+  --dim: #8b8ba0;
+  --panel: #12121a;
+  --border: #2a2a3a;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+.pc-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: auto;
+  border: 0;
+  background: #0a0a0f;
+}
+.pc-frame[hidden],
+#action-pane[hidden] {
+  display: none !important;
+}
+#action-pane {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow: auto;
+}
+
+/* Frequency badge — in the shared header, next to Attention | Action */
+.freq-badge {
+  position: static;
+  margin: 0;
+  padding: 0.35rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--freq-primary);
+  background: color-mix(in srgb, var(--freq-primary) 18%, rgba(10, 10, 15, 0.92));
+  color: var(--freq-primary);
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 0 18px var(--freq-glow);
+  backdrop-filter: blur(8px);
+}
+.freq-badge:hover {
+  filter: brightness(1.08);
+}
+.freq-badge:focus-visible {
+  outline: 2px solid var(--freq-secondary);
+  outline-offset: 2px;
+}
+
+.drop-overlay[hidden] { display: none !important; }
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.62);
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+.drop-panel {
+  width: min(920px, 100%);
+  height: min(820px, 92vh);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 40px var(--freq-glow);
+  border-top: 3px solid var(--freq-primary);
+}
+.drop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+}
+.drop-kicker {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+.drop-title {
+  font-weight: 650;
+  color: var(--freq-primary);
+  font-size: 1rem;
+}
+.drop-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.drop-head-actions a {
+  color: var(--dim);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+.drop-head-actions a:hover { color: var(--freq-primary); }
+.drop-close {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+}
+.drop-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #000;
+}

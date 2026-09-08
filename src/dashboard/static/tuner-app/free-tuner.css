@@ -1,0 +1,215 @@
+/* Habit floor inside #pane-app. Do not restyle the house document. */
+
+#pane-app {
+  --bg: #0a0a0f;
+  --surface: #12121a;
+  --card: #161622;
+  --text: #e8e8f0;
+  --dim: #8b8ba0;
+  --border: #2a2a3a;
+  --freq-primary: #5ce1e6;
+  --freq-secondary: #7c5cff;
+  --freq-glow: rgba(92, 225, 230, 0.45);
+  --accent-cool: #5ce1e6;
+  --accent-gold: #ffb86c;
+  --accent-warm: #ff6b5c;
+  --accent-primary: #7c5cff;
+  --text-primary: #f5f3fb;
+  --text-secondary: #d8d6e6;
+  --text-muted: #b2b0c2;
+  --border-subtle: rgba(124, 92, 255, 0.15);
+  --bg-deep: #0a0a0f;
+  --radius: 12px;
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 20%, rgba(124, 92, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(92, 225, 230, 0.05) 0%, transparent 50%),
+    var(--bg);
+  color: var(--text-primary);
+  font-family: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+#pane-app .ft-view {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 0.35rem 1.1rem 2.5rem;
+}
+
+#pane-app .ft-hero {
+  text-align: center;
+  margin-bottom: 0.35rem;
+}
+
+#pane-app .signal-image {
+  width: 176px;
+  height: auto;
+  display: block;
+  margin: 0 auto 0.2rem;
+  object-fit: contain;
+}
+
+#pane-app .app-title {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+#pane-app .ft-tagline {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+#pane-app .button-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1.25rem;
+}
+
+#pane-app .big-button {
+  position: relative;
+  background: rgba(18, 18, 26, 0.72);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  padding: 1.1rem 1.15rem;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  min-height: 92px;
+  color: var(--text-primary);
+  width: 100%;
+  font-family: inherit;
+}
+
+#pane-app .portal-bg {
+  position: absolute;
+  inset: 0;
+  opacity: 0.2;
+  z-index: 0;
+  pointer-events: none;
+}
+
+#pane-app .big-button-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  width: 100%;
+}
+
+#pane-app .big-button .icon {
+  width: 50px;
+  height: 50px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  font-size: 1.35rem;
+}
+
+#pane-app .icon-field {
+  color: var(--accent-cool);
+  border-color: rgba(92, 225, 230, 0.3);
+  box-shadow: 0 0 15px rgba(92, 225, 230, 0.15);
+}
+
+#pane-app .icon-tune {
+  color: var(--accent-gold);
+  border-color: rgba(255, 184, 108, 0.3);
+}
+
+#pane-app .icon-playlists {
+  color: #7dffb3;
+  border-color: rgba(125, 255, 179, 0.3);
+}
+
+#pane-app .icon-deeper {
+  color: var(--accent-primary);
+  border-color: rgba(124, 92, 255, 0.3);
+}
+
+#pane-app .big-button .label {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.15rem;
+}
+
+#pane-app .big-button .desc {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: "Space Mono", ui-monospace, monospace;
+}
+
+#pane-app #dailyBtn:hover { border-color: var(--accent-cool); }
+#pane-app #tuneBtn:hover { border-color: var(--accent-gold); }
+#pane-app #playlistsBtn:hover { border-color: #7dffb3; }
+#pane-app .go-deeper-btn:hover { border-color: var(--accent-primary); }
+
+#pane-app .live-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  height: 22px;
+}
+
+#pane-app .bar {
+  width: 4px;
+  background: currentColor;
+  border-radius: 2px;
+  animation: equalize 1.2s infinite ease-in-out;
+}
+
+#pane-app .bar:nth-child(1) { height: 60%; }
+#pane-app .bar:nth-child(2) { height: 100%; animation-delay: 0.15s; }
+#pane-app .bar:nth-child(3) { height: 75%; animation-delay: 0.3s; }
+#pane-app .bar:nth-child(4) { height: 90%; animation-delay: 0.45s; }
+
+@keyframes equalize {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.4); }
+}
+
+#pane-app #dailyBtn .portal-bg {
+  background: radial-gradient(circle at 30% 80%, rgba(92, 225, 230, 0.18), transparent 55%);
+}
+
+#pane-app #tuneBtn .portal-bg {
+  background-image:
+    repeating-radial-gradient(
+      circle at 50% 50%,
+      transparent 0,
+      transparent 40px,
+      rgba(124, 92, 255, 0.04) 40px,
+      rgba(124, 92, 255, 0.04) 42px
+    );
+}
+
+#pane-app #playlistsBtn .portal-bg {
+  background: radial-gradient(circle at 70% 30%, rgba(125, 255, 179, 0.16), transparent 55%);
+}
+
+#pane-app #btn-go-deeper .portal-bg {
+  background-image:
+    radial-gradient(ellipse 200px 150px at 30% 50%, rgba(124, 92, 255, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse 200px 150px at 70% 50%, rgba(92, 225, 230, 0.06) 0%, transparent 50%);
+}
+
+#pane-app .ft-foot {
+  text-align: center;
+  margin: 2rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.65rem;
+  opacity: 0.35;
+  color: var(--text-muted);
+  font-family: "Space Mono", ui-monospace, monospace;
+}

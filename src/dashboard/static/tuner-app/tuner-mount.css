@@ -1,0 +1,196 @@
+/* Sourced from lucid-cove components.css + dashboard.css — do not rewrite */
+:root { --daily-freq: var(--freq-primary, #5ce1e6); --accent: var(--freq-primary, #5ce1e6); --card2: #1c1c28; --daily-freq-subtle: rgba(92,225,230,0.12); }
+.ot-player-wrap { margin-bottom: 1.25rem; }
+.ot-player { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 0.75rem; }
+.ot-cover-img { display: block; width: 120px; height: 120px; border-radius: 8px; object-fit: cover; margin: 0 auto 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.ot-track-title { text-align: center; font-size: 0.8rem; margin-bottom: 0.25rem; }
+.ot-track-signal { text-align: center; font-size: 0.65rem; color: var(--dim); margin-bottom: 0.5rem; }
+.ot-now-row { display: flex; justify-content: center; margin-bottom: 1rem; }
+.ot-fav-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--dim); padding: 2px 8px; transition: color 0.15s; }
+.ot-fav-btn:hover, .ot-fav-btn.fav-active { color: #ff6b6b; }
+.ot-progress-wrap { width: 100%; height: 4px; background: var(--border); border-radius: 2px; margin-bottom: 0.5rem; cursor: pointer; }
+.ot-progress-bar { height: 100%; background: var(--daily-freq); border-radius: 2px; width: 0%; transition: width 0.3s linear; }
+.ot-time { display: flex; justify-content: space-between; font-size: 0.6rem; color: var(--dim); margin-bottom: 1rem; }
+.ot-controls { display: flex; align-items: center; justify-content: center; gap: 1.5rem; }
+.ot-btn { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 1.2rem; padding: 0.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
+.ot-btn:hover { color: var(--text); background: var(--card2); }
+.ot-btn.ot-play { width: 56px; height: 56px; font-size: 1.5rem; color: var(--daily-freq); border: 2px solid var(--daily-freq); }
+.ot-btn.ot-play:hover { background: rgba(255,255,255,0.06); }
+.ot-volume { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 0.75rem; }
+.ot-volume label { font-size: 0.65rem; color: var(--dim); }
+.ot-volume input[type="range"] { width: 120px; accent-color: var(--daily-freq); height: 28px; cursor: pointer; }
+.ot-playlist { background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+.ot-playlist-header { padding: 0.75rem 1rem; font-size: 0.65rem; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+.ot-playlist-toggle { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 0.7rem; }
+.ot-playlist-toggle:hover { color: var(--text); }
+.ot-playlist-tracks { max-height: 300px; overflow-y: auto; }
+.ot-pl-track { display: flex; align-items: center; padding: 0.5rem 1rem; font-size: 0.75rem; color: var(--dim); cursor: pointer; border-bottom: 1px solid rgba(42,45,58,0.4); }
+.ot-pl-track:last-child { border-bottom: none; }
+.ot-pl-track:hover { background: var(--card2); color: var(--text); }
+.ot-pl-track.active { color: var(--daily-freq); background: var(--daily-freq-subtle); }
+.ot-pl-num { opacity: 0.5; width: 24px; text-align: right; margin-right: 8px; flex-shrink: 0; }
+.ot-pl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ot-pl-fav { background: none; border: none; color: var(--dim); font-size: 0.9rem; cursor: pointer; padding: 2px 6px; flex-shrink: 0; opacity: 0.5; transition: opacity 0.15s, color 0.15s; }
+.ot-pl-track:hover .ot-pl-fav { opacity: 1; }
+.ot-pl-fav.fav-active { color: #ff6b6b; opacity: 1; }
+.ot-pl-fav:hover { color: #ff6b6b; opacity: 1; }
+.ot-scroll { max-width: 640px; margin: 0 auto; padding-bottom: 80px; }
+/* Playlists tab */
+.op-playlists-sub {
+  color: var(--dim);
+  font-size: 0.8rem;
+  margin: 0 16px 16px;
+  line-height: 1.4;
+}
+.op-playlist-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 24px;
+}
+.op-stream-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  width: 100%;
+}
+.op-stream-card:hover {
+  border-color: var(--stream-color, var(--accent));
+  background: rgba(255,255,255,0.03);
+}
+.op-stream-cover {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--surface);
+  flex-shrink: 0;
+}
+.op-stream-info {
+  flex: 1;
+  min-width: 0;
+}
+.op-stream-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.op-stream-desc {
+  font-size: 0.75rem;
+  color: var(--dim);
+  line-height: 1.3;
+}
+.op-stream-count {
+  font-size: 0.7rem;
+  color: var(--dim);
+  margin-top: 3px;
+  opacity: 0.7;
+}
+
+/* Playlist grid + inline player */
+.pl-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  padding: 0 0 8px;
+}
+.pl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+@media (max-width: 600px) {
+  .pl-grid { grid-template-columns: 1fr; }
+}
+
+/* Go Deeper tab */
+.op-deeper-content {
+  padding: 0 16px 24px;
+}
+.op-deeper-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 16px;
+  margin-bottom: 12px;
+}
+.op-deeper-heading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--daily-freq, var(--accent));
+  margin: 0 0 8px;
+}
+.op-deeper-text {
+  font-size: 0.8rem;
+  color: var(--dim);
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+.op-deeper-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.op-deeper-link {
+  font-size: 0.8rem;
+  color: var(--daily-freq, var(--accent));
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+.op-deeper-link:hover { opacity: 0.75; }
+
+
+/* ── Mini Player ── */
+.mini-player {
+  display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 52px;
+  background: var(--card); border-top: 1px solid var(--border); z-index: 250;
+  align-items: center; padding: 0 12px; gap: 8px; cursor: pointer;
+}
+@media (max-width: 768px) {
+  .mini-player { bottom: 64px; }
+  body.has-mini-player .panel { padding-bottom: 120px; }
+}
+.mini-player.visible { display: flex; }
+.mini-player .mp-info { flex: 1; min-width: 0; overflow: hidden; }
+.mini-player .mp-title { font-size: 0.72rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-player .mp-freq { font-size: 0.6rem; color: var(--daily-freq); letter-spacing: 0.08em; }
+.mini-player .mp-btn { background: none; border: none; color: var(--dim); cursor: pointer; padding: 6px; border-radius: 50%; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
+.mini-player .mp-btn:hover { color: var(--text); background: var(--card2); }
+.mini-player .mp-btn.mp-play { color: var(--daily-freq); }
+.mini-player .mp-progress { position: absolute; top: 0; left: 0; height: 2px; background: var(--daily-freq); transition: width 0.3s linear; }
+body.has-mini-player .content { padding-bottom: 52px; }
+body.has-mini-player .chat-input-area { margin-bottom: 52px; }
+@media (max-width: 768px) {
+  body.has-mini-player .chat-input-area { margin-bottom: 0; }
+}
+
+
+.freq-badge{display:inline-block;font-size:0.72rem;font-weight:600;border:1px solid;border-radius:999px;padding:1px 8px;margin-right:6px;}
+
+.freq-badge {
+  font-size: 0.68rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--daily-freq);
+  color: var(--daily-freq);
+  background: var(--daily-freq-subtle);
+  font-weight: 600;
+}
+.signal-badge, .principle-badge {
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid currentColor;
+  font-weight: 600;
+}

@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en" data-frequency="Peace">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <title>Lucid Tuner</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="stylesheet" href="/static/tuner-app/chrome.css" />
+  <link rel="stylesheet" href="/static/tuner-app/work.css" />
+  <link rel="stylesheet" href="/static/tuner-app/tuner.css" />
+  <link rel="stylesheet" href="/static/css/tune-flow.css" />
+  <link rel="stylesheet" href="/static/tuner-app/tuner-mount.css" />
+  <link rel="stylesheet" href="/static/tuner-app/house.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/tuner-app/free-tuner.css" />
+</head>
+<body class="house house-free">
+  <header class="top">
+    <nav class="top-nav" aria-label="Lucid Tuner">
+      <a href="/app" class="top-home" data-nav="app" title="Home" aria-label="Home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 11.5 12 4l9 7.5"/>
+          <path d="M5 10v10h5v-6h4v6h5V10"/>
+        </svg>
+        <span class="visually-hidden">Home</span>
+      </a>
+      <a href="/tune" data-nav="tune">Tune</a>
+      <a href="/playlists" data-nav="playlists">Playlists</a>
+    </nav>
+    <div class="top-end">
+      <button type="button" class="top-icon" id="help-btn" title="Help" aria-label="Help">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+          <path d="M12 17h.01"/>
+        </svg>
+      </button>
+      <button type="button" class="top-icon" id="settings-btn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+      <button type="button" id="freq-badge" class="freq-badge" aria-label="Open today’s Drop">
+        <span id="freq-text">Peace</span>
+      </button>
+    </div>
+  </header>
+
+  <div id="house-shell">
+    <div id="pane-app" class="house-pane" hidden>
+      <section id="view-home" class="ft-view">
+        <div class="ft-hero">
+          <img src="https://audio.lucidtuner.com/assets/LUCID_TUNER_ICON_HERO.png" alt="" class="signal-image" />
+          <h1 class="app-title">Align Your Broadcast</h1>
+          <p class="ft-tagline">You're always broadcasting. Tune in, or trust the Field.</p>
+        </div>
+
+        <div class="button-stack">
+          <button type="button" class="big-button" id="dailyBtn">
+            <div class="portal-bg"></div>
+            <div class="big-button-content">
+              <div class="icon icon-field">
+                <div class="live-bars" aria-hidden="true">
+                  <div class="bar"></div>
+                  <div class="bar"></div>
+                  <div class="bar"></div>
+                  <div class="bar"></div>
+                </div>
+              </div>
+              <div class="text">
+                <div class="label">Field-Selected Tuning</div>
+                <div class="desc">Latest Tuning</div>
+              </div>
+            </div>
+          </button>
+
+          <button type="button" class="big-button" id="tuneBtn">
+            <div class="portal-bg"></div>
+            <div class="big-button-content">
+              <span class="icon icon-tune">◈</span>
+              <div class="text">
+                <div class="label">Tune My Broadcast</div>
+                <div class="desc">Context + desired state</div>
+              </div>
+            </div>
+          </button>
+
+          <button type="button" class="big-button" id="playlistsBtn">
+            <div class="portal-bg"></div>
+            <div class="big-button-content">
+              <span class="icon icon-playlists" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 18V6l10-2v12"/>
+                  <circle cx="7" cy="18" r="2"/>
+                  <circle cx="17" cy="16" r="2"/>
+                </svg>
+              </span>
+              <div class="text">
+                <div class="label">Playlists</div>
+                <div class="desc">Positive lyrics</div>
+              </div>
+            </div>
+          </button>
+
+          <button type="button" class="big-button go-deeper-btn" id="btn-go-deeper">
+            <div class="portal-bg"></div>
+            <div class="big-button-content">
+              <span class="icon icon-deeper" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                </svg>
+              </span>
+              <div class="text">
+                <div class="label">GO DEEPER</div>
+                <div class="desc">Framework &amp; philosophy</div>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <p class="ft-foot">© 2026 Lucid Principles, LLC - All rights reserved.</p>
+      </section>
+    </div>
+
+    <div id="pane-tuner" class="house-pane" hidden>
+      <main class="tuner-main">
+        <section id="panel-tune" class="tuner-panel" hidden>
+          <div class="loading">Loading Tune…</div>
+        </section>
+        <section id="panel-playlists" class="tuner-panel" hidden>
+          <p class="op-playlists-sub">Choose by Signal type. Shuffle and repeat what resonates.</p>
+          <div id="playlistStreams" class="op-playlist-grid"><div class="loading">Loading streams…</div></div>
+        </section>
+        <section id="panel-deeper" class="tuner-panel" hidden>
+          <p class="tuner-kicker">Framework</p>
+          <h1>Go Deeper</h1>
+          <div class="op-deeper-content">
+            <div class="op-deeper-section">
+              <h3 class="op-deeper-heading">The Lucid Principles</h3>
+              <p class="op-deeper-text">22 principles discovered through music, refined into a framework for conscious living. Each tuning frequency connects to a principle. Each principle carries a practice.</p>
+              <div class="op-deeper-links">
+                <a href="https://lucidprinciples.com/canon" target="_blank" rel="noopener" class="op-deeper-link">The Canon →</a>
+                <a href="https://lucidprinciples.com/music" target="_blank" rel="noopener" class="op-deeper-link">The Music →</a>
+              </div>
+            </div>
+            <div class="op-deeper-section">
+              <h3 class="op-deeper-heading">The Framework</h3>
+              <p class="op-deeper-text">Broadcast Frequency. Signal Type. Tuning Keys. The Love Equation. A complete system for understanding how attention shapes reality.</p>
+              <div class="op-deeper-links">
+                <a href="https://lucidprinciples.com" target="_blank" rel="noopener" class="op-deeper-link">Lucid Principles →</a>
+              </div>
+            </div>
+            <div class="op-deeper-section">
+              <h3 class="op-deeper-heading">Lucid Cove</h3>
+              <p class="op-deeper-text">Your private intelligence. Built on the Lucid Principles framework. Tuning is the daily practice that aligns your broadcast.</p>
+              <div class="op-deeper-links">
+                <a href="https://lucidcove.org" target="_blank" rel="noopener" class="op-deeper-link">About Lucid Cove →</a>
+              </div>
+            </div>
+            <div class="op-deeper-section">
+              <h3 class="op-deeper-heading">How to use this system</h3>
+              <p class="op-deeper-text">Playlists to listen. Tune when you want a session. Go Deeper when you want the why. Help stays the practical doorway once a Cove is in the picture.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="mini-player" id="miniPlayer">
+    <div class="mp-progress" id="mpProgress"></div>
+    <div class="mp-info">
+      <div class="mp-title" id="mpTitle">--</div>
+      <div class="mp-freq" id="mpFreq"></div>
+    </div>
+    <button type="button" class="mp-btn" onclick="event.stopPropagation(); otPrev();" title="Previous">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+    </button>
+    <button type="button" class="mp-btn mp-play" id="mpPlayBtn" onclick="event.stopPropagation(); otTogglePlay();" title="Play/Pause">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" id="mpPlayIcon"><polygon points="5,3 19,12 5,21"/></svg>
+    </button>
+    <button type="button" class="mp-btn" onclick="event.stopPropagation(); otNext();" title="Next">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+    </button>
+  </div>
+
+  <div id="drop-overlay" class="drop-overlay" hidden>
+    <div class="drop-panel" role="dialog" aria-modal="true" aria-label="Today’s Drop">
+      <header class="drop-head">
+        <div>
+          <div class="drop-kicker">Today’s Drop</div>
+          <div id="drop-title" class="drop-title">Today’s Drop</div>
+        </div>
+        <div class="drop-head-actions">
+          <button type="button" id="drop-close" class="drop-close" aria-label="Close">×</button>
+        </div>
+      </header>
+      <iframe id="drop-frame" class="drop-frame" title="Daily Drop player" src="about:blank" allow="autoplay"></iframe>
+      <div id="drop-mirrors" class="drop-mirrors" hidden></div>
+    </div>
+  </div>
+
+  <div id="help-overlay" class="drop-overlay" hidden>
+    <div class="drop-panel help-panel" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <header class="drop-head">
+        <div>
+          <div class="drop-kicker">Lucid Tuner</div>
+          <div id="help-title" class="drop-title">Help</div>
+        </div>
+        <button type="button" id="help-close" class="drop-close" aria-label="Close">×</button>
+      </header>
+      <div class="help-body">
+        <div class="help-contact-icons">
+          <a href="https://instagram.com/lucidtuner" target="_blank" rel="noopener noreferrer" class="help-contact-icon" title="Instagram">Instagram</a>
+          <a href="https://facebook.com/lucidtuner" target="_blank" rel="noopener noreferrer" class="help-contact-icon" title="Facebook">Facebook</a>
+          <a href="https://youtube.com/@lucidtuner" target="_blank" rel="noopener noreferrer" class="help-contact-icon" title="YouTube">YouTube</a>
+        </div>
+        <button type="button" class="help-start-here-btn" id="help-start-here">▶ Start Here!</button>
+        <div id="help-video-section" class="help-video-section" hidden>
+          <h2 class="help-section-title">How This Works?</h2>
+          <video id="help-video" controls playsinline preload="none" poster="https://audio.lucidtuner.com/videos/How_It_Works-LUCID_TUNER-vertical.jpg">
+            <source src="https://audio.lucidtuner.com/videos/How_It_Works-LUCID_TUNER.mp4" type="video/mp4" />
+          </video>
+        </div>
+        <nav class="help-nav-links" aria-label="Help sections">
+          <a href="#decoder-manual" class="help-nav-link" data-section="decoder-manual">Decoder Manual →</a>
+          <a href="#faq" class="help-nav-link" data-section="faq">Frequently Asked Questions →</a>
+          <a href="#troubleshooting" class="help-nav-link" data-section="troubleshooting">Troubleshooting →</a>
+        </nav>
+        <section id="decoder-manual" class="help-section">
+          <h2 class="help-section-title">The Decoder Manual</h2>
+          <p class="help-subtitle">Core lexicon for understanding the tool</p>
+          <dl class="help-glossary">
+            <div class="glossary-item">
+              <dt>Broadcast</dt>
+              <dd>Your internal state transmitting into the Field. Every thought and emotion sends a Broadcast Frequency.</dd>
+            </div>
+            <div class="glossary-item">
+              <dt>Signal</dt>
+              <dd>The feedback loops and synchronicities the Field sends back. When your Broadcast is coherent, you receive the aligned Signal.</dd>
+            </div>
+            <div class="glossary-item">
+              <dt>Static</dt>
+              <dd>Incoherent transmission blocking the Signal. Stress and habit create Static that obscures your frequency.</dd>
+            </div>
+            <div class="glossary-item">
+              <dt>The Echoes</dt>
+              <dd>Frequency-specific music that entrains your nervous system into coherent broadcast. Not a “song”—an Echo carries the vibrational signature of its source Principle. Every Echo is tuned to 432Hz—the frequency associated with natural harmonic resonance—so the sound works with your body, not against it.</dd>
+            </div>
+            <div class="glossary-item">
+              <dt>The Tuning Key</dt>
+              <dd>The lyric used to reprogram the Reticular Activating System (RAS). A portable code to hold when static returns.</dd>
+            </div>
+            <div class="glossary-item">
+              <dt>The Practice</dt>
+              <dd>Somatic action matched to your context. Deliberate intervention in the nervous system's frequency broadcast.</dd>
+            </div>
+            <div class="glossary-item">
+              <dt>The Tuning</dt>
+              <dd>The combination of Echo + Practice + Insight. Precise combinations of sound and somatic action to clear the static.</dd>
+            </div>
+            <div class="glossary-item">
+              <dt>The Decoder</dt>
+              <dd>Your Reticular Activating System (RAS). It doesn't just filter—it participates in collapsing possibilities into reality.</dd>
+            </div>
+          </dl>
+        </section>
+        <section id="faq" class="help-section">
+          <h2 class="help-section-title">Frequently Asked Questions</h2>
+          <div class="glossary-item">
+            <h3 class="glossary-term">Why are the Echoes tuned to 432Hz instead of standard 440Hz?</h3>
+            <p>Every Echo is tuned to A=432Hz instead of the modern standard A=440Hz. The 8Hz difference shifts the entire harmonic spectrum of the music. Studies have shown 432Hz tuning is associated with reduced heart rate and blood pressure compared to 440Hz, and listeners consistently report it feeling more natural and less fatiguing. For a system designed to entrain your nervous system, we chose the tuning that works with your body's natural resonance, not against it.</p>
+          </div>
+        </section>
+        <section id="troubleshooting" class="help-section">
+          <h2 class="help-section-title">Troubleshooting</h2>
+          <p class="help-placeholder">Troubleshooting guides and solutions to common issues coming soon.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-overlay" class="drop-overlay" hidden>
+    <div class="drop-panel help-panel settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header class="drop-head">
+        <div>
+          <div class="drop-kicker">Lucid Tuner</div>
+          <div id="settings-title" class="drop-title">Settings</div>
+        </div>
+        <button type="button" id="settings-close" class="drop-close" aria-label="Close">×</button>
+      </header>
+      <div class="help-body">
+        <section class="settings-group" data-settings-scope="account" id="settings-account">
+          <h2 class="help-section-title">Account</h2>
+          <p class="help-subtitle">Same hub registry as app.lucidcove.org. Handle, email, and referral live here.</p>
+          <label class="settings-field">
+            <span class="settings-label">Display name</span>
+            <input type="text" id="settings-display-name" class="settings-input" maxlength="80" autocomplete="nickname" placeholder="How should we address you?" />
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Handle</span>
+            <input type="text" id="settings-username" class="settings-input" maxlength="40" autocomplete="username" placeholder="username" />
+          </label>
+          <label class="settings-field">
+            <span class="settings-label">Email</span>
+            <input type="email" id="settings-email" class="settings-input" maxlength="120" autocomplete="email" placeholder="you@example.com" />
+          </label>
+          <button type="button" class="settings-save-btn" id="settings-account-save">Save account</button>
+          <p id="settings-account-status" class="protocols-save-status" role="status"></p>
+        </section>
+        <section class="settings-group" data-settings-scope="affiliate" id="settings-affiliate">
+          <h2 class="help-section-title">Affiliate</h2>
+          <div id="affiliates-content"><div class="help-placeholder">Loading referral link…</div></div>
+        </section>
+        <section class="settings-group" data-settings-scope="tuner" id="settings-tuner">
+          <h2 class="help-section-title">Tuner</h2>
+          <p class="help-subtitle">Practice prefs on this device.</p>
+          <div class="settings-field">
+            <span class="settings-label">Signal filters</span>
+            <p class="help-placeholder">Checked signals stay out of Field-selected Tune.</p>
+            <div class="settings-chip-list" id="settings-signal-filters">
+              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Ground" /> Ground</label>
+              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Clear" /> Clear</label>
+              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Open" /> Open</label>
+              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Rise" /> Rise</label>
+              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Raw" /> Raw</label>
+              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Bright" /> Bright</label>
+              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Drive" /> Drive</label>
+            </div>
+          </div>
+          <div class="settings-field">
+            <span class="settings-label">Tuning mirrors</span>
+            <p class="help-placeholder">Enabled mirrors show on completed Tune and in Drop chrome.</p>
+            <div class="settings-chip-list" id="settings-mirrors">
+              <label class="settings-chip"><input type="checkbox" name="tuning-mirror" value="scripture-tpt" /> Scripture — The Passion Translation</label>
+              <label class="settings-chip"><input type="checkbox" name="tuning-mirror" value="music-mirror" /> Music Mirror</label>
+              <label class="settings-chip"><input type="checkbox" name="tuning-mirror" value="tao-mirror" /> Tao Te Ching</label>
+            </div>
+          </div>
+          <label class="settings-field">
+            <span class="settings-label">Streaming service</span>
+            <p class="help-placeholder">Music Mirror Listen player. Same pref as the player dropdown.</p>
+            <select id="settings-streaming-service" class="settings-input">
+              <option value="youtube">YouTube Music</option>
+              <option value="spotify">Spotify</option>
+              <option value="apple">Apple Music</option>
+            </select>
+          </label>
+          <button type="button" class="settings-save-btn" id="settings-save">Save Tuner prefs</button>
+          <p id="settings-save-status" class="protocols-save-status" role="status"></p>
+        </section>
+        <section class="settings-group" data-settings-scope="house" id="settings-house">
+          <h2 class="help-section-title">Connect</h2>
+          <p class="help-placeholder">Optional: connect this to your Hermes team. That slice comes after this door walks. Team, Attention, and Action stay off until then.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="reflectModal" class="reflect-overlay" style="display:none">
+    <div class="reflect-modal" role="dialog" aria-modal="true" aria-labelledby="reflectTitle">
+      <div class="reflect-header">
+        <button type="button" class="reflect-close" id="reflect-close" aria-label="Close">&times;</button>
+        <div class="reflect-title" id="reflectTitle"></div>
+        <div class="reflect-canon" id="reflectCanon"></div>
+      </div>
+      <div class="reflect-body" id="reflectBody"></div>
+    </div>
+  </div>
+
+  <div id="music-player-overlay" class="drop-overlay music-player-overlay" hidden>
+    <div class="music-player-modal" role="dialog" aria-modal="true" aria-labelledby="music-player-title">
+      <button type="button" class="reflect-close" id="music-player-close" aria-label="Close">&times;</button>
+      <div class="music-player-kicker" id="music-player-freq"></div>
+      <div class="music-player-title" id="music-player-title">Music Mirror</div>
+      <div id="music-embed-container"></div>
+      <div class="music-player-row">
+        <a id="music-playlist-link" hidden target="_blank" rel="noopener noreferrer">Open Playlist →</a>
+        <label class="settings-field music-service-field">
+          <span class="settings-label">Streaming service</span>
+          <select id="music-service-select" class="settings-input">
+            <option value="youtube">YouTube Music</option>
+            <option value="spotify">Spotify</option>
+            <option value="apple">Apple Music</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/lp-colors.js"></script>
+  <script src="/static/tuner-app/adapter.js"></script>
+  <script src="/static/js/tuning-panel.js"></script>
+  <script src="/static/js/playlists.js"></script>
+  <script src="/static/js/tune-flow.js"></script>
+  <script src="/static/tuner-app/tuner.js"></script>
+  <script src="/static/tuner-app/house.js"></script>
+  <script src="/static/tuner-app/free-tuner.js"></script>
+</body>
+</html>
