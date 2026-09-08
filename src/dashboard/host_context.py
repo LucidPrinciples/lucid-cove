@@ -19,10 +19,19 @@ legacy ".cove." infix is purely a config change, no code change here.
 from typing import Optional
 
 
+PUBLIC_TUNER_HOST = "app.lucidtuner.com"
+
+
 def request_host(request) -> str:
     """The external host for this request (respects Caddy's X-Forwarded-Host)."""
     h = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
     return h.split(",")[0].split(":")[0].strip().lower()
+
+
+def is_public_tuner_host(host: str) -> bool:
+    """True only for the public Lucid Tuner hostname (not marketing, not Cove)."""
+    h = (host or "").split(":")[0].strip().lower()
+    return h == PUBLIC_TUNER_HOST
 
 
 def resolve_host_context(host: str, cove: dict) -> dict:

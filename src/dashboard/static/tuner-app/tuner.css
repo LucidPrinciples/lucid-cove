@@ -1,0 +1,91 @@
+.nav-gap {
+  display: inline-block;
+  width: 1px;
+  height: 1.1rem;
+  background: var(--border);
+  margin: 0 0.35rem;
+}
+.tuner-main {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+.tuner-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  color: var(--dim);
+  margin: 0 0 0.35rem;
+}
+.tuner-main h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+}
+.tuner-lead {
+  color: var(--dim);
+  line-height: 1.5;
+  margin: 0 0 1.25rem;
+}
+.tuner-lead code, .tuner-note code {
+  font-size: 0.85em;
+  color: var(--freq-primary);
+}
+.home-nav-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+}
+.home-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+.home-nav-btn:hover { border-color: var(--freq-primary); }
+.tuner-panel .loading { color: var(--dim); padding: 1rem 0; }
+.tuner-main .op-playlist-grid { padding-left: 0; padding-right: 0; }
+.tf-logo-img { height: 36px; width: auto; }
+
+/* Corner Drop badge — same format as the Paperclip overlay (frequency only) */
+.drop-freq-badge {
+  margin-left: auto;
+  padding: 0.35rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid var(--freq-primary);
+  background: color-mix(in srgb, var(--freq-primary) 18%, rgba(10, 10, 15, 0.92));
+  color: var(--freq-primary);
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 0 18px var(--freq-glow);
+  backdrop-filter: blur(8px);
+  font-family: inherit;
+}
+.drop-freq-badge:hover { filter: brightness(1.08); }
+.drop-freq-badge:focus-visible {
+  outline: 2px solid var(--freq-secondary);
+  outline-offset: 2px;
+}
+
+/* Above mini-player (250) and history modal (9000) */
+#drop-overlay.modal-overlay { z-index: 10050; }
+.op-deeper-content { display: grid; gap: 1.25rem; }
+.op-deeper-section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.2rem;
+}
+.op-deeper-heading { margin: 0 0 0.4rem; font-size: 1.05rem; }
+.op-deeper-text { color: var(--dim); line-height: 1.55; margin: 0 0 0.75rem; }
+.op-deeper-links { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.op-deeper-link { color: var(--freq-primary); text-decoration: none; font-weight: 600; }
+.op-deeper-link:hover { text-decoration: underline; }

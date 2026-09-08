@@ -1,0 +1,590 @@
+/* House shell: header + one stage + mini-player. Do not cover .top. */
+html, body.house {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#house-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.house-pane[hidden] {
+  display: none !important;
+}
+#pane-team,
+#pane-tuner,
+#pane-observer,
+#pane-app {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+#pane-work {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+#pane-work[hidden] {
+  display: none !important;
+}
+body.has-mini-player #house-shell {
+  padding-bottom: 68px;
+}
+body.house {
+  --mp-freq-color: #5ce1e6;
+}
+body.house .mini-player {
+  bottom: 0;
+  height: 68px;
+  background: rgba(18, 18, 26, 0.94);
+  border-top: 1px solid color-mix(in srgb, var(--mp-freq-color) 38%, transparent);
+  box-shadow: 0 -10px 32px rgba(124, 92, 255, 0.14);
+}
+body.house .mini-player .mp-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+}
+body.house .mini-player .mp-freq {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--mp-freq-color);
+}
+body.house .mini-player .mp-btn.mp-play {
+  color: var(--mp-freq-color);
+}
+body.house .mini-player .mp-progress {
+  height: 3px;
+  background: var(--mp-freq-color);
+}
+
+/* In-pane player + Tune LTP copy — house override, not a player rewrite. */
+body.house .ot-track-title {
+  font-size: 1.2rem;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--mp-freq-color, var(--daily-freq, var(--text)));
+}
+body.house .ot-track-signal {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--mp-freq-color, var(--daily-freq, var(--dim)));
+}
+body.house .ot-time {
+  font-size: 0.78rem;
+}
+body.house .ot-playlist-header {
+  font-size: 0.78rem;
+}
+body.house .ot-pl-track {
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+body.house .ot-progress-bar {
+  background: var(--mp-freq-color, var(--daily-freq));
+}
+body.house .ot-btn.ot-play {
+  color: var(--mp-freq-color, var(--daily-freq));
+  border-color: var(--mp-freq-color, var(--daily-freq));
+}
+body.house .tf-coaching-text {
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+body.house .tf-skim-old {
+  color: #ff6b5c;
+  font-weight: 500;
+}
+body.house .tf-skim-active {
+  color: #5ce1e6;
+  font-weight: 600;
+}
+body.house .tf-skim-action {
+  color: #ffb86c;
+  font-weight: 600;
+}
+body.house .tf-practice-step strong {
+  font-size: 1.05rem;
+}
+body.house .tf-practice-step p,
+body.house .tf-practice-compact .tf-practice-step div {
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+body.house .tf-frequency,
+body.house .tf-principle-name {
+  font-size: 1.15rem;
+  color: var(--daily-freq, var(--mp-freq-color, var(--accent)));
+}
+body.house .tf-key-quote {
+  font-size: 1.2rem;
+}
+body.house #pane-tuner .tuner-main {
+  padding: 0.35rem 1rem 2rem;
+}
+body.house .tune-flow {
+  padding-top: 0.4rem;
+}
+body.house .tf-logo {
+  margin: 0.15rem 0 0.35rem;
+}
+body.house .tf-logo-img {
+  width: 64px;
+  height: 64px;
+}
+body.house .tf-question {
+  font-size: 1.35rem;
+  line-height: 1.25;
+}
+body.house .tune-complete .tf-complete-header {
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+}
+body.house .tf-complete-title {
+  font-size: 0.85rem;
+}
+body.house .tf-complete-freq {
+  font-size: 1.15rem;
+  font-weight: 650;
+  color: var(--daily-freq, var(--mp-freq-color, var(--accent)));
+}
+body.house .tf-complete-principle {
+  font-size: 1.45rem;
+  line-height: 1.25;
+}
+
+.top-icon {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--dim, #8b8ba0);
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.top-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.top-icon:hover {
+  color: var(--text, #e8e8f0);
+  background: color-mix(in srgb, #5ce1e6 12%, transparent);
+}
+
+.top-nav a.top-home {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.top-nav a.top-home svg {
+  width: 18px;
+  height: 18px;
+}
+.top-nav a.top-home:hover,
+.top-nav a.top-home.on {
+  color: var(--text, #e8e8f0);
+  background: color-mix(in srgb, #5ce1e6 12%, transparent);
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Free habit chrome: same house header, Team / Attention / Action off until connect. */
+body.house-free .top-nav a[href="/"] {
+  display: none;
+}
+body.house-free .board-switch {
+  display: none;
+}
+
+.help-panel {
+  width: min(640px, 100%);
+  height: min(820px, 92vh);
+}
+.help-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1.1rem 1.25rem 2rem;
+}
+.help-contact-icons {
+  display: flex;
+  justify-content: center;
+  gap: 1.1rem;
+  margin-bottom: 1.1rem;
+}
+.help-contact-icon {
+  color: var(--dim, #8b8ba0);
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+.help-contact-icon:hover {
+  color: var(--freq-primary, #5ce1e6);
+}
+.help-start-here-btn {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto 1.25rem;
+  padding: 0.95rem 1.25rem;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #7c5cff, #5ce1e6);
+  color: #f5f3fb;
+  font: inherit;
+  font-size: 1.05rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.help-video-section video {
+  width: 100%;
+  border-radius: 10px;
+  background: #000;
+}
+.help-nav-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  align-items: stretch;
+  margin: 0.5rem 0 1.5rem;
+}
+.help-nav-link {
+  display: block;
+  text-align: center;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 8px;
+  color: var(--text, #e8e8f0);
+  text-decoration: none;
+}
+.help-nav-link:hover {
+  border-color: #7c5cff;
+}
+.help-section {
+  margin-top: 1.75rem;
+  scroll-margin-top: 0.5rem;
+}
+.help-section-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.2rem;
+  font-weight: 650;
+  text-align: center;
+  border-bottom: 1px solid var(--border, #2a2a3a);
+  padding-bottom: 0.4rem;
+}
+.help-subtitle,
+.help-placeholder {
+  color: var(--dim, #8b8ba0);
+  line-height: 1.55;
+  text-align: center;
+}
+.help-glossary {
+  margin: 0;
+}
+.glossary-item {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.95rem;
+  background: rgba(18, 18, 26, 0.72);
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 10px;
+}
+.glossary-item dt,
+.glossary-term {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--freq-primary, #5ce1e6);
+}
+.glossary-item dd,
+.glossary-item p {
+  margin: 0;
+  color: var(--text, #e8e8f0);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.settings-group {
+  margin-bottom: 1.75rem;
+}
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 1rem 0;
+}
+.settings-label {
+  font-size: 0.82rem;
+  color: var(--dim, #8b8ba0);
+}
+.settings-input {
+  font: inherit;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 8px;
+  background: rgba(18, 18, 26, 0.72);
+  color: var(--text, #e8e8f0);
+}
+.settings-save-btn {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin: 0.5rem auto 0.4rem;
+  padding: 0.85rem 1.1rem;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #7c5cff, #5ce1e6);
+  color: #f5f3fb;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.protocols-save-status {
+  text-align: center;
+  min-height: 1.2em;
+  color: var(--dim, #8b8ba0);
+  font-size: 0.85rem;
+}
+.settings-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.drop-mirrors {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.85rem 0.95rem 1rem;
+  flex: 0 0 auto;
+  max-height: 34%;
+  overflow: auto;
+  border-top: 1px solid var(--border, #2a2a3a);
+}
+.drop-mirrors[hidden] {
+  display: none !important;
+}
+.drop-mirror-card,
+.home-mirror {
+  margin-top: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  border-left: 3px solid var(--border, #2a2a3a);
+  border-radius: 0 8px 8px 0;
+  background: rgba(18, 18, 26, 0.72);
+}
+.drop-mirror-card {
+  margin-top: 0;
+  border: 1px solid var(--border, #2a2a3a);
+  border-left-width: 3px;
+  border-radius: 8px;
+}
+.drop-mirror-header,
+.home-mirror-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.drop-mirror-name,
+.home-mirror-name {
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim, #8b8ba0);
+}
+.drop-mirror-cta,
+.home-mirror-reflect {
+  margin-left: auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--freq-primary, var(--mp-freq-color, #5ce1e6));
+  cursor: pointer;
+  font-family: inherit;
+}
+.drop-mirror-cta:hover,
+.home-mirror-reflect:hover {
+  text-decoration: underline;
+}
+.drop-mirror-text,
+.home-mirror-text {
+  margin-top: 0.15rem;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  font-style: italic;
+  color: var(--text, #e8e8f0);
+}
+.drop-mirror-ref,
+.home-mirror-ref {
+  display: block;
+  margin-top: 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--freq-primary, var(--mp-freq-color, #5ce1e6));
+}
+.reflect-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.reflect-modal {
+  background: var(--panel, #12121a);
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 12px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+.reflect-header {
+  margin-bottom: 1.25rem;
+  position: relative;
+  padding-right: 2rem;
+}
+.reflect-close {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  background: none;
+  border: none;
+  color: var(--dim, #8b8ba0);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+.reflect-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+.reflect-canon {
+  font-size: 0.7rem;
+  color: var(--dim, #8b8ba0);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.reflect-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.reflect-entry {
+  border-left: 3px solid var(--border, #2a2a3a);
+  padding-left: 1rem;
+}
+.reflect-ref {
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+.reflect-passage {
+  font-size: 0.88rem;
+  line-height: 1.8;
+  font-style: italic;
+  color: var(--text, #e8e8f0);
+  margin-bottom: 0.5rem;
+}
+.reflect-thread {
+  font-size: 0.72rem;
+  color: var(--dim, #8b8ba0);
+  line-height: 1.5;
+}
+.music-player-overlay {
+  z-index: 10002;
+}
+.music-player-modal {
+  position: relative;
+  width: min(420px, 100%);
+  background: var(--panel, #12121a);
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 12px;
+  padding: 1.25rem 1.15rem 1.1rem;
+}
+.music-player-kicker {
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: var(--dim, #8b8ba0);
+  text-transform: uppercase;
+  text-align: center;
+  margin-bottom: 0.35rem;
+}
+.music-player-title {
+  font-size: 1rem;
+  font-weight: 500;
+  text-align: center;
+  margin-bottom: 0.85rem;
+  color: var(--freq-primary, var(--mp-freq-color, #5ce1e6));
+}
+#music-embed-container iframe {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  display: block;
+}
+.music-player-fallback {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--dim, #8b8ba0);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.music-player-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+.music-service-field {
+  margin: 0;
+  min-width: 10rem;
+}
+#music-playlist-link {
+  font-size: 0.72rem;
+  color: var(--freq-primary, var(--mp-freq-color, #5ce1e6));
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}

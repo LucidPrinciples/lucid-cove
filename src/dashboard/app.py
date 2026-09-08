@@ -783,6 +783,36 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
+        from src.dashboard.host_context import is_public_tuner_host, request_host as _rh_tuner
+        if is_public_tuner_host(_rh_tuner(request)):
+            tuner_path = static_dir / "tuner-app" / "index.html"
+            if tuner_path.exists():
+                from src.dashboard.routes.core import _get_build_version
+                bv = _get_build_version()
+                html = tuner_path.read_text()
+                for rel in (
+                    "/static/tuner-app/chrome.css",
+                    "/static/tuner-app/house.css",
+                    "/static/tuner-app/free-tuner.css",
+                    "/static/tuner-app/tuner.css",
+                    "/static/tuner-app/tuner-mount.css",
+                    "/static/tuner-app/work.css",
+                    "/static/tuner-app/house.js",
+                    "/static/tuner-app/adapter.js",
+                    "/static/tuner-app/tuner.js",
+                    "/static/tuner-app/free-tuner.js",
+                    "/static/js/lp-colors.js",
+                    "/static/js/tuning-panel.js",
+                    "/static/js/playlists.js",
+                    "/static/js/tune-flow.js",
+                    "/static/css/tune-flow.css",
+                ):
+                    html = html.replace(rel, f"{rel}?v={bv}")
+                return HTMLResponse(
+                    content=html,
+                    headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+                )
+
         if template_path.exists():
             from src.dashboard.routes.core import _get_build_version
             bv = _get_build_version()  # Read per-request, not frozen at startup
@@ -805,6 +835,20 @@ def create_app() -> FastAPI:
         <p>Mission Control is loading... index.html not found.</p>
         <p><a href="/api/status">/api/status</a> | <a href="/api/config">/api/config</a></p>
         </body></html>""")
+
+    async def _public_tuner_paths(request: Request):
+        from src.dashboard.host_context import is_public_tuner_host, request_host
+        if not is_public_tuner_host(request_host(request)):
+            return HTMLResponse("Not Found", status_code=404)
+        return await dashboard(request)
+
+    for _path in ("/app", "/tune", "/playlists", "/deeper"):
+        app_instance.add_api_route(
+            _path,
+            _public_tuner_paths,
+            methods=["GET"],
+            response_class=HTMLResponse,
+        )
 
     return app_instance
 
