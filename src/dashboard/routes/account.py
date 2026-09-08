@@ -61,7 +61,7 @@ async def _generate_referral_code(conn) -> str:
 # =============================================================================
 
 ALLOWED_REDIRECT_DOMAINS = {
-    "lucidtuner.com", "www.lucidtuner.com",
+    "lucidtuner.com", "www.lucidtuner.com", "app.lucidtuner.com",
     "lucidcove.org", "www.lucidcove.org", "app.lucidcove.org",
     "lucidprinciples.com", "www.lucidprinciples.com",
 }
