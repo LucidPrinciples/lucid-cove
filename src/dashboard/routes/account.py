@@ -68,6 +68,28 @@ ALLOWED_REDIRECT_DOMAINS = {
 DEFAULT_REDIRECT = "https://lucidtuner.com"
 
 
+def signin_link_url(*, scheme: str, request_host: str, raw_token: str,
+                    username: str = "", cove: Optional[dict] = None) -> str:
+    """Build the /p/{token} URL for a sign-in email.
+
+    Public Tuner Host stays on app.lucidtuner.com even when Cove subdomain
+    routing is on — otherwise the email sends people to lucidcove.org.
+    """
+    from src.dashboard.host_context import is_public_tuner_host
+    host = (request_host or "localhost").split(":")[0].strip().lower() or "localhost"
+    scheme = (scheme or "https").split(",")[0].strip() or "https"
+    if is_public_tuner_host(host):
+        return f"{scheme}://{host}/p/{raw_token}"
+    cove = cove or {}
+    handle = (username or "").lstrip("@").strip().lower()
+    cdom = (cove.get("domain") or "").strip()
+    if cove.get("subdomain_routing") and cdom and handle:
+        return f"{scheme}://{handle}.{cdom}/p/{raw_token}"
+    if cdom:
+        return f"https://{cdom}/p/{raw_token}"
+    return f"{scheme}://{host}/p/{raw_token}"
+
+
 @router.get("/r/{code}")
 async def referral_bounce(code: str, to: Optional[str] = None):
     """Set a 90-day referral cookie on app.lucidcove.org, then redirect.
@@ -344,25 +366,22 @@ async def signin(request: Request):
         logging.error(f"Signin failed: {e}")
         raise HTTPException(500, "Something went wrong. Please try again.")
 
-    # Build the sign-in link. On a Cove with wildcard routing, land the operator on
-    # THEIR OWN subdomain ({handle}.{domain}) — consistent with everyone, including the
-    # founder (no special root path). Falls back to the request host (the shared app,
-    # or a Cove with no domain yet). Mirrors presence.py.
+    # Build the sign-in link. Tuner Host stays on app.lucidtuner.com. On a Cove
+    # with wildcard routing, land on {handle}.{domain}. Else the request host.
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
-    _handle = (row.get("username") or "").lstrip("@").strip().lower()
     try:
         from src.config import load_cove_config as _lcc
         _cove = _lcc()
-        _cdom = (_cove.get("domain") or "").strip()
     except Exception:
-        _cove, _cdom = {}, ""
-    if _cove.get("subdomain_routing") and _cdom and _handle:
-        signin_link = f"{scheme}://{_handle}.{_cdom}/p/{raw_token}"
-    elif _cdom:
-        signin_link = f"https://{_cdom}/p/{raw_token}"
-    else:
-        host = request.headers.get("host", "localhost")
-        signin_link = f"{scheme}://{host}/p/{raw_token}"
+        _cove = {}
+    from src.dashboard.host_context import request_host as _rh
+    signin_link = signin_link_url(
+        scheme=scheme,
+        request_host=_rh(request),
+        raw_token=raw_token,
+        username=row.get("username") or "",
+        cove=_cove,
+    )
 
     # Send magic link via email
     from src.dashboard.routes.email import send_signin_link

@@ -43,3 +43,29 @@ def test_settings_connect_key_names_hermes_team():
     js = (ROOT / "src/dashboard/static/js/settings-account.js").read_text()
     assert "Hermes team" in js
     assert "Get my connect key" in js
+
+
+def test_signin_from_tuner_host_stays_on_tuner_not_cove_subdomain():
+    from src.dashboard.routes.account import signin_link_url
+
+    url = signin_link_url(
+        scheme="https",
+        request_host="app.lucidtuner.com",
+        raw_token="tok",
+        username="jason",
+        cove={"domain": "lucidcove.org", "subdomain_routing": True},
+    )
+    assert url == "https://app.lucidtuner.com/p/tok"
+
+
+def test_signin_from_cove_host_still_uses_handle_subdomain():
+    from src.dashboard.routes.account import signin_link_url
+
+    url = signin_link_url(
+        scheme="https",
+        request_host="app.lucidcove.org",
+        raw_token="tok",
+        username="jason",
+        cove={"domain": "lucidcove.org", "subdomain_routing": True},
+    )
+    assert url == "https://jason.lucidcove.org/p/tok"
