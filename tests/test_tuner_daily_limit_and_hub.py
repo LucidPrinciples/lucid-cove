@@ -89,10 +89,12 @@ def test_tune_flow_gates_start_new_tune():
     # Gate at start of _tfStartNewTune
     start = src.index("function _tfStartNewTune()")
     chunk = src[start : start + 400]
-    assert "_tfCanTuneAgain" in chunk
-    assert "_tfUpgrade" in chunk
+    assert "_tfBlockIfLocked" in chunk
     assert "daily_limit" in src
     assert "function _tfTuneNowTopHTML" in src
     assert "tf-btn-tune-now-locked" in src
-    assert "Get unlimited tunings" in src
-    assert 'id="tfUnlimitedCta"' in src
+    assert "Upgrade for unlimited" in src
+    assert "tf-btn-tune-now-cta" in src
+    assert "function _tfBlockIfLocked" in src
+    assert "Get unlimited tunings" not in src
+    assert 'id="tfUnlimitedCta"' not in src

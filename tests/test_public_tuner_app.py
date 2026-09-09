@@ -145,9 +145,13 @@ def test_tune_page_locks_tune_now_keeps_last_tuning():
     assert "tf-btn-tune-now-locked" in flow
     assert "Next free tune in" in flow
     assert "_tfUpgrade()" in flow
-    assert "Get unlimited tunings" in flow
-    assert 'id="tfUnlimitedCta"' in flow
+    assert "Upgrade for unlimited" in flow
+    assert "tf-btn-tune-now-cta" in flow
+    assert "Get unlimited tunings" not in flow
+    assert 'id="tfUnlimitedCta"' not in flow
+    assert "function _tfBlockIfLocked" in flow
+    assert "function _tfDateIsToday" in flow
     assert "function _tfTuneAgainHTML" not in flow
     css = (ROOT / "src/dashboard/static/css/tune-flow.css").read_text()
     assert "tf-btn-tune-now-locked" in css
-    assert "tf-tune-now-locked-wrap .tf-btn-upgrade" in css
+    assert "tf-btn-tune-now-cta" in css
