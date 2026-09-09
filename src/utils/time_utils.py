@@ -15,7 +15,7 @@ Usage:
 
 import os
 from src.env import env
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 _DEFAULT_TZ = "America/New_York"
@@ -68,6 +68,27 @@ def today_app() -> str:
     tomorrow's date, breaking any 'did X happen today' checks.
     """
     return now_app().date().isoformat()
+
+
+def local_day_utc_bounds(
+    now: datetime | None = None,
+    tz: ZoneInfo | None = None,
+) -> tuple[datetime, datetime]:
+    """UTC [start, end) covering the local calendar day of `now`.
+
+    Tune Now resets at local midnight, not UTC midnight. A 9pm Eastern
+    tune is still that local day even though the UTC date has already rolled.
+    """
+    zone = tz or app_tz()
+    if now is None:
+        now = datetime.now(zone)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc).astimezone(zone)
+    else:
+        now = now.astimezone(zone)
+    start_local = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
 
 
 def ts_log() -> str:

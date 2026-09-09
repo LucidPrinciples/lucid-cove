@@ -199,9 +199,8 @@ async def request_tuning(request: Request):
     tier_name = (presence_row or {}).get("tier") or "free"
     # Single-mode family Coves are unlimited; public multi free accounts are limited.
     day_limit = _daily_tune_limit_for_tier(tier_name)
-    today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if day_limit != -1 and presence_id_early:
-        used = await _count_tunes_today(presence_id_early, today_utc)
+        used = await _count_tunes_today(presence_id_early)
         if used >= day_limit:
             return JSONResponse(
                 status_code=429,

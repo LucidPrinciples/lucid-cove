@@ -349,9 +349,19 @@ async function _tfFetchLatestDropTuning() {
     }
 }
 
+function _tfPad2(n) {
+    return String(n).padStart(2, '0');
+}
+
 function _tfTodayStr() {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return `${d.getFullYear()}-${_tfPad2(d.getMonth()+1)}-${_tfPad2(d.getDate())}`;
+}
+
+function _tfLocalDayFromMs(ms) {
+    const d = new Date(ms);
+    if (!Number.isFinite(d.getTime())) return '';
+    return `${d.getFullYear()}-${_tfPad2(d.getMonth()+1)}-${_tfPad2(d.getDate())}`;
 }
 
 function _tfDateKey(dateVal) {
@@ -360,33 +370,48 @@ function _tfDateKey(dateVal) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
     const t = Date.parse(dateVal);
     if (!Number.isFinite(t)) return '';
-    return new Date(t).toISOString().slice(0, 10);
+    return _tfLocalDayFromMs(t);
 }
 
-// Session.date is stored UTC. Local midnight is the product reset. Count both
-// so the Tune Now lock matches a server 429 (never start a wizard then fail).
+function _tfSessionLocalDay(session) {
+    if (!session) return '';
+    if (session.created_at) {
+        const t = Date.parse(session.created_at);
+        if (Number.isFinite(t)) return _tfLocalDayFromMs(t);
+    }
+    const parts = String(session.session_id || '').split('_');
+    if (parts.length >= 2) {
+        const ts = parseInt(parts[1], 10);
+        if (Number.isFinite(ts) && ts > 1e9) return _tfLocalDayFromMs(ts * 1000);
+    }
+    const dateKey = _tfDateKey(session.date);
+    const timeRaw = String(session.time || '').trim();
+    if (dateKey && timeRaw) {
+        const iso = dateKey + 'T' + timeRaw + (/Z|[+-]\d{2}:?\d{2}$/.test(timeRaw) ? '' : 'Z');
+        const t = Date.parse(iso);
+        if (Number.isFinite(t)) return _tfLocalDayFromMs(t);
+    }
+    if (dateKey) {
+        const t = Date.parse(dateKey + 'T00:00:00Z');
+        if (Number.isFinite(t)) return _tfLocalDayFromMs(t);
+    }
+    return '';
+}
+
+// Local calendar day of the session instant — not the UTC date column.
 function _tfDateIsToday(dateVal) {
     const d = _tfDateKey(dateVal);
     if (!d) return false;
-    return d === _tfTodayStr() || d === new Date().toISOString().slice(0, 10);
+    return d === _tfTodayStr();
 }
 
 function _tfIsPersonalTuneToday(session) {
-    return !!(session && session.context && _tfDateIsToday(session.date));
+    return !!(session && session.context && _tfSessionLocalDay(session) === _tfTodayStr());
 }
 
 function _isTuningFromToday(data) {
-    if (!data.date) {
-        const parts = (data.session_id || '').split('_');
-        if (parts.length >= 2) {
-            const ts = parseInt(parts[1]) * 1000;
-            const tuningDate = formatDateOnly(new Date(ts).toISOString());
-            const today = formatDateOnly(new Date().toISOString());
-            return tuningDate === today;
-        }
-        return false;
-    }
-    return _tfDateIsToday(data.date);
+    if (!data) return false;
+    return _tfSessionLocalDay(data) === _tfTodayStr();
 }
 
 function _tfBlockIfLocked() {

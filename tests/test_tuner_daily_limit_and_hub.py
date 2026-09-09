@@ -7,7 +7,9 @@ Covers:
   - upgrade CTA does not treat bare presence.id as "in a Cove"
 """
 
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -35,7 +37,7 @@ async def test_request_tuning_free_daily_limit_429(monkeypatch):
     async def fake_row(request):
         return {"id": "acct-free-1", "tier": "free"}
 
-    async def fake_count(presence_id, today):
+    async def fake_count(presence_id, today=None):
         assert presence_id == "acct-free-1"
         return 1
 
@@ -98,3 +100,60 @@ def test_tune_flow_gates_start_new_tune():
     assert "function _tfBlockIfLocked" in src
     assert "Get unlimited tunings" not in src
     assert 'id="tfUnlimitedCta"' not in src
+
+
+def test_local_day_utc_bounds_evening_utc_stays_previous_local_day():
+    """9pm Eastern Tuesday is Tuesday locally; UTC date is already Wednesday.
+
+    After local midnight that session must not still consume Wednesday's free tune.
+    """
+    from src.utils.time_utils import local_day_utc_bounds
+
+    tz = ZoneInfo("America/New_York")
+    evening = datetime(2026, 9, 8, 21, 0, 0, tzinfo=tz)
+    start, end = local_day_utc_bounds(evening, tz=tz)
+    evening_utc = evening.astimezone(timezone.utc)
+    assert start <= evening_utc < end
+    assert start.astimezone(tz).date().isoformat() == "2026-09-08"
+    morning = datetime(2026, 9, 9, 9, 10, 0, tzinfo=tz).astimezone(timezone.utc)
+    assert not (start <= morning < end)
+    wed_start, wed_end = local_day_utc_bounds(
+        datetime(2026, 9, 9, 9, 10, 0, tzinfo=tz), tz=tz
+    )
+    assert wed_start <= morning < wed_end
+    assert not (wed_start <= evening_utc < wed_end)
+
+
+def test_count_tunes_today_uses_created_at_local_day_not_utc_date_column():
+    src = (ROOT / "src/dashboard/routes/tuning_request/helpers.py").read_text()
+    start = src.index("async def _count_tunes_today")
+    chunk = src[start : start + 900]
+    assert "local_day_utc_bounds" in chunk
+    assert "created_at >=" in chunk
+    assert "AND date = %s" not in chunk
+
+
+def test_request_tuning_does_not_key_daily_limit_on_utc_calendar_date():
+    src = (ROOT / "src/dashboard/routes/tuning_request/core.py").read_text()
+    assert "today_utc" not in src
+
+
+def test_tune_flow_personal_today_is_local_instant_not_utc_or():
+    src = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    assert "function _tfSessionLocalDay" in src
+    start = src.index("function _tfIsPersonalTuneToday")
+    chunk = src[start : start + 350]
+    assert "_tfSessionLocalDay" in chunk
+    today_fn = src[
+        src.index("function _tfDateIsToday") : src.index("function _tfDateIsToday") + 280
+    ]
+    assert "toISOString().slice(0, 10)" not in today_fn
+    assert (
+        "d === _tfTodayStr() || d === new Date().toISOString().slice(0, 10)" not in src
+    )
+    id_fn = src[
+        src.index("function _isTuningFromToday") : src.index("function _isTuningFromToday")
+        + 500
+    ]
+    assert "toISOString()" not in id_fn
+    assert "_tfSessionLocalDay" in id_fn
