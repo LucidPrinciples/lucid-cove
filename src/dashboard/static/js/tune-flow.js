@@ -165,7 +165,7 @@ const TUNE_LIMITS = {
 function _tfGetDailyLimit() {
     // Operator+ (level >= 10) = unlimited
     if (MC.tier && MC.tier.level >= 10) return TUNE_LIMITS.unlimited;
-    // Pro (level 5) = 5 per day
+    // Pro (level 5) = unlimited Tune
     if (MC.tier && MC.tier.level >= 5) return TUNE_LIMITS.pro;
     return TUNE_LIMITS.free;
 }
@@ -917,7 +917,7 @@ async function _renderCompletedTuning(container, data) {
             <div class="tf-logo">
                 <img src="/static/mark-tuner.png" alt="Lucid Tuner" class="tf-logo-img">
             </div>
-            ${_tfCanTuneAgain(tuneFlow.todayCount) ? '<div class="tf-tune-now-top"><button class="tf-btn tf-btn-next tf-btn-tune-now" onclick="_tfStartNewTune()">Tune Now</button></div>' : ''}
+            ${_tfTuneNowTopHTML()}
             <div class="tf-complete-header">
                 <span class="tf-complete-title">Your Tune</span>
                 <span class="tf-complete-freq">${ESC(freq)}</span>
@@ -949,7 +949,7 @@ async function _renderCompletedTuning(container, data) {
                 <div id="tfPlayerMount"></div>
             </div>
 
-            ${!_tfCanTuneAgain(tuneFlow.todayCount) ? `<div class="tf-complete-section tf-limit-gate">${_tfTuneAgainHTML()}</div>` : ''}
+
 
             <div id="tfHistory"></div>
         </div>
@@ -1082,19 +1082,19 @@ function _tfOpenReflect(mirrorIdx) {
     modal.style.display = 'flex';
 }
 
-function _tfTuneAgainHTML() {
+function _tfTuneNowTopHTML() {
     if (_tfCanTuneAgain(tuneFlow.todayCount)) {
-        // Can tune again (Pro/Operator+)
-        return `<button class="tf-btn tf-btn-next" onclick="_tfStartNewTune()">Tune Again</button>`;
+        return '<div class="tf-tune-now-top"><button type="button" class="tf-btn tf-btn-next tf-btn-tune-now" onclick="_tfStartNewTune()">Tune Now</button></div>';
     }
-    // Free tier gated — countdown + upgrade prompt
+    // Free daily lock — last tuning stays; greyed Tune Now opens the Pro modal.
     return `
-        <div class="tf-countdown">
-            <span class="tf-countdown-label">Next free tune in</span>
-            <span class="tf-countdown-time" id="tfCountdown">${_tfCountdownStr()}</span>
-        </div>
-        <button class="tf-btn tf-btn-upgrade" onclick="_tfUpgrade()">Get unlimited tuning</button>
-    `;
+        <div class="tf-tune-now-top tf-tune-now-locked-wrap">
+            <button type="button" class="tf-btn tf-btn-tune-now tf-btn-tune-now-locked" aria-disabled="true" onclick="_tfUpgrade()">Tune Now</button>
+            <div class="tf-countdown">
+                <span class="tf-countdown-label">Next free tune in</span>
+                <span class="tf-countdown-time" id="tfCountdown">${_tfCountdownStr()}</span>
+            </div>
+        </div>`;
 }
 
 function _tfStartCountdown() {
