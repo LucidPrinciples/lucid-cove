@@ -1086,10 +1086,12 @@ function _tfTuneNowTopHTML() {
     if (_tfCanTuneAgain(tuneFlow.todayCount)) {
         return '<div class="tf-tune-now-top"><button type="button" class="tf-btn tf-btn-next tf-btn-tune-now" onclick="_tfStartNewTune()">Tune Now</button></div>';
     }
-    // Free daily lock — last tuning stays; greyed Tune Now opens the Pro modal.
+    // Free daily lock — last tuning stays; greyed Tune Now still opens Pro.
+    // Visible CTA: the grey button alone does not read as “you can get more.”
     return `
         <div class="tf-tune-now-top tf-tune-now-locked-wrap">
-            <button type="button" class="tf-btn tf-btn-tune-now tf-btn-tune-now-locked" aria-disabled="true" onclick="_tfUpgrade()">Tune Now</button>
+            <button type="button" class="tf-btn tf-btn-tune-now tf-btn-tune-now-locked" aria-disabled="true" aria-label="Today's Tune Now is used. Upgrade for unlimited." onclick="_tfUpgrade()">Tune Now</button>
+            <button type="button" class="tf-btn tf-btn-upgrade" id="tfUnlimitedCta" onclick="_tfUpgrade()">Get unlimited tunings</button>
             <div class="tf-countdown">
                 <span class="tf-countdown-label">Next free tune in</span>
                 <span class="tf-countdown-time" id="tfCountdown">${_tfCountdownStr()}</span>

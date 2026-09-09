@@ -617,6 +617,11 @@
   cursor: pointer;
   filter: grayscale(0.25);
 }
+.tf-tune-now-locked-wrap .tf-btn-upgrade {
+  width: auto;
+  min-width: 12rem;
+  margin-top: 0.15rem;
+}
 .tf-tune-again {
   text-align: center;
   margin-top: 1.5rem;

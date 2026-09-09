@@ -123,7 +123,8 @@ def test_tuner_host_pro_modal_is_unlimited_tune_not_operator():
 def test_tuner_home_field_is_drop_not_countdown():
     js = (SHELL / "free-tuner.js").read_text()
     html = (SHELL / "index.html").read_text()
-    assert "Trust the Field" in html
+    assert 'id="fieldDesc">Latest Tuning</' in html
+    assert 'id="fieldDesc">Trust the Field</' not in html
     assert "_ltFieldCountdown" not in js
     assert "_tfCountdownStr" not in js
     assert 'lchGoto("/tune")' in js
@@ -144,6 +145,9 @@ def test_tune_page_locks_tune_now_keeps_last_tuning():
     assert "tf-btn-tune-now-locked" in flow
     assert "Next free tune in" in flow
     assert "_tfUpgrade()" in flow
+    assert "Get unlimited tunings" in flow
+    assert 'id="tfUnlimitedCta"' in flow
     assert "function _tfTuneAgainHTML" not in flow
     css = (ROOT / "src/dashboard/static/css/tune-flow.css").read_text()
     assert "tf-btn-tune-now-locked" in css
+    assert "tf-tune-now-locked-wrap .tf-btn-upgrade" in css

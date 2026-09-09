@@ -94,3 +94,5 @@ def test_tune_flow_gates_start_new_tune():
     assert "daily_limit" in src
     assert "function _tfTuneNowTopHTML" in src
     assert "tf-btn-tune-now-locked" in src
+    assert "Get unlimited tunings" in src
+    assert 'id="tfUnlimitedCta"' in src
