@@ -123,7 +123,8 @@ def test_tuner_host_pro_modal_is_unlimited_tune_not_operator():
 def test_tuner_home_field_is_drop_not_countdown():
     js = (SHELL / "free-tuner.js").read_text()
     html = (SHELL / "index.html").read_text()
-    assert "Trust the Field" in html
+    assert 'id="fieldDesc">Latest Tuning</' in html
+    assert 'id="fieldDesc">Trust the Field</' not in html
     assert "_ltFieldCountdown" not in js
     assert "_tfCountdownStr" not in js
     assert 'lchGoto("/tune")' in js
