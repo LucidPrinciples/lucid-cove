@@ -249,8 +249,7 @@ async function loadTuneFlow() {
         const sessions = histData.sessions || histData || [];
         if (Array.isArray(sessions)) {
             // Count today's tunings
-            const todayStr = _tfTodayStr();
-            const todayTunes = sessions.filter(t => t.date === todayStr && t.context);
+            const todayTunes = sessions.filter(t => _tfIsPersonalTuneToday(t));
             todayCount = todayTunes.length;
             if (todayTunes.length > 0) latestTune = todayTunes[0];
 
@@ -355,6 +354,27 @@ function _tfTodayStr() {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+function _tfDateKey(dateVal) {
+    const raw = String(dateVal || '');
+    const ymd = raw.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+    const t = Date.parse(dateVal);
+    if (!Number.isFinite(t)) return '';
+    return new Date(t).toISOString().slice(0, 10);
+}
+
+// Session.date is stored UTC. Local midnight is the product reset. Count both
+// so the Tune Now lock matches a server 429 (never start a wizard then fail).
+function _tfDateIsToday(dateVal) {
+    const d = _tfDateKey(dateVal);
+    if (!d) return false;
+    return d === _tfTodayStr() || d === new Date().toISOString().slice(0, 10);
+}
+
+function _tfIsPersonalTuneToday(session) {
+    return !!(session && session.context && _tfDateIsToday(session.date));
+}
+
 function _isTuningFromToday(data) {
     if (!data.date) {
         const parts = (data.session_id || '').split('_');
@@ -366,7 +386,17 @@ function _isTuningFromToday(data) {
         }
         return false;
     }
-    return data.date === _tfTodayStr();
+    return _tfDateIsToday(data.date);
+}
+
+function _tfBlockIfLocked() {
+    if (_tfCanTuneAgain(tuneFlow.todayCount || 0)) return false;
+    const container = _tfContainer();
+    if (container && tuneFlow.tuningData) {
+        _renderCompletedTuning(container, tuneFlow.tuningData);
+    }
+    _tfUpgrade();
+    return true;
 }
 
 // ─── Step 1: Context Selection ───────────────────────────────────────────────
@@ -441,6 +471,7 @@ function _renderStep2(container) {
 }
 
 function _tfSelectMode(el) {
+    if (_tfBlockIfLocked()) return;
     const frequency = el.dataset.frequency;
     const label = el.dataset.label;
     if (!frequency || !label) return;
@@ -471,6 +502,7 @@ const QUANTUM_MESSAGES = [
 // ─── Step 3: Field Selection (Intention + E Declaration + API in parallel) ──
 
 function _renderStep3(container) {
+    if (_tfBlockIfLocked()) return;
     tuneFlow.step = 3;
     tuneFlow.eStart = null;
     tuneFlow._apiDone = false;
@@ -584,6 +616,7 @@ function _tfCheckStep3Ready() {
 }
 
 async function _tfRequestTuning(container) {
+    if (_tfBlockIfLocked()) return;
     try {
         const resp = await fetch('/api/tuning/request', {
             method: 'POST',
@@ -599,14 +632,16 @@ async function _tfRequestTuning(container) {
 
         const data = await resp.json().catch(() => ({}));
         if (resp.status === 429 || data.error === 'daily_limit') {
-            // Server enforced free daily limit — treat as used and upsell
+            // Server enforced free daily limit — never leave the quantum step running.
             if (typeof data.today_count === 'number') tuneFlow.todayCount = data.today_count;
             else tuneFlow.todayCount = Math.max(tuneFlow.todayCount || 0, 1);
             tuneFlow._apiDone = false;
             if (tuneFlow._qMsgInterval) clearInterval(tuneFlow._qMsgInterval);
             _tfUpdateHomeButton();
             if (tuneFlow.tuningData) {
-                _renderCompletedTuning(container, tuneFlow.tuningData);
+                await _renderCompletedTuning(container, tuneFlow.tuningData);
+            } else {
+                await loadTuneFlow();
             }
             _tfUpgrade();
             return;
@@ -1086,12 +1121,14 @@ function _tfTuneNowTopHTML() {
     if (_tfCanTuneAgain(tuneFlow.todayCount)) {
         return '<div class="tf-tune-now-top"><button type="button" class="tf-btn tf-btn-next tf-btn-tune-now" onclick="_tfStartNewTune()">Tune Now</button></div>';
     }
-    // Free daily lock — last tuning stays; greyed Tune Now still opens Pro.
-    // Visible CTA: the grey button alone does not read as “you can get more.”
+    // Free daily lock — last tuning stays. Greyed Tune Now still opens Pro.
+    // Upgrade copy lives on the greyed control itself (not a second button).
     return `
         <div class="tf-tune-now-top tf-tune-now-locked-wrap">
-            <button type="button" class="tf-btn tf-btn-tune-now tf-btn-tune-now-locked" aria-disabled="true" aria-label="Today's Tune Now is used. Upgrade for unlimited." onclick="_tfUpgrade()">Tune Now</button>
-            <button type="button" class="tf-btn tf-btn-upgrade" id="tfUnlimitedCta" onclick="_tfUpgrade()">Get unlimited tunings</button>
+            <button type="button" class="tf-btn tf-btn-tune-now tf-btn-tune-now-locked" aria-disabled="true" aria-label="Today's Tune Now is used. Upgrade for unlimited." onclick="_tfUpgrade()">
+                Tune Now
+                <span class="tf-btn-tune-now-cta">Upgrade for unlimited</span>
+            </button>
             <div class="tf-countdown">
                 <span class="tf-countdown-label">Next free tune in</span>
                 <span class="tf-countdown-time" id="tfCountdown">${_tfCountdownStr()}</span>
@@ -1117,11 +1154,7 @@ function _tfStartCountdown() {
 
 function _tfStartNewTune() {
     // Free tier: never start a second personal tune the same local day.
-    // (Completed view used to call this with no gate — double-tune bug.)
-    if (!_tfCanTuneAgain(tuneFlow.todayCount || 0)) {
-        _tfUpgrade();
-        return;
-    }
+    if (_tfBlockIfLocked()) return;
     const container = _tfContainer();
     if (!container) return;
     // Stop any playing audio — new Tune Now = new experience
@@ -1197,8 +1230,7 @@ async function _tfUpdateHomeButton() {
             const data = await resp.json();
             const sessions = data.sessions || data || [];
             if (Array.isArray(sessions)) {
-                const todayStr = _tfTodayStr();
-                tuneFlow.todayCount = sessions.filter(t => t.date === todayStr && t.context).length;
+                tuneFlow.todayCount = sessions.filter(t => _tfIsPersonalTuneToday(t)).length;
             }
         } catch (e) {}
     }
