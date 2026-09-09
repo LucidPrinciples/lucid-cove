@@ -38,7 +38,7 @@
     };
     window.MC.isTuner = level < 10;
     var badge = document.getElementById("tuneProBadge");
-    if (badge) badge.hidden = level >= 5;
+    if (badge) badge.hidden = level < 5;
   }
 
   function showUpgradeModal() {
