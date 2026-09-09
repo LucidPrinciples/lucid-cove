@@ -59,10 +59,10 @@
           <p class="ft-tagline">You're always broadcasting. Tune in, or trust the Field.</p>
         </div>
 
-        <div class="button-stack">
-          <button type="button" class="big-button" id="dailyBtn">
+        <div class="home-grid">
+          <button type="button" class="home-tile" id="dailyBtn">
             <div class="portal-bg"></div>
-            <div class="big-button-content">
+            <div class="home-tile-inner">
               <div class="icon icon-field">
                 <div class="live-bars" aria-hidden="true">
                   <div class="bar"></div>
@@ -71,27 +71,24 @@
                   <div class="bar"></div>
                 </div>
               </div>
-              <div class="text">
-                <div class="label">Field-Selected Tuning</div>
-                <div class="desc">Latest Tuning</div>
-              </div>
+              <div class="label">Field</div>
+              <div class="desc" id="fieldDesc">Trust the Field</div>
             </div>
           </button>
 
-          <button type="button" class="big-button" id="tuneBtn">
+          <button type="button" class="home-tile" id="tuneBtn">
+            <span class="pro-badge" id="tuneProBadge">PRO</span>
             <div class="portal-bg"></div>
-            <div class="big-button-content">
+            <div class="home-tile-inner">
               <span class="icon icon-tune">◈</span>
-              <div class="text">
-                <div class="label">Tune My Broadcast</div>
-                <div class="desc">Context + desired state</div>
-              </div>
+              <div class="label">Tune</div>
+              <div class="desc">Context + Desired State</div>
             </div>
           </button>
 
-          <button type="button" class="big-button" id="playlistsBtn">
+          <button type="button" class="home-tile" id="playlistsBtn">
             <div class="portal-bg"></div>
-            <div class="big-button-content">
+            <div class="home-tile-inner">
               <span class="icon icon-playlists" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M9 18V6l10-2v12"/>
@@ -99,26 +96,22 @@
                   <circle cx="17" cy="16" r="2"/>
                 </svg>
               </span>
-              <div class="text">
-                <div class="label">Playlists</div>
-                <div class="desc">Positive lyrics</div>
-              </div>
+              <div class="label">Playlists</div>
+              <div class="desc">Signal &amp; genre streams</div>
             </div>
           </button>
 
-          <button type="button" class="big-button go-deeper-btn" id="btn-go-deeper">
+          <button type="button" class="home-tile go-deeper-btn" id="btn-go-deeper">
             <div class="portal-bg"></div>
-            <div class="big-button-content">
+            <div class="home-tile-inner">
               <span class="icon icon-deeper" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
                   <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
                 </svg>
               </span>
-              <div class="text">
-                <div class="label">GO DEEPER</div>
-                <div class="desc">Framework &amp; philosophy</div>
-              </div>
+              <div class="label">Go Deeper</div>
+              <div class="desc">Framework &amp; philosophy</div>
             </div>
           </button>
         </div>
