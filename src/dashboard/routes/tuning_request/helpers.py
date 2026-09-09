@@ -98,8 +98,9 @@ async def _get_presence_id(request: Request) -> Optional[str]:
 # ── Reference Data ──────────────────────────────────────────────────────────
 
 
-# Free Lucid Tuner: 1 personal Tune Now per calendar day (date column on sessions).
-# Operator+ and family Cove tiers are unlimited. Retired "pro" stays unlimited.
+# Free Lucid Tuner: 1 personal Tune Now per app-local calendar day
+# (created_at window, not the UTC date column). Operator+ and family Cove
+# tiers are unlimited. Retired "pro" stays unlimited.
 _TIER_DAILY_TUNE_LIMIT = {
     "free": 1,
     "pro": -1,
@@ -115,18 +116,26 @@ def _daily_tune_limit_for_tier(tier: Optional[str]) -> int:
     return _TIER_DAILY_TUNE_LIMIT.get(key, 1)
 
 
-async def _count_tunes_today(presence_id: Optional[str], today: str) -> int:
-    """Count user-initiated tuning_sessions for presence_id on date today."""
+async def _count_tunes_today(presence_id: Optional[str], today: Optional[str] = None) -> int:
+    """Count user-initiated tuning_sessions for presence_id on the local day.
+
+    `today` is unused (call-site compat). The free daily uses created_at inside
+    local_day_utc_bounds(), not the UTC date column — a 9pm Eastern tune must
+    not still consume the next local morning.
+    """
     if not presence_id:
         return 0
     try:
         from src.memory.database import get_db
+        from src.utils.time_utils import local_day_utc_bounds
+        start, end = local_day_utc_bounds()
         async with get_db() as conn:
             result = await conn.execute(
                 """SELECT COUNT(*) AS n FROM tuning_sessions
-                   WHERE presence_id = %s AND date = %s
+                   WHERE presence_id = %s
+                     AND created_at >= %s AND created_at < %s
                      AND COALESCE(context, '') <> ''""",
-                (presence_id, today),
+                (presence_id, start, end),
             )
             row = await result.fetchone()
             if not row:
