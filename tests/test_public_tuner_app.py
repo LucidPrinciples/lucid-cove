@@ -139,6 +139,18 @@ def test_tuner_pro_badge_only_when_upgraded():
     assert "badge.hidden = level >= 5" not in js
 
 
+def test_tuner_host_connect_mints_key_and_opens_hermes_house():
+    html = (SHELL / "index.html").read_text()
+    js = (SHELL / "house.js").read_text()
+    assert 'id="settings-get-connect-key"' in html
+    assert "Get my connect key" in html
+    assert "https://hermes.cove.lucidcove.org" in html
+    assert 'id="settings-open-hermes"' in html
+    assert "/api/account/self-host-token" in js
+    assert "settings-connect-key-value" in js
+    assert "That slice comes after this door walks" not in html
+
+
 def test_tune_page_locks_tune_now_keeps_last_tuning():
     flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
     assert "function _tfTuneNowTopHTML" in flow

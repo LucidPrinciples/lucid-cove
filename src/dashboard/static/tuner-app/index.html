@@ -349,7 +349,15 @@
         </section>
         <section class="settings-group" data-settings-scope="house" id="settings-house">
           <h2 class="help-section-title">Connect</h2>
-          <p class="help-placeholder">Optional: connect this to your Hermes team. That slice comes after this door walks. Team, Attention, and Action stay off until then.</p>
+          <p class="help-placeholder">Same identity, this house — not a Haven. Copy the connect key once, then open Lucid Cove on Hermes and paste it under Gear → Connect.</p>
+          <button type="button" class="settings-save-btn" id="settings-get-connect-key">Get my connect key</button>
+          <label class="settings-field" id="settings-connect-key-wrap" hidden>
+            <span class="settings-label">Connect key (shown once)</span>
+            <input type="text" id="settings-connect-key-value" class="settings-input" readonly />
+          </label>
+          <button type="button" class="settings-save-btn" id="settings-copy-connect-key" hidden>Copy</button>
+          <p id="settings-connect-key-status" class="protocols-save-status" role="status"></p>
+          <a id="settings-open-hermes" class="settings-save-btn" href="https://hermes.cove.lucidcove.org/?connect=1" target="_blank" rel="noopener">Open Lucid Cove on Hermes</a>
         </section>
       </div>
     </div>

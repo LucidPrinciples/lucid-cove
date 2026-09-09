@@ -773,6 +773,43 @@
       });
   });
 
+  document.getElementById("settings-get-connect-key")?.addEventListener("click", () => {
+    const status = document.getElementById("settings-connect-key-status");
+    const input = document.getElementById("settings-connect-key-value");
+    const wrap = document.getElementById("settings-connect-key-wrap");
+    const copyBtn = document.getElementById("settings-copy-connect-key");
+    if (status) status.textContent = "Minting…";
+    fetch("/api/account/self-host-token", {
+      method: "POST",
+      credentials: "same-origin",
+    })
+      .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (!ok || !d.ok) {
+          if (status) status.textContent = (d && (d.reason || d.error || d.detail)) || "Sign in to get a connect key.";
+          return;
+        }
+        const key = d.connect_key || ((d.handle || "") + ":" + (d.token || d.operator_token || ""));
+        if (input) input.value = key;
+        if (wrap) wrap.hidden = false;
+        if (copyBtn) copyBtn.hidden = false;
+        if (status) status.textContent = "Copy this once. It will not be shown again.";
+      })
+      .catch(() => {
+        if (status) status.textContent = "Couldn’t mint a connect key.";
+      });
+  });
+  document.getElementById("settings-copy-connect-key")?.addEventListener("click", () => {
+    const input = document.getElementById("settings-connect-key-value");
+    const copyBtn = document.getElementById("settings-copy-connect-key");
+    const val = (input && input.value) || "";
+    if (!val) return;
+    navigator.clipboard.writeText(val).then(() => {
+      if (copyBtn) copyBtn.textContent = "Copied";
+      setTimeout(() => { if (copyBtn) copyBtn.textContent = "Copy"; }, 1500);
+    }).catch(() => {});
+  });
+
   document.getElementById("reflect-close")?.addEventListener("click", closeReflect);
   reflectModal?.addEventListener("click", (e) => {
     if (e.target.id === "reflectModal") closeReflect();
