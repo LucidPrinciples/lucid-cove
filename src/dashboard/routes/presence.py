@@ -621,6 +621,8 @@ async def update_presence_me(request: Request):
     allowed_fields = {"display_name", "username", "email", "tier", "timezone"}
     valid_tiers = {"free", "pro", "operator", "presence", "cove"}
     updates = {}
+    cur_uname = (presence.get("username") or "").strip()
+    handle_locked = bool(cur_uname) and not bool(re.match(r"^.+-[0-9a-f]{4}$", cur_uname))
 
     for field in allowed_fields:
         if field in body:
@@ -635,13 +637,18 @@ async def update_presence_me(request: Request):
                 if not val:
                     raise HTTPException(400, "Display name cannot be empty")
                 val = _titlecase_name(_sanitize_name(val))
-            # Username validation
-            if field == "username" and val:
-                val = val.lower()
-                if len(val) < 3 or len(val) > 30:
-                    raise HTTPException(400, "Username must be 3-30 characters")
-                if not re.match(r'^[a-z0-9][a-z0-9_-]*[a-z0-9]$', val):
-                    raise HTTPException(400, "Username can only contain lowercase letters, numbers, hyphens, underscores")
+            # Username validation. Chosen handles stay locked (temp *-xxxx still editable).
+            if field == "username":
+                if handle_locked:
+                    if val and val.lower() != cur_uname.lower():
+                        raise HTTPException(403, "Handle is locked")
+                    continue
+                if val:
+                    val = val.lower()
+                    if len(val) < 3 or len(val) > 30:
+                        raise HTTPException(400, "Username must be 3-30 characters")
+                    if not re.match(r'^[a-z0-9][a-z0-9_-]*[a-z0-9]$', val):
+                        raise HTTPException(400, "Username can only contain lowercase letters, numbers, hyphens, underscores")
             # Email is optional (Woods / Jules 1346) — blank clears it; do not block Save.
             if field == "email" and not val:
                 val = None

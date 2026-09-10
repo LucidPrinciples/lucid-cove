@@ -341,11 +341,39 @@ body.house-free .board-switch {
 }
 .settings-input {
   font: inherit;
+  width: 100%;
+  box-sizing: border-box;
   padding: 0.7rem 0.85rem;
   border: 1px solid var(--border, #2a2a3a);
   border-radius: 8px;
   background: rgba(18, 18, 26, 0.72);
   color: var(--text, #e8e8f0);
+}
+.settings-input[readonly] {
+  opacity: 0.85;
+  cursor: default;
+}
+.settings-copy-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+  width: 100%;
+}
+.settings-copy-row .settings-input {
+  flex: 1;
+  min-width: 0;
+}
+.settings-copy-btn {
+  flex: 0 0 auto;
+  padding: 0.7rem 0.95rem;
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 8px;
+  background: rgba(18, 18, 26, 0.72);
+  color: var(--text, #e8e8f0);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
 }
 .house-hermes-steps {
   margin: 0.75rem 0 1rem 1.15rem;

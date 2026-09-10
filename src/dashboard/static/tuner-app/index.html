@@ -290,14 +290,15 @@
       <div class="help-body">
         <section class="settings-group" data-settings-scope="account" id="settings-account">
           <h2 class="help-section-title">Account</h2>
-          <p class="help-subtitle">Same hub registry as app.lucidcove.org. Handle, email, and referral live here.</p>
+          <p class="help-subtitle">Display name and email. Handle is set at signup.</p>
           <label class="settings-field">
             <span class="settings-label">Display name</span>
             <input type="text" id="settings-display-name" class="settings-input" maxlength="80" autocomplete="nickname" placeholder="How should we address you?" />
           </label>
           <label class="settings-field">
             <span class="settings-label">Handle</span>
-            <input type="text" id="settings-username" class="settings-input" maxlength="40" autocomplete="username" placeholder="username" />
+            <input type="text" id="settings-username" class="settings-input" maxlength="40" autocomplete="username" placeholder="username" readonly aria-readonly="true" />
+            <p class="help-placeholder" id="settings-handle-hint">Set at signup. This is your Lucid Tuner account.</p>
           </label>
           <label class="settings-field">
             <span class="settings-label">Email</span>
