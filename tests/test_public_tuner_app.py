@@ -151,11 +151,24 @@ def test_tuner_host_connect_key_without_this_house():
     assert "house-hermes-steps" in html
     assert "github.com/LucidPrinciples/lucid-cove-hermes" in html
     assert "this house" not in html
-    assert "same registry" not in html
+    assert "same registry" not in html.lower()
     assert "overlay stays private" not in html
+    assert 'id="settings-username"' in html
+    assert "readonly" in html
+    assert "Set at signup" in html
+    assert "settings-copy-row" in js
+    assert "settings-copy-btn" in js
+    assert "handle.readOnly = locked" in js
+    assert "if (!handleLocked) payload.username" in js
+    css = (SHELL / "house.css").read_text()
+    assert ".settings-copy-row" in css
+    assert ".settings-input {" in css and "width: 100%" in css
     assert "/api/account/self-host-token" in js
     assert "settings-connect-key-value" in js
     assert "That slice comes after this door walks" not in html
+    presence = (ROOT / "src" / "dashboard" / "routes" / "presence.py").read_text()
+    assert 'HTTPException(403, "Handle is locked")' in presence
+    assert "handle_locked" in presence
 
 
 def test_tune_page_locks_tune_now_keeps_last_tuning():

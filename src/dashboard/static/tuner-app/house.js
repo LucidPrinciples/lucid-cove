@@ -654,9 +654,20 @@
       const name = document.getElementById("settings-display-name");
       const handle = document.getElementById("settings-username");
       const email = document.getElementById("settings-email");
+      const hint = document.getElementById("settings-handle-hint");
       if (name && p.display_name) name.value = String(p.display_name);
       if (handle && p.username) handle.value = String(p.username).replace(/^@/, "");
       if (email && p.email) email.value = String(p.email);
+      const locked = !!(p.username && !p.needs_username);
+      if (handle) {
+        handle.readOnly = locked;
+        handle.setAttribute("aria-readonly", locked ? "true" : "false");
+      }
+      if (hint) {
+        hint.textContent = locked
+          ? "Set at signup. This is your Lucid Tuner account."
+          : "Pick a handle. This becomes your Lucid Tuner account.";
+      }
     });
   }
 
@@ -677,26 +688,33 @@
           return;
         }
         const url = "https://app.lucidcove.org/r/" + code + "?to=https://app.lucidtuner.com";
-        const label = document.createElement("p");
-        label.className = "help-placeholder";
-        label.textContent = "One Lucid Tuner referral link:";
+        const field = document.createElement("div");
+        field.className = "settings-field";
+        const label = document.createElement("span");
+        label.className = "settings-label";
+        label.textContent = "Referral link";
+        const row = document.createElement("div");
+        row.className = "settings-copy-row";
         const input = document.createElement("input");
         input.className = "settings-input";
         input.readOnly = true;
         input.value = url;
+        input.setAttribute("aria-label", "Referral link");
         const copy = document.createElement("button");
         copy.type = "button";
-        copy.className = "settings-save-btn";
-        copy.textContent = "Copy link";
+        copy.className = "settings-copy-btn";
+        copy.textContent = "Copy";
         copy.addEventListener("click", () => {
           navigator.clipboard.writeText(url).then(() => {
             copy.textContent = "Copied";
-            setTimeout(() => { copy.textContent = "Copy link"; }, 1500);
+            setTimeout(() => { copy.textContent = "Copy"; }, 1500);
           }).catch(() => {});
         });
-        host.appendChild(label);
-        host.appendChild(input);
-        host.appendChild(copy);
+        row.appendChild(input);
+        row.appendChild(copy);
+        field.appendChild(label);
+        field.appendChild(row);
+        host.appendChild(field);
       })
       .catch(() => {
         host.textContent = "Couldn’t load referral link.";
@@ -748,16 +766,19 @@
     const displayName = String((name && name.value) || "").trim().slice(0, 80);
     const username = String((handleEl && handleEl.value) || "").trim().replace(/^@/, "").slice(0, 40);
     const email = String((emailEl && emailEl.value) || "").trim().slice(0, 120);
+    const handleLocked = !!(handleEl && handleEl.readOnly);
     if (!emailLooksOk(email)) {
       if (status) status.textContent = "Enter a valid email, or leave it blank.";
       return;
     }
     if (status) status.textContent = "Saving…";
+    const payload = { display_name: displayName, email: email };
+    if (!handleLocked) payload.username = username;
     fetch("/api/presence/me", {
       method: "PATCH",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ display_name: displayName, username: username, email: email }),
+      body: JSON.stringify(payload),
     })
       .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
       .then(({ ok, d }) => {
@@ -765,7 +786,11 @@
           if (status) status.textContent = (d && (d.detail || d.error)) || "Couldn’t save account.";
           return;
         }
-        if (window.MC) MC.presence = Object.assign({}, MC.presence || {}, { display_name: displayName, username: username, email: email });
+        if (window.MC) {
+          const next = { display_name: displayName, email: email };
+          if (!handleLocked) next.username = username;
+          MC.presence = Object.assign({}, MC.presence || {}, next);
+        }
         if (status) status.textContent = "Saved to your account.";
       })
       .catch(() => {
