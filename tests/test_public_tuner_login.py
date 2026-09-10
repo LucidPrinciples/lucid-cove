@@ -38,7 +38,8 @@ def test_landing_brands_as_lucid_tuner_on_app_host():
     assert "Align your broadcast" in html or "Align Your Broadcast" in html
     assert "Hermes" in html
     assert "Lucid Tuner account" in html
-    assert "Already run Hermes" in html
+    assert "connect key" in html
+    assert "same registry" not in html
     assert "https://hermes.cove.lucidcove.org" not in html
 
 

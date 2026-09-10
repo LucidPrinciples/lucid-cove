@@ -147,9 +147,12 @@ def test_tuner_host_connect_key_without_this_house():
     assert "https://hermes.cove.lucidcove.org" not in html
     assert 'id="settings-open-hermes"' not in html
     assert "Open Lucid Cove on Hermes" not in html
-    assert "already run Hermes" in html
+    assert "A connect key lets Lucid Cove on Hermes use this Lucid Tuner account" in html
     assert "house-hermes-steps" in html
+    assert "github.com/LucidPrinciples/lucid-cove-hermes" in html
     assert "this house" not in html
+    assert "same registry" not in html
+    assert "overlay stays private" not in html
     assert "/api/account/self-host-token" in js
     assert "settings-connect-key-value" in js
     assert "That slice comes after this door walks" not in html

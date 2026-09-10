@@ -53,7 +53,7 @@ async def send_signin_link(
         signin_link: the full https://... sign-in link URL
         is_signup: True for first-time signup, False for returning signin
         product_name: account brand in the mail (Tuner Host: Lucid Tuner)
-        hermes_hint: Tuner Host already-have-Hermes sentence
+        hermes_hint: Tuner Host connect / Lucid Cove on Hermes sentence
 
     Returns True on success, False on failure (logs the error).
     """
@@ -63,8 +63,8 @@ async def send_signin_link(
 
     name = (product_name or EMAIL_PRODUCT_NAME).strip() or EMAIL_PRODUCT_NAME
     extra = (
-        " If you already run Hermes on this computer, after you sign in open Settings, "
-        "copy your connect key, and paste it into Lucid Cove on Hermes on that same computer."
+        " After you sign in, open Settings if you want to connect Lucid Cove on Hermes "
+        "on this computer. Copy your connect key and paste it in Gear."
         if hermes_hint
         else ""
     )
