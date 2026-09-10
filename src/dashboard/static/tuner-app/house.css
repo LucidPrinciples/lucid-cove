@@ -385,6 +385,47 @@ body.house-free .board-switch {
 .house-hermes-steps li {
   margin: 0.35rem 0;
 }
+.settings-kind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.85rem 0 0.4rem;
+  width: 100%;
+}
+.settings-kind {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 10px;
+  background: rgba(18, 18, 26, 0.72);
+  cursor: pointer;
+}
+.settings-kind:has(input:checked) {
+  border-color: var(--accent, #5ce1e6);
+}
+.settings-kind input {
+  margin-top: 0.2rem;
+  flex: 0 0 auto;
+}
+.settings-kind-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.settings-kind-title {
+  font-weight: 650;
+  color: var(--text, #e8e8f0);
+}
+.settings-kind-desc {
+  font-size: 0.82rem;
+  color: var(--dim, #8b8ba0);
+  line-height: 1.4;
+}
 .settings-save-btn {
   display: block;
   width: 100%;
