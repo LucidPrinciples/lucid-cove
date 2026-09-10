@@ -39,13 +39,21 @@ def _headers():
 # Transactional Email — Sign-in Links
 # =============================================================================
 
-async def send_signin_link(email: str, signin_link: str, is_signup: bool = False) -> bool:
+async def send_signin_link(
+    email: str,
+    signin_link: str,
+    is_signup: bool = False,
+    product_name: str | None = None,
+    hermes_hint: bool = False,
+) -> bool:
     """Send a passwordless sign-in link email via Brevo transactional API.
 
     Args:
         email: recipient address
-        signin_link: the full https://... magic link URL
+        signin_link: the full https://... sign-in link URL
         is_signup: True for first-time signup, False for returning signin
+        product_name: account brand in the mail (Tuner Host: Lucid Tuner)
+        hermes_hint: Tuner Host already-have-Hermes sentence
 
     Returns True on success, False on failure (logs the error).
     """
@@ -53,20 +61,29 @@ async def send_signin_link(email: str, signin_link: str, is_signup: bool = False
         log.warning("BREVO_API_KEY not set — skipping email send for %s", email)
         return False
 
+    name = (product_name or EMAIL_PRODUCT_NAME).strip() or EMAIL_PRODUCT_NAME
+    extra = (
+        " If you already run Hermes on this computer, after you sign in open Settings, "
+        "copy your connect key, and paste it into Lucid Cove on Hermes on that same computer."
+        if hermes_hint
+        else ""
+    )
     if is_signup:
-        subject = f"Welcome to {EMAIL_PRODUCT_NAME} — your sign-in link"
-        heading = f"Welcome to {EMAIL_PRODUCT_NAME}"
+        subject = f"Welcome to {name} — your sign-in link"
+        heading = f"Welcome to {name}"
         body_text = (
-            f"Your {EMAIL_PRODUCT_NAME} account is ready. Click below to sign in. "
+            f"Your {name} account is ready. Click below to sign in. "
             "The link is good for one use; once you're in, you'll stay signed in."
+            f"{extra}"
         )
         button_text = "Sign in"
     else:
-        subject = f"Your {EMAIL_PRODUCT_NAME} sign-in link"
+        subject = f"Your {name} sign-in link"
         heading = "Welcome back"
         body_text = (
             "Click below to sign in to your account. This link is good for one use and "
             "replaces any previous sign-in link."
+            f"{extra}"
         )
         button_text = "Sign in"
 
@@ -89,7 +106,7 @@ async def send_signin_link(email: str, signin_link: str, is_signup: bool = False
                 json=payload,
             )
             if resp.status_code in (200, 201):
-                log.info("Magic link email sent to %s (signup=%s)", email, is_signup)
+                log.info("Sign-in link email sent to %s (signup=%s)", email, is_signup)
                 return True
             else:
                 log.error("Brevo send failed [%d]: %s", resp.status_code, resp.text[:300])

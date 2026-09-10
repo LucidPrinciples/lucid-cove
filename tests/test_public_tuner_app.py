@@ -139,13 +139,17 @@ def test_tuner_pro_badge_only_when_upgraded():
     assert "badge.hidden = level >= 5" not in js
 
 
-def test_tuner_host_connect_mints_key_and_opens_hermes_house():
+def test_tuner_host_connect_key_without_this_house():
     html = (SHELL / "index.html").read_text()
     js = (SHELL / "house.js").read_text()
     assert 'id="settings-get-connect-key"' in html
     assert "Get my connect key" in html
-    assert "https://hermes.cove.lucidcove.org" in html
-    assert 'id="settings-open-hermes"' in html
+    assert "https://hermes.cove.lucidcove.org" not in html
+    assert 'id="settings-open-hermes"' not in html
+    assert "Open Lucid Cove on Hermes" not in html
+    assert "already run Hermes" in html
+    assert "house-hermes-steps" in html
+    assert "this house" not in html
     assert "/api/account/self-host-token" in js
     assert "settings-connect-key-value" in js
     assert "That slice comes after this door walks" not in html

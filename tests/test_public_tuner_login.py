@@ -37,6 +37,19 @@ def test_landing_brands_as_lucid_tuner_on_app_host():
     assert "app.lucidtuner.com" in html
     assert "Align your broadcast" in html or "Align Your Broadcast" in html
     assert "Hermes" in html
+    assert "Lucid Tuner account" in html
+    assert "Already run Hermes" in html
+    assert "https://hermes.cove.lucidcove.org" not in html
+
+
+def test_tuner_signin_mail_uses_lucid_tuner_account():
+    email_src = (ROOT / "src/dashboard/routes/email.py").read_text()
+    acc = (ROOT / "src/dashboard/routes/account.py").read_text()
+    assert "product_name" in email_src
+    assert "hermes_hint" in email_src
+    assert "_signin_email_kwargs" in acc
+    assert 'product_name": "Lucid Tuner"' in acc
+    assert "hermes_hint\": True" in acc
 
 
 def test_settings_connect_key_names_hermes_team():

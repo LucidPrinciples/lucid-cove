@@ -347,6 +347,16 @@ body.house-free .board-switch {
   background: rgba(18, 18, 26, 0.72);
   color: var(--text, #e8e8f0);
 }
+.house-hermes-steps {
+  margin: 0.75rem 0 1rem 1.15rem;
+  padding: 0;
+  color: var(--dim, #8b8ba0);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+.house-hermes-steps li {
+  margin: 0.35rem 0;
+}
 .settings-save-btn {
   display: block;
   width: 100%;

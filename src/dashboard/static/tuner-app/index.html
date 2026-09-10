@@ -349,7 +349,12 @@
         </section>
         <section class="settings-group" data-settings-scope="house" id="settings-house">
           <h2 class="help-section-title">Connect</h2>
-          <p class="help-placeholder">Same identity, this house — not a Haven. Copy the connect key once, then open Lucid Cove on Hermes and paste it under Gear → Connect.</p>
+          <p class="help-placeholder">Your Lucid Tuner account is the same registry as the rest of the hub. If you already run Hermes on this computer, paste a connect key into Lucid Cove on Hermes on that install. Do not open someone else's house in the browser.</p>
+          <ol class="house-hermes-steps">
+            <li>Use Hermes Agent on this computer (desktop).</li>
+            <li>When Lucid Cove on Hermes is already on that install, continue. The overlay stays private until we publish it next to the other public repos.</li>
+            <li>Get my connect key below, then paste it in Gear on your Lucid Cove on Hermes and Connect.</li>
+          </ol>
           <button type="button" class="settings-save-btn" id="settings-get-connect-key">Get my connect key</button>
           <label class="settings-field" id="settings-connect-key-wrap" hidden>
             <span class="settings-label">Connect key (shown once)</span>
@@ -357,7 +362,6 @@
           </label>
           <button type="button" class="settings-save-btn" id="settings-copy-connect-key" hidden>Copy</button>
           <p id="settings-connect-key-status" class="protocols-save-status" role="status"></p>
-          <a id="settings-open-hermes" class="settings-save-btn" href="https://hermes.cove.lucidcove.org/?connect=1" target="_blank" rel="noopener">Open Lucid Cove on Hermes</a>
         </section>
       </div>
     </div>

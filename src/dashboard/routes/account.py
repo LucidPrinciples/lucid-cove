@@ -90,6 +90,14 @@ def signin_link_url(*, scheme: str, request_host: str, raw_token: str,
     return f"{scheme}://{host}/p/{raw_token}"
 
 
+def _signin_email_kwargs(request: Request) -> dict:
+    """Tuner Host mail: Lucid Tuner account + already-have-Hermes sentence."""
+    from src.dashboard.host_context import is_public_tuner_host, request_host
+    if is_public_tuner_host(request_host(request)):
+        return {"product_name": "Lucid Tuner", "hermes_hint": True}
+    return {}
+
+
 @router.get("/r/{code}")
 async def referral_bounce(code: str, to: Optional[str] = None):
     """Set a 90-day referral cookie on app.lucidcove.org, then redirect.
@@ -294,9 +302,9 @@ async def create_account(request: Request):
     host = request.headers.get("host", "localhost")
     signin_link = f"{scheme}://{host}/p/{raw_token}"
 
-    # Send magic link via email + add to Brevo contact list
+    # Send sign-in link via email + add to Brevo contact list
     from src.dashboard.routes.email import send_signin_link, add_to_brevo_list
-    email_sent = await send_signin_link(email, signin_link, is_signup=True)
+    email_sent = await send_signin_link(email, signin_link, is_signup=True, **_signin_email_kwargs(request))
     await add_to_brevo_list(email, display_name or username)
 
     resp = {
@@ -383,9 +391,9 @@ async def signin(request: Request):
         cove=_cove,
     )
 
-    # Send magic link via email
+    # Send sign-in link via email
     from src.dashboard.routes.email import send_signin_link
-    email_sent = await send_signin_link(email, signin_link, is_signup=False)
+    email_sent = await send_signin_link(email, signin_link, is_signup=False, **_signin_email_kwargs(request))
 
     resp = {
         "ok": True,
