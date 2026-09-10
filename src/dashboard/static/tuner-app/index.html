@@ -350,10 +350,31 @@
         </section>
         <section class="settings-group" data-settings-scope="house" id="settings-house">
           <h2 class="help-section-title">Connect</h2>
-          <p class="help-placeholder">A connect key lets Lucid Cove on Hermes use this Lucid Tuner account.</p>
-          <ol class="house-hermes-steps">
+          <p class="help-placeholder">Same Lucid Tuner account. Choose which house runs your agents.</p>
+          <div class="settings-kind-list" role="radiogroup" aria-label="House">
+            <label class="settings-kind">
+              <input type="radio" name="settings-house-kind" value="cove" />
+              <span class="settings-kind-copy">
+                <span class="settings-kind-title">Lucid Cove</span>
+                <span class="settings-kind-desc">Original Lucid Cove on a computer you own.</span>
+              </span>
+            </label>
+            <label class="settings-kind">
+              <input type="radio" name="settings-house-kind" value="hermes" />
+              <span class="settings-kind-copy">
+                <span class="settings-kind-title">Lucid Cove on Hermes</span>
+                <span class="settings-kind-desc">Agents on Hermes Agent on this computer.</span>
+              </span>
+            </label>
+          </div>
+          <ol class="house-hermes-steps" id="settings-steps-cove" hidden>
+            <li>Install Lucid Cove from <a href="https://github.com/LucidPrinciples/lucid-cove">github.com/LucidPrinciples/lucid-cove</a> on this computer.</li>
+            <li>Get my connect key below.</li>
+            <li>Paste it when that Cove asks for your connect key. Same account, that house.</li>
+          </ol>
+          <ol class="house-hermes-steps" id="settings-steps-hermes" hidden>
             <li>Install Hermes Agent on this computer (desktop).</li>
-            <li>Install Lucid Cove on Hermes from <a href="https://github.com/LucidPrinciples/lucid-cove-hermes">github.com/LucidPrinciples/lucid-cove-hermes</a>.</li>
+            <li>Install Lucid Cove on Hermes on that install.</li>
             <li>Get my connect key below, paste it in Gear, and Connect.</li>
           </ol>
           <button type="button" class="settings-save-btn" id="settings-get-connect-key">Get my connect key</button>

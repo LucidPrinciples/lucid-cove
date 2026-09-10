@@ -798,6 +798,18 @@
       });
   });
 
+  const syncHouseKind = () => {
+    const kind = (document.querySelector('input[name="settings-house-kind"]:checked') || {}).value;
+    const cove = document.getElementById("settings-steps-cove");
+    const hermes = document.getElementById("settings-steps-hermes");
+    if (cove) cove.hidden = kind !== "cove";
+    if (hermes) hermes.hidden = kind !== "hermes";
+  };
+  document.querySelectorAll('input[name="settings-house-kind"]').forEach((el) => {
+    el.addEventListener("change", syncHouseKind);
+  });
+  syncHouseKind();
+
   document.getElementById("settings-get-connect-key")?.addEventListener("click", () => {
     const status = document.getElementById("settings-connect-key-status");
     const input = document.getElementById("settings-connect-key-value");

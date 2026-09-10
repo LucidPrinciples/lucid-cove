@@ -147,9 +147,23 @@ def test_tuner_host_connect_key_without_this_house():
     assert "https://hermes.cove.lucidcove.org" not in html
     assert 'id="settings-open-hermes"' not in html
     assert "Open Lucid Cove on Hermes" not in html
-    assert "A connect key lets Lucid Cove on Hermes use this Lucid Tuner account" in html
+    assert "Same Lucid Tuner account. Choose which house runs your agents." in html
+    assert 'name="settings-house-kind"' in html
+    assert 'value="cove"' in html
+    assert 'value="hermes"' in html
+    assert "Original Lucid Cove on a computer you own." in html
+    assert "Lucid Cove on Hermes" in html
+    assert "github.com/LucidPrinciples/lucid-cove" in html
+    assert "github.com/LucidPrinciples/lucid-cove-hermes" not in html
+    assert "settings-steps-cove" in html
+    assert "settings-steps-hermes" in html
+    assert "host us" not in html.lower()
+    assert "Operator" not in html
+    assert "Haven" not in html
     assert "house-hermes-steps" in html
-    assert "github.com/LucidPrinciples/lucid-cove-hermes" in html
+    assert "syncHouseKind" in js
+    assert "kind !== \"cove\"" in js
+    assert "kind !== \"hermes\"" in js
     assert "this house" not in html
     assert "same registry" not in html.lower()
     assert "overlay stays private" not in html
@@ -162,6 +176,7 @@ def test_tuner_host_connect_key_without_this_house():
     assert "if (!handleLocked) payload.username" in js
     css = (SHELL / "house.css").read_text()
     assert ".settings-copy-row" in css
+    assert ".settings-kind-list" in css
     assert ".settings-input {" in css and "width: 100%" in css
     assert "/api/account/self-host-token" in js
     assert "settings-connect-key-value" in js
