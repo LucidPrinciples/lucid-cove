@@ -276,6 +276,15 @@
 
   const SETTINGS_KEY = "lch_house_settings";
   const ALLOWED_SIGNALS = ["Ground", "Clear", "Open", "Rise", "Raw", "Bright", "Drive"];
+  const SIGNAL_COLORS = {
+    Ground: "#5ce1e6",
+    Clear: "#a0ebff",
+    Open: "#e0b0ff",
+    Rise: "#ff6b5c",
+    Raw: "#ff8c00",
+    Bright: "#ffd700",
+    Drive: "#20b2aa",
+  };
   const ALLOWED_MIRRORS = ["scripture-tpt", "music-mirror", "tao-mirror"];
   const DEFAULT_MIRRORS = ["scripture-tpt", "music-mirror"];
   const ALLOWED_STREAMING = ["youtube", "spotify", "apple"];
@@ -375,16 +384,56 @@
     MC.features.streaming_service = normalizeStreaming(s.streamingService);
   }
 
+  function paintSignalToggle(btn) {
+    if (!btn) return;
+    const on = btn.getAttribute("aria-checked") !== "false";
+    const color = SIGNAL_COLORS[btn.getAttribute("data-signal")] || "var(--accent, #5ce1e6)";
+    btn.style.setProperty("--toggle-on", color);
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+  }
+
+  function collectExcludedSignals() {
+    const excluded = [];
+    document.querySelectorAll("#settings-signal-filters .settings-toggle[data-signal]").forEach((btn) => {
+      if (btn.getAttribute("aria-checked") === "false") excluded.push(btn.getAttribute("data-signal"));
+    });
+    return normalizeSignals(excluded);
+  }
+
+  function collectMirrorsInOrder() {
+    const ids = [];
+    document.querySelectorAll("#settings-mirrors .settings-mirror-row").forEach((row) => {
+      const box = row.querySelector('input[name="tuning-mirror"]');
+      if (box && box.checked) ids.push(box.value);
+    });
+    return normalizeMirrors(ids);
+  }
+
   function fillSettingsForm() {
     const s = loadHouseSettings();
     const excluded = new Set(normalizeSignals(s.excludedSignals));
-    document.querySelectorAll('input[name="excluded-signal"]').forEach((box) => {
-      box.checked = excluded.has(box.value);
+    document.querySelectorAll("#settings-signal-filters .settings-toggle[data-signal]").forEach((btn) => {
+      const on = !excluded.has(btn.getAttribute("data-signal"));
+      btn.setAttribute("aria-checked", on ? "true" : "false");
+      paintSignalToggle(btn);
     });
     const mirrors = Object.prototype.hasOwnProperty.call(s, "mirrors")
       ? normalizeMirrors(s.mirrors)
       : DEFAULT_MIRRORS.slice();
     const enabled = new Set(mirrors);
+    const list = document.getElementById("settings-mirrors");
+    if (list) {
+      const rows = Array.from(list.querySelectorAll(".settings-mirror-row"));
+      rows.sort((a, b) => {
+        const ia = mirrors.indexOf(a.getAttribute("data-mirror-id"));
+        const ib = mirrors.indexOf(b.getAttribute("data-mirror-id"));
+        const sa = ia === -1 ? 99 : ia;
+        const sb = ib === -1 ? 99 : ib;
+        return sa - sb;
+      });
+      rows.forEach((row) => list.appendChild(row));
+    }
     document.querySelectorAll('input[name="tuning-mirror"]').forEach((box) => {
       box.checked = enabled.has(box.value);
     });
@@ -746,8 +795,8 @@
     const streamingEl = document.getElementById("settings-streaming-service");
     const status = document.getElementById("settings-save-status");
     const saved = saveHouseSettings({
-      excludedSignals: normalizeSignals(collectChecked("excluded-signal")),
-      mirrors: normalizeMirrors(collectChecked("tuning-mirror")),
+      excludedSignals: collectExcludedSignals(),
+      mirrors: collectMirrorsInOrder(),
       streamingService: normalizeStreaming(streamingEl && streamingEl.value),
     });
     if (!saved) {
@@ -757,6 +806,46 @@
     applyHouseSettingsToMC();
     if (status) status.textContent = "Saved on this device.";
   });
+
+  document.getElementById("settings-signal-filters")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".settings-toggle[data-signal]");
+    if (!btn) return;
+    const turningOff = btn.getAttribute("aria-checked") !== "false";
+    if (turningOff) {
+      const othersOn = Array.from(
+        document.querySelectorAll("#settings-signal-filters .settings-toggle[data-signal]")
+      ).filter((el) => el !== btn && el.getAttribute("aria-checked") !== "false");
+      if (othersOn.length === 0 && ALLOWED_SIGNALS.length) return;
+    }
+    btn.setAttribute("aria-checked", turningOff ? "false" : "true");
+    paintSignalToggle(btn);
+  });
+
+  (function initMirrorDrag() {
+    const list = document.getElementById("settings-mirrors");
+    if (!list) return;
+    let dragRow = null;
+    list.addEventListener("dragstart", (e) => {
+      const row = e.target.closest(".settings-mirror-row");
+      if (!row || !list.contains(row)) return;
+      dragRow = row;
+      row.classList.add("is-dragging");
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    });
+    list.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      const over = e.target.closest(".settings-mirror-row");
+      if (!dragRow || !over || over === dragRow) return;
+      const rect = over.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      list.insertBefore(dragRow, before ? over : over.nextSibling);
+    });
+    list.addEventListener("drop", (e) => e.preventDefault());
+    list.addEventListener("dragend", () => {
+      if (dragRow) dragRow.classList.remove("is-dragging");
+      dragRow = null;
+    });
+  })();
 
   document.getElementById("settings-account-save")?.addEventListener("click", () => {
     const name = document.getElementById("settings-display-name");

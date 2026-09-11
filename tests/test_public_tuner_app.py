@@ -202,3 +202,28 @@ def test_tune_page_locks_tune_now_keeps_last_tuning():
     css = (ROOT / "src/dashboard/static/css/tune-flow.css").read_text()
     assert "tf-btn-tune-now-locked" in css
     assert "tf-btn-tune-now-cta" in css
+
+
+def test_settings_signal_sliders_and_ordered_mirrors():
+    html = (SHELL / "index.html").read_text()
+    js = (SHELL / "house.js").read_text()
+    css = (SHELL / "house.css").read_text()
+    assert "Off signals stay out of Tune Now" in html
+    assert "Field-selected Drop is unchanged" in html
+    assert "Checked signals stay out of Field-selected Tune" not in html
+    assert 'class="settings-slider-list" id="settings-signal-filters"' in html
+    assert 'class="settings-toggle" role="switch"' in html
+    assert 'data-signal="Ground"' in html
+    assert 'name="excluded-signal"' not in html
+    assert "settings-toggle" in css
+    assert "collectExcludedSignals" in js
+    assert "SIGNAL_COLORS" in js
+    assert "ALLOWED_SIGNALS.length" in js
+    assert "Drag to reorder" in html
+    assert "collectMirrorsInOrder" in js
+    assert "settings-mirror-row" in html
+    assert "mirror-drag-handle" in html
+    assert 'draggable="true"' in html
+    assert "initMirrorDrag" in js
+    assert "settings-ltp-model" not in html
+    assert "ltp-model" not in html
