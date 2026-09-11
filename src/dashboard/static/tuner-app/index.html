@@ -316,24 +316,70 @@
           <p class="help-subtitle">Practice prefs on this device.</p>
           <div class="settings-field">
             <span class="settings-label">Signal filters</span>
-            <p class="help-placeholder">Checked signals stay out of Field-selected Tune.</p>
-            <div class="settings-chip-list" id="settings-signal-filters">
-              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Ground" /> Ground</label>
-              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Clear" /> Clear</label>
-              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Open" /> Open</label>
-              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Rise" /> Rise</label>
-              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Raw" /> Raw</label>
-              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Bright" /> Bright</label>
-              <label class="settings-chip"><input type="checkbox" name="excluded-signal" value="Drive" /> Drive</label>
+            <p class="help-placeholder">Off signals stay out of Tune Now. Field-selected Drop is unchanged.</p>
+            <div class="settings-slider-list" id="settings-signal-filters">
+              <div class="settings-slider-row">
+                <span class="settings-slider-dot" style="background:#5ce1e6"></span>
+                <span>Ground Signal</span>
+                <button type="button" class="settings-toggle" role="switch" aria-checked="true" data-signal="Ground" aria-label="Ground Signal"></button>
+              </div>
+              <div class="settings-slider-row">
+                <span class="settings-slider-dot" style="background:#a0ebff"></span>
+                <span>Clear Signal</span>
+                <button type="button" class="settings-toggle" role="switch" aria-checked="true" data-signal="Clear" aria-label="Clear Signal"></button>
+              </div>
+              <div class="settings-slider-row">
+                <span class="settings-slider-dot" style="background:#e0b0ff"></span>
+                <span>Open Signal</span>
+                <button type="button" class="settings-toggle" role="switch" aria-checked="true" data-signal="Open" aria-label="Open Signal"></button>
+              </div>
+              <div class="settings-slider-row">
+                <span class="settings-slider-dot" style="background:#ff6b5c"></span>
+                <span>Rise Signal</span>
+                <button type="button" class="settings-toggle" role="switch" aria-checked="true" data-signal="Rise" aria-label="Rise Signal"></button>
+              </div>
+              <div class="settings-slider-row">
+                <span class="settings-slider-dot" style="background:#ff8c00"></span>
+                <span>Raw Signal</span>
+                <button type="button" class="settings-toggle" role="switch" aria-checked="true" data-signal="Raw" aria-label="Raw Signal"></button>
+              </div>
+              <div class="settings-slider-row">
+                <span class="settings-slider-dot" style="background:#ffd700"></span>
+                <span>Bright Signal</span>
+                <button type="button" class="settings-toggle" role="switch" aria-checked="true" data-signal="Bright" aria-label="Bright Signal"></button>
+              </div>
+              <div class="settings-slider-row">
+                <span class="settings-slider-dot" style="background:#20b2aa"></span>
+                <span>Drive Signal</span>
+                <button type="button" class="settings-toggle" role="switch" aria-checked="true" data-signal="Drive" aria-label="Drive Signal"></button>
+              </div>
             </div>
           </div>
           <div class="settings-field">
             <span class="settings-label">Tuning mirrors</span>
-            <p class="help-placeholder">Enabled mirrors show on completed Tune and in Drop chrome.</p>
-            <div class="settings-chip-list" id="settings-mirrors">
-              <label class="settings-chip"><input type="checkbox" name="tuning-mirror" value="scripture-tpt" /> Scripture — The Passion Translation</label>
-              <label class="settings-chip"><input type="checkbox" name="tuning-mirror" value="music-mirror" /> Music Mirror</label>
-              <label class="settings-chip"><input type="checkbox" name="tuning-mirror" value="tao-mirror" /> Tao Te Ching</label>
+            <p class="help-placeholder">Enabled mirrors show on completed Tune and in Drop chrome. Drag to reorder.</p>
+            <div class="settings-mirror-list" id="settings-mirrors">
+              <div class="settings-mirror-row" draggable="true" data-mirror-id="scripture-tpt">
+                <span class="mirror-drag-handle" aria-hidden="true">☰</span>
+                <label class="settings-mirror-label">
+                  <input type="checkbox" name="tuning-mirror" value="scripture-tpt" />
+                  Scripture — The Passion Translation
+                </label>
+              </div>
+              <div class="settings-mirror-row" draggable="true" data-mirror-id="music-mirror">
+                <span class="mirror-drag-handle" aria-hidden="true">☰</span>
+                <label class="settings-mirror-label">
+                  <input type="checkbox" name="tuning-mirror" value="music-mirror" />
+                  Music Mirror
+                </label>
+              </div>
+              <div class="settings-mirror-row" draggable="true" data-mirror-id="tao-mirror">
+                <span class="mirror-drag-handle" aria-hidden="true">☰</span>
+                <label class="settings-mirror-label">
+                  <input type="checkbox" name="tuning-mirror" value="tao-mirror" />
+                  Tao Te Ching
+                </label>
+              </div>
             </div>
           </div>
           <label class="settings-field">
