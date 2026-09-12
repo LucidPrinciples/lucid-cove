@@ -38,6 +38,18 @@ def _headers():
     }
 
 
+def signin_product_name(product_name: str | None, signin_link: str = "") -> str | None:
+    """Tuner magic links stay Lucid Tuner even if the caller omitted product_name."""
+    from urllib.parse import urlparse
+
+    from src.dashboard.host_context import is_public_tuner_host
+
+    host = urlparse(signin_link or "").hostname or ""
+    if is_public_tuner_host(host):
+        return "Lucid Tuner"
+    return product_name
+
+
 def signin_mail_brand(product_name: str | None) -> dict:
     """Sender + mark for a sign-in mail. Tuner Host is Lucid Tuner; else Lucid Principles."""
     name = (product_name or EMAIL_PRODUCT_NAME).strip() or EMAIL_PRODUCT_NAME
@@ -73,6 +85,7 @@ def render_signin_mail(
     product_name: str | None = None,
 ) -> dict:
     """Signup and returning sign-in share one HTML builder. Copy splits; chrome does not."""
+    product_name = signin_product_name(product_name, signin_link)
     brand = signin_mail_brand(product_name)
     name = brand["name"]
     if is_signup:

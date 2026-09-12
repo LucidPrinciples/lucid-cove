@@ -135,6 +135,18 @@ def test_tuner_welcome_back_mail_matches_signin_template():
     _assert_tuner_signin_html(mail["html"], mail["heading"])
 
 
+def test_tuner_signin_mail_brands_from_magic_link_without_product_name():
+    from src.dashboard.routes.email import render_signin_mail
+
+    mail = render_signin_mail(
+        is_signup=False,
+        signin_link="https://app.lucidtuner.com/p/tok",
+    )
+    assert mail["heading"] == "Welcome back to Lucid Tuner"
+    assert mail["brand"]["sender_email"] == "signin@lucidtuner.com"
+    _assert_tuner_signin_html(mail["html"], mail["heading"])
+
+
 def test_cove_signin_html_keeps_lp_mark():
     from src.dashboard.routes.email import _build_email_html
 
