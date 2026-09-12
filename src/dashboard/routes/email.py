@@ -24,7 +24,8 @@ BREVO_LIST_ID = env_int("BREVO_LIST_ID", "4")
 # Default account brand (Cove Host). Tuner Host passes product_name=Lucid Tuner.
 EMAIL_PRODUCT_NAME = env("EMAIL_PRODUCT_NAME", "Lucid Principles")
 LP_MARK_URL = "https://audio.lucidprinciples.com/assets/LP_MARK.png"
-TUNER_MARK_URL = "https://audio.lucidtuner.com/assets/LUCID_TUNER_ICON_HERO.png"
+# Same square mark as the Tuner Host landing (not the landscape hero).
+TUNER_MARK_URL = "https://app.lucidtuner.com/static/mark-tuner.png"
 
 _BREVO_BASE = "https://api.brevo.com/v3"
 
@@ -47,6 +48,8 @@ def signin_mail_brand(product_name: str | None) -> dict:
             "sender_name": env("BREVO_SENDER_NAME_TUNER", "Lucid Tuner"),
             "mark_url": TUNER_MARK_URL,
             "mark_alt": "Lucid Tuner",
+            "mark_width": 96,
+            "mark_height": 96,
         }
     return {
         "name": name,
@@ -54,6 +57,8 @@ def signin_mail_brand(product_name: str | None) -> dict:
         "sender_name": BREVO_SENDER_NAME,
         "mark_url": LP_MARK_URL,
         "mark_alt": "Lucid Principles",
+        "mark_width": 48,
+        "mark_height": 48,
     }
 
 
@@ -66,7 +71,6 @@ async def send_signin_link(
     signin_link: str,
     is_signup: bool = False,
     product_name: str | None = None,
-    hermes_hint: bool = False,
 ) -> bool:
     """Send a passwordless sign-in link email via Brevo transactional API.
 
@@ -75,7 +79,6 @@ async def send_signin_link(
         signin_link: the full https://... sign-in link URL
         is_signup: True for first-time signup, False for returning signin
         product_name: account brand in the mail (Tuner Host: Lucid Tuner)
-        hermes_hint: Tuner Host connect / Lucid Cove on Hermes sentence
 
     Returns True on success, False on failure (logs the error).
     """
@@ -85,19 +88,12 @@ async def send_signin_link(
 
     brand = signin_mail_brand(product_name)
     name = brand["name"]
-    extra = (
-        " After you sign in, open Settings if you want to connect Lucid Cove on Hermes "
-        "on this computer. Copy your connect key and paste it in Gear."
-        if hermes_hint
-        else ""
-    )
     if is_signup:
         subject = f"Welcome to {name} — your sign-in link"
         heading = f"Welcome to {name}"
         body_text = (
             f"Your {name} account is ready. Click below to sign in. "
             "The link is good for one use; once you're in, you'll stay signed in."
-            f"{extra}"
         )
         button_text = "Sign in"
     else:
@@ -106,7 +102,6 @@ async def send_signin_link(
         body_text = (
             f"Click below to sign in to your {name} account. This link is good for one use and "
             "replaces any previous sign-in link."
-            f"{extra}"
         )
         button_text = "Sign in"
 
@@ -280,9 +275,9 @@ def _build_email_html(
 <table width="480" cellpadding="0" cellspacing="0" style="background:#16161e;border-radius:12px;padding:40px 36px;">
 
 <tr><td style="padding-bottom:24px;text-align:center;">
-  <img src="{brand["mark_url"]}" width="48" height="48"
+  <img src="{brand["mark_url"]}" width="{brand["mark_width"]}" height="{brand["mark_height"]}"
        alt="{brand["mark_alt"]}"
-       style="display:inline-block;border:0;outline:none;text-decoration:none;">
+       style="display:inline-block;border:0;outline:none;text-decoration:none;width:{brand["mark_width"]}px;height:{brand["mark_height"]}px;">
 </td></tr>
 
 <tr><td style="padding-bottom:16px;">
