@@ -64,11 +64,11 @@ def brand_public_tuner_landing(html: str) -> str:
   </div>""",
         """  <div class="features">
     <div class="features-title">Free Lucid Tuner</div>
-    <div class="feature-row"><span class="feature-dot"></span> One Tune a day — Pro is unlimited</div>
-    <div class="feature-row"><span class="feature-dot"></span> Music player and the daily Drop</div>
-    <div class="feature-row"><span class="feature-dot"></span> The full Canon</div>
-    <div class="feature-row"><span class="feature-dot"></span> One Lucid Tuner account</div>
-    <div class="feature-row"><span class="feature-dot"></span> Lucid Cove on Hermes: install on this computer, then paste your connect key from Settings</div>
+    <div class="feature-row"><span class="feature-dot"></span> Daily tuning from 22 Lucid Principles</div>
+    <div class="feature-row"><span class="feature-dot"></span> Customizable Daily Actions</div>
+    <div class="feature-row"><span class="feature-dot"></span> Music player — 20+ genres, 7 Signals</div>
+    <div class="feature-row"><span class="feature-dot"></span> Tuning Mirrors</div>
+    <div class="feature-row"><span class="feature-dot"></span> Earn with Referrals</div>
   </div>""",
         1,
     )
