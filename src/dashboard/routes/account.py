@@ -91,10 +91,10 @@ def signin_link_url(*, scheme: str, request_host: str, raw_token: str,
 
 
 def _signin_email_kwargs(request: Request) -> dict:
-    """Tuner Host mail: Lucid Tuner account + connect Lucid Cove on Hermes."""
+    """Tuner Host mail: Lucid Tuner account, sign-in copy only."""
     from src.dashboard.host_context import is_public_tuner_host, request_host
     if is_public_tuner_host(request_host(request)):
-        return {"product_name": "Lucid Tuner", "hermes_hint": True}
+        return {"product_name": "Lucid Tuner"}
     return {}
 
 

@@ -81,13 +81,16 @@ def test_tuner_signin_mail_uses_lucid_tuner_account():
     email_src = (ROOT / "src/dashboard/routes/email.py").read_text()
     acc = (ROOT / "src/dashboard/routes/account.py").read_text()
     assert "product_name" in email_src
-    assert "hermes_hint" in email_src
+    assert "hermes_hint" not in email_src
+    assert "hermes_hint" not in acc
     assert "_signin_email_kwargs" in acc
     assert 'product_name": "Lucid Tuner"' in acc
-    assert "hermes_hint\": True" in acc
     assert "signin@lucidtuner.com" in email_src
-    assert "audio.lucidtuner.com" in email_src
+    assert "mark-tuner.png" in email_src
+    assert "LUCID_TUNER_ICON_HERO" not in email_src
     assert "LP_MARK.png" in email_src
+    assert "connect Lucid Cove on Hermes" not in email_src
+    assert "paste it in Gear" not in email_src
 
 
 def test_tuner_signin_html_uses_tuner_mark_not_lp():
@@ -101,9 +104,14 @@ def test_tuner_signin_html_uses_tuner_mark_not_lp():
         product_name="Lucid Tuner",
     )
     assert "Lucid Tuner" in html
-    assert "audio.lucidtuner.com" in html
+    assert "mark-tuner.png" in html
+    assert 'width="96"' in html
+    assert 'height="96"' in html
+    assert "LUCID_TUNER_ICON_HERO" not in html
     assert "LP_MARK.png" not in html
     assert "Lucid Principles" not in html
+    assert "connect Lucid Cove on Hermes" not in html
+    assert "Gear" not in html
 
 
 def test_cove_signin_html_keeps_lp_mark():
@@ -117,7 +125,8 @@ def test_cove_signin_html_keeps_lp_mark():
     )
     assert "LP_MARK.png" in html
     assert "Lucid Principles" in html
-    assert "audio.lucidtuner.com" not in html
+    assert "mark-tuner.png" not in html
+    assert 'width="48"' in html
 
 
 def test_tuner_mail_brand_sender_is_signin_lucidtuner():
@@ -126,7 +135,9 @@ def test_tuner_mail_brand_sender_is_signin_lucidtuner():
     tuner = signin_mail_brand("Lucid Tuner")
     assert tuner["sender_email"] == "signin@lucidtuner.com"
     assert tuner["sender_name"] == "Lucid Tuner"
-    assert "lucidtuner.com" in tuner["mark_url"]
+    assert tuner["mark_url"] == "https://app.lucidtuner.com/static/mark-tuner.png"
+    assert tuner["mark_width"] == 96
+    assert tuner["mark_height"] == 96
     cove = signin_mail_brand(None)
     assert cove["sender_email"] == "signin@lucidprinciples.com"
     assert cove["sender_name"] == "Lucid Principles"
