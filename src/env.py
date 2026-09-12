@@ -193,8 +193,14 @@ REGISTRY: list[EnvVar] = [
 
     # ── Email / Brevo ──
     EnvVar("BREVO_API_KEY", "", "str", "Email", secret=True),
-    EnvVar("BREVO_SENDER_EMAIL", "signin@lucidprinciples.com", "str", "Email", desc="Verified sender."),
-    EnvVar("BREVO_SENDER_NAME", "Lucid Principles", "str", "Email", desc="Sender display name."),
+    EnvVar("BREVO_SENDER_EMAIL", "signin@lucidprinciples.com", "str", "Email",
+           desc="Verified sender (Cove Host / default)."),
+    EnvVar("BREVO_SENDER_NAME", "Lucid Principles", "str", "Email",
+           desc="Sender display name (Cove Host / default)."),
+    EnvVar("BREVO_SENDER_EMAIL_TUNER", "signin@lucidtuner.com", "str", "Email",
+           desc="Verified sender for Tuner Host sign-in mail (app.lucidtuner.com)."),
+    EnvVar("BREVO_SENDER_NAME_TUNER", "Lucid Tuner", "str", "Email",
+           desc="Sender display name for Tuner Host sign-in mail."),
     EnvVar("BREVO_LIST_ID", "4", "int", "Email", desc="Onboarding contact list id."),
     EnvVar("EMAIL_PRODUCT_NAME", "Lucid Principles", "str", "Email", desc="Product name in email copy."),
 

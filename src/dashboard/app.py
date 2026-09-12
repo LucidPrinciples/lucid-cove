@@ -706,10 +706,19 @@ def create_app() -> FastAPI:
     cove_mode = env("COVE_MODE", "single")
     cove_name = env("COVE_NAME", name)
 
-    def _serve_landing(landing_path):
-        """Return landing page HTML."""
+    def _serve_landing(landing_path, request=None):
+        """Return landing page HTML. Tuner Host first-paint is Lucid Tuner."""
         if landing_path.exists():
-            return HTMLResponse(content=landing_path.read_text())
+            html = landing_path.read_text()
+            if request is not None:
+                from src.dashboard.host_context import (
+                    brand_public_tuner_landing,
+                    is_public_tuner_host,
+                    request_host,
+                )
+                if is_public_tuner_host(request_host(request)):
+                    html = brand_public_tuner_landing(html)
+            return HTMLResponse(content=html)
         return HTMLResponse(content=f"""<!DOCTYPE html>
         <html><body style="font-family: system-ui; padding: 2rem; background: #0a0a0f; color: #d8d8e0;">
         <h1>{cove_name} Cove</h1>
@@ -736,7 +745,7 @@ def create_app() -> FastAPI:
             landing_path = static_dir / "landing.html"
             if not token:
                 # No auth — show landing page
-                return _serve_landing(landing_path)
+                return _serve_landing(landing_path, request)
 
             # Validate the token — if stale, clear cookie and show landing
             from src.dashboard.routes.presence import get_current_presence
@@ -744,7 +753,7 @@ def create_app() -> FastAPI:
             if not account:
                 import logging
                 logging.warning("[AUTH] Stale cookie detected — clearing and redirecting to landing")
-                response = _serve_landing(landing_path)
+                response = _serve_landing(landing_path, request)
                 response.delete_cookie("presence_token")
                 return response
 
