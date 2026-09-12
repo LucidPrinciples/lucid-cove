@@ -66,6 +66,40 @@ def signin_mail_brand(product_name: str | None) -> dict:
 # Transactional Email — Sign-in Links
 # =============================================================================
 
+def render_signin_mail(
+    *,
+    is_signup: bool,
+    signin_link: str,
+    product_name: str | None = None,
+) -> dict:
+    """Signup and returning sign-in share one HTML builder. Copy splits; chrome does not."""
+    brand = signin_mail_brand(product_name)
+    name = brand["name"]
+    if is_signup:
+        subject = f"Welcome to {name} — your sign-in link"
+        heading = f"Welcome to {name}"
+        body_text = (
+            f"Your {name} account is ready. Click below to sign in. "
+            "The link is good for one use; once you're in, you'll stay signed in."
+        )
+    else:
+        subject = f"Your {name} sign-in link"
+        heading = f"Welcome back to {name}"
+        body_text = (
+            f"Click below to sign in to your {name} account. This link is good for one use and "
+            "replaces any previous sign-in link."
+        )
+    button_text = "Sign in"
+    html = _build_email_html(heading, body_text, button_text, signin_link, product_name=name)
+    return {
+        "brand": brand,
+        "subject": subject,
+        "heading": heading,
+        "body_text": body_text,
+        "html": html,
+    }
+
+
 async def send_signin_link(
     email: str,
     signin_link: str,
@@ -86,32 +120,16 @@ async def send_signin_link(
         log.warning("BREVO_API_KEY not set — skipping email send for %s", email)
         return False
 
-    brand = signin_mail_brand(product_name)
-    name = brand["name"]
-    if is_signup:
-        subject = f"Welcome to {name} — your sign-in link"
-        heading = f"Welcome to {name}"
-        body_text = (
-            f"Your {name} account is ready. Click below to sign in. "
-            "The link is good for one use; once you're in, you'll stay signed in."
-        )
-        button_text = "Sign in"
-    else:
-        subject = f"Your {name} sign-in link"
-        heading = "Welcome back"
-        body_text = (
-            f"Click below to sign in to your {name} account. This link is good for one use and "
-            "replaces any previous sign-in link."
-        )
-        button_text = "Sign in"
-
-    html = _build_email_html(heading, body_text, button_text, signin_link, product_name=name)
+    mail = render_signin_mail(
+        is_signup=is_signup, signin_link=signin_link, product_name=product_name
+    )
+    brand = mail["brand"]
 
     payload = {
         "sender": {"name": brand["sender_name"], "email": brand["sender_email"]},
         "to": [{"email": email}],
-        "subject": subject,
-        "htmlContent": html,
+        "subject": mail["subject"],
+        "htmlContent": mail["html"],
         "trackClicks": False,
         "trackOpens": False,
     }

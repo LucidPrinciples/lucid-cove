@@ -93,16 +93,8 @@ def test_tuner_signin_mail_uses_lucid_tuner_account():
     assert "paste it in Gear" not in email_src
 
 
-def test_tuner_signin_html_uses_tuner_mark_not_lp():
-    from src.dashboard.routes.email import _build_email_html
-
-    html = _build_email_html(
-        "Welcome to Lucid Tuner",
-        "Your Lucid Tuner account is ready.",
-        "Sign in",
-        "https://app.lucidtuner.com/p/tok",
-        product_name="Lucid Tuner",
-    )
+def _assert_tuner_signin_html(html: str, heading: str):
+    assert heading in html
     assert "Lucid Tuner" in html
     assert "mark-tuner.png" in html
     assert 'width="96"' in html
@@ -112,6 +104,35 @@ def test_tuner_signin_html_uses_tuner_mark_not_lp():
     assert "Lucid Principles" not in html
     assert "connect Lucid Cove on Hermes" not in html
     assert "Gear" not in html
+    assert "Settings" not in html
+    assert "connect-key" not in html
+    assert "connect key" not in html.lower()
+
+
+def test_tuner_signin_html_uses_tuner_mark_not_lp():
+    from src.dashboard.routes.email import render_signin_mail
+
+    mail = render_signin_mail(
+        is_signup=True,
+        signin_link="https://app.lucidtuner.com/p/tok",
+        product_name="Lucid Tuner",
+    )
+    assert mail["heading"] == "Welcome to Lucid Tuner"
+    _assert_tuner_signin_html(mail["html"], mail["heading"])
+
+
+def test_tuner_welcome_back_mail_matches_signin_template():
+    from src.dashboard.routes.email import render_signin_mail
+
+    mail = render_signin_mail(
+        is_signup=False,
+        signin_link="https://app.lucidtuner.com/p/tok",
+        product_name="Lucid Tuner",
+    )
+    assert mail["heading"] == "Welcome back to Lucid Tuner"
+    assert mail["subject"] == "Your Lucid Tuner sign-in link"
+    assert mail["brand"]["sender_email"] == "signin@lucidtuner.com"
+    _assert_tuner_signin_html(mail["html"], mail["heading"])
 
 
 def test_cove_signin_html_keeps_lp_mark():
