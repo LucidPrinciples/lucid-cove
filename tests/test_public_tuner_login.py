@@ -36,9 +36,6 @@ def test_landing_brands_as_lucid_tuner_on_app_host():
     html = (ROOT / "src/dashboard/static/landing.html").read_text()
     assert "app.lucidtuner.com" in html
     assert "Align your broadcast" in html or "Align Your Broadcast" in html
-    assert "Hermes" in html
-    assert "Lucid Tuner account" in html
-    assert "connect key" in html
     assert "same registry" not in html
     assert "https://hermes.cove.lucidcove.org" not in html
     assert "mark-tuner.png" in html
@@ -53,11 +50,31 @@ def test_landing_first_paint_on_tuner_host_is_lucid_tuner():
     assert "<title>Lucid Tuner</title>" in branded
     assert 'src="/static/mark-tuner.png"' in branded
     assert 'alt="Lucid Tuner"' in branded
-    assert "Lucid Tuner account" in branded
+    assert "Free Lucid Tuner" in branded
     assert "Lucid Principles account" not in branded
     assert "Action board" not in branded
     assert "<title>Lucid Cove</title>" in html
     assert "Lucid Principles account" in html
+
+
+def test_tuner_landing_feature_bullets_are_stranger_copy():
+    from src.dashboard.host_context import brand_public_tuner_landing
+
+    html = (ROOT / "src/dashboard/static/landing.html").read_text()
+    branded = brand_public_tuner_landing(html)
+    for needle in (
+        "Daily tuning from 22 Lucid Principles",
+        "Customizable Daily Actions",
+        "Music player — 20+ genres, 7 Signals",
+        "Tuning Mirrors",
+        "Earn with Referrals",
+    ):
+        assert needle in branded
+        assert needle in html
+    assert "The full Canon" not in branded
+    assert "One Tune a day" not in branded
+    assert "Music player and the daily Drop" not in branded
+    assert "connect key" not in branded
 
 
 def test_tuner_signin_mail_uses_lucid_tuner_account():
