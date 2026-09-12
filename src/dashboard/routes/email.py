@@ -21,8 +21,10 @@ BREVO_API_KEY = env("BREVO_API_KEY")
 BREVO_SENDER_EMAIL = env("BREVO_SENDER_EMAIL", "signin@lucidprinciples.com")
 BREVO_SENDER_NAME = env("BREVO_SENDER_NAME", "Lucid Principles")
 BREVO_LIST_ID = env_int("BREVO_LIST_ID", "4")
-# The unified account brand (one Lucid Principles account across Tuner/Cove/etc).
+# Default account brand (Cove Host). Tuner Host passes product_name=Lucid Tuner.
 EMAIL_PRODUCT_NAME = env("EMAIL_PRODUCT_NAME", "Lucid Principles")
+LP_MARK_URL = "https://audio.lucidprinciples.com/assets/LP_MARK.png"
+TUNER_MARK_URL = "https://audio.lucidtuner.com/assets/LUCID_TUNER_ICON_HERO.png"
 
 _BREVO_BASE = "https://api.brevo.com/v3"
 
@@ -32,6 +34,26 @@ def _headers():
         "api-key": BREVO_API_KEY,
         "Content-Type": "application/json",
         "Accept": "application/json",
+    }
+
+
+def signin_mail_brand(product_name: str | None) -> dict:
+    """Sender + mark for a sign-in mail. Tuner Host is Lucid Tuner; else Lucid Principles."""
+    name = (product_name or EMAIL_PRODUCT_NAME).strip() or EMAIL_PRODUCT_NAME
+    if name == "Lucid Tuner":
+        return {
+            "name": name,
+            "sender_email": env("BREVO_SENDER_EMAIL_TUNER", "signin@lucidtuner.com"),
+            "sender_name": env("BREVO_SENDER_NAME_TUNER", "Lucid Tuner"),
+            "mark_url": TUNER_MARK_URL,
+            "mark_alt": "Lucid Tuner",
+        }
+    return {
+        "name": name,
+        "sender_email": BREVO_SENDER_EMAIL,
+        "sender_name": BREVO_SENDER_NAME,
+        "mark_url": LP_MARK_URL,
+        "mark_alt": "Lucid Principles",
     }
 
 
@@ -61,7 +83,8 @@ async def send_signin_link(
         log.warning("BREVO_API_KEY not set — skipping email send for %s", email)
         return False
 
-    name = (product_name or EMAIL_PRODUCT_NAME).strip() or EMAIL_PRODUCT_NAME
+    brand = signin_mail_brand(product_name)
+    name = brand["name"]
     extra = (
         " After you sign in, open Settings if you want to connect Lucid Cove on Hermes "
         "on this computer. Copy your connect key and paste it in Gear."
@@ -81,16 +104,16 @@ async def send_signin_link(
         subject = f"Your {name} sign-in link"
         heading = "Welcome back"
         body_text = (
-            "Click below to sign in to your account. This link is good for one use and "
+            f"Click below to sign in to your {name} account. This link is good for one use and "
             "replaces any previous sign-in link."
             f"{extra}"
         )
         button_text = "Sign in"
 
-    html = _build_email_html(heading, body_text, button_text, signin_link)
+    html = _build_email_html(heading, body_text, button_text, signin_link, product_name=name)
 
     payload = {
-        "sender": {"name": BREVO_SENDER_NAME, "email": BREVO_SENDER_EMAIL},
+        "sender": {"name": brand["sender_name"], "email": brand["sender_email"]},
         "to": [{"email": email}],
         "subject": subject,
         "htmlContent": html,
@@ -239,8 +262,15 @@ async def send_migration_email(email: str, signin_link: str) -> bool:
 # Email HTML Template
 # =============================================================================
 
-def _build_email_html(heading: str, body_text: str, button_text: str, button_url: str) -> str:
-    """Build a simple, clean email HTML template — Lucid Principles account branding."""
+def _build_email_html(
+    heading: str,
+    body_text: str,
+    button_text: str,
+    button_url: str,
+    product_name: str | None = None,
+) -> str:
+    """Build a simple, clean email HTML template — brand follows product_name."""
+    brand = signin_mail_brand(product_name)
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
@@ -250,8 +280,8 @@ def _build_email_html(heading: str, body_text: str, button_text: str, button_url
 <table width="480" cellpadding="0" cellspacing="0" style="background:#16161e;border-radius:12px;padding:40px 36px;">
 
 <tr><td style="padding-bottom:24px;text-align:center;">
-  <img src="https://audio.lucidprinciples.com/assets/LP_MARK.png" width="48" height="48"
-       alt="Lucid Principles"
+  <img src="{brand["mark_url"]}" width="48" height="48"
+       alt="{brand["mark_alt"]}"
        style="display:inline-block;border:0;outline:none;text-decoration:none;">
 </td></tr>
 

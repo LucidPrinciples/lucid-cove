@@ -34,6 +34,52 @@ def is_public_tuner_host(host: str) -> bool:
     return h == PUBLIC_TUNER_HOST
 
 
+def brand_public_tuner_landing(html: str) -> str:
+    """First-paint Lucid Tuner chrome on the signed-out Tuner Host landing."""
+    html = html.replace("<title>Lucid Cove</title>", "<title>Lucid Tuner</title>", 1)
+    html = html.replace(
+        '<img src="/static/lp-mark.png" alt="Lucid Principles" class="logo-icon">',
+        '<img src="/static/mark-tuner.png" alt="Lucid Tuner" class="logo-icon">',
+        1,
+    )
+    html = html.replace(
+        '<div class="logo-mark">Lucid Principles</div>',
+        '<div class="logo-mark">Lucid Tuner</div>',
+        1,
+    )
+    html = html.replace(
+        '<div class="tagline">One account for the whole system.<br>Start with the Tuner, grow into a Cove.</div>',
+        '<div class="tagline">Align Your Broadcast.<br>Daily Drop, music, one account.</div>',
+        1,
+    )
+    html = html.replace(
+        """  <div class="features">
+    <div class="features-title">Free with every Lucid Principles account</div>
+    <div class="feature-row"><span class="feature-dot"></span> Daily tuning from 22 Lucid Principles</div>
+    <div class="feature-row"><span class="feature-dot"></span> Music player — 20+ genres, 7 Signals</div>
+    <div class="feature-row"><span class="feature-dot"></span> The full Canon</div>
+    <div class="feature-row"><span class="feature-dot"></span> Action board and Quick Lists</div>
+    <div class="feature-row"><span class="feature-dot"></span> Tuning mirrors</div>
+    <div class="feature-row"><span class="feature-dot"></span> Earn with referrals</div>
+  </div>""",
+        """  <div class="features">
+    <div class="features-title">Free Lucid Tuner</div>
+    <div class="feature-row"><span class="feature-dot"></span> One Tune a day — Pro is unlimited</div>
+    <div class="feature-row"><span class="feature-dot"></span> Music player and the daily Drop</div>
+    <div class="feature-row"><span class="feature-dot"></span> The full Canon</div>
+    <div class="feature-row"><span class="feature-dot"></span> One Lucid Tuner account</div>
+    <div class="feature-row"><span class="feature-dot"></span> Lucid Cove on Hermes: install on this computer, then paste your connect key from Settings</div>
+  </div>""",
+        1,
+    )
+    html = html.replace(
+        '<a href="https://lucidcove.org">Learn more at lucidcove.org</a>',
+        '<a href="https://lucidtuner.com">lucidtuner.com</a>',
+        1,
+    )
+    return html
+
+
 def resolve_host_context(host: str, cove: dict) -> dict:
     """Classify the request host against the Cove's domain. Safe default: 'cove'."""
     cove_domain = (cove.get("domain") or "").strip().lower()

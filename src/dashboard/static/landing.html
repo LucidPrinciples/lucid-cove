@@ -344,6 +344,11 @@
   var host = (location.hostname || '').toLowerCase();
   if (host !== 'app.lucidtuner.com') return;
   document.title = 'Lucid Tuner';
+  var icon = document.querySelector('.logo-icon');
+  if (icon) {
+    icon.src = '/static/mark-tuner.png';
+    icon.alt = 'Lucid Tuner';
+  }
   var mark = document.querySelector('.logo-mark');
   if (mark) mark.textContent = 'Lucid Tuner';
   var tag = document.querySelector('.tagline');

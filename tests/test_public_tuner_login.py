@@ -41,6 +41,23 @@ def test_landing_brands_as_lucid_tuner_on_app_host():
     assert "connect key" in html
     assert "same registry" not in html
     assert "https://hermes.cove.lucidcove.org" not in html
+    assert "mark-tuner.png" in html
+    assert "logo-icon" in html
+
+
+def test_landing_first_paint_on_tuner_host_is_lucid_tuner():
+    from src.dashboard.host_context import brand_public_tuner_landing
+
+    html = (ROOT / "src/dashboard/static/landing.html").read_text()
+    branded = brand_public_tuner_landing(html)
+    assert "<title>Lucid Tuner</title>" in branded
+    assert 'src="/static/mark-tuner.png"' in branded
+    assert 'alt="Lucid Tuner"' in branded
+    assert "Lucid Tuner account" in branded
+    assert "Lucid Principles account" not in branded
+    assert "Action board" not in branded
+    assert "<title>Lucid Cove</title>" in html
+    assert "Lucid Principles account" in html
 
 
 def test_tuner_signin_mail_uses_lucid_tuner_account():
@@ -51,6 +68,51 @@ def test_tuner_signin_mail_uses_lucid_tuner_account():
     assert "_signin_email_kwargs" in acc
     assert 'product_name": "Lucid Tuner"' in acc
     assert "hermes_hint\": True" in acc
+    assert "signin@lucidtuner.com" in email_src
+    assert "audio.lucidtuner.com" in email_src
+    assert "LP_MARK.png" in email_src
+
+
+def test_tuner_signin_html_uses_tuner_mark_not_lp():
+    from src.dashboard.routes.email import _build_email_html
+
+    html = _build_email_html(
+        "Welcome to Lucid Tuner",
+        "Your Lucid Tuner account is ready.",
+        "Sign in",
+        "https://app.lucidtuner.com/p/tok",
+        product_name="Lucid Tuner",
+    )
+    assert "Lucid Tuner" in html
+    assert "audio.lucidtuner.com" in html
+    assert "LP_MARK.png" not in html
+    assert "Lucid Principles" not in html
+
+
+def test_cove_signin_html_keeps_lp_mark():
+    from src.dashboard.routes.email import _build_email_html
+
+    html = _build_email_html(
+        "Welcome to Lucid Principles",
+        "Your Lucid Principles account is ready.",
+        "Sign in",
+        "https://jason.lucidcove.org/p/tok",
+    )
+    assert "LP_MARK.png" in html
+    assert "Lucid Principles" in html
+    assert "audio.lucidtuner.com" not in html
+
+
+def test_tuner_mail_brand_sender_is_signin_lucidtuner():
+    from src.dashboard.routes.email import signin_mail_brand
+
+    tuner = signin_mail_brand("Lucid Tuner")
+    assert tuner["sender_email"] == "signin@lucidtuner.com"
+    assert tuner["sender_name"] == "Lucid Tuner"
+    assert "lucidtuner.com" in tuner["mark_url"]
+    cove = signin_mail_brand(None)
+    assert cove["sender_email"] == "signin@lucidprinciples.com"
+    assert cove["sender_name"] == "Lucid Principles"
 
 
 def test_settings_connect_key_names_hermes_team():
