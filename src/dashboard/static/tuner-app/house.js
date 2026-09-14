@@ -175,19 +175,8 @@
     showHouse(location.pathname, location.search, false);
   });
 
-  document.addEventListener(
-    "play",
-    (e) => {
-      const t = e.target;
-      if (!t || t.tagName !== "AUDIO") return;
-      const frame = document.getElementById("drop-frame");
-      if (frame && frame.src && frame.src !== "about:blank") {
-        frame.removeAttribute("src");
-        frame.src = "about:blank";
-      }
-    },
-    true
-  );
+  // Do not blank #drop-frame on every audio play — that emptied the badge
+  // overlay the moment the in-app player (or mini player) started.
 
   function escapeCoachText(s) {
     return String(s)

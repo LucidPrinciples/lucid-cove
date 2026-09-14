@@ -566,6 +566,8 @@ async function otOpenRecentDrop(idx) {
         date: d.date || '',
         time: '',
         context: '',
+        signal_type: d.signal_type || '',
+        universal_coaching: d.coaching || d.universal_coaching || '',
     });
 }
 
@@ -674,8 +676,9 @@ async function otInitPlayer(data) {
     }
 
     // Start with tuning principle if matched
-    if (data.principle) {
-        const idx = otTracks.findIndex(t => t.principle.toLowerCase() === data.principle.toLowerCase());
+    if (data && data.principle) {
+        const want = String(data.principle).toLowerCase();
+        const idx = otTracks.findIndex(t => t.principle && t.principle.toLowerCase() === want);
         if (idx > 0) {
             const m = otTracks.splice(idx, 1)[0];
             otTracks.unshift(m);
