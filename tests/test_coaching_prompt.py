@@ -16,10 +16,10 @@ class CoachingPromptTests(unittest.TestCase):
         for path in PROMPTS:
             with self.subTest(path=str(path)):
                 src = path.read_text(encoding="utf-8")
+                self.assertIn("Write from today's whole triad", src)
                 self.assertIn("Do not quote it", src)
-                self.assertIn("Do not paraphrase it", src)
-                self.assertIn("Under 50 words", src)
-                self.assertNotIn("Reference it, don't rewrite it", src)
+                self.assertIn("Still let it shape every sentence", src)
+                self.assertNotIn("Use Frequency + Principle as silent context", src)
 
 
 if __name__ == "__main__":
