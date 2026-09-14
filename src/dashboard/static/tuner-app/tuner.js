@@ -50,7 +50,17 @@
   const dropTitle = document.getElementById("drop-title");
   let dropPlayerUrl = "https://drop.lucidprinciples.com/";
 
-  function openDrop() {
+  async function openDrop() {
+    if (typeof _tfFetchLatestDropTuning === "function" && typeof _tfShowTuningDetail === "function") {
+      try {
+        const dropTune = await _tfFetchLatestDropTuning();
+        if (dropTune) {
+          await _tfShowTuningDetail(dropTune);
+          if (badge) badge.setAttribute("aria-expanded", "true");
+          return;
+        }
+      } catch (_) {}
+    }
     if (dropFrame && (!dropFrame.src || dropFrame.src === "about:blank")) {
       dropFrame.src = dropPlayerUrl;
     }

@@ -227,3 +227,33 @@ def test_settings_signal_sliders_and_ordered_mirrors():
     assert "initMirrorDrag" in js
     assert "settings-ltp-model" not in html
     assert "ltp-model" not in html
+
+
+def test_tune_detail_module_mounts_player_like_drop():
+    """Recent tunings and the header badge open the same in-app module + player.
+
+    drop.lucidprinciples.com still works because it never referenced an undefined
+    `data` binding. The Tuner history modal did — that throw skipped the player.
+    """
+    flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    start = flow.index("async function _tfShowTuningDetail")
+    end = flow.index("function _tfCloseDetailModal")
+    detail = flow[start:end]
+    assert "data.universal_coaching" not in detail
+    assert "s.universal_coaching" in detail
+    assert 'id="tfModalPlayer"' in detail
+    assert "${audioUrl ?" not in detail
+    assert "_tfBuildModalPlaylist" in detail
+
+    tuner = (SHELL / "tuner.js").read_text()
+    assert "_tfShowTuningDetail" in tuner
+    assert "_tfFetchLatestDropTuning" in tuner
+
+    house = (SHELL / "house.js").read_text()
+    assert 'frame.src = "about:blank"' not in house
+
+    panel = (STATIC / "js" / "tuning-panel.js").read_text()
+    assert "signal_type: d.signal_type" in panel
+    assert "otLoadRecentDrops" in flow
+    assert 'id="thHistory"' in flow
+    assert 'id="otRecentDrops"' in flow

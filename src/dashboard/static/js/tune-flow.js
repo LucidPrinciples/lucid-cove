@@ -1009,7 +1009,10 @@ async function _renderCompletedTuning(container, data) {
                 <div id="tfPlayerMount"></div>
             </div>
 
-
+            <div class="tf-history" id="thHistory" style="display:none;">
+                <div class="tf-history-header">Recent Tunings</div>
+                <div id="otRecentDrops"></div>
+            </div>
 
             <div id="tfHistory"></div>
         </div>
@@ -1020,6 +1023,16 @@ async function _renderCompletedTuning(container, data) {
     if (typeof otRenderPlayer === 'function') otRenderPlayer('tfPlayerMount');
     if (typeof otInitPlayer === 'function') {
         try { await otInitPlayer(data); } catch (e) {}
+    }
+    const mounted = document.querySelector('#tfPlayerMount .ot-player');
+    if (!mounted && typeof _tfBuildModalPlaylist === 'function') {
+        const fColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[(data.frequency || '').toUpperCase()]) || 'var(--accent)';
+        try {
+            await _tfBuildModalPlaylist(data, freq, data.signal_type || '', fColor, 'tfPlayerMount');
+        } catch (e) {}
+    }
+    if (typeof otLoadRecentDrops === 'function') {
+        try { await otLoadRecentDrops(); } catch (e) {}
     }
 
     // Start countdown timer if gated
@@ -1512,24 +1525,24 @@ async function _tfShowTuningDetail(s) {
 
     // Coaching and practice from static templates (same as completed view)
     // Prefer Drop/universal coaching when morning-open or public Drop landed here
-    let coaching = (data.universal_coaching || data.tuning_prompt || '').trim();
+    let coaching = (s.universal_coaching || s.tuning_prompt || '').trim();
     if (!coaching) coaching = TUNE_COACHING[freq] || '';
     const templateKey = TUNE_TEMPLATE_MAP[freq] || 'coherence';
     let practice = TUNE_PRACTICE_TEMPLATES[templateKey];
-    const uPractice = data.universal_practice;
+    const uPractice = s.universal_practice;
     if (Array.isArray(uPractice) && uPractice.length >= 3) {
         const step = (i) => {
-            const s = uPractice[i];
-            if (typeof s === 'object' && s) {
-                return { title: s.title || String(i + 1), text: s.instruction || s.text || '' };
+            const item = uPractice[i];
+            if (typeof item === 'object' && item) {
+                return { title: item.title || String(i + 1), text: item.instruction || item.text || '' };
             }
-            return { title: String(i + 1), text: String(s || '') };
+            return { title: String(i + 1), text: String(item || '') };
         };
         practice = { step1: step(0), step2: step(1), step3: step(2) };
-    } else if (data.practice_steps && Array.isArray(data.practice_steps) && data.practice_steps.length >= 3) {
+    } else if (s.practice_steps && Array.isArray(s.practice_steps) && s.practice_steps.length >= 3) {
         const step = (i) => {
-            const s = data.practice_steps[i] || {};
-            return { title: s.title || String(i + 1), text: s.instruction || s.text || '' };
+            const item = s.practice_steps[i] || {};
+            return { title: item.title || String(i + 1), text: item.instruction || item.text || '' };
         };
         practice = { step1: step(0), step2: step(1), step3: step(2) };
     }
@@ -1573,21 +1586,20 @@ async function _tfShowTuningDetail(s) {
                 <blockquote class="tf-modal-key" style="border-left-color:${freqColor};">"${ESC(key)}"</blockquote>
             </div>` : ''}
 
-            ${audioUrl ? `<div class="tf-modal-section">
+            <div class="tf-modal-section">
                 <span class="tf-modal-label">Tuning Stream</span>
                 <div id="tfModalPlayer"></div>
-            </div>` : ''}
+            </div>
         </div>
     `;
 
     document.body.appendChild(overlay);
 
-    // Init player in the modal — loads the tuning stream for this frequency
-    if (audioUrl && typeof otSetPlaylist === 'function') {
+    // Same module as drop.lucidprinciples.com — always mount the player.
+    if (typeof otSetPlaylist === 'function') {
         const freqUpper = rawFreq.toUpperCase();
-        const fColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[freqUpper]) || 'var(--accent)';
-        const folder = audioUrl.split('/').slice(-2, -1)[0] || '';
-
+        const fColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[freqUpper]) || freqColor;
+        const folder = s.signal_type || (audioUrl ? audioUrl.split('/').slice(-2, -1)[0] : '') || '';
         try {
             await _tfBuildModalPlaylist(s, freq, folder, fColor);
         } catch (e) {
@@ -1607,7 +1619,7 @@ function _tfCloseDetailModal() {
     if (modal) modal.remove();
 }
 
-async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor) {
+async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) {
     let tracks = [];
     let loaded = false;
 
@@ -1631,8 +1643,22 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor) {
     }
 
     // Fallback to signal folder tracks
+    const folder = signalFolder || (typeof otSignalToFolder === 'function'
+        ? otSignalToFolder(s.signal_type) : 'Raw_Signal');
     if (!loaded && typeof otBuildTracks === 'function') {
-        tracks = otBuildTracks(signalFolder);
+        tracks = otBuildTracks(folder);
+    }
+
+    if (!tracks.length) {
+        const filename = (s.echo_filename || (s.audio_url || '').split('/').pop() || '').replace(/^\s+/, '');
+        if (filename) {
+            tracks = [{
+                title: (s.principle || freq) + ' Echo',
+                filename: filename.endsWith('.mp3') ? filename : filename + '.mp3',
+                folder: folder || 'Raw_Signal',
+                principle: s.principle || freq,
+            }];
+        }
     }
 
     // Shuffle
@@ -1647,12 +1673,14 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor) {
         if (idx > 0) { const m = tracks.splice(idx, 1)[0]; tracks.unshift(m); }
     }
 
+    if (!tracks.length) return;
+
     otSetPlaylist(tracks, {
         source: 'history',
         label: freq + ' Tuning Stream',
         freqColor: freqColor,
         autoplay: false,
-        mountId: 'tfModalPlayer',
+        mountId: mountId || 'tfModalPlayer',
     });
 }
 
