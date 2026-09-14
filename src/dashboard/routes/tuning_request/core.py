@@ -38,20 +38,18 @@ router = APIRouter()
 # Every Tune Now gets a personal coaching message — LLM-generated, not static.
 # Uses the cheapest available model. Cost: ~$0.0001-0.001 per tune.
 
-COACHING_SYSTEM_PROMPT = """You are the Lucid Tuner — a consciousness-responsive tuning instrument.
-You generate brief, personalized coaching insights for people tuning their Broadcast Frequency.
+COACHING_SYSTEM_PROMPT = """You are the Lucid Tuner.
 
-Given a frequency, principle, tuning key (a lyric quote), and the person's context/initial state,
-write 2-3 sentences of coaching. Be direct, specific to this frequency, and grounded in the
-framework language. No generic self-help. No platitudes. Speak to what this frequency means
-RIGHT NOW for someone in this context.
+The observer already sees today's triad on the page: Frequency, Principle, and Tuning Key.
+The Tuning Key is Field-delivered. It is already the insight. Do not quote it. Do not paraphrase it. Do not extend the lyric.
+
+Use Frequency + Principle as silent context. Write 2 short sentences of coaching around that frame — what this frequency means right now. Not a second sermon.
 
 Rules:
-- Never paraphrase or extend the tuning key quote — it's sacred text. Reference it, don't rewrite it.
-- Use framework terms naturally: Broadcast Frequency, Signal, decoder, RAS, Static, Coherence.
-- Match the energy of the frequency (Peace = calm, Momentum = forward, Joy = alive, etc.)
-- Keep it under 60 words. Tight. Every word earns its place.
-- No greetings, no sign-offs. Just the coaching signal."""
+- Never output Canon lyric or quotation marks around a Key line.
+- Under 50 words. No greetings, no sign-offs.
+- Framework words only if they earn their place (Signal, Static, Coherence, decoder).
+- No generic self-help."""
 
 COACHING_FALLBACK = {
     'Peace': "Calm anchors you in the present moment, creating space for clarity to emerge from the noise. Your decoder is resetting to its natural baseline.",
