@@ -987,6 +987,11 @@ async function _renderCompletedTuning(container, data) {
                 ${context ? `<span class="tf-complete-context">${ESC(context)}${entryMode ? ' · ' + ESC(entryMode) : ''}</span>` : ''}
             </div>
 
+            ${key ? `<div class="tf-complete-section tf-complete-key">
+                <span class="tf-section-label">Tuning Key</span>
+                <blockquote class="tf-key-quote">"${ESC(key)}"</blockquote>
+            </div>` : ''}
+
             <div class="tf-complete-section">
                 <span class="tf-section-label">Coaching</span>
                 <p class="tf-coaching-text">${coaching}</p>
@@ -1001,19 +1006,9 @@ async function _renderCompletedTuning(container, data) {
                 </div>
             </div>
 
-            <div class="tf-complete-section tf-complete-key">
-                <span class="tf-section-label">Tuning Key</span>
-                <blockquote class="tf-key-quote">"${ESC(key)}"</blockquote>
-            </div>
-
             <div class="tf-complete-section tf-stream-section">
                 <span class="tf-section-label">Tuning Stream</span>
                 <div id="tfPlayerMount"></div>
-            </div>
-
-            <div class="tf-history" id="thHistory" style="display:none;">
-                <div class="tf-history-header">Recent Tunings</div>
-                <div id="otRecentDrops"></div>
             </div>
 
             <div id="tfHistory"></div>
@@ -1032,9 +1027,6 @@ async function _renderCompletedTuning(container, data) {
         try {
             await _tfBuildModalPlaylist(data, freq, data.signal_type || '', fColor, 'tfPlayerMount');
         } catch (e) {}
-    }
-    if (typeof otLoadRecentDrops === 'function') {
-        try { await otLoadRecentDrops(); } catch (e) {}
     }
 
     // Start countdown timer if gated
@@ -1628,6 +1620,11 @@ async function _tfShowTuningDetail(s) {
                 ${signal ? `<div class="drop-signal">${ESC(signal)} Signal</div>` : ''}
             </div>
 
+            ${key ? `<div class="ot-card ot-key" style="border-left-color:${freqColor};">
+                <div class="ot-label" style="color:${freqColor};">Tuning Key</div>
+                <div class="ot-text italic">"${ESC(key)}"</div>
+            </div>` : ''}
+
             ${coaching ? `<div class="ot-card">
                 <div class="ot-label">Coaching</div>
                 <div class="ot-text">${ESC(coaching)}</div>
@@ -1640,11 +1637,6 @@ async function _tfShowTuningDetail(s) {
                     ${_tfPracticeStepHTML(practice.step2, 2, freqColor)}
                     ${_tfPracticeStepHTML(practice.step3, 3, freqColor)}
                 </div>
-            </div>` : ''}
-
-            ${key ? `<div class="ot-card ot-key" style="border-left-color:${freqColor};">
-                <div class="ot-label" style="color:${freqColor};">Tuning Key</div>
-                <div class="ot-text italic">"${ESC(key)}"</div>
             </div>` : ''}
 
             <div class="ot-stream-label">&#9654; PRESS PLAY TO ACTIVATE YOUR

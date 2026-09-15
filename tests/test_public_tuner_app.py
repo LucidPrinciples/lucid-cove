@@ -275,9 +275,17 @@ def test_tune_detail_module_mounts_player_like_drop():
 
     panel = (STATIC / "js" / "tuning-panel.js").read_text()
     assert "signal_type: d.signal_type" in panel
-    assert "otLoadRecentDrops" in flow
-    assert 'id="thHistory"' in flow
-    assert 'id="otRecentDrops"' in flow
+    # Official Drop order: Tuning Key, then Coaching, then Practice.
+    markup = detail[detail.index("drop-header") :]
+    assert markup.index("Tuning Key") < markup.index("Coaching") < markup.index("Practice")
+    complete = flow[flow.index("async function _renderCompletedTuning") : flow.index("function _tfCloseDetailModal")]
+    complete_html = complete[complete.index("tune-complete") :]
+    assert complete_html.index("Tuning Key") < complete_html.index(">Coaching<")
+    # Drop archive belongs on Field/Hub, not on the personal Tune page.
+    assert 'id="otRecentDrops"' not in complete
+    assert 'id="thHistory"' not in complete
+    assert 'id="tfHistory"' in complete
+    assert "otLoadRecentDrops" not in complete
     # CDN playlists are {tracks:[{signalType, album, filename}]} — map to Clear_Signal.
     assert "function otPlaylistRows" in panel
     assert "function otMapCdnTrack" in panel
