@@ -648,7 +648,8 @@ async function otInitPlayer(data) {
                 if (Array.isArray(playlist) && playlist.length > 0) {
                     otTracks = playlist.map(t => {
                         const filename = t.filename || t.file || '';
-                        const folder = t.folder || t.signal_type || signalFolder;
+                        const rawFolder = t.folder || t.signal_type || signalFolder;
+                        const folder = otSignalToFolder(rawFolder);
                         const principle = t.principle || t.title || filename.replace(/_/g, ' ').replace(/\.mp3$/, '');
                         const signalDisplay = folder.replace(/_Signal$/, '').replace(/_/g, ' ');
                         return {
