@@ -42,3 +42,24 @@ def test_compose_strips_control_chars():
     assert "\r" not in subject
     assert "X-Injected" not in subject
     assert subject.startswith("Lucid Cove")
+
+
+def test_compose_allows_missing_email():
+    subject, body = compose_contact_fields(
+        message="Atlas help",
+        product="lucid-cove",
+        host="atlas.cove.example",
+        handle="atlas",
+        email="",
+    )
+    assert "atlas.cove.example" in subject
+    assert "email:" not in body
+    assert body.strip().endswith("Atlas help")
+
+
+def test_should_proxy_to_hub_skips_forwarded():
+    from types import SimpleNamespace
+    from src.dashboard.routes.contact import should_proxy_to_hub
+
+    forwarded = SimpleNamespace(headers={"X-Contact-Forward": "1"})
+    assert should_proxy_to_hub(forwarded) is False

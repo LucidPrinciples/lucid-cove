@@ -338,13 +338,6 @@
     const message = helpMessage.value.trim();
     const email = (helpEmail && helpEmail.value.trim()) || "";
     if (!message) return;
-    if (!email) {
-      if (helpStatus) {
-        helpStatus.textContent = "Email is required.";
-        helpStatus.style.color = "#e74c3c";
-      }
-      return;
-    }
     helpBtn.disabled = true;
     helpBtn.textContent = "Sending...";
     if (helpStatus) helpStatus.textContent = "";

@@ -19,6 +19,45 @@ router = APIRouter()
 
 COVE_MODE = env("COVE_MODE", "single")
 CONTACT_SECRET = env("SHARED_CONTAINER_SECRET")
+FORWARD_HEADER = "X-Contact-Forward"
+
+
+def shared_hub_url():
+    return (env("SHARED_CONTAINER_URL") or "").rstrip("/")
+
+
+def should_proxy_to_hub(request: Request) -> bool:
+    if (request.headers.get(FORWARD_HEADER) or "") == "1":
+        return False
+    return bool(shared_hub_url())
+
+
+async def proxy_to_hub(request: Request, method: str, path: str, json_body=None):
+    """Cove/founder Help → one inbox on the shared container. None = handle locally."""
+    if not should_proxy_to_hub(request):
+        return None
+    import httpx
+
+    dest = shared_hub_url() + path
+    query = str(request.url.query or "")
+    if query:
+        dest = dest + "?" + query
+    headers = {FORWARD_HEADER: "1", "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            res = await client.request(method, dest, json=json_body, headers=headers)
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Shared inbox unreachable ({type(exc).__name__})")
+    try:
+        data = res.json()
+    except Exception:
+        data = {}
+    if res.is_success and isinstance(data, dict):
+        return data
+    detail = data.get("detail") if isinstance(data, dict) else None
+    if not isinstance(detail, str) or not detail:
+        detail = "Shared inbox error"
+    raise HTTPException(min(max(res.status_code, 400), 502), detail)
 
 _PRODUCTS = {
     "lucid-tuner": "Lucid Tuner",
@@ -95,28 +134,22 @@ async def _submit_contact(request: Request):
     username = ""
     tier = "free"
 
-    if COVE_MODE == "multi":
-        try:
-            from src.dashboard.routes.presence import get_current_presence
-            presence = await get_current_presence(request)
-            if presence:
-                account_id = presence.get("id")
-                email = presence.get("email", "") or ""
-                display_name = presence.get("display_name", "") or ""
-                username = presence.get("username", "") or ""
-                tier = presence.get("tier", "free") or "free"
-        except Exception:
-            pass
+    try:
+        from src.dashboard.routes.presence import get_current_presence
+        presence = await get_current_presence(request)
+        if presence:
+            account_id = presence.get("id")
+            email = presence.get("email", "") or ""
+            display_name = presence.get("display_name", "") or ""
+            username = presence.get("username", "") or ""
+            tier = presence.get("tier", "free") or presence.get("cove_role") or ""
+    except Exception:
+        pass
 
     if not email:
         email = _clean(body.get("email"), 200)
     if email and not _EMAIL_RE.match(email):
-        raise HTTPException(400, "Email is required")
-    if not email:
-        if COVE_MODE != "multi":
-            email = "operator@local"
-        else:
-            raise HTTPException(400, "Email is required")
+        email = ""
     if not display_name:
         display_name = _clean(body.get("name") or body.get("display_name"), 120)
     if not username:
@@ -141,6 +174,21 @@ async def _submit_contact(request: Request):
         tier=tier,
         connected=connected if connected in ("yes", "no") else _clean(connected, 20),
     )
+
+    hub_payload = {
+        "message": message,
+        "email": email,
+        "name": display_name,
+        "handle": username,
+        "product": product or "lucid-cove",
+        "host": host,
+        "path": body.get("path") or "",
+        "connected": connected if connected in ("yes", "no") else _clean(connected, 20),
+        "subject": subject,
+    }
+    proxied = await proxy_to_hub(request, "POST", "/api/contact/submit", hub_payload)
+    if proxied is not None:
+        return proxied
 
     try:
         from src.memory.database import get_db
@@ -175,6 +223,10 @@ async def list_messages(request: Request):
     secret = request.query_params.get("secret", "")
     if not CONTACT_SECRET or not hmac.compare_digest(secret, CONTACT_SECRET):
         raise HTTPException(403, "Unauthorized")
+
+    proxied = await proxy_to_hub(request, "GET", "/api/contact/messages")
+    if proxied is not None:
+        return proxied
 
     show_archived = request.query_params.get("archived", "false") == "true"
     limit = min(int(request.query_params.get("limit", "50")), 200)
@@ -222,7 +274,15 @@ async def archive_message(message_id: int, request: Request):
         raise HTTPException(403, "Unauthorized")
 
     body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Invalid JSON")
     archive = body.get("archived", True)
+
+    proxied = await proxy_to_hub(
+        request, "PATCH", f"/api/contact/messages/{message_id}/archive", body
+    )
+    if proxied is not None:
+        return proxied
 
     try:
         from src.memory.database import get_db
