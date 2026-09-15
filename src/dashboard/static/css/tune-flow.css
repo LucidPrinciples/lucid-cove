@@ -733,12 +733,14 @@
 .tf-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.7);
+  background: rgba(0,0,0,0.85);
   z-index: 9000;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 1rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   backdrop-filter: blur(4px);
 }
 .tf-modal {
@@ -752,6 +754,138 @@
   overflow-y: auto;
   position: relative;
 }
+.tf-modal.tf-modal-drop {
+  max-width: 640px;
+  background: var(--bg, #0f1117);
+  border-radius: 12px;
+  padding: 0 1rem 2rem;
+  max-height: none;
+  margin: 2rem auto;
+  overflow: visible;
+}
+.tf-modal-drop .drop-header {
+  text-align: center;
+  padding: 2.5rem 1rem 0.5rem;
+}
+.tf-modal-drop .drop-tuning-day {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  margin-bottom: 1.5rem;
+  font-weight: 500;
+}
+.tf-modal-drop .drop-date {
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+.tf-modal-drop .drop-alignment {
+  font-size: 0.8rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.tf-modal-drop .drop-principle {
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.15rem;
+}
+.tf-modal-drop .drop-signal {
+  font-size: 0.75rem;
+  color: var(--dim);
+  font-weight: 400;
+  margin-bottom: 1rem;
+}
+.tf-modal-drop .ot-card {
+  background: var(--card, #1a1d28);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.tf-modal-drop .ot-card.ot-key {
+  border-left: 4px solid var(--daily-freq, var(--accent));
+  padding: 1.5rem;
+}
+.tf-modal-drop .ot-label {
+  font-size: 0.6rem;
+  color: var(--dim);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+.tf-modal-drop .ot-text {
+  font-size: 0.85rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.tf-modal-drop .ot-text.italic { font-style: italic; }
+.tf-modal-drop .ot-practice { margin-bottom: 1.25rem; }
+.tf-modal-drop .ot-practice-label {
+  margin-bottom: 10px;
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.tf-modal-drop .ot-practice-steps { display: flex; flex-direction: column; gap: 10px; }
+.tf-modal-drop .ot-step {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--card, #1a1d28);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+.tf-modal-drop .ot-step-num {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 50%;
+  color: var(--bg, #0a0a0f);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.tf-modal-drop .ot-step-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 4px; }
+.tf-modal-drop .ot-step-text { font-size: 0.82rem; line-height: 1.65; color: var(--dim); }
+.tf-modal-drop .ot-stream-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  text-align: center;
+  margin: 0.75rem 0;
+  color: var(--dim);
+}
+.tf-modal-drop .ot-eq-bar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; font-size: 0.75rem; }
+.tf-modal-drop .ot-eq-val { font-weight: 600; }
+.tf-modal-drop .ot-eq-detail { color: var(--dim); font-size: 0.7rem; }
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0.75rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.history-item:hover { border-color: var(--dim); }
+.history-dot {
+  width: 10px; height: 10px; min-width: 10px;
+  border-radius: 50%; flex-shrink: 0;
+}
+.history-info { flex: 1; min-width: 0; }
+.history-principle { font-size: 0.82rem; font-weight: 600; margin-bottom: 2px; }
+.history-meta { font-size: 0.68rem; color: var(--dim); }
+.history-arrow { color: var(--dim); font-size: 0.75rem; flex-shrink: 0; opacity: 0.5; }
 .tf-modal-full { max-height: 90vh; }
 .tf-modal-close {
   position: absolute;

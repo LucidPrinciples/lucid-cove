@@ -1411,6 +1411,10 @@ function _shellScriptBasenames(firstTab) {
     if (typeof id === 'string' && id.indexOf('ab-') === 0) {
         shell.push('action-board');
     }
+    // Header badge + Recent Tunings open the Drop module. Those live in
+    // tuning-panel / tune-flow — load on every cold boot, not only Home/Tune.
+    // Admin views land on Team and otherwise never fetch them (dead click).
+    shell.push('tuning-panel', 'tune-flow');
     if (MC.isTuner) {
         shell.push('upgrade', 'onboarding');
     }

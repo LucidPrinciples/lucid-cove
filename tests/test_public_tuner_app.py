@@ -244,6 +244,13 @@ def test_tune_detail_module_mounts_player_like_drop():
     assert 'id="tfModalPlayer"' in detail
     assert "${audioUrl ?" not in detail
     assert "_tfBuildModalPlaylist" in detail
+    assert 'class="drop-header"' in detail
+    assert "tf-modal-drop" in detail
+    assert "Consecutive Tuning" in detail
+    assert "_tfFullDropDate" in flow
+    css = (ROOT / "src/dashboard/static/css/tune-flow.css").read_text()
+    assert "tf-modal-drop" in css
+    assert "max-width: 640px" in css
 
     tuner = (SHELL / "tuner.js").read_text()
     assert "_tfShowTuningDetail" in tuner
