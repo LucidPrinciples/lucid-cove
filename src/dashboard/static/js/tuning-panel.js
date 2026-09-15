@@ -608,6 +608,7 @@ async function otOpenRecentDrop(idx) {
         universal_coaching: d.coaching || d.universal_coaching || '',
         lt_echo_num: d.sequence || d.lt_echo_num || d.tuning_day || '',
         love_equation: d.love_equation || (d.love_value != null ? { value: d.love_value } : null),
+        _fromArchive: true,
     });
 }
 
