@@ -286,6 +286,14 @@ def test_tune_detail_module_mounts_player_like_drop():
     assert 'id="thHistory"' not in complete
     assert 'id="tfHistory"' in complete
     assert "otLoadRecentDrops" not in complete
+    # Badge / Drop module still carries the public archive + today's mirrors.
+    assert 'id="tfDropRecent"' in detail
+    assert 'id="tfDropMirrors"' in detail
+    assert "_tfLoadDropArchive" in flow
+    assert "_tfLoadDropMirrors" in flow
+    css_key = css[css.index(".tf-modal-drop .ot-card.ot-key") :]
+    assert "text-align: center" in css_key
+    assert "1.05rem" in css_key
     # CDN playlists are {tracks:[{signalType, album, filename}]} — map to Clear_Signal.
     assert "function otPlaylistRows" in panel
     assert "function otMapCdnTrack" in panel

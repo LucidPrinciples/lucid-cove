@@ -806,7 +806,9 @@
   margin-bottom: 1.25rem;
 }
 .tf-modal-drop .ot-card.ot-key {
+  border: 2px solid color-mix(in srgb, var(--daily-freq, var(--accent)) 25%, transparent);
   border-left: 4px solid var(--daily-freq, var(--accent));
+  background: color-mix(in srgb, var(--daily-freq, var(--accent)) 4%, transparent);
   padding: 1.5rem;
 }
 .tf-modal-drop .ot-label {
@@ -821,7 +823,15 @@
   line-height: 1.7;
   white-space: pre-wrap;
 }
-.tf-modal-drop .ot-text.italic { font-style: italic; }
+.tf-modal-drop .ot-card.ot-key .ot-text.italic {
+  font-style: italic;
+  text-align: center;
+  font-size: 1.05rem;
+  line-height: 1.9;
+}
+.tf-modal-drop .tf-drop-history {
+  margin-top: 1.5rem;
+}
 .tf-modal-drop .ot-practice { margin-bottom: 1.25rem; }
 .tf-modal-drop .ot-practice-label {
   margin-bottom: 10px;

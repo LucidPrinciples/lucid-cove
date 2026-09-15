@@ -1644,6 +1644,11 @@ async function _tfShowTuningDetail(s) {
             </div>
             <div id="tfModalPlayer"></div>
             ${_tfLoveEqHTML(s.love_equation, freqColor)}
+            <div id="tfDropMirrors"></div>
+            <div class="tf-drop-history" id="tfDropHistory" style="display:none;">
+                <div class="tf-history-header">Recent Tunings</div>
+                <div id="tfDropRecent"></div>
+            </div>
         </div>
     `;
 
@@ -1662,6 +1667,115 @@ async function _tfShowTuningDetail(s) {
             console.error('[tune-history] Player init error:', e);
         }
     }
+    if (!s._fromArchive) {
+        try { await _tfLoadDropMirrors(s, freqColor); } catch (e) {}
+        try { await _tfLoadDropArchive(); } catch (e) {}
+    }
+}
+
+async function _tfLoadDropArchive() {
+    const container = document.getElementById('tfDropRecent');
+    const section = document.getElementById('tfDropHistory');
+    if (!container || !section) return;
+    try {
+        const resp = await fetch('/api/tuning/recent-drops?limit=10');
+        const data = await resp.json();
+        const drops = data.drops || [];
+        window._tfDropRecent = drops;
+        if (!drops.length) return;
+        let html = '';
+        drops.forEach((d, idx) => {
+            const rawFreq = d.frequency || '';
+            const freq = rawFreq.charAt(0).toUpperCase() + rawFreq.slice(1).toLowerCase();
+            const freqColor = (typeof lpColor === 'function')
+                ? lpColor(rawFreq)
+                : ((typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[rawFreq.toUpperCase()]) || 'var(--accent)');
+            const principle = d.principle || '';
+            const dateLabel = (typeof _tfFullDropDate === 'function')
+                ? _tfFullDropDate(d.date || '')
+                : (d.date || '');
+            const signal = String(d.signal_type || '').replace(/_Signal$/, '').replace(/_/g, ' ');
+            const meta = [freq, signal, dateLabel].filter(Boolean).join(' / ');
+            html += `<div class="tf-hist-row history-item" onclick="_tfOpenDropArchive(${idx})">
+                <div class="history-dot" style="background:${freqColor};box-shadow:0 0 6px ${freqColor}66;"></div>
+                <div class="history-info">
+                    <div class="history-principle" style="color:${freqColor};">${ESC(principle)}</div>
+                    <div class="history-meta">${ESC(meta)}</div>
+                </div>
+                <div class="history-arrow">&#8250;</div>
+            </div>`;
+        });
+        container.innerHTML = html;
+        section.style.display = '';
+    } catch (e) {}
+}
+
+async function _tfOpenDropArchive(idx) {
+    const drops = window._tfDropRecent;
+    if (!drops || !drops[idx]) return;
+    const d = drops[idx];
+    await _tfShowTuningDetail({
+        frequency: d.frequency || '',
+        principle: d.principle || '',
+        tuning_key: d.tuning_key || '',
+        audio_url: d.audio_url || '',
+        date: d.date || '',
+        signal_type: d.signal_type || '',
+        universal_coaching: d.coaching || d.universal_coaching || '',
+        lt_echo_num: d.sequence || d.lt_echo_num || d.tuning_day || '',
+        love_equation: d.love_equation || (d.love_value != null ? { value: d.love_value } : null),
+        _fromArchive: true,
+    });
+}
+
+async function _tfLoadDropMirrors(s, freqColor) {
+    const mount = document.getElementById('tfDropMirrors');
+    if (!mount) return;
+    try {
+        const cacheBust = `v=${window._buildVersion || ''}&d=${new Date().toISOString().slice(0, 10)}`;
+        const res = await fetch('/api/mirrors/today?' + cacheBust);
+        const data = await res.json();
+        if (!data.has_mirror) return;
+        const mirrors = data.mirrors || [data];
+        const esc = typeof ESC === 'function' ? ESC : (t => String(t || ''));
+        mirrors.forEach((m, idx) => {
+            const featured = m.featured;
+            if (!featured) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'tf-complete-section';
+            if (m.mirror_type === 'music') {
+                const artist = featured.artist || '';
+                const title = featured.title || '';
+                const lyric = featured.text || '';
+                const spotifyId = featured.spotify_id || '';
+                const youtubeId = featured.youtube_id || '';
+                wrap.innerHTML =
+                    '<div class="home-mirror" style="border-left-color:' + freqColor + '50;margin-top:0;">' +
+                        '<div class="home-mirror-header">' +
+                            '<span class="home-mirror-name">' + esc(m.mirror_name) + '</span>' +
+                            '<a href="#" class="home-mirror-reflect" style="color:' + freqColor + ';" ' +
+                                'onclick="_openMusicPlayer(\'' + _escAttr(s.frequency || '') + '\',\'' + _escAttr(artist) + '\',\'' + _escAttr(title) + '\',\'' + _escAttr(spotifyId) + '\',\'' + _escAttr(youtubeId) + '\'); return false;">Listen &rarr;</a>' +
+                        '</div>' +
+                        '<div class="home-mirror-text" style="font-style:italic;">' + esc(lyric) + '</div>' +
+                        '<span class="home-mirror-ref" style="color:' + freqColor + ';">' + esc(artist) + ' &mdash; ' + esc(title) + '</span>' +
+                    '</div>';
+            } else {
+                wrap.innerHTML =
+                    '<div class="home-mirror" style="border-left-color:' + freqColor + '50;margin-top:0;">' +
+                        '<div class="home-mirror-header">' +
+                            '<span class="home-mirror-name">' + esc(m.mirror_name) + '</span>' +
+                            (m.entry_count > 1 ? '<a href="#" class="home-mirror-reflect" style="color:' + freqColor + ';" onclick="_tfOpenReflect(' + idx + '); return false;">Reflect &rarr;</a>' : '') +
+                        '</div>' +
+                        '<div class="home-mirror-text">' + esc(featured.text) + '</div>' +
+                        '<span class="home-mirror-ref" style="color:' + freqColor + ';">' + esc(featured.ref) + '</span>' +
+                    '</div>';
+            }
+            mount.appendChild(wrap);
+        });
+        window._tfMirrorData = data;
+        window._tfMirrorMirrors = mirrors;
+        window._tfMirrorColor = freqColor;
+    } catch (e) {}
 }
 
 function _tfCloseDetailModal() {
