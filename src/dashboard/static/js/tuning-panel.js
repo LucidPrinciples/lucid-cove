@@ -126,11 +126,16 @@ function otBuildTracks(folder) {
 }
 
 function otGetAudioUrl(t) {
-    const folder = otSignalToFolder(t && t.folder);
-    return (t.cdnBase || OT_AUDIO_BASE) + '/' + folder + '/' + t.filename;
+    const filename = t && t.filename;
+    if (!filename) return '';
+    const folder = (t && t.cdnBase)
+        ? String(t.folder || '')
+        : otSignalToFolder(t && t.folder);
+    return ((t && t.cdnBase) || OT_AUDIO_BASE) + '/' + folder + '/' + filename;
 }
 function otGetCoverUrl(folder, cdnBase) {
-    return (cdnBase || OT_AUDIO_BASE) + '/' + otSignalToFolder(folder) + '/Cover.png';
+    const mapped = cdnBase ? String(folder || '') : otSignalToFolder(folder);
+    return (cdnBase || OT_AUDIO_BASE) + '/' + mapped + '/Cover.png';
 }
 function otFmtTime(s) { if (!s||isNaN(s)) return '0:00'; const m=Math.floor(s/60),ss=Math.floor(s%60); return m+':'+(ss<10?'0':'')+ss; }
 
