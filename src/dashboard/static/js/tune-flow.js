@@ -1819,36 +1819,12 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
 
     if (!tracks.length) return;
 
-    const mount = mountId || 'tfModalPlayer';
-    if (typeof otAudio !== 'undefined' && otAudio && !otAudio.paused) {
-        if (typeof otRenderPlayer === 'function') otRenderPlayer(mount);
-        if (typeof _otPendingPlay !== 'undefined') _otPendingPlay = true;
-        if (typeof _otPendingTracks !== 'undefined') {
-            _otPendingTracks = tracks;
-            _otPendingLabel = freq + ' Tuning Stream';
-            _otPendingColor = freqColor;
-        }
-        const root = document.getElementById(mount);
-        const track = tracks[0];
-        if (root && track) {
-            const coverUrl = typeof otGetCoverUrl === 'function' ? otGetCoverUrl(track.folder, track.cdnBase) : '';
-            const img = root.querySelector('.ot-cover-img');
-            if (img && coverUrl) { img.src = coverUrl; img.style.display = 'block'; }
-            const title = root.querySelector('.ot-track-title');
-            if (title) title.textContent = track.title;
-            const sig = root.querySelector('.ot-track-signal');
-            if (sig) sig.textContent = String(track.folder || '').replace(/_/g, ' ');
-            const label = root.querySelector('.ot-playlist-label');
-            if (label) label.textContent = freq + ' Tuning Stream';
-        }
-        return;
-    }
     otSetPlaylist(tracks, {
         source: 'history',
         label: freq + ' Tuning Stream',
         freqColor: freqColor,
         autoplay: false,
-        mountId: mount,
+        mountId: mountId || 'tfModalPlayer',
     });
 }
 
