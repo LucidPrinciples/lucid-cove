@@ -1758,8 +1758,6 @@ async function _tfLoadDropMirrors(s, freqColor) {
 
 function _tfCloseDetailModal() {
     _tfDropMirrorsGen++;
-    if (typeof _otPendingPlay !== 'undefined') _otPendingPlay = false;
-    if (typeof _otPendingTracks !== 'undefined') _otPendingTracks = null;
     const modal = document.getElementById('tf-tuning-modal');
     if (modal) modal.remove();
     if (typeof otAudio !== 'undefined' && otAudio && otAudio.src && typeof showMiniPlayer === 'function') {
@@ -1989,11 +1987,12 @@ async function _tfsInit(data) {
     const freqColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[freqUpper]) || 'var(--accent)';
 
     // Render player template + load tracks (no autoplay — user presses play)
-    if (typeof otAudio !== 'undefined' && otAudio && otAudio.src && _otSource === 'tune'
+    if (typeof otAudio !== 'undefined' && otAudio && otAudio.src && typeof _otSource !== 'undefined' && _otSource === 'tune'
         && typeof otRenderPlayer === 'function') {
         otRenderPlayer('tfPlayerMount');
         if (typeof _otSyncAllPlayers === 'function') _otSyncAllPlayers();
         if (typeof otUpdateProgressUI === 'function') otUpdateProgressUI();
+        if (typeof otUpdateIcons === 'function') otUpdateIcons();
         return;
     }
     if (typeof otSetPlaylist === 'function') {
