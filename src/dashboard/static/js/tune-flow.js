@@ -1692,16 +1692,10 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
         try {
             const res = await fetch(OT_PLAYLIST_CDN + '/' + freq.toLowerCase() + '.json');
             if (res.ok) {
-                const playlist = await res.json();
-                if (Array.isArray(playlist) && playlist.length > 0) {
-                    tracks = playlist.map(t => {
-                        const fn = t.filename || t.file || '';
-                        const rawFd = t.folder || t.signal_type || signalFolder;
-                        const fd = (typeof otSignalToFolder === 'function')
-                            ? otSignalToFolder(rawFd) : rawFd;
-                        const pr = t.principle || t.title || fn.replace(/_/g, ' ').replace(/\.mp3$/, '');
-                        return { title: pr + ' (' + fd.replace(/_Signal$/, '').replace(/_/g, ' ') + ' Signal Echo)', filename: fn, folder: fd, principle: pr };
-                    });
+                const rows = (typeof otPlaylistRows === 'function')
+                    ? otPlaylistRows(await res.json()) : [];
+                if (rows.length > 0 && typeof otMapCdnTrack === 'function') {
+                    tracks = rows.map(t => otMapCdnTrack(t, signalFolder));
                     loaded = true;
                 }
             }
@@ -1709,8 +1703,8 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
     }
 
     // Fallback to signal folder tracks
-    const folder = signalFolder || (typeof otSignalToFolder === 'function'
-        ? otSignalToFolder(s.signal_type) : 'Raw_Signal');
+    const folder = (typeof otSignalToFolder === 'function')
+        ? otSignalToFolder(signalFolder || s.signal_type) : (signalFolder || 'Raw_Signal');
     if (!loaded && typeof otBuildTracks === 'function') {
         tracks = otBuildTracks(folder);
     }
@@ -1721,7 +1715,7 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
             tracks = [{
                 title: (s.principle || freq) + ' Echo',
                 filename: filename.endsWith('.mp3') ? filename : filename + '.mp3',
-                folder: folder || 'Raw_Signal',
+                folder: folder,
                 principle: s.principle || freq,
             }];
         }
@@ -1881,16 +1875,10 @@ async function _tfsInit(data) {
         try {
             const res = await fetch(OT_PLAYLIST_CDN + '/' + freq.toLowerCase() + '.json');
             if (res.ok) {
-                const playlist = await res.json();
-                if (Array.isArray(playlist) && playlist.length > 0) {
-                    tracks = playlist.map(t => {
-                        const filename = t.filename || t.file || '';
-                        const rawFolder = t.folder || t.signal_type || signalFolder;
-                        const folder = (typeof otSignalToFolder === 'function')
-                            ? otSignalToFolder(rawFolder) : rawFolder;
-                        const principle = t.principle || t.title || filename.replace(/_/g, ' ').replace(/\.mp3$/, '');
-                        return { title: principle + ' (' + folder.replace(/_Signal$/, '').replace(/_/g, ' ') + ' Signal Echo)', filename, folder, principle };
-                    });
+                const rows = (typeof otPlaylistRows === 'function')
+                    ? otPlaylistRows(await res.json()) : [];
+                if (rows.length > 0 && typeof otMapCdnTrack === 'function') {
+                    tracks = rows.map(t => otMapCdnTrack(t, signalFolder));
                     loaded = true;
                 }
             }

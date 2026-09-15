@@ -69,18 +69,52 @@ function _otTrackEvent(eventType, extra) {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 function otSignalToFolder(s) {
     if (!s) return 'Raw_Signal';
-    s = s.trim();
-    if (s.endsWith('_Signal')) return s;
-    const bare = s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+    s = String(s).trim();
+    const normalized = s.replace(/[\s-]+/g, '_');
+    const head = normalized.replace(/_Signal$/i, '');
+    const bare = head.charAt(0).toUpperCase() + head.slice(1).toLowerCase();
     const valid = ['Ground','Clear','Open','Rise','Raw','Bright','Drive'];
     if (valid.includes(bare)) return bare + '_Signal';
     const legacy = { EXPANSIVE:'Open_Signal', GROUNDING:'Ground_Signal', CLARITY:'Clear_Signal' };
-    return legacy[s.toUpperCase()] || 'Raw_Signal';
+    return legacy[s.toUpperCase()] || legacy[head.toUpperCase()] || 'Raw_Signal';
 }
 
 function otSlugify(t) { return t.trim().replace(/-/g, '_').replace(/\s+/g, '_'); }
 
+function otPlaylistRows(payload) {
+    if (Array.isArray(payload) && payload.length) return payload;
+    if (payload && Array.isArray(payload.tracks) && payload.tracks.length) return payload.tracks;
+    return [];
+}
+
+function otTrackPrinciple(t, filename) {
+    if (t && t.principle) return String(t.principle);
+    const title = String((t && t.title) || '');
+    const stripped = title.replace(/\s*\([^)]*Echo\)\s*$/i, '').trim();
+    if (stripped) return stripped;
+    return String(filename || '')
+        .replace(/\.mp3$/i, '')
+        .replace(/_/g, ' ')
+        .replace(/\s+(Ground|Clear|Open|Rise|Raw|Bright|Drive)\s+Echo$/i, '')
+        .trim();
+}
+
+function otMapCdnTrack(t, fallbackFolder) {
+    const filename = (t && (t.filename || t.file)) || '';
+    const rawFolder = (t && (t.folder || t.signal_type || t.signalType || t.album)) || fallbackFolder;
+    const folder = otSignalToFolder(rawFolder);
+    const principle = otTrackPrinciple(t, filename);
+    const signalDisplay = folder.replace(/_Signal$/, '').replace(/_/g, ' ');
+    return {
+        title: principle + ' (' + signalDisplay + ' Signal Echo)',
+        filename: filename,
+        folder: folder,
+        principle: principle,
+    };
+}
+
 function otBuildTracks(folder) {
+    folder = otSignalToFolder(folder);
     const token = folder.replace(/_Signal$/, '');
     const display = token.replace(/_/g, ' ');
     return OT_PRINCIPLES.map(p => ({
@@ -91,8 +125,13 @@ function otBuildTracks(folder) {
     }));
 }
 
-function otGetAudioUrl(t) { return (t.cdnBase || OT_AUDIO_BASE) + '/' + t.folder + '/' + t.filename; }
-function otGetCoverUrl(folder, cdnBase) { return (cdnBase || OT_AUDIO_BASE) + '/' + folder + '/Cover.png'; }
+function otGetAudioUrl(t) {
+    const folder = otSignalToFolder(t && t.folder);
+    return (t.cdnBase || OT_AUDIO_BASE) + '/' + folder + '/' + t.filename;
+}
+function otGetCoverUrl(folder, cdnBase) {
+    return (cdnBase || OT_AUDIO_BASE) + '/' + otSignalToFolder(folder) + '/Cover.png';
+}
 function otFmtTime(s) { if (!s||isNaN(s)) return '0:00'; const m=Math.floor(s/60),ss=Math.floor(s%60); return m+':'+(ss<10?'0':'')+ss; }
 
 function otHexToRgb(hex) {
@@ -644,21 +683,9 @@ async function otInitPlayer(data) {
             const freqLower = freq.toLowerCase();
             const res = await fetch(OT_PLAYLIST_CDN + '/' + freqLower + '.json');
             if (res.ok) {
-                const playlist = await res.json();
-                if (Array.isArray(playlist) && playlist.length > 0) {
-                    otTracks = playlist.map(t => {
-                        const filename = t.filename || t.file || '';
-                        const rawFolder = t.folder || t.signal_type || signalFolder;
-                        const folder = otSignalToFolder(rawFolder);
-                        const principle = t.principle || t.title || filename.replace(/_/g, ' ').replace(/\.mp3$/, '');
-                        const signalDisplay = folder.replace(/_Signal$/, '').replace(/_/g, ' ');
-                        return {
-                            title: principle + ' (' + signalDisplay + ' Signal Echo)',
-                            filename: filename,
-                            folder: folder,
-                            principle: principle,
-                        };
-                    });
+                const rows = otPlaylistRows(await res.json());
+                if (rows.length > 0) {
+                    otTracks = rows.map(t => otMapCdnTrack(t, signalFolder));
                     freqPlaylistLoaded = true;
                 }
             }
