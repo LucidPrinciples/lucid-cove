@@ -428,6 +428,7 @@
     MC.features.mirror_sources = mirrors.join(",");
     MC.features.streaming_service = normalizeStreaming(s.streamingService);
   }
+  window.applyHouseSettingsToMC = applyHouseSettingsToMC;
 
   function paintSignalToggle(btn) {
     if (!btn) return;
