@@ -291,6 +291,17 @@ def test_tune_detail_module_mounts_player_like_drop():
     assert 'id="tfDropMirrors"' in detail
     assert "_tfLoadDropArchive" in flow
     assert "_tfLoadDropMirrors" in flow
+    # Checked sources, in settings order, on every player — not the cascade default.
+    assert "function _tfFetchCheckedMirrors" in flow
+    assert "function _tfCheckedMirrorSources" in flow
+    assert "function _tfAppendMirrorCards" in flow
+    assert "_tfFetchCheckedMirrors" in flow[flow.index("async function _tfLoadDropMirrors") :]
+    assert "s._dropHub" in detail
+    assert "if (!s._fromArchive)" not in detail
+    tuner = (SHELL / "tuner.js").read_text()
+    assert "_dropHub: true" in tuner
+    house = (SHELL / "house.js").read_text()
+    assert "window.applyHouseSettingsToMC = applyHouseSettingsToMC" in house
     css_key = css[css.index(".tf-modal-drop .ot-card.ot-key") :]
     assert "text-align: center" in css_key
     assert "1.05rem" in css_key

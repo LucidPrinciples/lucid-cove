@@ -55,7 +55,7 @@
       try {
         const dropTune = await _tfFetchLatestDropTuning();
         if (dropTune) {
-          await _tfShowTuningDetail(dropTune);
+          await _tfShowTuningDetail(Object.assign({}, dropTune, { _dropHub: true }));
           if (badge) badge.setAttribute("aria-expanded", "true");
           return;
         }

@@ -1034,85 +1034,89 @@ async function _renderCompletedTuning(container, data) {
         _tfStartCountdown();
     }
 
-    // Load mirror CTA (streaming link) — same source logic as Overview tab
-    if (MC.features?.mirror) {
-        _tfLoadMirror(freq);
-    }
+    try { await _tfLoadMirror(freq); } catch (e) {}
 
     // Load echo history below the completed view
     _loadTuneHistory();
 }
 
-// ─── Mirror CTA for Completed Tuning ────────────────────────────────────────
+// ─── Mirrors — checked sources, same order, every tuning player ──────────────
+
+function _tfCheckedMirrorSources() {
+    if (typeof window.applyHouseSettingsToMC === 'function') {
+        try { window.applyHouseSettingsToMC(); } catch (e) {}
+    }
+    const feats = (window.MC && MC.features) || {};
+    if (feats.mirror === false) return '';
+    return String(feats.mirror_sources || feats.mirror_source || '').trim();
+}
+
+async function _tfFetchCheckedMirrors() {
+    if (window.MCReady) {
+        try { await window.MCReady; } catch (e) {}
+    }
+    const sources = _tfCheckedMirrorSources();
+    if (!sources) return { has_mirror: false, mirrors: [] };
+    const cacheBust = `v=${window._buildVersion || ''}&d=${new Date().toISOString().slice(0, 10)}`;
+    const res = await fetch('/api/mirrors/today?sources=' + encodeURIComponent(sources) + '&' + cacheBust);
+    const data = await res.json();
+    if (!data || !data.has_mirror) return { has_mirror: false, mirrors: [] };
+    const mirrors = data.mirrors || [data];
+    return { ...data, has_mirror: true, mirrors };
+}
+
+function _tfAppendMirrorCards(mount, mirrors, freqColor, freq) {
+    if (!mount || !mirrors || !mirrors.length) return;
+    const esc = typeof ESC === 'function' ? ESC : (t => String(t || ''));
+    mirrors.forEach((m, idx) => {
+        const featured = m.featured;
+        if (!featured) return;
+        const wrap = document.createElement('div');
+        wrap.className = 'tf-complete-section';
+        if (m.mirror_type === 'music') {
+            const artist = featured.artist || '';
+            const title = featured.title || '';
+            const lyric = featured.text || '';
+            const spotifyId = featured.spotify_id || '';
+            const youtubeId = featured.youtube_id || '';
+            wrap.innerHTML =
+                '<div class="home-mirror" style="border-left-color:' + freqColor + '50;margin-top:0;">' +
+                    '<div class="home-mirror-header">' +
+                        '<span class="home-mirror-name">' + esc(m.mirror_name) + '</span>' +
+                        '<a href="#" class="home-mirror-reflect" style="color:' + freqColor + ';" ' +
+                            'onclick="_openMusicPlayer(\'' + _escAttr(freq) + '\',\'' + _escAttr(artist) + '\',\'' + _escAttr(title) + '\',\'' + _escAttr(spotifyId) + '\',\'' + _escAttr(youtubeId) + '\'); return false;">Listen &rarr;</a>' +
+                    '</div>' +
+                    '<div class="home-mirror-text" style="font-style:italic;">' + esc(lyric) + '</div>' +
+                    '<span class="home-mirror-ref" style="color:' + freqColor + ';">' + esc(artist) + ' &mdash; ' + esc(title) + '</span>' +
+                '</div>';
+        } else {
+            wrap.innerHTML =
+                '<div class="home-mirror" style="border-left-color:' + freqColor + '50;margin-top:0;">' +
+                    '<div class="home-mirror-header">' +
+                        '<span class="home-mirror-name">' + esc(m.mirror_name) + '</span>' +
+                        (m.entry_count > 1 ? '<a href="#" class="home-mirror-reflect" style="color:' + freqColor + ';" onclick="_tfOpenReflect(' + idx + '); return false;">Reflect &rarr;</a>' : '') +
+                    '</div>' +
+                    '<div class="home-mirror-text">' + esc(featured.text) + '</div>' +
+                    '<span class="home-mirror-ref" style="color:' + freqColor + ';">' + esc(featured.ref) + '</span>' +
+                '</div>';
+        }
+        mount.appendChild(wrap);
+    });
+}
 
 async function _tfLoadMirror(freq) {
     try {
-        const mirrorSources = MC.features?.mirror_sources || MC.features?.mirror_source || '';
-        const cacheBust = `v=${window._buildVersion || ''}&d=${new Date().toISOString().slice(0,10)}`;
-        const mirrorParam = mirrorSources
-            ? `?sources=${encodeURIComponent(mirrorSources)}&${cacheBust}`
-            : `?${cacheBust}`;
-        const res = await fetch('/api/mirrors/today' + mirrorParam);
-        const data = await res.json();
-        if (!data.has_mirror) return;
-
+        const data = await _tfFetchCheckedMirrors();
+        const mirrors = data.mirrors || [];
+        if (!mirrors.length) return;
         const freqUpper = (freq || '').toUpperCase();
         const freqColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[freqUpper]) || 'var(--accent)';
-
-        const mirrors = data.mirrors || [data];
         const streamSection = document.querySelector('.tf-stream-section');
         if (!streamSection) return;
-
-        // Insert after stream section, but keep mirror order — insert last first
-        const mirrorDivs = [];
-        mirrors.forEach((m, idx) => {
-            const featured = m.featured;
-            if (!featured) return;
-
-            const mirrorDiv = document.createElement('div');
-            mirrorDiv.className = 'tf-complete-section';
-
-            if (m.mirror_type === 'music') {
-                const artist = featured.artist || '';
-                const title = featured.title || '';
-                const lyric = featured.text || '';
-                const spotifyId = featured.spotify_id || '';
-                const youtubeId = featured.youtube_id || '';
-
-                mirrorDiv.innerHTML =
-                    '<div class="home-mirror" style="border-left-color:' + freqColor + '50;margin-top:0;">' +
-                        '<div class="home-mirror-header">' +
-                            '<span class="home-mirror-name">' + esc(m.mirror_name) + '</span>' +
-                            '<a href="#" class="home-mirror-reflect" style="color:' + freqColor + ';" ' +
-                                'onclick="_openMusicPlayer(\'' + _escAttr(freq) + '\',\'' + _escAttr(artist) + '\',\'' + _escAttr(title) + '\',\'' + _escAttr(spotifyId) + '\',\'' + _escAttr(youtubeId) + '\'); return false;">Listen &rarr;</a>' +
-                        '</div>' +
-                        '<div class="home-mirror-text" style="font-style:italic;">' + esc(lyric) + '</div>' +
-                        '<span class="home-mirror-ref" style="color:' + freqColor + ';">' + esc(artist) + ' &mdash; ' + esc(title) + '</span>' +
-                    '</div>';
-            } else {
-                // Text mirror (scripture, etc.)
-                mirrorDiv.innerHTML =
-                    '<div class="home-mirror" style="border-left-color:' + freqColor + '50;margin-top:0;">' +
-                        '<div class="home-mirror-header">' +
-                            '<span class="home-mirror-name">' + esc(m.mirror_name) + '</span>' +
-                            (m.entry_count > 1 ? '<a href="#" class="home-mirror-reflect" style="color:' + freqColor + ';" onclick="_tfOpenReflect(' + idx + '); return false;">Reflect &rarr;</a>' : '') +
-                        '</div>' +
-                        '<div class="home-mirror-text">' + esc(featured.text) + '</div>' +
-                        '<span class="home-mirror-ref" style="color:' + freqColor + ';">' + esc(featured.ref) + '</span>' +
-                    '</div>';
-            }
-
-            mirrorDivs.push(mirrorDiv);
-        });
-
-        // Insert in order after stream section
-        let insertAfter = streamSection;
-        mirrorDivs.forEach(div => {
-            insertAfter.after(div);
-            insertAfter = div;
-        });
-
-        // Store mirror data for Reflect modal
+        const mount = document.createElement('div');
+        mount.id = 'tfTuneMirrors';
+        streamSection.after(mount);
+        _tfAppendMirrorCards(mount, mirrors, freqColor, freq);
         window._tfMirrorData = data;
         window._tfMirrorMirrors = mirrors;
         window._tfMirrorColor = freqColor;
@@ -1667,8 +1671,8 @@ async function _tfShowTuningDetail(s) {
             console.error('[tune-history] Player init error:', e);
         }
     }
-    if (!s._fromArchive) {
-        try { await _tfLoadDropMirrors(s, freqColor); } catch (e) {}
+    try { await _tfLoadDropMirrors(s, freqColor); } catch (e) {}
+    if (s._dropHub) {
         try { await _tfLoadDropArchive(); } catch (e) {}
     }
 }
@@ -1732,46 +1736,10 @@ async function _tfLoadDropMirrors(s, freqColor) {
     const mount = document.getElementById('tfDropMirrors');
     if (!mount) return;
     try {
-        const cacheBust = `v=${window._buildVersion || ''}&d=${new Date().toISOString().slice(0, 10)}`;
-        const res = await fetch('/api/mirrors/today?' + cacheBust);
-        const data = await res.json();
-        if (!data.has_mirror) return;
-        const mirrors = data.mirrors || [data];
-        const esc = typeof ESC === 'function' ? ESC : (t => String(t || ''));
-        mirrors.forEach((m, idx) => {
-            const featured = m.featured;
-            if (!featured) return;
-            const wrap = document.createElement('div');
-            wrap.className = 'tf-complete-section';
-            if (m.mirror_type === 'music') {
-                const artist = featured.artist || '';
-                const title = featured.title || '';
-                const lyric = featured.text || '';
-                const spotifyId = featured.spotify_id || '';
-                const youtubeId = featured.youtube_id || '';
-                wrap.innerHTML =
-                    '<div class="home-mirror" style="border-left-color:' + freqColor + '50;margin-top:0;">' +
-                        '<div class="home-mirror-header">' +
-                            '<span class="home-mirror-name">' + esc(m.mirror_name) + '</span>' +
-                            '<a href="#" class="home-mirror-reflect" style="color:' + freqColor + ';" ' +
-                                'onclick="_openMusicPlayer(\'' + _escAttr(s.frequency || '') + '\',\'' + _escAttr(artist) + '\',\'' + _escAttr(title) + '\',\'' + _escAttr(spotifyId) + '\',\'' + _escAttr(youtubeId) + '\'); return false;">Listen &rarr;</a>' +
-                        '</div>' +
-                        '<div class="home-mirror-text" style="font-style:italic;">' + esc(lyric) + '</div>' +
-                        '<span class="home-mirror-ref" style="color:' + freqColor + ';">' + esc(artist) + ' &mdash; ' + esc(title) + '</span>' +
-                    '</div>';
-            } else {
-                wrap.innerHTML =
-                    '<div class="home-mirror" style="border-left-color:' + freqColor + '50;margin-top:0;">' +
-                        '<div class="home-mirror-header">' +
-                            '<span class="home-mirror-name">' + esc(m.mirror_name) + '</span>' +
-                            (m.entry_count > 1 ? '<a href="#" class="home-mirror-reflect" style="color:' + freqColor + ';" onclick="_tfOpenReflect(' + idx + '); return false;">Reflect &rarr;</a>' : '') +
-                        '</div>' +
-                        '<div class="home-mirror-text">' + esc(featured.text) + '</div>' +
-                        '<span class="home-mirror-ref" style="color:' + freqColor + ';">' + esc(featured.ref) + '</span>' +
-                    '</div>';
-            }
-            mount.appendChild(wrap);
-        });
+        const data = await _tfFetchCheckedMirrors();
+        const mirrors = data.mirrors || [];
+        if (!mirrors.length) return;
+        _tfAppendMirrorCards(mount, mirrors, freqColor, s.frequency || '');
         window._tfMirrorData = data;
         window._tfMirrorMirrors = mirrors;
         window._tfMirrorColor = freqColor;
