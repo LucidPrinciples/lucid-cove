@@ -338,6 +338,8 @@ async function _tfFetchLatestDropTuning() {
             universal_coaching: data.universal_coaching || data.tuning_prompt || '',
             universal_practice: data.universal_practice || [],
             practice_steps: data.practice_steps || null,
+            lt_echo_num: data.lt_echo_num || data.tuning_day || '',
+            love_equation: data.love_equation || null,
             context: data.is_today === false ? 'Latest tuning' : 'Today\'s tuning',
             entry_mode: data.is_today === false ? 'Archive drop' : 'Daily drop',
             from_public_drop: true,
@@ -1500,6 +1502,58 @@ async function _tfOpenTuningModal(idx) {
     await _tfShowTuningDetail(s);
 }
 
+function _tfOrdinal(n) {
+    const num = Number(n);
+    if (!Number.isFinite(num) || num <= 0) return '';
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = num % 100;
+    return num + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function _tfFullDropDate(dateStr) {
+    if (!dateStr) return '';
+    try {
+        const d = new Date(String(dateStr).slice(0, 10) + 'T12:00:00');
+        return d.toLocaleDateString('en-US', {
+            weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+        });
+    } catch (e) {
+        return String(dateStr);
+    }
+}
+
+function _tfLoveEqHTML(le, freqColor) {
+    if (!le || typeof le !== 'object') return '';
+    const beta = Number(le.beta), E = Number(le.E), C = Number(le.C), D = Number(le.D);
+    if ([beta, E, C, D].every(Number.isFinite)) {
+        const dEdt = beta * (C - D) * E;
+        const direction = dEdt >= 0 ? 'CONSTRUCTIVE' : 'DECONSTRUCTIVE';
+        const parts = [
+            'β=' + beta.toFixed(2),
+            'E=' + E.toFixed(2),
+            'C=' + C.toFixed(2),
+            'D=' + D.toFixed(2),
+        ];
+        return `<div class="ot-card ot-eq" style="border-color:${freqColor}40;border-left:3px solid ${freqColor};">
+            <div class="ot-label" style="color:${freqColor};">Love Equation</div>
+            <div class="ot-eq-bar">
+                <span class="ot-eq-val" style="color:${freqColor};">dE/dt = ${dEdt.toFixed(4)} (${direction})</span>
+                <span class="ot-eq-detail">${ESC(parts.join('  '))}</span>
+            </div>
+        </div>`;
+    }
+    if (le.value == null && !le.direction) return '';
+    const dir = le.direction || '';
+    const val = le.value != null && Number.isFinite(Number(le.value))
+        ? Number(le.value).toFixed(4) : '';
+    return `<div class="ot-card ot-eq">
+        <div class="ot-label" style="color:${freqColor};">Love Equation</div>
+        <div class="ot-eq-bar">
+            <span class="ot-eq-val" style="color:${freqColor};">${ESC(dir)}${val ? ' ' + val : ''}</span>
+        </div>
+    </div>`;
+}
+
 async function _tfShowTuningDetail(s) {
     // Remove existing modal
     const existing = document.getElementById('tf-tuning-modal');
@@ -1517,11 +1571,11 @@ async function _tfShowTuningDetail(s) {
     const freqColor = typeof lpColor === 'function' ? lpColor(rawFreq) : 'var(--accent)';
     const principle = s.principle || '';
     const key = s.tuning_key || '';
-    const context = s.context || '';
-    const mode = s.initial_state || s.entry_mode || '';
     const audioUrl = s.audio_url || '';
-    const dateLabel = _tfFormatHistDate(s.date || '');
-    const timeStr = s.time ? s.time.substring(0, 5) : '';
+    const signal = String(s.signal_type || '').replace(/_Signal$/, '').replace(/_/g, ' ');
+    const dayLabel = _tfOrdinal(s.lt_echo_num || s.tuning_day || '');
+    const fullDate = _tfFullDropDate(s.date || '');
+    const streamName = freq ? (freq + ' Tuning Stream') : 'Tuning Stream';
 
     // Coaching and practice from static templates (same as completed view)
     // Prefer Drop/universal coaching when morning-open or public Drop landed here
@@ -1547,49 +1601,47 @@ async function _tfShowTuningDetail(s) {
         practice = { step1: step(0), step2: step(1), step3: step(2) };
     }
 
-    const fBadge = typeof lpFreqBadgeHTML === 'function'
-        ? lpFreqBadgeHTML(rawFreq)
-        : `<span class="freq-badge" style="color:${freqColor};">${ESC(freq)}</span>`;
-
     const overlay = document.createElement('div');
     overlay.id = 'tf-tuning-modal';
     overlay.className = 'tf-modal-overlay';
     overlay.onclick = function(e) { if (e.target === overlay) _tfCloseDetailModal(); };
 
     overlay.innerHTML = `
-        <div class="tf-modal">
+        <div class="tf-modal tf-modal-drop">
             <button class="tf-modal-close" onclick="_tfCloseDetailModal()">&times;</button>
 
-            <div class="tf-modal-header">
-                ${fBadge}
-                <div class="tf-modal-freq" style="color:${freqColor};">${ESC(freq)}</div>
-                <div class="tf-modal-principle" style="color:${freqColor};">${ESC(principle)}</div>
-                <div class="tf-modal-meta">${ESC(dateLabel)} ${ESC(timeStr)}${context ? ' · ' + ESC(context) : ''}${mode ? ' · ' + ESC(mode) : ''}</div>
+            <div class="drop-header">
+                ${dayLabel ? `<div class="drop-tuning-day" style="color:${freqColor}80;">LT's ${ESC(dayLabel)} Consecutive Tuning</div>` : ''}
+                ${fullDate ? `<div class="drop-date" style="color:${freqColor}aa;">${ESC(fullDate)}</div>` : ''}
+                <div class="drop-alignment" style="color:${freqColor};">${ESC((freq || '').toUpperCase())} ALIGNMENT</div>
+                <div class="drop-principle" style="color:${freqColor};">${ESC(principle)}</div>
+                ${signal ? `<div class="drop-signal">${ESC(signal)} Signal</div>` : ''}
             </div>
 
-            ${coaching ? `<div class="tf-modal-section">
-                <span class="tf-modal-label">Coaching</span>
-                <p class="tf-modal-coaching">${coaching}</p>
+            ${coaching ? `<div class="ot-card">
+                <div class="ot-label">Coaching</div>
+                <div class="ot-text">${ESC(coaching)}</div>
             </div>` : ''}
 
-            ${practice ? `<div class="tf-modal-section">
-                <span class="tf-modal-label">Practice</span>
-                <div class="tf-modal-practice">
-                    <div class="tf-practice-step"><span class="tf-practice-num" style="background:${freqColor};">1</span><div><strong>${practice.step1.title}</strong> — ${practice.step1.text}</div></div>
-                    <div class="tf-practice-step"><span class="tf-practice-num" style="background:${freqColor};">2</span><div><strong>${practice.step2.title}</strong> — ${practice.step2.text}</div></div>
-                    <div class="tf-practice-step"><span class="tf-practice-num" style="background:${freqColor};">3</span><div><strong>${practice.step3.title}</strong> — ${practice.step3.text}</div></div>
+            ${practice ? `<div class="ot-practice">
+                <div class="ot-practice-label" style="color:${freqColor};">Practice</div>
+                <div class="ot-practice-steps">
+                    <div class="ot-step"><div class="ot-step-num" style="background:${freqColor};">1</div><div class="ot-step-body"><div class="ot-step-title" style="color:${freqColor};">${ESC(practice.step1.title)}</div><div class="ot-step-text">${ESC(practice.step1.text)}</div></div></div>
+                    <div class="ot-step"><div class="ot-step-num" style="background:${freqColor};">2</div><div class="ot-step-body"><div class="ot-step-title" style="color:${freqColor};">${ESC(practice.step2.title)}</div><div class="ot-step-text">${ESC(practice.step2.text)}</div></div></div>
+                    <div class="ot-step"><div class="ot-step-num" style="background:${freqColor};">3</div><div class="ot-step-body"><div class="ot-step-title" style="color:${freqColor};">${ESC(practice.step3.title)}</div><div class="ot-step-text">${ESC(practice.step3.text)}</div></div></div>
                 </div>
             </div>` : ''}
 
-            ${key ? `<div class="tf-modal-section">
-                <span class="tf-modal-label">Tuning Key</span>
-                <blockquote class="tf-modal-key" style="border-left-color:${freqColor};">"${ESC(key)}"</blockquote>
+            ${key ? `<div class="ot-card ot-key" style="border-left-color:${freqColor};">
+                <div class="ot-label" style="color:${freqColor};">Tuning Key</div>
+                <div class="ot-text italic">"${ESC(key)}"</div>
             </div>` : ''}
 
-            <div class="tf-modal-section">
-                <span class="tf-modal-label">Tuning Stream</span>
-                <div id="tfModalPlayer"></div>
+            <div class="ot-stream-label">&#9654; PRESS PLAY TO ACTIVATE YOUR
+                <div style="font-size:1rem;font-weight:700;letter-spacing:0.1em;margin-top:6px;color:${freqColor};">${ESC(streamName)}</div>
             </div>
+            <div id="tfModalPlayer"></div>
+            ${_tfLoveEqHTML(s.love_equation, freqColor)}
         </div>
     `;
 

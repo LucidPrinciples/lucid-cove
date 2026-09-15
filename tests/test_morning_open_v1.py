@@ -55,6 +55,12 @@ def test_core_boot_prefers_tune_for_latest():
     assert "morning-alert" in src
 
 
+def test_core_shell_always_loads_tuning_hub_scripts():
+    """Badge and Recent Tunings must work on admin Team land, not only Home."""
+    src = CORE_JS.read_text()
+    assert "shell.push('tuning-panel', 'tune-flow')" in src
+
+
 def test_morning_alert_client_and_settings_ui():
     assert MORNING_JS.is_file()
     m = MORNING_JS.read_text()

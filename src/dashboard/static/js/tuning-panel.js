@@ -527,20 +527,19 @@ async function otLoadRecentDrops() {
                 ? lpColor(rawFreq)
                 : (OT_FREQ_COLORS[rawFreq.toUpperCase()] || 'var(--accent)');
             const principle = d.principle || '';
-            const dateLabel = (typeof _tfFormatHistDate === 'function')
-                ? _tfFormatHistDate(d.date || '')
-                : (d.date || '');
+            const dateLabel = (typeof _tfFullDropDate === 'function')
+                ? _tfFullDropDate(d.date || '')
+                : ((typeof _tfFormatHistDate === 'function') ? _tfFormatHistDate(d.date || '') : (d.date || ''));
+            const signal = String(d.signal_type || '').replace(/_Signal$/, '').replace(/_/g, ' ');
+            const meta = [freq, signal, dateLabel].filter(Boolean).join(' / ');
 
-            const fBadge = (typeof lpFreqBadgeHTML === 'function')
-                ? lpFreqBadgeHTML(rawFreq)
-                : `<span class="freq-badge" style="color:${freqColor};">${esc(freq)}</span>`;
-
-            html += `<div class="tf-hist-row" onclick="otOpenRecentDrop(${idx})">
-                <div class="tf-hist-summary">
-                    ${fBadge}
-                    <span class="tf-hist-principle" style="color:${freqColor};">${esc(principle)}</span>
-                    <span class="tf-hist-date-time">${esc(dateLabel)}</span>
+            html += `<div class="tf-hist-row history-item" onclick="otOpenRecentDrop(${idx})">
+                <div class="history-dot" style="background:${freqColor};box-shadow:0 0 6px ${freqColor}66;"></div>
+                <div class="history-info">
+                    <div class="history-principle" style="color:${freqColor};">${esc(principle)}</div>
+                    <div class="history-meta">${esc(meta)}</div>
                 </div>
+                <div class="history-arrow">&#8250;</div>
             </div>`;
         });
 
@@ -568,6 +567,8 @@ async function otOpenRecentDrop(idx) {
         context: '',
         signal_type: d.signal_type || '',
         universal_coaching: d.coaching || d.universal_coaching || '',
+        lt_echo_num: d.sequence || d.lt_echo_num || d.tuning_day || '',
+        love_equation: d.love_equation || (d.love_value != null ? { value: d.love_value } : null),
     });
 }
 
