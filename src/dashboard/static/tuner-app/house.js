@@ -318,6 +318,80 @@
     }
   }
 
+  const helpForm = document.getElementById("help-contact-form");
+  const helpEmail = document.getElementById("help-contact-email");
+  const helpMessage = document.getElementById("help-contact-message");
+  const helpBtn = document.getElementById("help-contact-btn");
+  const helpStatus = document.getElementById("help-contact-status");
+
+  function fillHelpEmail() {
+    if (!helpEmail || helpEmail.value.trim()) return;
+    const email = loadHouseSettings().email;
+    if (email) helpEmail.value = String(email);
+  }
+  fillHelpEmail();
+  document.getElementById("help-btn")?.addEventListener("click", fillHelpEmail);
+
+  helpForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!helpBtn || !helpMessage) return;
+    const message = helpMessage.value.trim();
+    const email = (helpEmail && helpEmail.value.trim()) || "";
+    if (!message) return;
+    if (!email) {
+      if (helpStatus) {
+        helpStatus.textContent = "Email is required.";
+        helpStatus.style.color = "#e74c3c";
+      }
+      return;
+    }
+    helpBtn.disabled = true;
+    helpBtn.textContent = "Sending...";
+    if (helpStatus) helpStatus.textContent = "";
+    let handle = "";
+    let connected = "";
+    try {
+      const me = await fetch("/api/presence/me").then((r) => r.json());
+      handle = (me && (me.handle || me.username)) || "";
+      if (me && typeof me.connected === "boolean") connected = me.connected ? "yes" : "no";
+    } catch (_) {}
+    try {
+      const res = await fetch("/api/contact/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          email,
+          product: "lucid-tuner",
+          host: location.host,
+          path: location.pathname,
+          handle,
+          name: (loadHouseSettings().displayName || ""),
+          connected,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        if (helpStatus) {
+          helpStatus.textContent = "Sent!";
+          helpStatus.style.color = "var(--freq-primary, #5ce1e6)";
+        }
+        helpMessage.value = "";
+      } else if (helpStatus) {
+        const detail = data.detail;
+        helpStatus.textContent = (typeof detail === "string" && detail) || data.message || "Failed to send.";
+        helpStatus.style.color = "#e74c3c";
+      }
+    } catch (_) {
+      if (helpStatus) {
+        helpStatus.textContent = "Connection error. Try again.";
+        helpStatus.style.color = "#e74c3c";
+      }
+    }
+    helpBtn.disabled = false;
+    helpBtn.textContent = "Send";
+  });
+
   function saveHouseSettings(next) {
     const cur = loadHouseSettings();
     const merged = Object.assign({ v: 1 }, cur, next);
