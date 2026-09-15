@@ -235,7 +235,7 @@ def test_help_sends_contact_to_haven_inbox():
     css = (SHELL / "house.css").read_text()
     assert 'id="help-contact-form"' in html
     assert 'id="help-contact-message"' in html
-    assert 'id="help-contact-email"' in html
+    assert 'id="help-contact-email"' not in html
     assert "/api/contact/submit" in js
     assert 'product: "lucid-tuner"' in js
     assert "sendFeedback" not in js

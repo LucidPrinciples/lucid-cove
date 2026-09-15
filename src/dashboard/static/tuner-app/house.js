@@ -319,24 +319,14 @@
   }
 
   const helpForm = document.getElementById("help-contact-form");
-  const helpEmail = document.getElementById("help-contact-email");
   const helpMessage = document.getElementById("help-contact-message");
   const helpBtn = document.getElementById("help-contact-btn");
   const helpStatus = document.getElementById("help-contact-status");
-
-  function fillHelpEmail() {
-    if (!helpEmail || helpEmail.value.trim()) return;
-    const email = loadHouseSettings().email;
-    if (email) helpEmail.value = String(email);
-  }
-  fillHelpEmail();
-  document.getElementById("help-btn")?.addEventListener("click", fillHelpEmail);
 
   helpForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (!helpBtn || !helpMessage) return;
     const message = helpMessage.value.trim();
-    const email = (helpEmail && helpEmail.value.trim()) || "";
     if (!message) return;
     helpBtn.disabled = true;
     helpBtn.textContent = "Sending...";
@@ -354,7 +344,6 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message,
-          email,
           product: "lucid-tuner",
           host: location.host,
           path: location.pathname,
