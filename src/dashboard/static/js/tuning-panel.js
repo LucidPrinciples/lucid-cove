@@ -1410,12 +1410,19 @@ function otStopProgress() {
 function otUpdateProgressUI() {
     if (!otAudio || !otAudio.duration) return;
     const pct = (otAudio.currentTime / otAudio.duration) * 100;
-    // If pending, only update mini player — tab player shows new playlist at 0%
-    if (!_otPendingPlay) {
-        document.querySelectorAll('.ot-progress-bar').forEach(el => el.style.width = pct + '%');
-        document.querySelectorAll('.ot-time-elapsed').forEach(el => el.textContent = otFmtTime(otAudio.currentTime));
-        document.querySelectorAll('.ot-time-duration').forEach(el => el.textContent = otFmtTime(otAudio.duration));
-    }
+    const skipPending = (el) => _otPendingPlay && _otPendingMount && el.closest('#' + _otPendingMount);
+    document.querySelectorAll('.ot-progress-bar').forEach(el => {
+        if (skipPending(el)) return;
+        el.style.width = pct + '%';
+    });
+    document.querySelectorAll('.ot-time-elapsed').forEach(el => {
+        if (skipPending(el)) return;
+        el.textContent = otFmtTime(otAudio.currentTime);
+    });
+    document.querySelectorAll('.ot-time-duration').forEach(el => {
+        if (skipPending(el)) return;
+        el.textContent = otFmtTime(otAudio.duration);
+    });
     // Mini player always updates (shows what's actually playing)
     const mpProg = document.getElementById('mpProgress');
     if (mpProg) mpProg.style.width = pct + '%';

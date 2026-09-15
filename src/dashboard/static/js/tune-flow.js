@@ -1989,6 +1989,13 @@ async function _tfsInit(data) {
     const freqColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[freqUpper]) || 'var(--accent)';
 
     // Render player template + load tracks (no autoplay — user presses play)
+    if (typeof otAudio !== 'undefined' && otAudio && otAudio.src && _otSource === 'tune'
+        && typeof otRenderPlayer === 'function') {
+        otRenderPlayer('tfPlayerMount');
+        if (typeof _otSyncAllPlayers === 'function') _otSyncAllPlayers();
+        if (typeof otUpdateProgressUI === 'function') otUpdateProgressUI();
+        return;
+    }
     if (typeof otSetPlaylist === 'function') {
         otSetPlaylist(tracks, {
             source: 'tune',
