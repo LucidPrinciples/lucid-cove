@@ -112,6 +112,7 @@ async function loadPlaylistsTab() {
         otRenderPlayer('plPlayerMount');
         if (typeof _otSyncAllPlayers === 'function') _otSyncAllPlayers();
         if (typeof otUpdateProgressUI === 'function') otUpdateProgressUI();
+        if (typeof otUpdateIcons === 'function') otUpdateIcons();
     }
 }
 
