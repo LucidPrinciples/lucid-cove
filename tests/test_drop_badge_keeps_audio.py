@@ -24,4 +24,16 @@ def test_modal_playlist_skips_set_when_already_playing():
     flow = FLOW.read_text()
     build = flow[flow.index("async function _tfBuildModalPlaylist") :]
     assert "otAudio && !otAudio.paused" in build
+    assert "_otPendingTracks = tracks" in build
     assert "otSetPlaylist(tracks" in build
+
+
+def test_genre_cdn_does_not_map_to_raw_signal():
+    panel = Path(__file__).resolve().parents[1] / "src/dashboard/static/js/tuning-panel.js"
+    text = panel.read_text()
+    cover = text[text.index("function otGetCoverUrl") : text.index("function otFmtTime")]
+    assert "cdnBase ? String(folder || '')" in cover
+    assert "otSignalToFolder(folder)" in cover
+    audio = text[text.index("function otGetAudioUrl") : text.index("function otGetCoverUrl")]
+    assert "t.cdnBase" in audio
+    assert "otSignalToFolder(t && t.folder)" in audio

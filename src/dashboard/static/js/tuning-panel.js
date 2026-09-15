@@ -31,6 +31,9 @@ let otPlaylistVisible = true;
 let otPreviousTab = 'overview';
 let _otConsecutiveErrors = 0;
 let _otPendingPlay = false;     // true = new playlist displayed but not yet loaded into audio
+let _otPendingTracks = null;    // Drop/badge playlist waiting for Play in the modal
+let _otPendingLabel = '';
+let _otPendingColor = '';
 let _otPlayStartTime = null;    // timestamp when current track started playing (for duration calc)
 let _otCurrentTrackLogged = false; // prevent duplicate play_start for same track
 
@@ -189,7 +192,7 @@ function otPlayerHTML() {
                     <button class="ot-btn" onclick="otPrev()" title="Previous">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
                     </button>
-                    <button class="ot-btn ot-play" onclick="otTogglePlay()" title="Play">
+                    <button class="ot-btn ot-play" onclick="otTogglePlay(event)" title="Play">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" class="ot-play-icon"><polygon points="5,3 19,12 5,21"/></svg>
                     </button>
                     <button class="ot-btn" onclick="otNext()" title="Next">
@@ -1261,11 +1264,25 @@ function _otSyncAllPlayers() {
 // PLAYBACK CONTROLS
 // =============================================================================
 
-function otTogglePlay() {
+function otTogglePlay(ev) {
     if (!otAudio) return;
-    // GainNode NOT created here — only on slider interaction (preserves iOS lock screen)
-    // Pending playlist — user pressed play, start the new playlist
-    if (_otPendingPlay) {
+    const inModal = ev && ev.target && ev.target.closest && ev.target.closest('#tfModalPlayer');
+    if (_otPendingPlay && inModal && _otPendingTracks && _otPendingTracks.length) {
+        const tracks = _otPendingTracks;
+        const label = _otPendingLabel;
+        const color = _otPendingColor;
+        _otPendingTracks = null;
+        _otPendingPlay = false;
+        otSetPlaylist(tracks, {
+            source: 'history',
+            label: label,
+            freqColor: color,
+            autoplay: true,
+            mountId: 'tfModalPlayer',
+        });
+        return;
+    }
+    if (_otPendingPlay && inModal) {
         _otPendingPlay = false;
         otLoadTrack(otIndex, true);
         return;
@@ -1330,7 +1347,10 @@ function otUpdateIcons() {
     const playPath = '<polygon points="5,3 19,12 5,21"/>';
     const pausePath = '<rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/>';
     const svg = otIsPlaying ? pausePath : playPath;
-    document.querySelectorAll('.ot-play-icon').forEach(el => el.innerHTML = svg);
+    document.querySelectorAll('.ot-play-icon').forEach(el => {
+        if (_otPendingPlay && el.closest('#tfModalPlayer')) return;
+        el.innerHTML = svg;
+    });
     // Mini player icon
     const mpIcon = document.getElementById('mpPlayIcon');
     if (mpIcon) mpIcon.innerHTML = svg;
