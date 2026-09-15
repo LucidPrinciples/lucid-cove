@@ -264,3 +264,10 @@ def test_tune_detail_module_mounts_player_like_drop():
     assert "otLoadRecentDrops" in flow
     assert 'id="thHistory"' in flow
     assert 'id="otRecentDrops"' in flow
+    # CDN playlists may ship bare signal names (Clear) — always map to Clear_Signal.
+    init = panel[panel.index("async function otInitPlayer") : panel.index("if (!freqPlaylistLoaded)")]
+    assert "otSignalToFolder(rawFolder)" in init
+    assert "folder: folder," in init
+    assert "function _tfPracticeStep" in flow
+    assert "_tfPracticeStepHTML" in flow
+    assert 'title: numbered ? \'\' : title' in flow or 'title: numbered ? "" : title' in flow

@@ -1522,6 +1522,27 @@ function _tfFullDropDate(dateStr) {
     }
 }
 
+function _tfPracticeStep(item, i) {
+    if (typeof item === 'object' && item) {
+        const title = String(item.title || '').trim();
+        const numbered = !title || /^\d+$/.test(title);
+        return {
+            title: numbered ? '' : title,
+            text: item.instruction || item.text || '',
+        };
+    }
+    return { title: '', text: String(item || '') };
+}
+
+function _tfPracticeStepHTML(step, num, freqColor) {
+    const title = (step && step.title) ? String(step.title) : '';
+    const text = (step && step.text) ? String(step.text) : '';
+    const titleHtml = title
+        ? `<div class="ot-step-title" style="color:${freqColor};">${ESC(title)}</div>`
+        : '';
+    return `<div class="ot-step"><div class="ot-step-num" style="background:${freqColor};">${num}</div><div class="ot-step-body">${titleHtml}<div class="ot-step-text">${ESC(text)}</div></div></div>`;
+}
+
 function _tfLoveEqHTML(le, freqColor) {
     if (!le || typeof le !== 'object') return '';
     const beta = Number(le.beta), E = Number(le.E), C = Number(le.C), D = Number(le.D);
@@ -1585,20 +1606,9 @@ async function _tfShowTuningDetail(s) {
     let practice = TUNE_PRACTICE_TEMPLATES[templateKey];
     const uPractice = s.universal_practice;
     if (Array.isArray(uPractice) && uPractice.length >= 3) {
-        const step = (i) => {
-            const item = uPractice[i];
-            if (typeof item === 'object' && item) {
-                return { title: item.title || String(i + 1), text: item.instruction || item.text || '' };
-            }
-            return { title: String(i + 1), text: String(item || '') };
-        };
-        practice = { step1: step(0), step2: step(1), step3: step(2) };
+        practice = { step1: _tfPracticeStep(uPractice[0], 0), step2: _tfPracticeStep(uPractice[1], 1), step3: _tfPracticeStep(uPractice[2], 2) };
     } else if (s.practice_steps && Array.isArray(s.practice_steps) && s.practice_steps.length >= 3) {
-        const step = (i) => {
-            const item = s.practice_steps[i] || {};
-            return { title: item.title || String(i + 1), text: item.instruction || item.text || '' };
-        };
-        practice = { step1: step(0), step2: step(1), step3: step(2) };
+        practice = { step1: _tfPracticeStep(s.practice_steps[0], 0), step2: _tfPracticeStep(s.practice_steps[1], 1), step3: _tfPracticeStep(s.practice_steps[2], 2) };
     }
 
     const overlay = document.createElement('div');
@@ -1626,9 +1636,9 @@ async function _tfShowTuningDetail(s) {
             ${practice ? `<div class="ot-practice">
                 <div class="ot-practice-label" style="color:${freqColor};">Practice</div>
                 <div class="ot-practice-steps">
-                    <div class="ot-step"><div class="ot-step-num" style="background:${freqColor};">1</div><div class="ot-step-body"><div class="ot-step-title" style="color:${freqColor};">${ESC(practice.step1.title)}</div><div class="ot-step-text">${ESC(practice.step1.text)}</div></div></div>
-                    <div class="ot-step"><div class="ot-step-num" style="background:${freqColor};">2</div><div class="ot-step-body"><div class="ot-step-title" style="color:${freqColor};">${ESC(practice.step2.title)}</div><div class="ot-step-text">${ESC(practice.step2.text)}</div></div></div>
-                    <div class="ot-step"><div class="ot-step-num" style="background:${freqColor};">3</div><div class="ot-step-body"><div class="ot-step-title" style="color:${freqColor};">${ESC(practice.step3.title)}</div><div class="ot-step-text">${ESC(practice.step3.text)}</div></div></div>
+                    ${_tfPracticeStepHTML(practice.step1, 1, freqColor)}
+                    ${_tfPracticeStepHTML(practice.step2, 2, freqColor)}
+                    ${_tfPracticeStepHTML(practice.step3, 3, freqColor)}
                 </div>
             </div>` : ''}
 
@@ -1651,7 +1661,9 @@ async function _tfShowTuningDetail(s) {
     if (typeof otSetPlaylist === 'function') {
         const freqUpper = rawFreq.toUpperCase();
         const fColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[freqUpper]) || freqColor;
-        const folder = s.signal_type || (audioUrl ? audioUrl.split('/').slice(-2, -1)[0] : '') || '';
+        const rawFolder = s.signal_type || (audioUrl ? audioUrl.split('/').slice(-2, -1)[0] : '') || '';
+        const folder = (typeof otSignalToFolder === 'function')
+            ? otSignalToFolder(rawFolder) : rawFolder;
         try {
             await _tfBuildModalPlaylist(s, freq, folder, fColor);
         } catch (e) {
@@ -1684,7 +1696,9 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
                 if (Array.isArray(playlist) && playlist.length > 0) {
                     tracks = playlist.map(t => {
                         const fn = t.filename || t.file || '';
-                        const fd = t.folder || t.signal_type || signalFolder;
+                        const rawFd = t.folder || t.signal_type || signalFolder;
+                        const fd = (typeof otSignalToFolder === 'function')
+                            ? otSignalToFolder(rawFd) : rawFd;
                         const pr = t.principle || t.title || fn.replace(/_/g, ' ').replace(/\.mp3$/, '');
                         return { title: pr + ' (' + fd.replace(/_Signal$/, '').replace(/_/g, ' ') + ' Signal Echo)', filename: fn, folder: fd, principle: pr };
                     });
@@ -1871,7 +1885,9 @@ async function _tfsInit(data) {
                 if (Array.isArray(playlist) && playlist.length > 0) {
                     tracks = playlist.map(t => {
                         const filename = t.filename || t.file || '';
-                        const folder = t.folder || t.signal_type || signalFolder;
+                        const rawFolder = t.folder || t.signal_type || signalFolder;
+                        const folder = (typeof otSignalToFolder === 'function')
+                            ? otSignalToFolder(rawFolder) : rawFolder;
                         const principle = t.principle || t.title || filename.replace(/_/g, ' ').replace(/\.mp3$/, '');
                         return { title: principle + ' (' + folder.replace(/_Signal$/, '').replace(/_/g, ' ') + ' Signal Echo)', filename, folder, principle };
                     });
