@@ -34,6 +34,7 @@ let _otPendingPlay = false;     // true = new playlist displayed but not yet loa
 let _otPendingTracks = null;    // Drop/badge playlist waiting for Play in the modal
 let _otPendingLabel = '';
 let _otPendingColor = '';
+let _otPendingMount = '';
 let _otPlayStartTime = null;    // timestamp when current track started playing (for duration calc)
 let _otCurrentTrackLogged = false; // prevent duplicate play_start for same track
 
@@ -1070,8 +1071,38 @@ function otSetPlaylist(tracks, opts) {
     opts = opts || {};
     if (!tracks || tracks.length === 0) return;
 
-    // Explicit playlist start — clear any pending state
+    const live = !!(otAudio && !otAudio.paused && otAudio.src);
+    const takeOver = opts.autoplay === true || !live;
+
+    if (opts.mountId) otRenderPlayer(opts.mountId);
+
+    if (!takeOver) {
+        _otPendingPlay = true;
+        _otPendingTracks = tracks;
+        _otPendingLabel = opts.label || '';
+        _otPendingColor = opts.freqColor || '';
+        _otPendingMount = opts.mountId || '';
+        const root = opts.mountId ? document.getElementById(opts.mountId) : null;
+        const track = tracks[0];
+        if (root && track) {
+            const coverUrl = otGetCoverUrl(track.folder, track.cdnBase);
+            const img = root.querySelector('.ot-cover-img');
+            if (img && coverUrl) { img.src = coverUrl; img.style.display = 'block'; }
+            const title = root.querySelector('.ot-track-title');
+            if (title) title.textContent = track.title;
+            const sig = root.querySelector('.ot-track-signal');
+            if (sig) sig.textContent = String(track.folder || '').replace(/_/g, ' ');
+            const label = root.querySelector('.ot-playlist-label');
+            if (label) label.textContent = _otPendingLabel;
+            root.querySelectorAll('.ot-play-icon').forEach(el => {
+                el.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
+            });
+        }
+        return;
+    }
+
     _otPendingPlay = false;
+    _otPendingTracks = null;
     _otNeedsResume = false;
     _otPreloadIndex = -1;
     if (_otNextAudio) {
@@ -1081,13 +1112,7 @@ function otSetPlaylist(tracks, opts) {
         } catch (e) {}
     }
 
-    // Stop current playback
     if (otAudio && !otAudio.paused) otAudio.pause();
-
-    // Render player into mount point if provided
-    if (opts.mountId) {
-        otRenderPlayer(opts.mountId);
-    }
 
     // Set tracks
     otTracks = tracks;
@@ -1266,25 +1291,24 @@ function _otSyncAllPlayers() {
 
 function otTogglePlay(ev) {
     if (!otAudio) return;
-    const inModal = ev && ev.target && ev.target.closest && ev.target.closest('#tfModalPlayer');
-    if (_otPendingPlay && inModal && _otPendingTracks && _otPendingTracks.length) {
+    const pendingRoot = _otPendingMount && ev && ev.target && ev.target.closest
+        ? ev.target.closest('#' + _otPendingMount)
+        : null;
+    if (_otPendingPlay && pendingRoot && _otPendingTracks && _otPendingTracks.length) {
         const tracks = _otPendingTracks;
         const label = _otPendingLabel;
         const color = _otPendingColor;
+        const mount = _otPendingMount;
         _otPendingTracks = null;
+        _otPendingMount = '';
         _otPendingPlay = false;
         otSetPlaylist(tracks, {
             source: 'history',
             label: label,
             freqColor: color,
             autoplay: true,
-            mountId: 'tfModalPlayer',
+            mountId: mount,
         });
-        return;
-    }
-    if (_otPendingPlay && inModal) {
-        _otPendingPlay = false;
-        otLoadTrack(otIndex, true);
         return;
     }
     if (!otAudio.src) return;
@@ -1348,7 +1372,7 @@ function otUpdateIcons() {
     const pausePath = '<rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/>';
     const svg = otIsPlaying ? pausePath : playPath;
     document.querySelectorAll('.ot-play-icon').forEach(el => {
-        if (_otPendingPlay && el.closest('#tfModalPlayer')) return;
+        if (_otPendingPlay && _otPendingMount && el.closest('#' + _otPendingMount)) return;
         el.innerHTML = svg;
     });
     // Mini player icon
