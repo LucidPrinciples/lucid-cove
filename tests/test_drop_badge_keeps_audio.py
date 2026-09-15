@@ -21,6 +21,13 @@ def test_close_detail_keeps_mini_player():
     assert "showMiniPlayer()" in close
 
 
+def test_badge_while_playing_paints_drop_preview():
+    flow = FLOW.read_text()
+    build = flow[flow.index("async function _tfBuildModalPlaylist") : flow.index("function _tfOpenFullHistory")]
+    assert "_otPaintPreview" in build
+    assert "otUpdateIcons()" not in build
+
+
 def test_ot_set_playlist_matches_hermes_takeover():
     panel = PANEL.read_text()
     setter = panel[panel.index("function otSetPlaylist") : panel.index("function _otDisplayTrackInfo")]

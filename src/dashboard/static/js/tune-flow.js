@@ -1818,8 +1818,14 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
     if (!tracks.length) return;
 
     if (typeof otAudio !== 'undefined' && otAudio && !otAudio.paused) {
-        if (typeof otRenderPlayer === 'function') otRenderPlayer(mountId || 'tfModalPlayer');
-        if (typeof otUpdateIcons === 'function') otUpdateIcons();
+        if (typeof _otPaintPreview === 'function') {
+            _otPaintPreview(mountId || 'tfModalPlayer', tracks, {
+                source: 'history',
+                label: freq + ' Tuning Stream',
+                freqColor: freqColor,
+                mountId: mountId || 'tfModalPlayer',
+            });
+        }
         return;
     }
     otSetPlaylist(tracks, {
