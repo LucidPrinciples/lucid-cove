@@ -21,11 +21,19 @@ def test_close_detail_keeps_mini_player():
     assert "showMiniPlayer()" in close
 
 
+def test_badge_while_playing_paints_drop_preview():
+    flow = FLOW.read_text()
+    build = flow[flow.index("async function _tfBuildModalPlaylist") : flow.index("function _tfOpenFullHistory")]
+    assert "autoplay: false" in build
+    assert "otSetPlaylist(tracks" in build
+
+
 def test_ot_set_playlist_matches_hermes_takeover():
     panel = PANEL.read_text()
     setter = panel[panel.index("function otSetPlaylist") : panel.index("function _otDisplayTrackInfo")]
     assert "_otHaltBuffers()" in setter
-    assert "live && opts.autoplay !== true" not in setter
+    assert "live && opts.autoplay !== true" in setter
+    assert "_otPaintPreview(opts.mountId, tracks, opts)" in setter
     assert "_otPendingTracks" not in panel
 
 
