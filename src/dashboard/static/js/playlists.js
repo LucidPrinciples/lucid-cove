@@ -51,7 +51,7 @@ let _playlistsLoaded = false;
 async function loadPlaylistsTab() {
     const container = document.getElementById('playlistStreams');
     if (!container) return;
-    if (!_playlistsLoaded) {
+    if (_playlistsLoaded) return;
     _playlistsLoaded = true;
 
     // Load favorites for the favorites section
@@ -104,16 +104,6 @@ async function loadPlaylistsTab() {
     html += '<div id="plPlayerMount" style="margin-top:16px;"></div>';
 
     container.innerHTML = html;
-    }
-
-    if (typeof _otSource !== 'undefined' && _otSource === 'playlist'
-        && typeof otAudio !== 'undefined' && otAudio && otAudio.src
-        && typeof otRenderPlayer === 'function') {
-        otRenderPlayer('plPlayerMount');
-        if (typeof _otSyncAllPlayers === 'function') _otSyncAllPlayers();
-        if (typeof otUpdateProgressUI === 'function') otUpdateProgressUI();
-        if (typeof otUpdateIcons === 'function') otUpdateIcons();
-    }
 }
 
 // ── Favorites Card ─────────────────────────────────────────────────────────

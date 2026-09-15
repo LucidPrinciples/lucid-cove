@@ -1129,16 +1129,9 @@ function otSetPlaylist(tracks, opts) {
     opts = opts || {};
     if (!tracks || tracks.length === 0) return;
 
-    const live = !!(otAudio && !otAudio.paused && otAudio.src);
-    // Opening a screen is not Play. Keep the live bar; paint this mount idle.
-    if (live && opts.autoplay !== true) {
-        _otPaintPreview(opts.mountId, tracks, opts);
-        return;
-    }
-
     window._otPreview = null;
 
-    // Explicit playlist start — one engine, never two streams
+    // Same as original LC Hermes tuner: Play starts this queue, one engine.
     _otPendingPlay = false;
     _otNeedsResume = false;
     _otPreloadIndex = -1;
