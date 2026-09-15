@@ -937,7 +937,11 @@ function _tfFinish() {
 
 // ─── Completed Tuning View (persistent until midnight) ───────────────────────
 
+let _tfTuneMirrorsGen = 0;
+let _tfDropMirrorsGen = 0;
+
 async function _renderCompletedTuning(container, data) {
+    _tfTuneMirrorsGen++;
     const rawFreq = data.frequency || '';
     // Normalize: API may return "CLARITY", keys are "Clarity"
     const freq = rawFreq.charAt(0).toUpperCase() + rawFreq.slice(1).toLowerCase();
@@ -1011,6 +1015,7 @@ async function _renderCompletedTuning(container, data) {
                 <div id="tfPlayerMount"></div>
             </div>
 
+            <div id="tfTuneMirrors"></div>
             <div id="tfHistory"></div>
         </div>
     `;
@@ -1066,7 +1071,9 @@ async function _tfFetchCheckedMirrors() {
 }
 
 function _tfAppendMirrorCards(mount, mirrors, freqColor, freq) {
-    if (!mount || !mirrors || !mirrors.length) return;
+    if (!mount) return;
+    mount.replaceChildren();
+    if (!mirrors || !mirrors.length) return;
     const esc = typeof ESC === 'function' ? ESC : (t => String(t || ''));
     mirrors.forEach((m, idx) => {
         const featured = m.featured;
@@ -1105,17 +1112,22 @@ function _tfAppendMirrorCards(mount, mirrors, freqColor, freq) {
 }
 
 async function _tfLoadMirror(freq) {
+    const gen = ++_tfTuneMirrorsGen;
     try {
         const data = await _tfFetchCheckedMirrors();
+        if (gen !== _tfTuneMirrorsGen) return;
         const mirrors = data.mirrors || [];
-        if (!mirrors.length) return;
         const freqUpper = (freq || '').toUpperCase();
         const freqColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[freqUpper]) || 'var(--accent)';
-        const streamSection = document.querySelector('.tf-stream-section');
-        if (!streamSection) return;
-        const mount = document.createElement('div');
-        mount.id = 'tfTuneMirrors';
-        streamSection.after(mount);
+        let mount = document.getElementById('tfTuneMirrors');
+        if (!mount) {
+            const streamSection = document.querySelector('.tf-stream-section');
+            if (!streamSection) return;
+            mount = document.createElement('div');
+            mount.id = 'tfTuneMirrors';
+            streamSection.after(mount);
+        }
+        if (gen !== _tfTuneMirrorsGen) return;
         _tfAppendMirrorCards(mount, mirrors, freqColor, freq);
         window._tfMirrorData = data;
         window._tfMirrorMirrors = mirrors;
@@ -1572,6 +1584,7 @@ function _tfLoveEqHTML(le, freqColor) {
 }
 
 async function _tfShowTuningDetail(s) {
+    _tfDropMirrorsGen++;
     // Remove existing modal
     const existing = document.getElementById('tf-tuning-modal');
     if (existing) existing.remove();
@@ -1733,13 +1746,16 @@ async function _tfOpenDropArchive(idx) {
 }
 
 async function _tfLoadDropMirrors(s, freqColor) {
+    const gen = ++_tfDropMirrorsGen;
     const mount = document.getElementById('tfDropMirrors');
     if (!mount) return;
     try {
         const data = await _tfFetchCheckedMirrors();
+        if (gen !== _tfDropMirrorsGen) return;
         const mirrors = data.mirrors || [];
-        if (!mirrors.length) return;
-        _tfAppendMirrorCards(mount, mirrors, freqColor, s.frequency || '');
+        const live = document.getElementById('tfDropMirrors');
+        if (!live || gen !== _tfDropMirrorsGen) return;
+        _tfAppendMirrorCards(live, mirrors, freqColor, s.frequency || '');
         window._tfMirrorData = data;
         window._tfMirrorMirrors = mirrors;
         window._tfMirrorColor = freqColor;
@@ -1747,6 +1763,7 @@ async function _tfLoadDropMirrors(s, freqColor) {
 }
 
 function _tfCloseDetailModal() {
+    _tfDropMirrorsGen++;
     // Stop audio when closing history modal — avoids ghost player state
     if (typeof otAudio !== 'undefined' && otAudio && !otAudio.paused) {
         otAudio.pause();

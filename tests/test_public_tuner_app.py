@@ -296,6 +296,13 @@ def test_tune_detail_module_mounts_player_like_drop():
     assert "function _tfCheckedMirrorSources" in flow
     assert "function _tfAppendMirrorCards" in flow
     assert "_tfFetchCheckedMirrors" in flow[flow.index("async function _tfLoadDropMirrors") :]
+    # Re-opening Tune or the badge replaces mirror cards — it must not stack another copy.
+    assert 'id="tfTuneMirrors"' in complete
+    assert "mount.replaceChildren()" in flow[flow.index("function _tfAppendMirrorCards") :]
+    assert "_tfTuneMirrorsGen++" in complete
+    assert "_tfDropMirrorsGen++" in detail
+    assert "if (gen !== _tfTuneMirrorsGen) return" in flow
+    assert "if (gen !== _tfDropMirrorsGen) return" in flow
     assert "s._dropHub" in detail
     assert "if (!s._fromArchive)" not in detail
     tuner = (SHELL / "tuner.js").read_text()
