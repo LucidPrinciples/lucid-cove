@@ -801,6 +801,10 @@ function _buildDetailPanels() {
                     <div class="tuning-frequency" id="otFrequency"></div>
                     <div class="tuning-principle-title" id="otPrinciple"></div>
                 </div>
+                <div class="ot-card ot-key" id="otKeyBlock">
+                    <div class="ot-label">Tuning Key</div>
+                    <div class="ot-text italic" id="otKeyText"></div>
+                </div>
                 <div class="ot-card" id="otCoachBlock">
                     <div class="ot-label ot-coach-label" style="display:none"></div>
                     <div class="ot-text" id="otCoachText"></div>
@@ -830,10 +834,6 @@ function _buildDetailPanels() {
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="ot-card ot-key" id="otKeyBlock">
-                    <div class="ot-label">Tuning Key</div>
-                    <div class="ot-text italic" id="otKeyText"></div>
                 </div>
 
                 <!-- ═══ Section 2: Player (rendered by otRenderPlayer) ═══ -->
