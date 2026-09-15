@@ -371,11 +371,16 @@ async def verify_claim(request: Request):
     from src.memory.database import get_db
     async with get_db() as conn:
         r = await conn.execute(
-            "SELECT username FROM accounts WHERE auth_token = %s AND active = TRUE",
+            "SELECT username, email, display_name FROM accounts WHERE auth_token = %s AND active = TRUE",
             (_hash_token(token),))
         acct = await r.fetchone()
     if acct and (acct.get("username") or "").lstrip("@").strip().lower() == handle:
-        return {"ok": True, "handle": handle}
+        return {
+            "ok": True,
+            "handle": handle,
+            "email": acct.get("email") or "",
+            "name": acct.get("display_name") or "",
+        }
     return {"ok": False, "reason": "That connect key doesn't match this handle."}
 
 
