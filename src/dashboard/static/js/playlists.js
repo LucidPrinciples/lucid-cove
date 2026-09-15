@@ -48,6 +48,17 @@ const GENRE_ALBUMS = [
 
 let _playlistsLoaded = false;
 
+/** Scroll only #house-shell. Element.scrollIntoView pans iOS visual viewport and hides .top. */
+function _plRevealPlayerMount() {
+    const mount = document.getElementById('plPlayerMount');
+    const shell = document.getElementById('house-shell');
+    if (!mount || !shell) return;
+    const m = mount.getBoundingClientRect();
+    const s = shell.getBoundingClientRect();
+    const next = shell.scrollTop + (m.top - s.top) - 8;
+    shell.scrollTo({ top: Math.max(0, next), behavior: 'smooth' });
+}
+
 async function loadPlaylistsTab() {
     const container = document.getElementById('playlistStreams');
     if (!container) return;
@@ -165,8 +176,7 @@ function _plPlayFavorites() {
             mountId: 'plPlayerMount'
         });
 
-        const mount = document.getElementById('plPlayerMount');
-        if (mount) mount.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        _plRevealPlayerMount();
     }
 }
 
@@ -228,8 +238,7 @@ function _plBuildAndPlay(folder, label, color) {
             mountId: 'plPlayerMount'
         });
 
-        const mount = document.getElementById('plPlayerMount');
-        if (mount) mount.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        _plRevealPlayerMount();
     }
 }
 
@@ -263,8 +272,7 @@ function _plBuildGenreAndPlay(folder, label, color) {
             mountId: 'plPlayerMount'
         });
 
-        const mount = document.getElementById('plPlayerMount');
-        if (mount) mount.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        _plRevealPlayerMount();
     }
 }
 
