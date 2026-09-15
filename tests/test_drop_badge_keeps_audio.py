@@ -72,5 +72,9 @@ def test_house_css_does_not_clip_mini_player():
     assert "html, body.house" not in css
     shell = css[css.index("#house-shell {") : css.index(".house-pane[hidden]")]
     assert "overflow-y: auto" in shell
+    assert "grid-template-rows: auto minmax(0, 1fr)" in css
+    assert "z-index: 5000" in css
+    panes = css[css.index("#pane-team") : css.index("#pane-work {")]
+    assert "overflow: visible" in panes
     mount = (Path(__file__).resolve().parents[1] / "src/dashboard/static/tuner-app/tuner-mount.css").read_text()
     assert "body.has-mini-player .mini-player { display: flex !important; }" in mount
