@@ -1,21 +1,19 @@
-/* House shell: header + one stage. Overflow lives on the shell, not html —
-   html/body overflow:hidden + display:flex clips position:fixed #miniPlayer. */
+/* Public Tuner matches original LC Hermes tuner.html: normal document flow.
+   body.house as a 100vh flex column clips the fixed mini player. */
 html {
-  height: 100%;
+  height: auto;
 }
 body.house {
   margin: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+  min-height: 100%;
+  height: auto;
+  display: block;
   overflow: visible;
 }
 #house-shell {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  display: block;
+  min-height: calc(100vh - 52px);
+  overflow: visible;
 }
 .house-pane[hidden] {
   display: none !important;

@@ -1817,6 +1817,11 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
 
     if (!tracks.length) return;
 
+    if (typeof otAudio !== 'undefined' && otAudio && !otAudio.paused) {
+        if (typeof otRenderPlayer === 'function') otRenderPlayer(mountId || 'tfModalPlayer');
+        if (typeof otUpdateIcons === 'function') otUpdateIcons();
+        return;
+    }
     otSetPlaylist(tracks, {
         source: 'history',
         label: freq + ' Tuning Stream',
@@ -1987,14 +1992,6 @@ async function _tfsInit(data) {
     const freqColor = (typeof OT_FREQ_COLORS !== 'undefined' && OT_FREQ_COLORS[freqUpper]) || 'var(--accent)';
 
     // Render player template + load tracks (no autoplay — user presses play)
-    if (typeof otAudio !== 'undefined' && otAudio && otAudio.src && typeof _otSource !== 'undefined' && _otSource === 'tune'
-        && typeof otRenderPlayer === 'function') {
-        otRenderPlayer('tfPlayerMount');
-        if (typeof _otSyncAllPlayers === 'function') _otSyncAllPlayers();
-        if (typeof otUpdateProgressUI === 'function') otUpdateProgressUI();
-        if (typeof otUpdateIcons === 'function') otUpdateIcons();
-        return;
-    }
     if (typeof otSetPlaylist === 'function') {
         otSetPlaylist(tracks, {
             source: 'tune',

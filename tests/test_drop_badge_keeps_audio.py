@@ -21,13 +21,12 @@ def test_close_detail_keeps_mini_player():
     assert "showMiniPlayer()" in close
 
 
-def test_live_autoplay_false_paints_preview_not_takeover():
+def test_ot_set_playlist_matches_hermes_takeover():
     panel = PANEL.read_text()
     setter = panel[panel.index("function otSetPlaylist") : panel.index("function _otDisplayTrackInfo")]
-    assert "live && opts.autoplay !== true" in setter
-    assert "_otPaintPreview(opts.mountId, tracks, opts)" in setter
+    assert "_otHaltBuffers()" in setter
+    assert "live && opts.autoplay !== true" not in setter
     assert "_otPendingTracks" not in panel
-    assert "function _otStartPreview" in panel
 
 
 def test_genre_cdn_does_not_map_to_raw_signal():
@@ -65,6 +64,7 @@ def test_house_css_does_not_clip_mini_player():
     assert "html, body.house" not in css
     body = css[css.index("body.house {") : css.index("#house-shell")]
     assert "overflow: visible" in body
+    assert "display: block" in body
     assert "overflow: hidden" not in body
     mount = (Path(__file__).resolve().parents[1] / "src/dashboard/static/tuner-app/tuner-mount.css").read_text()
     assert "body.has-mini-player .mini-player { display: flex !important; }" in mount
