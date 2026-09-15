@@ -1020,11 +1020,14 @@ async function _renderCompletedTuning(container, data) {
         </div>
     `;
 
-    // Init the Tuning Stream player — otInitPlayer handles pending state
-    // if audio is already playing from another surface
-    if (typeof otRenderPlayer === 'function') otRenderPlayer('tfPlayerMount');
-    if (typeof otInitPlayer === 'function') {
-        try { await otInitPlayer(data); } catch (e) {}
+    // Init the Tuning Stream player. If something else is already playing,
+    // otSetPlaylist paints this mount idle (same rule as Drop / Playlists).
+    const live = typeof otAudio !== 'undefined' && otAudio && !otAudio.paused && otAudio.src;
+    if (!live) {
+        if (typeof otRenderPlayer === 'function') otRenderPlayer('tfPlayerMount');
+        if (typeof otInitPlayer === 'function') {
+            try { await otInitPlayer(data); } catch (e) {}
+        }
     }
     const mounted = document.querySelector('#tfPlayerMount .ot-player');
     if (!mounted && typeof _tfBuildModalPlaylist === 'function') {
@@ -1817,17 +1820,6 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
 
     if (!tracks.length) return;
 
-    if (typeof otAudio !== 'undefined' && otAudio && !otAudio.paused) {
-        if (typeof _otPaintPreview === 'function') {
-            _otPaintPreview(mountId || 'tfModalPlayer', tracks, {
-                source: 'history',
-                label: freq + ' Tuning Stream',
-                freqColor: freqColor,
-                mountId: mountId || 'tfModalPlayer',
-            });
-        }
-        return;
-    }
     otSetPlaylist(tracks, {
         source: 'history',
         label: freq + ' Tuning Stream',

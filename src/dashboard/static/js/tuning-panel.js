@@ -1129,6 +1129,13 @@ function otSetPlaylist(tracks, opts) {
     opts = opts || {};
     if (!tracks || tracks.length === 0) return;
 
+    const live = !!(otAudio && !otAudio.paused && otAudio.src);
+    // Opening Tune, Playlists, or Drop is not Play. One rule for all three.
+    if (live && opts.autoplay !== true) {
+        _otPaintPreview(opts.mountId, tracks, opts);
+        return;
+    }
+
     window._otPreview = null;
 
     // Same as original LC Hermes tuner: Play starts this queue, one engine.
