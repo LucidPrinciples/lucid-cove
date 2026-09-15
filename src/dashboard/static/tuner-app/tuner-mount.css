@@ -161,7 +161,8 @@
   .mini-player { bottom: 64px; }
   body.has-mini-player .panel { padding-bottom: 120px; }
 }
-.mini-player.visible { display: flex; }
+.mini-player.visible,
+body.has-mini-player .mini-player { display: flex !important; }
 .mini-player .mp-info { flex: 1; min-width: 0; overflow: hidden; }
 .mini-player .mp-title { font-size: 0.72rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-player .mp-freq { font-size: 0.6rem; color: var(--daily-freq); letter-spacing: 0.08em; }

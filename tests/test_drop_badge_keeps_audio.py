@@ -58,3 +58,13 @@ def test_badge_does_not_load_drop_iframe():
     text = tuner.read_text()
     assert "dropFrame.src = dropPlayerUrl" not in text
     assert "_tfShowTuningDetail" in text
+
+
+def test_house_css_does_not_clip_mini_player():
+    css = (Path(__file__).resolve().parents[1] / "src/dashboard/static/tuner-app/house.css").read_text()
+    assert "html, body.house" not in css
+    body = css[css.index("body.house {") : css.index("#house-shell")]
+    assert "overflow: visible" in body
+    assert "overflow: hidden" not in body
+    mount = (Path(__file__).resolve().parents[1] / "src/dashboard/static/tuner-app/tuner-mount.css").read_text()
+    assert "body.has-mini-player .mini-player { display: flex !important; }" in mount

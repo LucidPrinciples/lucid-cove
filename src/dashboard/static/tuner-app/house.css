@@ -1,16 +1,21 @@
-/* House shell: header + one stage + mini-player. Do not cover .top. */
-html, body.house {
+/* House shell: header + one stage. Overflow lives on the shell, not html —
+   html/body overflow:hidden + display:flex clips position:fixed #miniPlayer. */
+html {
+  height: 100%;
+}
+body.house {
   margin: 0;
   height: 100%;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
+  overflow: visible;
 }
 #house-shell {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .house-pane[hidden] {
   display: none !important;
@@ -39,9 +44,13 @@ body.house {
   --mp-freq-color: #5ce1e6;
 }
 body.house .mini-player {
+  position: fixed;
+  left: 0;
+  right: 0;
   bottom: 0;
   height: 68px;
   z-index: 4000;
+  flex: none;
   background: rgba(18, 18, 26, 0.94);
   border-top: 1px solid color-mix(in srgb, var(--mp-freq-color) 38%, transparent);
   box-shadow: 0 -10px 32px rgba(124, 92, 255, 0.14);
