@@ -229,6 +229,20 @@ def test_settings_signal_sliders_and_ordered_mirrors():
     assert "ltp-model" not in html
 
 
+def test_help_sends_contact_to_haven_inbox():
+    html = (SHELL / "index.html").read_text()
+    js = (SHELL / "house.js").read_text()
+    css = (SHELL / "house.css").read_text()
+    assert 'id="help-contact-form"' in html
+    assert 'id="help-contact-message"' in html
+    assert 'id="help-contact-email"' in html
+    assert "/api/contact/submit" in js
+    assert 'product: "lucid-tuner"' in js
+    assert "sendFeedback" not in js
+    assert "LUCID_TUNER_APP" not in html
+    assert "help-contact-form" in css
+
+
 def test_tune_detail_module_mounts_player_like_drop():
     """Recent tunings and the header badge open the same in-app module + player.
 

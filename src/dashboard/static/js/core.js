@@ -985,7 +985,15 @@ async function submitContactForm(e) {
         const res = await fetch('/api/contact', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: message }),
+            body: JSON.stringify({
+                message: message,
+                product: 'lucid-cove',
+                host: location.host,
+                path: location.pathname,
+                email: (typeof MC !== 'undefined' && MC.presence && MC.presence.email) || '',
+                handle: (typeof MC !== 'undefined' && MC.presence && MC.presence.username) || '',
+                name: (typeof MC !== 'undefined' && MC.presence && MC.presence.display_name) || '',
+            }),
         });
         const data = await res.json();
 
