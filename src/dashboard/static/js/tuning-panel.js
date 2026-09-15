@@ -220,7 +220,7 @@ function otPlayerHTML() {
  * Call this before otSetPlaylist() or otInitPlayer() to mount the UI.
  * @param {string} containerId - DOM id of the mount point
  */
-function otRenderPlayer(containerId) {
+function otRenderPlayer(containerId, opts) {
     const el = document.getElementById(containerId);
     if (!el) return;
     el.innerHTML = otPlayerHTML();
@@ -237,8 +237,7 @@ function otRenderPlayer(containerId) {
         });
     }
 
-    // If audio is already playing, sync this player's state immediately
-    if (otAudio && otTracks.length > 0) {
+    if (!(opts && opts.skipSync) && otAudio && otTracks.length > 0) {
         _otSyncAllPlayers();
     }
 }
@@ -1074,7 +1073,7 @@ function otSetPlaylist(tracks, opts) {
     const live = !!(otAudio && !otAudio.paused && otAudio.src);
     const takeOver = opts.autoplay === true || !live;
 
-    if (opts.mountId) otRenderPlayer(opts.mountId);
+    if (opts.mountId) otRenderPlayer(opts.mountId, takeOver ? undefined : { skipSync: true });
 
     if (!takeOver) {
         _otPendingPlay = true;
@@ -1097,6 +1096,15 @@ function otSetPlaylist(tracks, opts) {
             root.querySelectorAll('.ot-play-icon').forEach(el => {
                 el.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
             });
+            const list = root.querySelector('.ot-playlist-tracks');
+            if (list) {
+                list.innerHTML = tracks.map((t, i) =>
+                    '<div class="ot-pl-track">' +
+                    '<span class="ot-pl-num">' + (i + 1) + '</span>' +
+                    '<span class="ot-pl-name">' + String(t.title || '').replace(/</g, '') + '</span>' +
+                    '</div>'
+                ).join('');
+            }
         }
         return;
     }
@@ -1272,9 +1280,14 @@ function _otSyncAllPlayers() {
     if (!otTracks.length) return;
     const track = otTracks[otIndex];
     const coverUrl = otGetCoverUrl(track.folder, track.cdnBase);
-    document.querySelectorAll('.ot-cover-img').forEach(el => { el.src = coverUrl; el.alt = track.folder.replace(/_/g, ' '); el.style.display = 'block'; });
-    document.querySelectorAll('.ot-track-title').forEach(el => el.textContent = track.title);
+    const skip = (el) => _otPendingPlay && _otPendingMount && el.closest('#' + _otPendingMount);
+    document.querySelectorAll('.ot-cover-img').forEach(el => {
+        if (skip(el)) return;
+        el.src = coverUrl; el.alt = track.folder.replace(/_/g, ' '); el.style.display = 'block';
+    });
+    document.querySelectorAll('.ot-track-title').forEach(el => { if (!skip(el)) el.textContent = track.title; });
     document.querySelectorAll('.ot-track-signal').forEach(el => {
+        if (skip(el)) return;
         el.textContent = track.folder.replace(/_/g, ' ');
         if (typeof lpSignalColor === 'function') el.style.color = lpSignalColor(track.folder);
     });
@@ -1477,7 +1490,10 @@ function otRenderPlaylist() {
             '<button class="ot-pl-fav' + heartClass + '" onclick="event.stopPropagation();otToggleFavTrack(' + i + ')" title="Favorite">' + (isFav ? '♥' : '♡') + '</button>' +
             '</div>';
     }).join('');
-    containers.forEach(c => c.innerHTML = html);
+    containers.forEach(c => {
+        if (_otPendingPlay && _otPendingMount && c.closest('#' + _otPendingMount)) return;
+        c.innerHTML = html;
+    });
 }
 
 function otTogglePlaylist() {
