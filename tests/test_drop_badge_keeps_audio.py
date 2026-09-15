@@ -78,3 +78,10 @@ def test_house_css_does_not_clip_mini_player():
     assert "overflow: visible" in panes
     mount = (Path(__file__).resolve().parents[1] / "src/dashboard/static/tuner-app/tuner-mount.css").read_text()
     assert "body.has-mini-player .mini-player { display: flex !important; }" in mount
+
+
+def test_playlists_do_not_scrollintoview():
+    text = (Path(__file__).resolve().parents[1] / "src/dashboard/static/js/playlists.js").read_text()
+    assert ".scrollIntoView(" not in text
+    assert "function _plRevealPlayerMount" in text
+    assert "house-shell" in text
