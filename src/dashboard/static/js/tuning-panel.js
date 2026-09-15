@@ -828,13 +828,16 @@ function _otBindCurrentAudioEvents() {
     });
     otAudio.addEventListener('error', (ev) => {
         if (!isLive(ev)) return;
-        _otConsecutiveErrors++;
-        if (_otConsecutiveErrors >= 3) {
-            console.warn('[player] 3 consecutive load errors — stopping auto-advance');
-            _otConsecutiveErrors = 0;
-            return;
+        // Do not auto-advance on load error. That skip loop hammered the CDN.
+        console.warn('[player] load error — not skipping');
+        try { otAudio.removeAttribute('src'); otAudio.load(); } catch (e) {}
+        if (_otNextAudio) {
+            try { _otNextAudio.removeAttribute('src'); _otNextAudio.load(); } catch (e) {}
+            _otPreloadIndex = -1;
         }
-        setTimeout(() => otNext(), 1500);
+        otIsPlaying = false;
+        otUpdateIcons();
+        otStopProgress();
     });
     // If the element thinks it is playing but produces no progress while hidden,
     // mark for foreground resume (common BT A2DP stall after src swap).
