@@ -41,6 +41,7 @@ body.house {
 body.house .mini-player {
   bottom: 0;
   height: 68px;
+  z-index: 4000;
   background: rgba(18, 18, 26, 0.94);
   border-top: 1px solid color-mix(in srgb, var(--mp-freq-color) 38%, transparent);
   box-shadow: 0 -10px 32px rgba(124, 92, 255, 0.14);

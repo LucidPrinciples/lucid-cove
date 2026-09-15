@@ -44,3 +44,17 @@ def test_error_does_not_skip_next():
     text = PANEL.read_text()
     assert "not skipping" in text
     assert "otNext(); }, 1500)" not in text
+
+
+def test_takeover_halts_both_buffers():
+    text = PANEL.read_text()
+    assert "function _otHaltBuffers" in text
+    setter = text[text.index("function otSetPlaylist") : text.index("function _otDisplayTrackInfo")]
+    assert "_otHaltBuffers()" in setter
+
+
+def test_badge_does_not_load_drop_iframe():
+    tuner = Path(__file__).resolve().parents[1] / "src/dashboard/static/tuner-app/tuner.js"
+    text = tuner.read_text()
+    assert "dropFrame.src = dropPlayerUrl" not in text
+    assert "_tfShowTuningDetail" in text

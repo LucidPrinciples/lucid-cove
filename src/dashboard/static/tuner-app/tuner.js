@@ -61,10 +61,6 @@
         }
       } catch (_) {}
     }
-    if (dropFrame && (!dropFrame.src || dropFrame.src === "about:blank")) {
-      dropFrame.src = dropPlayerUrl;
-    }
-    if (overlay) overlay.hidden = false;
     if (badge) badge.setAttribute("aria-expanded", "true");
   }
   function closeDrop() {

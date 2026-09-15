@@ -154,7 +154,7 @@
 /* ── Mini Player ── */
 .mini-player {
   display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 52px;
-  background: var(--card); border-top: 1px solid var(--border); z-index: 250;
+  background: var(--card); border-top: 1px solid var(--border); z-index: 4000;
   align-items: center; padding: 0 12px; gap: 8px; cursor: pointer;
 }
 @media (max-width: 768px) {

@@ -954,6 +954,7 @@ function _otPlayCurrent(reason) {
     if (!otAudio || !otAudio.src) return Promise.resolve();
     return otAudio.play().then(() => {
         _otNeedsResume = false;
+        if (typeof showMiniPlayer === 'function') showMiniPlayer();
     }).catch(err => {
         console.warn('Play blocked (' + (reason || 'play') + '):', err && err.message ? err.message : err);
         // NotAllowedError while backgrounded is the classic lock-screen gap — retry
@@ -1113,6 +1114,17 @@ function _otEnsureGain() {
 // ── Shared Playlist Loader ──────────────────────────────────────────────────
 // opts: { source, label, onTrackChange, onProgress, autoplay, startIndex, freqColor, mountId }
 
+function _otHaltBuffers() {
+    [otAudio, _otNextAudio].forEach(el => {
+        if (!el) return;
+        try { el.pause(); } catch (e) {}
+    });
+    const frame = document.getElementById('drop-frame');
+    if (frame && frame.getAttribute('src') && frame.getAttribute('src') !== 'about:blank') {
+        try { frame.src = 'about:blank'; } catch (e) {}
+    }
+}
+
 function otSetPlaylist(tracks, opts) {
     opts = opts || {};
     if (!tracks || tracks.length === 0) return;
@@ -1126,19 +1138,17 @@ function otSetPlaylist(tracks, opts) {
 
     window._otPreview = null;
 
-    // Explicit playlist start — clear any pending state
+    // Explicit playlist start — one engine, never two streams
     _otPendingPlay = false;
     _otNeedsResume = false;
     _otPreloadIndex = -1;
+    _otHaltBuffers();
     if (_otNextAudio) {
         try {
             _otNextAudio.removeAttribute('src');
             _otNextAudio.src = '';
         } catch (e) {}
     }
-
-    // Stop current playback
-    if (otAudio && !otAudio.paused) otAudio.pause();
 
     // Render player into mount point if provided
     if (opts.mountId) {
