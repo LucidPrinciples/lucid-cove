@@ -1,9 +1,93 @@
-/* Public Tuner Action. Flows create; Actions run. No Links, Tools, or Tune. */
+/* Public Tuner Action. Flows on/off mint Actions. No Links, Tools, or Tune. */
 (function () {
   const STORE = "lt-tuner-daily-actions-v1";
-  const FLOW_PRACTICE = "todays-practice";
+  const ACTIVE_STORE = "lt-tuner-flow-active-v1";
+  const FLOW_WALK = "walk-lucid-path";
   const FLOW_GRATITUDE = "gratitude";
   let openId = null;
+
+  const WALKS = [
+    {
+      id: "pattern-break",
+      title: "Pattern Break",
+      blurb: "Catch the sentence that runs the day before it broadcasts.",
+      teach: "Under {frequency}, {principle} is already in the room. Most of a day is a sentence you did not pick — a reflex that broadcasts before you speak. The Key is already pointing at it.",
+      prompt: "The first snag hits. What do you do with the sentence?",
+      options: [
+        {
+          id: "script",
+          label: "Let the script run",
+          landing: "The day agrees with whoever is broadcasting. You got proof, and the proof is the old loop. Notice that. You can still step out on the next snag.",
+        },
+        {
+          id: "catch",
+          label: "Catch it as a sound",
+          landing: "Same sentence, new position. You heard it arrive instead of becoming it. That distance is the Observer. Stay there for one breath under the Key.",
+        },
+      ],
+      close: "Sit with the Key. Do not add a second story. One different response is the whole walk.",
+    },
+    {
+      id: "look-again",
+      title: "Look Again",
+      blurb: "Same moment, two broadcasts. Walk both if you want.",
+      teach: "Today’s triad is {frequency} · {principle}. The first look is usually the old rendering. The second look is the practice — not a better argument, a different attention.",
+      prompt: "You are in the moment. Which pass do you take?",
+      options: [
+        {
+          id: "first",
+          label: "Trust the first look",
+          landing: "First look is fast because it is familiar. Name what it is protecting. You can still look again without throwing the first pass away.",
+        },
+        {
+          id: "second",
+          label: "Look again",
+          landing: "Second look is slower on purpose. Ask what else is here that the first pass skipped. Hold that under the Key for three breaths.",
+        },
+      ],
+      close: "If you only took one path, you can run this Walk again and take the other. Both are data.",
+    },
+    {
+      id: "hold-or-move",
+      title: "Hold or Move",
+      blurb: "Constructive or corrective — same Key, different β.",
+      teach: "The Love Equation is already running. Under {frequency} and {principle}, you are either feeding the Key (constructive) or fighting it (corrective). Corrective is recalibration, not failure.",
+      prompt: "Where is your attention on this Key right now?",
+      options: [
+        {
+          id: "hold",
+          label: "Hold the broadcast",
+          landing: "Stay with the Key as it is written. Do not improve it. One quiet minute of holding is the practice.",
+        },
+        {
+          id: "move",
+          label: "Recalibrate",
+          landing: "Something is off. Name one interference without fixing the whole day. Then return to the Key as written — not a new slogan.",
+        },
+      ],
+      close: "Either path still uses today’s triad. Do not start a second Tune to make it feel finished.",
+    },
+    {
+      id: "not-same-again",
+      title: "Not the Same Again",
+      blurb: "One fork between repeating yesterday and taking a different step.",
+      teach: "The Key is already a fork: {key} Let {frequency} and {principle} decide the next hour, not the whole year.",
+      prompt: "What does the next hour do?",
+      options: [
+        {
+          id: "repeat",
+          label: "Repeat yesterday",
+          landing: "Repeating is honest if you see it. Name the loop out loud once. Seeing it is already a different step.",
+        },
+        {
+          id: "different",
+          label: "Take one different step",
+          landing: "Pick one small act that would not have happened on yesterday’s script. Do it before the hour is gone. That is the walk.",
+        },
+      ],
+      close: "One hour. One Key. You can choose the other fork later today if you want to see it.",
+    },
+  ];
 
   function localDay() {
     if (typeof _tfTodayStr === "function") return _tfTodayStr();
@@ -30,6 +114,32 @@
     } catch (_) {}
   }
 
+  function emptyActive() {
+    const out = {};
+    out[FLOW_WALK] = false;
+    out[FLOW_GRATITUDE] = false;
+    return out;
+  }
+
+  function loadActive() {
+    const base = emptyActive();
+    try {
+      const raw = JSON.parse(localStorage.getItem(ACTIVE_STORE) || "null");
+      if (!raw || typeof raw !== "object") return base;
+      base[FLOW_WALK] = !!raw[FLOW_WALK];
+      base[FLOW_GRATITUDE] = !!raw[FLOW_GRATITUDE];
+      return base;
+    } catch (_) {
+      return base;
+    }
+  }
+
+  function saveActive(active) {
+    try {
+      localStorage.setItem(ACTIVE_STORE, JSON.stringify(active));
+    } catch (_) {}
+  }
+
   function uid() {
     return "a-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   }
@@ -43,67 +153,96 @@
     return { frequency, principle, tuning_key };
   }
 
-  function practiceSteps(drop) {
-    if (!drop) return [];
-    const objects = drop.practice_steps;
-    if (Array.isArray(objects) && objects.length) {
-      return objects
-        .map((s) => {
-          if (typeof s === "string") return s.trim();
-          if (!s || typeof s !== "object") return "";
-          const title = String(s.title || "").trim();
-          const text = String(s.instruction || s.text || s.body || "").trim();
-          if (title && text && title !== text && !/^\d+$/.test(title)) return title + " — " + text;
-          return text || title;
-        })
-        .filter(Boolean);
-    }
-    const list = drop.universal_practice;
-    if (Array.isArray(list) && list.length) {
-      return list
-        .map((s) => {
-          if (typeof s === "string") return s.trim();
-          if (!s || typeof s !== "object") return "";
-          return String(s.instruction || s.text || s.title || s.body || "").trim();
-        })
-        .filter(Boolean);
-    }
-    return [];
+  function isPro() {
+    return !!(window.MC && window.MC.tier && window.MC.tier.level >= 5);
   }
 
-  function actionSteps(action) {
-    if (action && Array.isArray(action.steps) && action.steps.length) {
-      return action.steps.map((s) => String(s || "").trim()).filter(Boolean);
-    }
-    const body = String((action && action.body) || "").trim();
-    return body ? body.split("\n").map((s) => s.trim()).filter(Boolean) : [];
+  function openUpgrade() {
+    if (typeof showUpgradeModal === "function") showUpgradeModal();
+  }
+
+  function fill(text, triad) {
+    const t = triad || {};
+    const map = {
+      "{frequency}": t.frequency || "this frequency",
+      "{principle}": t.principle || "this principle",
+      "{key}": t.tuning_key || "today’s Key",
+    };
+    let out = String(text || "");
+    Object.keys(map).forEach((token) => {
+      out = out.split(token).join(map[token]);
+    });
+    return out;
+  }
+
+  function walkById(id) {
+    return WALKS.filter((w) => w.id === id)[0] || null;
+  }
+
+  function defaultWalkState() {
+    return { templateId: null, node: "choose", path: null };
   }
 
   function hasFlow(store, flow) {
     return store.actions.some((a) => a.flow === flow);
   }
 
-  function addAction(flow, title, body, triad, steps) {
+  function addAction(flow, title, body, triad, extra) {
     const store = loadStore();
     if (hasFlow(store, flow)) return store;
-    store.actions.push({
+    const row = {
       id: uid(),
       flow,
       title,
       body: String(body || ""),
-      steps: Array.isArray(steps) ? steps.slice() : [],
       triad: triad || null,
       done: false,
       created_at: Date.now(),
-    });
+    };
+    if (extra && typeof extra === "object") {
+      Object.keys(extra).forEach((k) => {
+        row[k] = extra[k];
+      });
+    }
+    store.actions.push(row);
     saveStore(store);
     return store;
+  }
+
+  function mintActive(store, triad) {
+    if (!triad) return store;
+    const active = loadActive();
+    let next = store;
+    if (active[FLOW_WALK] && !hasFlow(next, FLOW_WALK)) {
+      next = addAction(FLOW_WALK, "Walk the Lucid Path", "", triad, { walk: defaultWalkState() });
+    }
+    if (active[FLOW_GRATITUDE] && !hasFlow(next, FLOW_GRATITUDE)) {
+      next = addAction(FLOW_GRATITUDE, "Gratitude", "", triad, {});
+    }
+    return next;
+  }
+
+  function setFlowActive(flow, on, triad, drop) {
+    const active = loadActive();
+    active[flow] = !!on;
+    saveActive(active);
+    const store = mintActive(loadStore(), triad);
+    paintAll(store, triad, drop);
   }
 
   function markDone(id) {
     const store = loadStore();
     store.actions.forEach((a) => {
       if (a.id === id) a.done = true;
+    });
+    saveStore(store);
+    return store;
+  }
+
+  function patchAction(id, fn) {
+    const store = loadStore();
+    store.actions.forEach((a) => {
+      if (a.id === id) fn(a);
     });
     saveStore(store);
     return store;
@@ -155,12 +294,164 @@
     mount.appendChild(box);
   }
 
-  function paintStepList(steps) {
-    const ol = el("ol", "ta-steps");
-    steps.forEach((step) => {
-      ol.appendChild(el("li", "", step));
+  function closeRow(store, triad, drop, extraBtns) {
+    const row = el("div", "ta-row");
+    (extraBtns || []).forEach((b) => row.appendChild(b));
+    const closeBtn = el("button", "ta-btn ta-btn-ghost", "Close");
+    closeBtn.type = "button";
+    closeBtn.addEventListener("click", () => {
+      openId = null;
+      paintAll(store, triad, drop);
     });
-    return ol;
+    row.appendChild(closeBtn);
+    return row;
+  }
+
+  function paintWalkChoose(card, action, triad, drop) {
+    card.appendChild(el("p", "ta-run-body", "Choose your Walk. Short lesson. Two forks. Same triad. Does not start a Tune."));
+    const list = el("div", "ta-walk-list");
+    WALKS.forEach((walk) => {
+      const pick = el("article", "ta-walk-pick");
+      pick.appendChild(el("h3", "", walk.title));
+      pick.appendChild(el("p", "", walk.blurb));
+      const btn = el("button", "ta-btn", "Start this Walk");
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        const next = patchAction(action.id, (a) => {
+          a.walk = { templateId: walk.id, node: "teach", path: null };
+          a.done = false;
+        });
+        paintAll(next, triad, drop);
+      });
+      pick.appendChild(btn);
+      list.appendChild(pick);
+    });
+    const pro = el("article", "ta-walk-pick ta-walk-pro");
+    pro.appendChild(el("h3", "", "Personalized Walk"));
+    pro.appendChild(
+      el(
+        "p",
+        "",
+        isPro()
+          ? "Pro intelligence will write an enhanced walk from today’s triad. Templates are live now."
+          : "Pro writes a personalized walk from today’s triad. Free keeps these templates.",
+      ),
+    );
+    const proBtn = el("button", isPro() ? "ta-btn ta-btn-ghost" : "ta-btn", isPro() ? "Coming next" : "Upgrade");
+    proBtn.type = "button";
+    if (isPro()) {
+      proBtn.disabled = true;
+    } else {
+      proBtn.addEventListener("click", openUpgrade);
+    }
+    pro.appendChild(proBtn);
+    list.appendChild(pro);
+    card.appendChild(list);
+    card.appendChild(closeRow(loadStore(), triad, drop, []));
+  }
+
+  function paintWalkLesson(card, action, triad, drop, store) {
+    const walk = walkById(action.walk && action.walk.templateId);
+    if (!walk) {
+      paintWalkChoose(card, action, triad, drop);
+      return;
+    }
+    const node = (action.walk && action.walk.node) || "teach";
+    card.appendChild(el("p", "ta-card-meta", walk.title));
+    if (node === "teach") {
+      card.appendChild(el("p", "ta-run-body", fill(walk.teach, triad)));
+      const nextBtn = el("button", "ta-btn", "Continue");
+      nextBtn.type = "button";
+      nextBtn.addEventListener("click", () => {
+        const next = patchAction(action.id, (a) => {
+          a.walk = a.walk || defaultWalkState();
+          a.walk.node = "choice";
+        });
+        paintAll(next, triad, drop);
+      });
+      card.appendChild(closeRow(store, triad, drop, [nextBtn]));
+      return;
+    }
+    if (node === "choice") {
+      card.appendChild(el("p", "ta-run-body", fill(walk.prompt, triad)));
+      const choices = el("div", "ta-choice-list");
+      (walk.options || []).forEach((opt) => {
+        const btn = el("button", "ta-btn ta-btn-ghost ta-choice", opt.label);
+        btn.type = "button";
+        btn.addEventListener("click", () => {
+          const next = patchAction(action.id, (a) => {
+            a.walk = a.walk || defaultWalkState();
+            a.walk.path = opt.id;
+            a.walk.node = "landing";
+          });
+          paintAll(next, triad, drop);
+        });
+        choices.appendChild(btn);
+      });
+      card.appendChild(choices);
+      card.appendChild(closeRow(store, triad, drop, []));
+      return;
+    }
+    const picked = (walk.options || []).filter((o) => o.id === (action.walk && action.walk.path))[0];
+    if (node === "landing") {
+      if (picked) card.appendChild(el("p", "ta-run-body", fill(picked.landing, triad)));
+      const nextBtn = el("button", "ta-btn", "Close the Walk");
+      nextBtn.type = "button";
+      nextBtn.addEventListener("click", () => {
+        const next = patchAction(action.id, (a) => {
+          a.walk = a.walk || defaultWalkState();
+          a.walk.node = "close";
+        });
+        paintAll(next, triad, drop);
+      });
+      card.appendChild(closeRow(store, triad, drop, [nextBtn]));
+      return;
+    }
+    card.appendChild(el("p", "ta-run-body", fill(walk.close, triad)));
+    if (triad && triad.tuning_key) card.appendChild(el("p", "ta-run-key", triad.tuning_key));
+    const doneBtn = el("button", "ta-btn", "Mark done");
+    doneBtn.type = "button";
+    doneBtn.addEventListener("click", () => {
+      paintAll(markDone(action.id), triad, drop);
+    });
+    const again = el("button", "ta-btn ta-btn-ghost", "Choose another Walk");
+    again.type = "button";
+    again.addEventListener("click", () => {
+      const next = patchAction(action.id, (a) => {
+        a.walk = defaultWalkState();
+        a.done = false;
+      });
+      paintAll(next, triad, drop);
+    });
+    card.appendChild(closeRow(store, triad, drop, action.done ? [again] : [doneBtn, again]));
+  }
+
+  function paintGratitudeRun(card, action, triad, drop, store) {
+    card.appendChild(el("p", "ta-run-body", "Write one gratitude under today’s triad. Sit with the note."));
+    const note = el("textarea", "ta-note");
+    note.maxLength = 2000;
+    note.placeholder = "What are you grateful for, under this Key?";
+    note.value = action.body || "";
+    card.appendChild(note);
+    const extra = [];
+    if (!action.done) {
+      const saveBtn = el("button", "ta-btn", "Mark done");
+      saveBtn.type = "button";
+      saveBtn.addEventListener("click", () => {
+        const body = String(note.value || "").trim();
+        if (!body) {
+          note.focus();
+          return;
+        }
+        const next = patchAction(action.id, (a) => {
+          a.body = body;
+          a.done = true;
+        });
+        paintAll(next, triad, drop);
+      });
+      extra.push(saveBtn);
+    }
+    card.appendChild(closeRow(store, triad, drop, extra));
   }
 
   function paintActions(store, triad, drop) {
@@ -169,7 +460,7 @@
     root.replaceChildren();
     if (!store.actions.length) {
       root.appendChild(
-        el("div", "ta-empty", "Nothing to run today. Create from Flows — then come back here to run it."),
+        el("div", "ta-empty", "Nothing to run today. Turn on a Flow — then come back here to run it."),
       );
       return;
     }
@@ -178,34 +469,31 @@
       const open = openId === action.id;
       const card = el("article", "ta-card" + (action.done ? " is-done" : "") + (open ? " is-open" : ""));
       card.appendChild(el("h2", "", action.title || "Action"));
-      card.appendChild(el("p", "ta-card-meta", action.done ? "Done" : open ? "Running" : "Ready to run"));
+      const meta = action.done ? "Done" : open ? "Running" : action.flow === FLOW_WALK ? "Ready — Choose your Walk" : "Ready to run";
+      card.appendChild(el("p", "ta-card-meta", meta));
       if (open) {
-        if (action.triad && action.triad.tuning_key) {
+        if (action.triad && action.triad.tuning_key && action.flow !== FLOW_WALK) {
           card.appendChild(el("p", "ta-run-key", action.triad.tuning_key));
         }
-        const steps = actionSteps(action);
-        if (action.flow === FLOW_PRACTICE && steps.length) {
-          card.appendChild(paintStepList(steps));
-        } else if (action.body) {
-          card.appendChild(el("p", "ta-run-body", action.body));
+        if (action.flow === FLOW_WALK) {
+          const walk = action.walk || defaultWalkState();
+          if (!walk.templateId) paintWalkChoose(card, action, triad, drop);
+          else paintWalkLesson(card, action, triad, drop, store);
+        } else if (action.flow === FLOW_GRATITUDE) {
+          paintGratitudeRun(card, action, triad, drop, store);
+        } else {
+          if (action.body) card.appendChild(el("p", "ta-run-body", action.body));
+          const extra = [];
+          if (!action.done) {
+            const doneBtn = el("button", "ta-btn", "Mark done");
+            doneBtn.type = "button";
+            doneBtn.addEventListener("click", () => {
+              paintAll(markDone(action.id), triad, drop);
+            });
+            extra.push(doneBtn);
+          }
+          card.appendChild(closeRow(store, triad, drop, extra));
         }
-        const row = el("div", "ta-row");
-        if (!action.done) {
-          const doneBtn = el("button", "ta-btn", "Mark done");
-          doneBtn.type = "button";
-          doneBtn.addEventListener("click", () => {
-            paintAll(markDone(action.id), triad, drop);
-          });
-          row.appendChild(doneBtn);
-        }
-        const closeBtn = el("button", "ta-btn ta-btn-ghost", "Close");
-        closeBtn.type = "button";
-        closeBtn.addEventListener("click", () => {
-          openId = null;
-          paintAll(store, triad, drop);
-        });
-        row.appendChild(closeBtn);
-        card.appendChild(row);
       } else {
         const runBtn = el("button", "ta-btn", action.done ? "Read again" : "Run");
         runBtn.type = "button";
@@ -220,71 +508,55 @@
     root.appendChild(list);
   }
 
+  function paintFlowCard(list, spec, store, triad, drop) {
+    const active = loadActive();
+    const on = !!active[spec.id];
+    const card = el("article", "ta-card" + (on ? " is-active" : ""));
+    card.appendChild(el("h2", "", spec.title));
+    card.appendChild(el("p", "", spec.blurb));
+    const status = on
+      ? triad
+        ? "Active — Action is on today’s board."
+        : "Active — waiting on today’s triad to mint."
+      : "Off — no Action from this Flow today.";
+    card.appendChild(el("p", "ta-card-meta", status));
+    const btn = el("button", on ? "ta-btn ta-btn-ghost" : "ta-btn", on ? "Turn off" : "Turn on");
+    btn.type = "button";
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.addEventListener("click", () => {
+      setFlowActive(spec.id, !on, triad, drop);
+    });
+    card.appendChild(btn);
+    list.appendChild(card);
+  }
+
   function paintFlows(store, triad, drop) {
     const root = document.getElementById("ta-flows-list");
     if (!root) return;
     root.replaceChildren();
     const list = el("div", "ta-list");
-    const steps = practiceSteps(drop);
-
-    const practiceCard = el("article", "ta-card");
-    practiceCard.appendChild(el("h2", "", "Today’s practice"));
-    practiceCard.appendChild(
-      el("p", "", "Create a daily Action from the Field practice, bound to today’s triad. Does not start a Tune."),
+    paintFlowCard(
+      list,
+      {
+        id: FLOW_WALK,
+        title: "Walk the Lucid Path",
+        blurb: "When this is on, today’s triad mints a Walk Action. Run it to Choose your Walk — a short forked lesson. Does not start a Tune.",
+      },
+      store,
+      triad,
+      drop,
     );
-    if (steps.length) {
-      practiceCard.appendChild(paintStepList(steps));
-    } else {
-      practiceCard.appendChild(el("p", "ta-card-meta", "Practice fills from today’s Drop when the triad is in."));
-    }
-    const practiceExists = hasFlow(store, FLOW_PRACTICE);
-    const practiceBtn = el("button", "ta-btn", practiceExists ? "Already on Actions" : "Create Action");
-    practiceBtn.type = "button";
-    practiceBtn.disabled = practiceExists || !triad;
-    practiceBtn.addEventListener("click", () => {
-      if (!triad || hasFlow(loadStore(), FLOW_PRACTICE)) return;
-      const nextSteps = practiceSteps(drop);
-      const body = nextSteps.join("\n") || "Run today’s practice under this triad.";
-      openId = null;
-      paintAll(addAction(FLOW_PRACTICE, "Today’s practice", body, triad, nextSteps), triad, drop);
-      showTab("actions", true);
-    });
-    practiceCard.appendChild(practiceBtn);
-    list.appendChild(practiceCard);
-
-    const gratitudeCard = el("article", "ta-card");
-    gratitudeCard.appendChild(el("h2", "", "Gratitude"));
-    gratitudeCard.appendChild(
-      el("p", "", "Write one gratitude under today’s triad. Creating it puts it on Actions to run."),
+    paintFlowCard(
+      list,
+      {
+        id: FLOW_GRATITUDE,
+        title: "Gratitude",
+        blurb: "When this is on, today’s triad mints a Gratitude Action. Write the note when you run it.",
+      },
+      store,
+      triad,
+      drop,
     );
-    const note = el("textarea", "ta-note");
-    note.id = "ta-gratitude-note";
-    note.maxLength = 2000;
-    note.placeholder = "What are you grateful for, under this Key?";
-    if (hasFlow(store, FLOW_GRATITUDE)) {
-      const existing = store.actions.find((a) => a.flow === FLOW_GRATITUDE);
-      if (existing && existing.body) note.value = existing.body;
-      note.disabled = true;
-    }
-    gratitudeCard.appendChild(note);
-    const gratitudeExists = hasFlow(store, FLOW_GRATITUDE);
-    const gratitudeBtn = el("button", "ta-btn", gratitudeExists ? "Already on Actions" : "Create Action");
-    gratitudeBtn.type = "button";
-    gratitudeBtn.disabled = gratitudeExists || !triad;
-    gratitudeBtn.addEventListener("click", () => {
-      if (!triad || hasFlow(loadStore(), FLOW_GRATITUDE)) return;
-      const body = String(note.value || "").trim();
-      if (!body) {
-        note.focus();
-        return;
-      }
-      openId = null;
-      paintAll(addAction(FLOW_GRATITUDE, "Gratitude", body, triad, [body]), triad, drop);
-      showTab("actions", true);
-    });
-    gratitudeCard.appendChild(gratitudeBtn);
-    list.appendChild(gratitudeCard);
-
     root.appendChild(list);
   }
 
@@ -298,9 +570,6 @@
   }
 
   async function loadTunerAction() {
-    const store = loadStore();
-    const start = tabFromUrl() || (store.actions.length ? "actions" : "flows");
-    showTab(start, false);
     let drop = null;
     if (typeof _tfFetchLatestDropTuning === "function") {
       try {
@@ -309,7 +578,11 @@
         drop = null;
       }
     }
-    paintAll(store, triadOf(drop), drop);
+    const triad = triadOf(drop);
+    const store = mintActive(loadStore(), triad);
+    const start = tabFromUrl() || (store.actions.length ? "actions" : "flows");
+    showTab(start, false);
+    paintAll(store, triad, drop);
   }
 
   window.loadTunerAction = loadTunerAction;

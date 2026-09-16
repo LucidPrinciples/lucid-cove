@@ -186,6 +186,45 @@
 .ta-card.is-open {
   border-color: color-mix(in srgb, var(--freq-primary, #5ce1e6) 45%, var(--border, #2a2a3a));
 }
+.ta-card.is-active {
+  border-left-color: var(--freq-primary, #5ce1e6);
+}
+.ta-walk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin: 0 0 0.75rem;
+}
+.ta-walk-pick {
+  background: var(--surface, #12121a);
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 8px;
+  padding: 0.75rem 0.85rem;
+}
+.ta-walk-pick h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+.ta-walk-pick p {
+  margin: 0 0 0.55rem;
+  font-size: 0.76rem;
+  color: var(--dim, #8b8ba0);
+  line-height: 1.4;
+}
+.ta-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+}
+.ta-choice {
+  text-align: left;
+  width: 100%;
+}
+.ta-walk-pro {
+  opacity: 0.92;
+}
 #pane-action {
   min-height: 0;
   overflow: visible;
