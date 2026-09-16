@@ -362,11 +362,17 @@ def test_tuner_action_is_actions_and_flows_only():
     assert "lt-tuner-daily-actions-v1" in js
     assert "FLOW_PRACTICE" in js
     assert "FLOW_GRATITUDE" in js
+    assert "function practiceSteps" in js
+    assert "Ready to run" in js
+    assert '"Run"' in js or "\"Run\"" in js
+    assert "Read again" in js
+    assert "ta-steps" in js
     assert "_tfFetchLatestDropTuning" in js
     assert "tuning_key" in js
     assert "textContent" in js
     assert "innerHTML" not in js
     assert ".ta-tab" in css
+    assert ".ta-steps" in css
     assert "/static/tuner-app/action.js" in html
     assert "/static/tuner-app/action.css" in html
     css_house = (SHELL / "house.css").read_text()
