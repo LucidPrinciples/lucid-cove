@@ -358,21 +358,27 @@ def test_tuner_action_is_actions_and_flows_only():
     assert "loadTuneFlow" not in js
     assert 'lchGoto("/tune")' not in js
     assert "Does not start a Tune" in js
-    assert "Flows create" in html
+    assert "Flows you turn on mint" in html
     assert "lt-tuner-daily-actions-v1" in js
-    assert "FLOW_PRACTICE" in js
+    assert "lt-tuner-flow-active-v1" in js
+    assert "FLOW_WALK" in js
+    assert "walk-lucid-path" in js
+    assert "Choose your Walk" in js
     assert "FLOW_GRATITUDE" in js
-    assert "function practiceSteps" in js
+    assert "todays-practice" not in js
+    assert "Today’s practice" not in js
     assert "Ready to run" in js
     assert '"Run"' in js or "\"Run\"" in js
     assert "Read again" in js
-    assert "ta-steps" in js
+    assert "Turn on" in js
+    assert "Personalized Walk" in js
     assert "_tfFetchLatestDropTuning" in js
     assert "tuning_key" in js
     assert "textContent" in js
     assert "innerHTML" not in js
     assert ".ta-tab" in css
-    assert ".ta-steps" in css
+    assert ".ta-walk-pick" in css
+    assert ".ta-choice-list" in css
     assert "/static/tuner-app/action.js" in html
     assert "/static/tuner-app/action.css" in html
     css_house = (SHELL / "house.css").read_text()
