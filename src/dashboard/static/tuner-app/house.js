@@ -49,7 +49,7 @@
     if (panes.observer) panes.observer.hidden = route.area !== "observer";
     applyChrome();
 
-    document.querySelectorAll(".top-nav a").forEach((a) => {
+    document.querySelectorAll(".top-nav a, .board-switch a").forEach((a) => {
       const href = a.getAttribute("href") || "";
       let on = false;
       if (route.area === "team") on = href === "/";
