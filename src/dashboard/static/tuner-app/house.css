@@ -37,7 +37,8 @@ body.house .top {
 #pane-team,
 #pane-tuner,
 #pane-observer,
-#pane-app {
+#pane-app,
+#pane-action {
   min-height: 0;
   overflow: visible;
 }

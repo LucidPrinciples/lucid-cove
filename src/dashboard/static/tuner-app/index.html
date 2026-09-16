@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/static/css/tune-flow.css" />
   <link rel="stylesheet" href="/static/tuner-app/tuner-mount.css" />
   <link rel="stylesheet" href="/static/tuner-app/house.css" />
+  <link rel="stylesheet" href="/static/tuner-app/action.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
@@ -29,6 +30,7 @@
       </a>
       <a href="/tune" data-nav="tune">Tune</a>
       <a href="/playlists" data-nav="playlists">Playlists</a>
+      <a href="/action" data-nav="action">Action</a>
     </nav>
     <div class="top-end">
       <button type="button" class="top-icon" id="help-btn" title="Help" aria-label="Help">
@@ -160,6 +162,26 @@
               <p class="op-deeper-text">Playlists to listen. Tune when you want a session. Go Deeper when you want the why. Help stays the practical doorway once a Cove is in the picture.</p>
             </div>
           </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="pane-action" class="house-pane" hidden>
+      <main class="ta-main">
+        <header class="ta-header">
+          <h1>Action</h1>
+          <p class="ta-sub">Flows create. Actions run. Bound to today’s Field triad. Tune stays on Tune.</p>
+        </header>
+        <div id="ta-triad-chrome"></div>
+        <div class="ta-tabs" role="tablist" aria-label="Action">
+          <button type="button" class="ta-tab" data-tab="actions" role="tab" aria-selected="false">Actions</button>
+          <button type="button" class="ta-tab" data-tab="flows" role="tab" aria-selected="false">Flows</button>
+        </div>
+        <section id="panel-actions" class="ta-panel" hidden>
+          <div id="ta-actions-list"></div>
+        </section>
+        <section id="panel-flows" class="ta-panel" hidden>
+          <div id="ta-flows-list"></div>
         </section>
       </main>
     </div>
@@ -479,6 +501,7 @@
   <script src="/static/js/tuning-panel.js"></script>
   <script src="/static/js/playlists.js"></script>
   <script src="/static/js/tune-flow.js"></script>
+  <script src="/static/tuner-app/action.js"></script>
   <script src="/static/tuner-app/tuner.js"></script>
   <script src="/static/tuner-app/house.js"></script>
   <script src="/static/tuner-app/free-tuner.js"></script>
