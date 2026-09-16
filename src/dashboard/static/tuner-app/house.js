@@ -4,6 +4,7 @@
     team: document.getElementById("pane-team"),
     tuner: document.getElementById("pane-tuner"),
     work: document.getElementById("pane-work"),
+    action: document.getElementById("pane-action"),
     observer: document.getElementById("pane-observer"),
   };
 
@@ -13,6 +14,7 @@
     if (path === "/tune") return { area: "tuner", which: "tune" };
     if (path === "/playlists") return { area: "tuner", which: "playlists" };
     if (path === "/deeper") return { area: "tuner", which: "deeper" };
+    if (path === "/action") return { area: "action" };
     return { area: "app" };
   }
 
@@ -22,6 +24,7 @@
         ? "Action Board — Lucid Cove on Hermes"
         : "Lucid Principles — Attention";
     }
+    if (route.area === "action") return "Action — Lucid Tuner";
     if (route.area === "tuner") {
       if (route.which === "playlists") return "Playlists — Lucid Tuner";
       if (route.which === "deeper") return "Go Deeper — Lucid Tuner";
@@ -42,6 +45,7 @@
     if (panes.team) panes.team.hidden = route.area !== "team";
     if (panes.tuner) panes.tuner.hidden = route.area !== "tuner";
     if (panes.work) panes.work.hidden = route.area !== "work";
+    if (panes.action) panes.action.hidden = route.area !== "action";
     if (panes.observer) panes.observer.hidden = route.area !== "observer";
     applyChrome();
 
@@ -50,6 +54,7 @@
       let on = false;
       if (route.area === "team") on = href === "/";
       else if (route.area === "app") on = href === "/app";
+      else if (route.area === "action") on = href === "/action";
       else if (route.area === "tuner") on = href === pathname;
       a.classList.toggle("on", on);
     });
@@ -61,6 +66,9 @@
 
     if (route.area === "work" && typeof showBoard === "function") {
       showBoard(route.action, false);
+    }
+    if (route.area === "action" && typeof window.loadTunerAction === "function") {
+      window.loadTunerAction();
     }
     if (route.area === "tuner" && typeof window.showPanel === "function") {
       window.showPanel(route.which, { load: true });
@@ -88,6 +96,7 @@
       path === "/tune" ||
       path === "/playlists" ||
       path === "/deeper" ||
+      path === "/action" ||
       path === "/tools" ||
       path.startsWith("/tools/") ||
       path.startsWith("/observer/")

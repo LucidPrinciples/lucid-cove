@@ -802,11 +802,13 @@ def create_app() -> FastAPI:
                 for rel in (
                     "/static/tuner-app/chrome.css",
                     "/static/tuner-app/house.css",
+                    "/static/tuner-app/action.css",
                     "/static/tuner-app/free-tuner.css",
                     "/static/tuner-app/tuner.css",
                     "/static/tuner-app/tuner-mount.css",
                     "/static/tuner-app/work.css",
                     "/static/tuner-app/house.js",
+                    "/static/tuner-app/action.js",
                     "/static/tuner-app/adapter.js",
                     "/static/tuner-app/tuner.js",
                     "/static/tuner-app/free-tuner.js",
@@ -851,7 +853,7 @@ def create_app() -> FastAPI:
             return HTMLResponse("Not Found", status_code=404)
         return await dashboard(request)
 
-    for _path in ("/app", "/tune", "/playlists", "/deeper"):
+    for _path in ("/app", "/tune", "/playlists", "/deeper", "/action"):
         app_instance.add_api_route(
             _path,
             _public_tuner_paths,

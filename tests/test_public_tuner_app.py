@@ -36,6 +36,9 @@ def test_tuner_app_folder_is_habit_floor_not_mc():
     assert "Mission Control" not in html
     assert 'id="pane-team"' not in html
     assert 'id="pane-work"' not in html
+    assert 'id="pane-action"' in html
+    assert 'href="/action"' in html
+    assert 'data-nav="action"' in html
     assert "LUCID_TUNER_APP" not in html
     assert "/static/js/tune-flow.js" in html
     assert "/static/js/playlists.js" in html
@@ -57,6 +60,9 @@ def test_house_js_stays_on_habit_paths():
     assert "app.lucidtuner.com" in js
     assert r"^[A-Za-z0-9_-]{4,40}$" in js
     assert 'return { area: "team" }' not in js
+    assert 'path === "/action"' in js
+    assert 'area: "action"' in js
+    assert "loadTunerAction" in js
 
 
 def test_adapter_uses_hub_presence_not_new_wizard():
@@ -74,6 +80,7 @@ def test_app_py_host_gates_tuner_shell_and_paths():
     assert '"/tune"' in src
     assert '"/playlists"' in src
     assert '"/deeper"' in src
+    assert '"/action"' in src
 
 
 def test_copied_assets_exist():
@@ -89,6 +96,8 @@ def test_copied_assets_exist():
         "tuner.css",
         "tuner-mount.css",
         "work.css",
+        "action.js",
+        "action.css",
     ):
         assert (SHELL / name).is_file(), name
 
@@ -322,3 +331,33 @@ def test_tune_detail_module_mounts_player_like_drop():
     assert "function _tfPracticeStep" in flow
     assert "_tfPracticeStepHTML" in flow
     assert 'title: numbered ? \'\' : title' in flow or 'title: numbered ? "" : title' in flow
+
+
+def test_tuner_action_is_actions_and_flows_only():
+    html = (SHELL / "index.html").read_text()
+    js = (SHELL / "action.js").read_text()
+    css = (SHELL / "action.css").read_text()
+    assert 'data-tab="actions"' in html
+    assert 'data-tab="flows"' in html
+    assert 'data-tab="links"' not in html
+    assert 'data-tab="tools"' not in html
+    assert 'id="ab-links-list"' not in html
+    assert 'id="ab-tools-list"' not in html
+    assert "Action Board — Lucid Cove on Hermes" not in html
+    assert "Jules" not in html
+    assert "Tune Now" not in js
+    assert "loadTuneFlow" not in js
+    assert 'lchGoto("/tune")' not in js
+    assert "Does not start a Tune" in js
+    assert "Flows create" in html
+    assert "lt-tuner-daily-actions-v1" in js
+    assert "FLOW_PRACTICE" in js
+    assert "FLOW_GRATITUDE" in js
+    assert "_tfFetchLatestDropTuning" in js
+    assert "tuning_key" in js
+    assert "textContent" in js
+    assert "innerHTML" not in js
+    assert ".ta-tab" in css
+    assert "/static/tuner-app/action.js" in html
+    assert "/static/tuner-app/action.css" in html
+

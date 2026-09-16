@@ -1,0 +1,173 @@
+/* Public Tuner Action — Actions + Flows only. Not house Links/Tools. */
+.ta-main {
+  padding: 1.25rem 1.25rem 2.5rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+.ta-header h1 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+.ta-sub {
+  margin: 0 0 1rem;
+  font-size: 0.78rem;
+  color: var(--dim, #8b8ba0);
+  line-height: 1.45;
+}
+.ta-triad {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid var(--border, #2a2a3a);
+  border-left: 3px solid var(--freq-primary, #5ce1e6);
+  background: var(--card, #161622);
+}
+.ta-triad-kicker {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim, #8b8ba0);
+  margin: 0 0 0.35rem;
+}
+.ta-triad-freq {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--freq-primary, #5ce1e6);
+}
+.ta-triad-principle {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text, #e8e8f0);
+}
+.ta-triad-key {
+  margin: 0.45rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text, #e8e8f0);
+}
+.ta-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 0 8px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border, #2a2a3a);
+}
+.ta-tab {
+  font-family: inherit;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--border, #2a2a3a);
+  color: var(--dim, #8b8ba0);
+}
+.ta-tab:hover {
+  border-color: var(--freq-primary, #5ce1e6);
+  color: var(--text, #e8e8f0);
+}
+.ta-tab.active {
+  background: var(--freq-primary, #5ce1e6);
+  color: #0a0a0f;
+  border-color: var(--freq-primary, #5ce1e6);
+}
+.ta-panel[hidden] {
+  display: none !important;
+}
+.ta-empty {
+  color: var(--dim, #8b8ba0);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 0.5rem 0 1rem;
+}
+.ta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.ta-card {
+  background: var(--card, #161622);
+  border: 1px solid var(--border, #2a2a3a);
+  border-radius: 10px;
+  padding: 1rem 1.05rem;
+  border-left: 3px solid var(--freq-primary, #5ce1e6);
+}
+.ta-card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+.ta-card p {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  color: var(--dim, #8b8ba0);
+  line-height: 1.4;
+}
+.ta-card p:last-child {
+  margin-bottom: 0;
+}
+.ta-note {
+  width: 100%;
+  min-height: 72px;
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--border, #2a2a3a);
+  background: var(--surface, #12121a);
+  color: var(--text, #e8e8f0);
+  font: inherit;
+  font-size: 0.82rem;
+  resize: vertical;
+}
+.ta-note:focus {
+  outline: none;
+  border-color: var(--freq-primary, #5ce1e6);
+}
+.ta-btn {
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--freq-primary, #5ce1e6);
+  background: var(--freq-primary, #5ce1e6);
+  color: #0a0a0f;
+  cursor: pointer;
+}
+.ta-btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ta-btn-ghost {
+  background: transparent;
+  color: var(--freq-primary, #5ce1e6);
+}
+.ta-card-meta {
+  font-size: 0.68rem;
+  color: var(--dim, #8b8ba0);
+  margin: 0 0 0.5rem;
+}
+.ta-card.is-done {
+  opacity: 0.72;
+}
+.ta-run-body {
+  white-space: pre-wrap;
+  font-size: 0.82rem;
+  color: var(--text, #e8e8f0);
+  line-height: 1.45;
+  margin: 0 0 0.65rem;
+}
+.ta-run-key {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  margin: 0 0 0.65rem;
+  color: var(--text, #e8e8f0);
+}
+#pane-action {
+  min-height: 0;
+  overflow: visible;
+}
