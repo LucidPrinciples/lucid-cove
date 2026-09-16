@@ -237,12 +237,38 @@ body.house .tf-complete-principle {
   border: 0;
 }
 
-/* Free habit chrome: same house header, Team / Attention / Action off until connect. */
+/* Free habit chrome: Team / Attention stay house-only. Action sits in top-end like overlay. */
 body.house-free .top-nav a[href="/"] {
   display: none;
 }
-body.house-free .board-switch {
+body.house-free .board-switch a[href="/work"] {
   display: none;
+}
+
+/* Phone / thin house: two rows so Action + Drop stay on the right. */
+@media (max-width: 800px) {
+  body.house .top {
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 0.5rem;
+    column-gap: 0.65rem;
+    padding: 0.7rem 0.85rem;
+  }
+  body.house .top-nav {
+    flex: 1 0 100%;
+    width: 100%;
+    min-width: 0;
+  }
+  body.house .top-end {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+    margin-left: auto;
+    min-width: 0;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    column-gap: 0.5rem;
+  }
 }
 
 .help-panel {
