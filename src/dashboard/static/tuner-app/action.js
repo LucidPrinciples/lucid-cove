@@ -3,6 +3,7 @@
   const STORE = "lt-tuner-daily-actions-v1";
   const FLOW_PRACTICE = "todays-practice";
   const FLOW_GRATITUDE = "gratitude";
+  let openId = null;
 
   function localDay() {
     if (typeof _tfTodayStr === "function") return _tfTodayStr();
@@ -42,27 +43,47 @@
     return { frequency, principle, tuning_key };
   }
 
-  function practiceText(drop) {
-    if (!drop) return "";
-    const steps = drop.universal_practice;
-    if (Array.isArray(steps) && steps.length) {
-      return steps
+  function practiceSteps(drop) {
+    if (!drop) return [];
+    const objects = drop.practice_steps;
+    if (Array.isArray(objects) && objects.length) {
+      return objects
         .map((s) => {
           if (typeof s === "string") return s.trim();
           if (!s || typeof s !== "object") return "";
-          return String(s.text || s.title || s.body || "").trim();
+          const title = String(s.title || "").trim();
+          const text = String(s.instruction || s.text || s.body || "").trim();
+          if (title && text && title !== text && !/^\d+$/.test(title)) return title + " — " + text;
+          return text || title;
         })
-        .filter(Boolean)
-        .join("\n");
+        .filter(Boolean);
     }
-    return "";
+    const list = drop.universal_practice;
+    if (Array.isArray(list) && list.length) {
+      return list
+        .map((s) => {
+          if (typeof s === "string") return s.trim();
+          if (!s || typeof s !== "object") return "";
+          return String(s.instruction || s.text || s.title || s.body || "").trim();
+        })
+        .filter(Boolean);
+    }
+    return [];
+  }
+
+  function actionSteps(action) {
+    if (action && Array.isArray(action.steps) && action.steps.length) {
+      return action.steps.map((s) => String(s || "").trim()).filter(Boolean);
+    }
+    const body = String((action && action.body) || "").trim();
+    return body ? body.split("\n").map((s) => s.trim()).filter(Boolean) : [];
   }
 
   function hasFlow(store, flow) {
     return store.actions.some((a) => a.flow === flow);
   }
 
-  function addAction(flow, title, body, triad) {
+  function addAction(flow, title, body, triad, steps) {
     const store = loadStore();
     if (hasFlow(store, flow)) return store;
     store.actions.push({
@@ -70,6 +91,7 @@
       flow,
       title,
       body: String(body || ""),
+      steps: Array.isArray(steps) ? steps.slice() : [],
       triad: triad || null,
       done: false,
       created_at: Date.now(),
@@ -105,7 +127,7 @@
     const flows = document.getElementById("panel-flows");
     if (actions) actions.hidden = tab !== "actions";
     if (flows) flows.hidden = tab !== "flows";
-    if (push && typeof history !== "undefined" && typeof lchGoto === "function") {
+    if (push && typeof history !== "undefined") {
       const path = tab === "flows" ? "/action?tab=flows" : "/action";
       history.replaceState({ house: true }, "", path);
     }
@@ -133,35 +155,65 @@
     mount.appendChild(box);
   }
 
-  function paintActions(store) {
+  function paintStepList(steps) {
+    const ol = el("ol", "ta-steps");
+    steps.forEach((step) => {
+      ol.appendChild(el("li", "", step));
+    });
+    return ol;
+  }
+
+  function paintActions(store, triad, drop) {
     const root = document.getElementById("ta-actions-list");
     if (!root) return;
     root.replaceChildren();
     if (!store.actions.length) {
-      const empty = el("div", "ta-empty");
-      empty.appendChild(
-        document.createTextNode("Nothing to run today. Create from Flows — then come back here to run it."),
+      root.appendChild(
+        el("div", "ta-empty", "Nothing to run today. Create from Flows — then come back here to run it."),
       );
-      root.appendChild(empty);
       return;
     }
     const list = el("div", "ta-list");
     store.actions.forEach((action) => {
-      const card = el("article", "ta-card" + (action.done ? " is-done" : ""));
+      const open = openId === action.id;
+      const card = el("article", "ta-card" + (action.done ? " is-done" : "") + (open ? " is-open" : ""));
       card.appendChild(el("h2", "", action.title || "Action"));
-      const meta = action.done ? "Done" : "Ready to run";
-      card.appendChild(el("p", "ta-card-meta", meta));
-      if (action.triad && action.triad.tuning_key) {
-        card.appendChild(el("p", "ta-run-key", action.triad.tuning_key));
-      }
-      if (action.body) card.appendChild(el("p", "ta-run-body", action.body));
-      if (!action.done) {
-        const btn = el("button", "ta-btn", "Mark done");
-        btn.type = "button";
-        btn.addEventListener("click", () => {
-          paintAll(markDone(action.id), window._taTriad || null);
+      card.appendChild(el("p", "ta-card-meta", action.done ? "Done" : open ? "Running" : "Ready to run"));
+      if (open) {
+        if (action.triad && action.triad.tuning_key) {
+          card.appendChild(el("p", "ta-run-key", action.triad.tuning_key));
+        }
+        const steps = actionSteps(action);
+        if (action.flow === FLOW_PRACTICE && steps.length) {
+          card.appendChild(paintStepList(steps));
+        } else if (action.body) {
+          card.appendChild(el("p", "ta-run-body", action.body));
+        }
+        const row = el("div", "ta-row");
+        if (!action.done) {
+          const doneBtn = el("button", "ta-btn", "Mark done");
+          doneBtn.type = "button";
+          doneBtn.addEventListener("click", () => {
+            paintAll(markDone(action.id), triad, drop);
+          });
+          row.appendChild(doneBtn);
+        }
+        const closeBtn = el("button", "ta-btn ta-btn-ghost", "Close");
+        closeBtn.type = "button";
+        closeBtn.addEventListener("click", () => {
+          openId = null;
+          paintAll(store, triad, drop);
         });
-        card.appendChild(btn);
+        row.appendChild(closeBtn);
+        card.appendChild(row);
+      } else {
+        const runBtn = el("button", "ta-btn", action.done ? "Read again" : "Run");
+        runBtn.type = "button";
+        runBtn.addEventListener("click", () => {
+          openId = action.id;
+          paintAll(store, triad, drop);
+        });
+        card.appendChild(runBtn);
       }
       list.appendChild(card);
     });
@@ -173,24 +225,28 @@
     if (!root) return;
     root.replaceChildren();
     const list = el("div", "ta-list");
+    const steps = practiceSteps(drop);
 
     const practiceCard = el("article", "ta-card");
     practiceCard.appendChild(el("h2", "", "Today’s practice"));
     practiceCard.appendChild(
-      el(
-        "p",
-        "",
-        "Create a daily Action from the Field practice, bound to today’s triad. Does not start a Tune.",
-      ),
+      el("p", "", "Create a daily Action from the Field practice, bound to today’s triad. Does not start a Tune."),
     );
+    if (steps.length) {
+      practiceCard.appendChild(paintStepList(steps));
+    } else {
+      practiceCard.appendChild(el("p", "ta-card-meta", "Practice fills from today’s Drop when the triad is in."));
+    }
     const practiceExists = hasFlow(store, FLOW_PRACTICE);
     const practiceBtn = el("button", "ta-btn", practiceExists ? "Already on Actions" : "Create Action");
     practiceBtn.type = "button";
     practiceBtn.disabled = practiceExists || !triad;
     practiceBtn.addEventListener("click", () => {
       if (!triad || hasFlow(loadStore(), FLOW_PRACTICE)) return;
-      const body = practiceText(drop) || "Run today’s practice under this triad.";
-      paintAll(addAction(FLOW_PRACTICE, "Today’s practice", body, triad), triad, drop);
+      const nextSteps = practiceSteps(drop);
+      const body = nextSteps.join("\n") || "Run today’s practice under this triad.";
+      openId = null;
+      paintAll(addAction(FLOW_PRACTICE, "Today’s practice", body, triad, nextSteps), triad, drop);
       showTab("actions", true);
     });
     practiceCard.appendChild(practiceBtn);
@@ -222,7 +278,8 @@
         note.focus();
         return;
       }
-      paintAll(addAction(FLOW_GRATITUDE, "Gratitude", body, triad), triad, drop);
+      openId = null;
+      paintAll(addAction(FLOW_GRATITUDE, "Gratitude", body, triad, [body]), triad, drop);
       showTab("actions", true);
     });
     gratitudeCard.appendChild(gratitudeBtn);
@@ -236,7 +293,7 @@
     window._taDrop = drop || null;
     const chrome = document.getElementById("ta-triad-chrome");
     if (chrome) paintTriad(chrome, triad);
-    paintActions(store);
+    paintActions(store, triad, drop || window._taDrop);
     paintFlows(store, triad, drop || window._taDrop);
   }
 
@@ -252,8 +309,7 @@
         drop = null;
       }
     }
-    const triad = triadOf(drop);
-    paintAll(store, triad, drop);
+    paintAll(store, triadOf(drop), drop);
   }
 
   window.loadTunerAction = loadTunerAction;

@@ -167,6 +167,25 @@
   margin: 0 0 0.65rem;
   color: var(--text, #e8e8f0);
 }
+.ta-steps {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+  color: var(--text, #e8e8f0);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.ta-steps li {
+  margin: 0 0 0.4rem;
+}
+.ta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+.ta-card.is-open {
+  border-color: color-mix(in srgb, var(--freq-primary, #5ce1e6) 45%, var(--border, #2a2a3a));
+}
 #pane-action {
   min-height: 0;
   overflow: visible;
