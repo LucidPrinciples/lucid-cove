@@ -67,6 +67,7 @@ def test_house_js_stays_on_habit_paths():
     assert r"^[A-Za-z0-9_-]{4,40}$" in js
     assert 'return { area: "team" }' not in js
     assert 'path === "/action"' in js
+    assert 'return { area: "action" }' in js
     assert "loadTunerAction" in js
     assert ".top-nav a, .board-switch a" in js
     assert "return { area: \"app\" }" in js
