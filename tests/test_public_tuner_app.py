@@ -394,5 +394,6 @@ def test_tuning_chrome_does_not_paint_alignment_label():
     assert "Alignment found." not in flow
     assert "ALIGNMENT</div>" not in flow
     assert "Tuning received." in flow
-    assert "alignEl.hidden = true" in panel
+    assert "alignEl.textContent = freq || ''" in panel
+    assert "alignEl.hidden = true" not in panel
 

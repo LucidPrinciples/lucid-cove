@@ -478,11 +478,12 @@ function otRenderTuning(data) {
     const dateEl = document.getElementById('otDate');
     if (dateEl) dateEl.textContent = formatDate(dateStr + 'T12:00:00', { weekday:'long', month:'long', day:'numeric', year:'numeric', hour: undefined, minute: undefined });
 
-    // Frequency eyebrow — triad is Frequency / Principle / Tuning Key (no ALIGNMENT label)
+    // Frequency — same pattern as Drop: name only, no ALIGNMENT
     const alignEl = document.getElementById('otAlignment');
     if (alignEl) {
-        alignEl.textContent = '';
-        alignEl.hidden = true;
+        alignEl.hidden = false;
+        alignEl.textContent = freq || '';
+        alignEl.style.color = freqColor;
     }
 
     // Frequency / Principle
