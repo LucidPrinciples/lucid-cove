@@ -567,6 +567,9 @@
     if (chrome) paintTriad(chrome, triad);
     paintActions(store, triad, drop || window._taDrop);
     paintFlows(store, triad, drop || window._taDrop);
+    if (typeof window.applyTunerFreqChrome === "function" && triad && triad.frequency) {
+      window.applyTunerFreqChrome(triad.frequency);
+    }
   }
 
   async function loadTunerAction() {

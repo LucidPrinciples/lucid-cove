@@ -84,7 +84,8 @@
     if (freqText) freqText.textContent = name;
     if (dropTitle) dropTitle.textContent = name;
     document.documentElement.setAttribute("data-frequency", name);
-    const c = colors || {};
+    const fromLp = typeof lpFreqColor === "function" ? lpFreqColor(name) : {};
+    const c = Object.assign({}, fromLp || {}, colors || {});
     if (c.primary) {
       document.documentElement.style.setProperty("--freq-primary", c.primary);
       document.documentElement.style.setProperty("--freq-secondary", c.secondary || c.primary);
@@ -92,12 +93,27 @@
       document.documentElement.style.setProperty("--daily-freq", c.primary);
     }
   }
+  window.applyTunerFreqChrome = applyDrop;
 
-  fetch("/api/tuning/today", { credentials: "same-origin" })
-    .then((r) => (r.ok ? r.json() : {}))
-    .then((d) => {
-      const pkg = (d && d.package) || {};
-      applyDrop(pkg.frequency || "Peace");
-    })
-    .catch(() => {});
+  async function bootFreqChrome() {
+    let freq = "";
+    let colors = null;
+    if (typeof _tfFetchLatestDropTuning === "function") {
+      try {
+        const drop = await _tfFetchLatestDropTuning();
+        if (drop && drop.frequency) freq = drop.frequency;
+      } catch (_) {}
+    }
+    if (!freq) {
+      try {
+        const r = await fetch("/api/tuning/today", { credentials: "same-origin" });
+        const d = r.ok ? await r.json() : {};
+        const pkg = (d && d.package) || {};
+        freq = pkg.frequency || "";
+        colors = pkg.frequency_colors || null;
+      } catch (_) {}
+    }
+    applyDrop(freq || "Peace", colors);
+  }
+  bootFreqChrome();
 })();
