@@ -80,6 +80,17 @@ def test_adapter_uses_hub_presence_not_new_wizard():
     assert "function loadTuneFlow" not in js
 
 
+def test_tuner_freq_chrome_follows_latest_tuning():
+    js = (SHELL / "tuner.js").read_text()
+    action = (SHELL / "action.js").read_text()
+    assert "lpFreqColor" in js
+    assert "applyTunerFreqChrome" in js
+    assert "_tfFetchLatestDropTuning" in js
+    assert "applyDrop(pkg.frequency || \"Peace\")" not in js
+    assert "applyTunerFreqChrome" in action
+    assert "triad.frequency" in action
+
+
 def test_app_py_host_gates_tuner_shell_and_paths():
     src = APP_PY.read_text()
     assert "is_public_tuner_host" in src
