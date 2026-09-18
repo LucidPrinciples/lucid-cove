@@ -14,7 +14,8 @@
     if (path === "/tune") return { area: "tuner", which: "tune" };
     if (path === "/playlists") return { area: "tuner", which: "playlists" };
     if (path === "/deeper") return { area: "tuner", which: "deeper" };
-    if (path === "/action") return { area: "action" };
+    // Public Action chrome is parked on main (feat/tuner-action). Old /action URLs go home.
+    if (path === "/action") return { area: "app" };
     return { area: "app" };
   }
 

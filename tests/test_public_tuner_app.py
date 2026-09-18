@@ -37,16 +37,14 @@ def test_tuner_app_folder_is_habit_floor_not_mc():
     assert 'id="pane-team"' not in html
     assert 'id="pane-work"' not in html
     assert 'id="pane-action"' in html
-    assert 'href="/action"' in html
-    assert 'data-nav="action"' in html
-    assert 'class="board-switch"' in html
-    assert 'aria-label="Action"' in html
+    assert 'data-nav="action"' not in html
+    assert 'class="board-switch"' not in html
     assert ">Attention<" not in html
     assert 'href="/work"' not in html
     nav = html[html.index('class="top-nav"') : html.index('class="top-end"')]
     assert 'href="/action"' not in nav
-    end = html[html.index('class="top-end"') : html.index("id=\"house-shell\"")]
-    assert 'href="/action"' in end
+    end = html[html.index('class="top-end"') : html.index('id="house-shell"')]
+    assert 'href="/action"' not in end
     assert "LUCID_TUNER_APP" not in html
     assert "/static/js/tune-flow.js" in html
     assert "/static/js/playlists.js" in html
@@ -69,9 +67,9 @@ def test_house_js_stays_on_habit_paths():
     assert r"^[A-Za-z0-9_-]{4,40}$" in js
     assert 'return { area: "team" }' not in js
     assert 'path === "/action"' in js
-    assert 'area: "action"' in js
     assert "loadTunerAction" in js
     assert ".top-nav a, .board-switch a" in js
+    assert "return { area: \"app\" }" in js
 
 
 def test_adapter_uses_hub_presence_not_new_wizard():
