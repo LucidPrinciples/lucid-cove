@@ -630,7 +630,7 @@ function _tfReceiveTuning() {
     const container = _tfContainer();
     const dots = container?.querySelector('.tf-quantum-dots');
     const text = container?.querySelector('.tf-quantum-text');
-    if (text) text.textContent = 'Alignment found.';
+    if (text) text.textContent = 'Tuning received.';
     if (dots) dots.textContent = '✦';
     setTimeout(() => _renderStep4(_tfContainer()), 600);
 }
@@ -1629,7 +1629,7 @@ async function _tfShowTuningDetail(s) {
             <div class="drop-header">
                 ${dayLabel ? `<div class="drop-tuning-day" style="color:${freqColor}80;">LT's ${ESC(dayLabel)} Consecutive Tuning</div>` : ''}
                 ${fullDate ? `<div class="drop-date" style="color:${freqColor}aa;">${ESC(fullDate)}</div>` : ''}
-                <div class="drop-alignment" style="color:${freqColor};">${ESC((freq || '').toUpperCase())} ALIGNMENT</div>
+                ${freq ? `<div class="drop-alignment" style="color:${freqColor};">${ESC((freq || '').toUpperCase())}</div>` : ''}
                 <div class="drop-principle" style="color:${freqColor};">${ESC(principle)}</div>
                 ${signal ? `<div class="drop-signal">${ESC(signal)} Signal</div>` : ''}
             </div>

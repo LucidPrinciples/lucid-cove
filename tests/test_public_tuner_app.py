@@ -386,3 +386,13 @@ def test_tuner_action_is_actions_and_flows_only():
     assert "body.house .top-end" in css_house
     assert "@media (max-width: 800px)" in css_house
 
+
+def test_tuning_chrome_does_not_paint_alignment_label():
+    panel = (STATIC / "js" / "tuning-panel.js").read_text()
+    flow = (STATIC / "js" / "tune-flow.js").read_text()
+    assert "freq + ' ALIGNMENT'" not in panel
+    assert "Alignment found." not in flow
+    assert "ALIGNMENT</div>" not in flow
+    assert "Tuning received." in flow
+    assert "alignEl.hidden = true" in panel
+
