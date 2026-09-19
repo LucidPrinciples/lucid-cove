@@ -984,13 +984,16 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
         sites_mount = ("\n      - app_sites:/sites"
                        "\n      - app_sites:/app/data/sites")
     # Local CPU voice (jules dictation + Piper TTS). faster-whisper downloads its STT
-    # model on first boot; voice_cache persists it across recreates. The browser reaches
-    # voice on this published port (same host as the app); the app's transcribe proxy
-    # reaches it in-network at http://{cid}-voice:8300.
+    # model on first boot; the cache at /root/.cache persists it across recreates.
+    # Default is a named voice_cache volume (zero-config). When storage.data_root is
+    # set, that cache is a bind at {data_root}/voice-cache so regenerate does not
+    # create an empty volume and refetch Hugging Face. storage.paths.voice_cache
+    # overrides the path (shared host models dir for more than one Cove on a box).
+    # The browser reaches voice on this published port (same host as the app); the
+    # app's transcribe proxy reaches it in-network at http://{cid}-voice:8300.
     # GPU voice variant (#206): when the host has a GPU, build the CUDA image with Qwen3-ASR
     # and pass the GPU through, so batch video transcription runs on THIS Cove's own repo
-    # container (retires the hand-built host pipecat). Models self-download into voice_cache
-    # on first use — no host model mount, stays replicable. CPU otherwise (Whisper/cloud).
+    # container (retires the hand-built host pipecat). CPU otherwise (Whisper/cloud).
     if voice_gpu:
         _v_dockerfile, _v_image, _v_asr = "Dockerfile.gpu", "lucid-cove-voice:gpu", "qwen"
         _v_asr_env = "\n      ASR_ENGINE: qwen"
@@ -1034,12 +1037,15 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
       # voice_common.publish_video_output / NC_HTML_ROOT.
       NC_HTML_ROOT: /var/www/html
     volumes:
-      - voice_cache:/root/.cache
+      - {_stg_src.get("voice_cache", "voice_cache")}:/root/.cache
       - {_stg_src["nextcloud_data"]}:/var/www/html
     ports:
       - "{bind}{voice_port}:8300"{svc_nets}
 """ if voice_local else "")
-    voice_volume = "\n  voice_cache:" if voice_local else ""
+    _voice_cache_src = _stg_src.get("voice_cache", "voice_cache")
+    voice_volume = (
+        "\n  voice_cache:" if voice_local and not str(_voice_cache_src).startswith("/")
+        else "")
     # App-side voice wiring: internal transcribe-proxy target + the published port the
     # browser uses to build the same-host voice URL when the Cove has no domain.
     voice_env = (f"\n      VOICE_INTERNAL_URL: http://{cid}-voice:8300"

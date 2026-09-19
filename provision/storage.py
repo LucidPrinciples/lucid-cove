@@ -11,9 +11,13 @@ Design contract honored here:
       {data_root}/nextcloud-data  -> nextcloud data volume
       {data_root}/app-data        -> app /app/data
   Postgres stays on the OS drive (Decision 1) unless `db_on_data_root: true`.
-  Redis + voice cache stay named (small / model-cache, not in the sublayout).
+  Redis stays named (small). Voice cache relocates with data_root because
+  Whisper / Qwen-ASR / Piper weights are multi-GB and must survive compose
+  regenerate — otherwise a new named volume refetches from Hugging Face.
 - Escape hatch: `storage.paths.<name>` overrides a single source path without
   touching the others (spec: "no per-thing path soup unless explicitly overridden").
+  Use `storage.paths.voice_cache` for a shared host models directory when more
+  than one Cove on the box should read the same weights.
 
 This module ONLY decides the compose volume SOURCES. Creating the dirs with the
 right uid/gid (NC www-data/33, app 1000) and the host-side drive detect are
@@ -31,6 +35,7 @@ _RELOCATABLE = {
     "nextcloud_data": ("nextcloud_data", "nextcloud-data"),
     "app_data": ("app_data", "app-data"),
     "postgres_data": ("postgres_data", "postgres-data"),
+    "voice_cache": ("voice_cache", "voice-cache"),
 }
 
 

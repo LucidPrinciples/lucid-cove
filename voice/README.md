@@ -14,7 +14,9 @@ STT, int8 CPU) and Piper TTS over HTTP/WebSocket on port 8300. The provisioner a
 
 ## Model assets (read before first boot)
 - **STT (dictation):** `faster-whisper` downloads its model (`WHISPER_MODEL=small`) on
-  first boot and caches it in the `voice_cache` volume. No bundled model needed.
+  first boot and caches it under `/root/.cache`. The provisioner mounts that as a
+  named `voice_cache` volume, or as `{data_root}/voice-cache` when `storage.data_root`
+  is set (`storage.paths.voice_cache` overrides). No bundled model needed.
 - **TTS (agent voice replies):** Piper needs `.onnx` voice files in `voices/`. Only
   `voices/config.json` ships here; drop the Piper models you want into `voices/` (or
   mount them) to enable spoken replies. Dictation works without them.
