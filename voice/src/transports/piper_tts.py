@@ -29,7 +29,8 @@ VOICES_DIR = Path("/voices/piper")
 VOICES_CONFIG = Path("/voices/config.json")
 # Writable, persisted cache for self-downloaded voices (open-source clean install:
 # no host mount, so Piper fetches its voice the same way Whisper fetches its STT model).
-# Persisted via the voice_cache volume the provisioner mounts at /root/.cache.
+# Persisted via the provisioner mount at /root/.cache (named voice_cache, or a
+# host bind when storage.data_root / storage.paths.voice_cache is set).
 VOICE_CACHE_DIR = Path(os.getenv("PIPER_CACHE_DIR", "/root/.cache/piper-voices"))
 
 

@@ -31,14 +31,18 @@ def test_layout_absent_is_all_named_volumes():
         "nextcloud_data": "nextcloud_data",
         "app_data": "app_data",
         "postgres_data": "postgres_data",
+        "voice_cache": "voice_cache",
     }
-    assert set(lay["named_volumes"]) == {"nextcloud_data", "app_data", "postgres_data"}
+    assert set(lay["named_volumes"]) == {
+        "nextcloud_data", "app_data", "postgres_data", "voice_cache",
+    }
 
 
 def test_layout_data_root_binds_big_volumes_keeps_postgres_named():
     lay = storage.storage_layout({"storage": {"data_root": "/data/lucidcove/"}})
     assert lay["sources"]["nextcloud_data"] == "/data/lucidcove/nextcloud-data"
     assert lay["sources"]["app_data"] == "/data/lucidcove/app-data"
+    assert lay["sources"]["voice_cache"] == "/data/lucidcove/voice-cache"
     # Decision 1: DB stays on the OS drive unless explicitly moved.
     assert lay["sources"]["postgres_data"] == "postgres_data"
     assert lay["named_volumes"] == ["postgres_data"]
@@ -103,4 +107,26 @@ def test_voice_nc_mount_is_read_write_for_multi_gb_publish():
     # Must NOT be read-only — publish_video_output needs shutil.copy2 onto the volume.
     assert "- nextcloud_data:/var/www/html:ro" not in out
     assert "- nextcloud_data:/var/www/html" in out
+    assert "- voice_cache:/root/.cache" in out
+    vol_block = out.rsplit("volumes:", 1)[-1].split("networks:")[0]
+    assert "voice_cache:" in vol_block
+
+
+def test_compose_data_root_binds_voice_cache_and_drops_named_decl():
+    cove = dict(_COVE)
+    cove["storage"] = {"data_root": "/data/lucidcove"}
+    out = build_compose(cove, deploy={}, voice_local=True)
+    assert "- /data/lucidcove/voice-cache:/root/.cache" in out
+    assert "- voice_cache:/root/.cache" not in out
+    vol_block = out.rsplit("volumes:", 1)[-1].split("networks:")[0]
+    assert "voice_cache:" not in vol_block
+
+
+def test_compose_voice_cache_path_override_without_data_root():
+    cove = dict(_COVE)
+    cove["storage"] = {"paths": {"voice_cache": "/data/models/voice-cache"}}
+    out = build_compose(cove, deploy={}, voice_local=True)
+    assert "- /data/models/voice-cache:/root/.cache" in out
+    vol_block = out.rsplit("volumes:", 1)[-1].split("networks:")[0]
+    assert "voice_cache:" not in vol_block
 
