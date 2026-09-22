@@ -96,19 +96,19 @@ When someone needs to settle, center, or reconnect with the present.
 ### Returning to now
 - "The only moment that exists just slipped into the past / So don't just let another pass you by" — **Moments**
 - "If you want to capitalize on this experience / Observe what is happening right now" — **Moments**
-- "Time is a construct of fleeting moments, relative motion in zones" — **A Good Time**
+- "Time is a construct of fleeting moments / relative motion in zones" — **A Good Time**
 - "Tune your mind with reflection" — **Tune Your Mind**
 
 ### Finding peace in uncertainty
 - "We don't get to decide what will be on the other side / But I want to know I tried" — **The Passing Tide**
-- "Rivers flow to and fro, forces nudge the waters so they go where they're told / The waters are free but controlled" — **Freedom Is**
+- "Rivers flow to and fro / Forces nudge the waters so they go / Where they're told / The waters are free but controlled" — **Freedom Is**
 - "One thing I know is time's not moving slow / As I try to go with the flow" — **The Mirage**
 - "Release attachments to outcomes we've drawn / The schemas we're tied to turn us into pawns" — **Darkness and Light**
 
 ### Endurance through difficulty
 - "Silhouettes of fulfillment keep me trudging along / Through tunnels of despair, oh how do I stay strong" — **Darkness and Light**
 - "We arrive as a spark of light with a story yet to write / We survive through fight or flight" — **The Passing Tide**
-- "We move on to the next plight, we live then assess our life / This may excite or fright / But it goes on so we'll be alright" — **The Passing Tide**
+- "We move on to the next plight / We live then assess our life / This may excite or fright / But it goes on so we'll be alright" — **The Passing Tide**
 - "But I still believe though it's hard to conceive / The fantasy is really there to receive" — **The Mirage**
 
 ---
@@ -119,8 +119,8 @@ When someone needs to feel part of something larger or strengthen bonds.
 
 ### Shared humanity
 - "What we see are branches of a tree / Part of a wisdom bigger than you and me" — **Valley of Shadows**
-- "In the realms beyond what we perceive, endure all souls that have been conceived / They surround us despite going unseen / We're all connected as we're playing out our scene" — **The Power To Be Alive**
-- "Learning from what you've been shown, you are not alone" — **Dreams**
+- "In the realms beyond what we perceive / Endure all souls that have been conceived / They surround us despite going unseen / We're all connected as we're playing out our scene" — **The Power To Be Alive**
+- "Learning from what you've been shown / You are not alone" — **Dreams**
 - "How we're going to make it to the next stage of this journey through the cosmos all together" — **Wonder**
 
 ### Empathy and service
@@ -141,7 +141,7 @@ When someone needs to see through confusion, examine assumptions, or access insi
 
 ### Questioning what you think you know
 - "What I thought I knew did not ring true / My faith was distorting my view" — **Moments**
-- "Many times we think that we have it all figured out, we find we were wrong from square one" — **Moments**
+- "Many times we think that we have it all figured out / We find we were wrong / From square one" — **Moments**
 - "Wisdom must be acquired before it is known" — **Dreams**
 - "It's a mystery what separates us from all the herds of nothingness / Is it because we can speak or something else like the ability to dream" — **Tune Your Mind**
 
@@ -149,7 +149,7 @@ When someone needs to see through confusion, examine assumptions, or access insi
 - "The absolute truth is hidden by design" — **Listen**
 - "Factions are trying to control your thoughts by planting concepts in a clean & tidy box" — **Listen**
 - "All events can be seen from different sides / The ones in power decide how they guide" — **Listen**
-- "There are cycles that repeat themselves, we have been told lies / Our true history has been disguised" — **The Future**
+- "There are cycles that repeat themselves / We have been told lies / Our true history has been disguised" — **The Future**
 - "So wake up to see the plan / It's not as it may seem / For most it goes on unseen" — **The Future**
 
 ### Self-awareness
@@ -217,7 +217,7 @@ When someone needs to synthesize, find coherence, or see the bigger picture.
 - "The one, the source, the guiding force, connects us all... attracts us to our fate" — **Guiding Force**
 
 ### Understanding duality
-- "Binary and bio, it's off or it's on / Duality is our causal liaison" — **Darkness and Light**
+- "Binary and bio / It's off or it's on / Duality is our causal liaison" — **Darkness and Light**
 - "My vision strains to see quite right / As I navigate through darkness and light" — **Darkness and Light**
 
 ### Transformation and continuity

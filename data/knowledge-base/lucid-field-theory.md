@@ -393,7 +393,7 @@ When you tune consciously, feedback appears. The Field's Signal becomes percepti
 
 "We dance with what's around us, with what surrounds us in space / There's a flow that has us in tow, holding us in its embrace" — A Good Time
 
-"Rivers flow to and fro, forces nudge the waters so they go where they're told / The waters are free but controlled" — Freedom Is
+"Rivers flow to and fro / Forces nudge the waters so they go / Where they're told / The waters are free but controlled" — Freedom Is
 
 You don't control the outcome. You participate in a larger pattern. The Field has coherence patterns — paths of least resistance, natural harmonics. Freedom isn't escaping physics — it's conscious choice within the flow. The river has banks. You're water.
 
@@ -600,7 +600,7 @@ When embodied, you're not forcing — you're dancing with The Field. The flow ha
 
 "Freedom is Freedom is Freedom is oh ya / Freedom is undefined / No one can tell you what it means because it's a state of mind" — Freedom Is
 
-"Rivers flow to and fro, forces nudge the waters so they go where they're told / Choices are there, the waters are free but controlled" — Freedom Is
+"Rivers flow to and fro / Forces nudge the waters so they go / Where they're told / Choices are there / The waters are free but controlled" — Freedom Is
 
 True freedom is conscious participation within physics (not defying it). Water freely flows BUT within riverbanks. You're consciousness-frequency freely broadcasting BUT within Field physics. Freedom = conscious choice within reality's structure, not omnipotent control.
 

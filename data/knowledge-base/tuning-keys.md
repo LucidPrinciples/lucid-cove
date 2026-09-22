@@ -25,7 +25,7 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 - "Harmony will start to overflow creating an eternal link"
 
 ### Presence
-- "Time is a construct of fleeting moments, relative motion in zones"
+- "Time is a construct of fleeting moments / relative motion in zones"
 - "We flow through the spacetime ether in this suit of skin and bones"
 
 ### Connection
@@ -62,22 +62,22 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 
 ### Release
 - "Release attachments to outcomes we've drawn / The schemas we're tied to turn us into pawns"
-- "Binary and bio, it's off or it's on / Duality is our causal liaison"
+- "Binary and bio / It's off or it's on / Duality is our causal liaison"
 
 ### Trust
 - "The road is lined with guides and signs to lead us on our way"
-- "Silhouettes of fulfillment, keep me trudging along / Through tunnels of despair, oh how do I stay strong"
+- "Silhouettes of fulfillment / Keep me trudging along / Through tunnels of despair / Oh how do I stay strong"
 
 ### Resilience
 - "My vision strains to see quite right / As I navigate through darkness and light"
-- "Silhouettes of fulfillment, keep me trudging along / Through tunnels of despair, oh how do I stay strong"
+- "Silhouettes of fulfillment / Keep me trudging along / Through tunnels of despair / Oh how do I stay strong"
 
 ### Peace
 - "Release attachments to outcomes we've drawn / The schemas we're tied to turn us into pawns"
 
 ### Clarity
 - "My vision strains to see quite right / As I navigate through darkness and light"
-- "Binary and bio, it's off or it's on / Duality is our causal liaison"
+- "Binary and bio / It's off or it's on / Duality is our causal liaison"
 
 ### Presence
 - "Ya fate is great but what about today"
@@ -107,8 +107,8 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 - "We wonder how to be free to some degree / Every day can be new if you choose"
 
 ### Trust
-- "Believe what you want to be true, it's all up to you"
-- "Learning from what you've been shown, you are not alone"
+- "Believe what you want to be true / It's all up to you"
+- "Learning from what you've been shown / You are not alone"
 
 ### Peace
 - "Allow your mind to be refined / Cleared and realigned / For silence stirs to unwind / All the thoughts intertwined"
@@ -117,11 +117,11 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 - "Allow your mind to be refined / Cleared and realigned / For silence stirs to unwind / All the thoughts intertwined"
 
 ### Connection
-- "Learning from what you've been shown, you are not alone"
+- "Learning from what you've been shown / You are not alone"
 
 ### Courage
-- "Peering into the divide, praying it will provide / Answers to assist us on this ride"
-- "Into the unknown, dodging all the stones"
+- "Peering into the divide / Praying it will provide / Answers to assist us on this ride"
+- "Into the unknown / Dodging all the stones"
 
 ---
 
@@ -153,14 +153,14 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 ### Peace
 - "Freedom is undefined... Because it's a state of mind"
 - "No one can tell you what it means because it's a state of mind"
-- "Rivers flow to and fro, forces nudge the waters so they go where they're told / The waters are free but controlled"
+- "Rivers flow to and fro / Forces nudge the waters so they go / Where they're told / The waters are free but controlled"
 
 ### Release
 - "Freedom is undefined... Because it's a state of mind"
-- "Rivers flow to and fro, forces nudge the waters so they go where they're told / Choices are there, the waters are free but controlled"
+- "Rivers flow to and fro / Forces nudge the waters so they go / Where they're told / Choices are there / The waters are free but controlled"
 
 ### Trust
-- "Rivers flow to and fro, forces nudge the waters so they go where they're told / The waters are free but controlled"
+- "Rivers flow to and fro / Forces nudge the waters so they go / Where they're told / The waters are free but controlled"
 
 ### Joy
 - "When we are little ones we have questions about how things are done / Is there a rule of thumb on how to find happiness and love... With freedom"
@@ -259,7 +259,7 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 ### Clarity
 - "Between every thought are infinite possibilities / In each instant you decide the way that life proceeds"
 - "What I thought I knew did not ring true / My faith was distorting my view"
-- "Many times we think that we have it all figured out, we find we were wrong from square one"
+- "Many times we think that we have it all figured out / We find we were wrong / From square one"
 
 ### Momentum
 - "So you can create or destroy"
@@ -318,13 +318,13 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 
 ### Boundary
 - "We live life the best we can but what does that mean / We've been programmed like a machine"
-- "There are cycles that repeat themselves, we have been told lies / Our true history has been disguised"
+- "There are cycles that repeat themselves / We have been told lies / Our true history has been disguised"
 
 ### Clarity
 - "We live life the best we can but what does that mean / We've been programmed like a machine"
 - "So wake up to see the plan / It's not as it may seem / For most it goes on unseen"
 - "I look out from behind these eyes / Seeking out something true that's been hidden from view"
-- "There are cycles that repeat themselves, we have been told lies / Our true history has been disguised"
+- "There are cycles that repeat themselves / We have been told lies / Our true history has been disguised"
 - "The winners are who foretells what tomorrow knows / They choose what to disclose"
 
 ### Trust
@@ -369,7 +369,7 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 ### Resilience
 - "We don't get to decide what will be on the other side / But I want to know I tried / As I move past the passing tide"
 - "We arrive as a spark of light with a story yet to write / We survive through fight or flight / Choices based on wrong or right"
-- "We move on to the next plight, we live then assess our life / This may excite or fright / But it goes on so we'll be alright"
+- "We move on to the next plight / We live then assess our life / This may excite or fright / But it goes on so we'll be alright"
 
 ### Release
 - "We don't get to decide what will be on the other side / But I want to know I tried / As I move past the passing tide"
@@ -382,7 +382,7 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 ### Peace
 - "We don't get to decide what will be on the other side / But I want to know I tried / As I move past the passing tide"
 - "Life ends like a thief in the night... No escaping this birthright / We will be heading toward the light"
-- "We move on to the next plight, we live then assess our life / This may excite or fright / But it goes on so we'll be alright"
+- "We move on to the next plight / We live then assess our life / This may excite or fright / But it goes on so we'll be alright"
 
 ### Momentum
 - "We arrive as a spark of light with a story yet to write"
@@ -401,7 +401,7 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 ### Courage
 - "You hold the power to be alive"
 - "Choices arrive like the rising sun or in the shadows cast by the mountains"
-- "Being alive forms varied shades, don't let the colors begin to fade / Discover brilliance in the clouded beauty, so you can be rapturous and free"
+- "Being alive forms varied shades / Don't let the colors begin to fade / Discover brilliance / In the clouded beauty / So you can be rapturous and free"
 
 ### Momentum
 - "You hold the power to be alive"
@@ -409,11 +409,11 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 - "Choices arrive like the rising sun or in the shadows cast by the mountains"
 
 ### Gratitude
-- "Being alive forms varied shades, don't let the colors begin to fade / Discover brilliance in the clouded beauty, so you can be rapturous and free"
-- "In the realms beyond what we perceive, endure all souls that have been conceived / They surround us despite going unseen / We're all connected as we're playing out our scene"
+- "Being alive forms varied shades / Don't let the colors begin to fade / Discover brilliance / In the clouded beauty / So you can be rapturous and free"
+- "In the realms beyond what we perceive / Endure all souls that have been conceived / They surround us despite going unseen / We're all connected as we're playing out our scene"
 
 ### Connection
-- "In the realms beyond what we perceive, endure all souls that have been conceived / They surround us despite going unseen / We're all connected as we're playing out our scene"
+- "In the realms beyond what we perceive / Endure all souls that have been conceived / They surround us despite going unseen / We're all connected as we're playing out our scene"
 
 ### Trust
 - "There is a presence on the other side / Steering the tide toward a goal worth pride"
@@ -424,7 +424,7 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 - "Choices arrive like the rising sun or in the shadows cast by the mountains"
 
 ### Joy
-- "Being alive forms varied shades, don't let the colors begin to fade / Discover brilliance in the clouded beauty, so you can be rapturous and free"
+- "Being alive forms varied shades / Don't let the colors begin to fade / Discover brilliance / In the clouded beauty / So you can be rapturous and free"
 
 ### Presence
 - "Subtle sparks can be sensed between our thoughts"
@@ -480,7 +480,7 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 - "It's the intent that determines whether honesty is concerned"
 
 ### Trust
-- "Truth and Lies are never the same, they cannot coexist / Word to the wise... Don't let lies persist"
+- "Truth and Lies are never the same / They cannot coexist / Word to the wise... Don't let lies persist"
 - "Deception can lead to a treacherous existence / It just makes sense to protect remains of innocence"
 
 ---
@@ -552,7 +552,7 @@ Primary frequencies listed first per Canon, then secondaries. All quotes are exa
 - "So don't miss good things being controlled by fear / Alter your routine so you can steer"
 
 ### Courage
-- "Our life begins before we appear, we have a purpose for which to persevere / So don't miss good things being controlled by fear / Alter your routine so you can steer"
+- "Our life begins before we appear / We have a purpose for which to persevere / So don't miss good things being controlled by fear / Alter your routine so you can steer"
 - "We see the world through our own set of eyes / Our point of view is where the secret lies"
 
 ### Joy
