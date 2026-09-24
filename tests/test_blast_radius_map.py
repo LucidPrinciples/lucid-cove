@@ -1,4 +1,4 @@
-# #D34 — blast-radius map (static analysis). Docs/blast-radius-map.md enumerates
+# #D34 — blast-radius map (static analysis). docs/blast-radius-map.md enumerates
 # the control planes an agent container can reach. These tests keep the doc honest:
 # it has the shape the brief asked for AND its two verifiable claims (no docker
 # socket; the named credential surfaces really exist in the provisioner) hold
@@ -6,7 +6,7 @@
 import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DOC = (ROOT / "Docs" / "blast-radius-map.md").read_text()
+DOC = (ROOT / "docs" / "blast-radius-map.md").read_text()
 CENTRALIZED = (ROOT / "provision" / "centralized.py").read_text()
 
 

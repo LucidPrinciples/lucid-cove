@@ -129,7 +129,7 @@ def _parse_backlog(text: str) -> dict:
 async def backlog_manifest():
     """Dedicated PWA manifest so Add to Home Screen names the icon 'Backlog'
     and uses the Backlog board mark — not the LC mark (same pattern as jules
-    → julian-icon.png). See Docs/tool-pwa-icons.md for the per-tool process."""
+    → julian-icon.png). See docs/tool-pwa-icons.md for the per-tool process."""
     return JSONResponse(
         {
             "name": "Backlog — Lucid Cove",
