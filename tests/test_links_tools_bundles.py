@@ -69,8 +69,8 @@ def test_backlog_icon_assets_and_manifest():
     assert "icon-192.png" not in html.split("apple-touch-icon")[1][:80]
     py = (root / "src/dashboard/routes/backlog.py").read_text()
     assert "backlog-icon-192.png" in py and "backlog-icon-512.png" in py
-    assert "Docs/tool-pwa-icons.md" in py or "tool-pwa-icons" in py
-    doc = root / "Docs/tool-pwa-icons.md"
+    assert "docs/tool-pwa-icons.md" in py or "tool-pwa-icons" in py
+    doc = root / "docs/tool-pwa-icons.md"
     assert doc.is_file()
     assert "julian-icon" in doc.read_text()
 
