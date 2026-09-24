@@ -117,7 +117,7 @@ On the machine it's installed on, `http://localhost` works right away — includ
 - **Lucid Cove (site)** — https://lucidcove.org
 - **Lucid Cove app** — https://app.lucidcove.org
 - **The daily Drop** — https://drop.lucidprinciples.com
-- **Chords of Truth (YouTube)** — https://www.youtube.com/@LucidPrinciplesStories
+- **Chords of Truth (YouTube)** — https://www.youtube.com/@ChordsofTruth
 
 
 ## Licensing
