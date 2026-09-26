@@ -26,7 +26,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from src.dashboard.routes.presence import (
     _hash_token, get_current_presence, _create_presence_record, mint_signin_door,
     _create_session, _handle_validity, _seed_birth_memory, _sanitize_name,
-    _titlecase_name, COOKIE_NAME, COOKIE_MAX_AGE,
+    _titlecase_name, set_presence_cookie, cookie_domain_for,
 )
 
 log = logging.getLogger(__name__)
@@ -114,16 +114,7 @@ async def _seed_or_reuse_operator(inv: dict) -> str | None:
 
 def _cookie_domain_for(request: Request) -> str | None:
     """Share the session across the Cove's subdomains (same rule the /p handler uses)."""
-    try:
-        from src.config import load_cove_config
-        cd = (load_cove_config().get("domain") or "").strip().lower()
-        host = (request.headers.get("x-forwarded-host")
-                or request.headers.get("host") or "").split(":")[0].lower()
-        if cd and (host == cd or host.endswith("." + cd)):
-            return cd
-    except Exception:
-        pass
-    return None
+    return cookie_domain_for(request)
 
 
 async def _signin_seed(request: Request, acct_id: str) -> str:
@@ -268,12 +259,7 @@ async def open_invite(token: str, request: Request):
     raw = await _signin_seed(request, acct_id)
 
     resp = RedirectResponse(wizard, status_code=302)
-    _xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
-    resp.set_cookie(
-        key=COOKIE_NAME, value=raw, max_age=COOKIE_MAX_AGE, path="/", httponly=True,
-        samesite="lax", secure=(request.url.scheme == "https") or (_xfp == "https"),
-        domain=_cookie_domain_for(request),
-    )
+    set_presence_cookie(resp, request, raw)
     # Keep the capability cookie too (belt-and-suspenders for the middleware allowlist and to
     # carry the invite token through the wizard). Cleared at /complete; single-use anyway.
     resp.set_cookie("lp_invite", token, httponly=True, samesite="lax", max_age=3600, path="/")
