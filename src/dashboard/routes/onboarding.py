@@ -920,7 +920,7 @@ async def _ensure_session_cookie(response: JSONResponse, request: Request, accou
     """Attach a fresh presence_token so the rest of the wizard is authenticated."""
     import secrets as _secrets
     from src.dashboard.routes.presence import (
-        COOKIE_NAME, COOKIE_MAX_AGE, _create_session, _hash_token, _parse_device_label,
+        _create_session, _hash_token, _parse_device_label, set_presence_cookie,
     )
     raw = _secrets.token_urlsafe(32)
     try:
@@ -932,12 +932,7 @@ async def _ensure_session_cookie(response: JSONResponse, request: Request, accou
             )
     except Exception:
         return
-    _xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
-    secure = (request.url.scheme == "https") or (_xfp == "https")
-    response.set_cookie(
-        key=COOKIE_NAME, value=raw, max_age=COOKIE_MAX_AGE, path="/",
-        httponly=True, samesite="lax", secure=secure,
-    )
+    set_presence_cookie(response, request, raw)
 
 
 @router.post("/api/onboarding/claim-operator")

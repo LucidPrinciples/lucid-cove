@@ -23,6 +23,8 @@ Multi-session support:
   - Sessions use a ROLLING 90-day window (batch-10 #3): any authenticated visit slides
     the expiry forward (throttled to once/day), so a device in regular use never expires;
     the 90d clock only kills ABANDONED devices. Sign-in links stay short-lived/one-time.
+  - The browser presence_token cookie is re-issued on that same roll (at most once/day)
+    so a daily user is not signed out at calendar day 90 while the server session lives.
   - Signin/regenerate NEVER invalidates existing sessions
   - Max 10 active sessions per account (oldest pruned on new login)
 
@@ -39,7 +41,7 @@ import uuid
 import hashlib
 import secrets
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException
@@ -54,6 +56,55 @@ COVE_NAME = env("COVE_NAME")
 COOKIE_NAME = "presence_token"
 COOKIE_MAX_AGE = 90 * 24 * 60 * 60  # 90 days
 MAX_SESSIONS_PER_ACCOUNT = 10
+
+
+def cookie_domain_for(request: Request) -> Optional[str]:
+    """Share the session across the Cove's subdomains (parent of the request host)."""
+    try:
+        from src.config import load_cove_config
+        cd = (load_cove_config().get("domain") or "").strip().lower()
+        host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(":")[0].lower()
+        if cd and (host == cd or host.endswith("." + cd)):
+            return cd
+    except Exception:
+        pass
+    return None
+
+
+def cookie_secure_for(request: Request) -> bool:
+    """Secure only when the connection is actually HTTPS (direct or TLS-terminating proxy).
+
+    A local/mesh self-host served over plain HTTP must still get a working session
+    cookie — forcing Secure there means the browser silently drops it.
+    """
+    _xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return (request.url.scheme == "https") or (_xfp == "https")
+
+
+def set_presence_cookie(response, request: Request, token: str) -> None:
+    """Issue presence_token with the same flags as the /p/ door handler."""
+    # path="/" is required: without it some clients scope the cookie to /p and
+    # /api/onboarding/* arrives unauthenticated.
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        max_age=COOKIE_MAX_AGE,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=cookie_secure_for(request),
+        domain=cookie_domain_for(request),
+    )
+
+
+def maybe_renew_presence_cookie(request: Request, response) -> None:
+    """Re-issue the cookie only when this request rolled the server session."""
+    if not getattr(request.state, "session_rolled", False):
+        return
+    raw = request.cookies.get(COOKIE_NAME)
+    if not raw:
+        return
+    set_presence_cookie(response, request, raw)
 
 
 def _auth_link_error_response(request: Request, status: int, message: str):
@@ -210,7 +261,11 @@ async def _touch_session(conn, token_hash: str, device_label: str = None) -> Non
     throttled to at most once/day per session by the CASE guard — `expires_at` only moves
     when it has dropped below NOW()+89d (i.e. a day has passed since the last slide), so
     there is no per-request write. Sign-in LINKS stay short-lived/one-time — this only
-    extends an already-established session, never mints or lengthens a link."""
+    extends an already-established session, never mints or lengthens a link.
+
+    Cookie renewal: get_current_presence reads expires_at on the same lookup
+    and sets request.state.session_rolled when that CASE will fire, so the
+    middleware can re-issue presence_token without a second write."""
     # Slide the 90d window forward at most once/day (only when it's dropped below 89d out).
     _roll = ("expires_at = CASE WHEN expires_at < NOW() + INTERVAL '89 days' "
              "THEN NOW() + INTERVAL '90 days' ELSE expires_at END")
@@ -234,6 +289,34 @@ async def _touch_session(conn, token_hash: str, device_label: str = None) -> Non
             )
     except Exception as e:
         log.debug("session last_used touch skipped (non-fatal): %s", e)
+
+
+def _session_due_for_roll(expires_at) -> bool:
+    """True when the rolling CASE will slide expires_at (below NOW()+89 days)."""
+    if expires_at is None:
+        return False
+    try:
+        exp = expires_at
+        if getattr(exp, "tzinfo", None) is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return exp < now + timedelta(days=89)
+    except Exception:
+        return False
+
+
+def mark_session_rolled(request: Request, expires_at) -> None:
+    """Stash the once-a-day roll on the request so middleware can renew the cookie.
+
+    Sticky True: get_current_presence may run again after _touch_session has
+    already slid expires_at, and that second lookup must not clear the flag.
+    """
+    try:
+        if getattr(request.state, "session_rolled", False):
+            return
+        request.state.session_rolled = _session_due_for_roll(expires_at)
+    except Exception:
+        pass
 
 
 async def _create_session(conn, account_id, token_hash: str, device_label: str = None) -> None:
@@ -349,23 +432,6 @@ async def signin_link_auth(token: str, request: Request):
     # operator login reaches their own MC AND the admin (stuart.) view. Each door is
     # still gated server-side by host_match (kind=manager requires operator). Only
     # applied on the clean scheme where the cove domain is a parent of the host.
-    cookie_domain = None
-    try:
-        from src.config import load_cove_config
-        cd = (load_cove_config().get("domain") or "").strip().lower()
-        host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(":")[0].lower()
-        if cd and (host == cd or host.endswith("." + cd)):
-            cookie_domain = cd
-    except Exception:
-        cookie_domain = None
-
-    # Secure cookie only when the connection is actually HTTPS (direct, or via a
-    # TLS-terminating proxy like Caddy). A local/mesh self-host served over plain
-    # HTTP must still get a working session cookie — forcing Secure there means the
-    # browser silently drops it and the operator can never authenticate.
-    _xfp = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
-    cookie_secure = (request.url.scheme == "https") or (_xfp == "https")
-
     # Route a freshly-seeded operator into the onboarding wizard (first-run);
     # everyone else — members, and operators who've already finished setup —
     # goes to their MC. "Not finished" = operator with an empty agent_identity.
@@ -387,19 +453,7 @@ async def signin_link_auth(token: str, request: Request):
         if _next.startswith("/") and not _next.startswith("//"):
             redirect_to = _next
     response = RedirectResponse(redirect_to)
-    # path="/" is required: without it some clients scope the cookie to /p and the
-    # wizard's /api/onboarding/* calls arrive unauthenticated (handle check is public,
-    # claim-operator is not → "try a different handle" on every handle).
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=token,
-        max_age=COOKIE_MAX_AGE,
-        path="/",
-        httponly=True,
-        samesite="lax",
-        secure=cookie_secure,
-        domain=cookie_domain,
-    )
+    set_presence_cookie(response, request, token)
     return response
 
 
@@ -457,7 +511,8 @@ async def get_current_presence(request: Request) -> Optional[dict]:
                           a.tier, a.cove_role, a.agent_config, a.agent_identity, a.active_workflows, a.api_mode,
                           a.name_locked, a.preferences, a.referral_code, a.referred_by,
                           a.nc_username, a.nc_password,
-                          a.created_at, a.last_access
+                          a.created_at, a.last_access,
+                          s.expires_at AS session_expires_at
                    FROM auth_sessions s
                    JOIN accounts a ON a.id = s.account_id
                    WHERE s.token_hash = %s AND s.active = TRUE AND a.active = TRUE
@@ -471,9 +526,12 @@ async def get_current_presence(request: Request) -> Optional[dict]:
                 # device name onto a still-placeholder session (migrated/pending) on normal
                 # authenticated use — so already-signed-in devices get a real label, not just
                 # ones that re-open a sign-in link. Throttled inside _touch_session.
+                mark_session_rolled(request, row.get("session_expires_at"))
                 await _touch_session(conn, hashed,
                                      _parse_device_label(request.headers.get("user-agent", "")))
-                return dict(row)
+                account = dict(row)
+                account.pop("session_expires_at", None)
+                return account
 
             # Fallback: check legacy auth_token on accounts table
             result = await conn.execute(

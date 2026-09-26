@@ -192,10 +192,17 @@ class OperatorAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Check session cookie (browser user)
-        from src.dashboard.routes.presence import get_current_presence
+        from src.dashboard.routes.presence import get_current_presence, maybe_renew_presence_cookie
         presence = await get_current_presence(request)
         if presence:
-            return await call_next(request)
+            response = await call_next(request)
+            # Re-issue the cookie only when the server session actually rolled
+            # (once/day). Same flags as /p/. Never on every API hit.
+            try:
+                maybe_renew_presence_cookie(request, response)
+            except Exception:
+                pass
+            return response
 
         # Self-onboard capability: an invitee running the wizard has NO session yet (they
         # become a Presence only at /complete). A valid, open invite cookie authorizes ONLY
