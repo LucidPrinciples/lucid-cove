@@ -1420,6 +1420,48 @@ def build_env(cove: dict, op: dict, providers: list, ltp: dict, mx: dict, deploy
     return "\n".join(lines) + "\n"
 
 
+COVE_DOOR_SH = r'''#!/usr/bin/env bash
+# Mint a fresh sign-in link for this Cove. Prints to the terminal only.
+# Lost access? Run:  ./cove-lifecycle.sh door
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cmd="${1:-}"
+if [ "$cmd" != "door" ]; then
+  echo "usage: ./cove-lifecycle.sh door [--handle <handle>]"
+  echo "Lost access? This prints a fresh sign-in link. Do not save it to a file."
+  exit 1
+fi
+shift
+handle=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --handle)
+      handle="${2:?usage: ./cove-lifecycle.sh door [--handle <handle>]}"
+      shift 2
+      ;;
+    --handle=*)
+      handle="${1#--handle=}"
+      shift
+      ;;
+    *)
+      echo "usage: ./cove-lifecycle.sh door [--handle <handle>]" >&2
+      exit 1
+      ;;
+  esac
+done
+app="$(grep -oE '^name: .*' "$HERE/docker-compose.yml" | awk '{print $2}')-app"
+if [ -z "$app" ] || [ "$app" = "-app" ]; then
+  echo "Could not find the app container in docker-compose.yml" >&2
+  exit 1
+fi
+if [ -n "$handle" ]; then
+  docker exec "$app" python -m src.cli.door --handle "$handle"
+else
+  docker exec "$app" python -m src.cli.door
+fi
+'''
+
+
 CONNECT_MESH_SH = r'''#!/usr/bin/env bash
 # Connect THIS box to your Lucid Cove mesh, then point your address at it.
 # Get your one-time join key in the Cove:  Start Here -> Connect -> Get join code.
@@ -1596,6 +1638,13 @@ claim link to sign in and run the setup wizard (create your Presence{", build yo
 
 (If you reach the Cove on a different host/port, swap the host in that URL.)
 Additional operators/presences are then added from the admin UI (copy-link invites).
+
+## Lost access?
+On this computer, from this folder, run:
+
+    ./cove-lifecycle.sh door
+
+That prints a fresh sign-in link for the owner. Add `--handle <handle>` for another Presence. The URL is printed to the terminal only — do not redirect it to a file.
 
 ## Lifecycle (debug → delete → repeat)
 - Tear everything down INCLUDING data (for a clean re-test):
@@ -1988,6 +2037,9 @@ def generate_cove(cfg: dict, out_root: Path) -> dict:
     _cm = root / "connect-mesh.sh"
     _cm.write_text(CONNECT_MESH_SH)
     _cm.chmod(0o755)
+    _door = root / "cove-lifecycle.sh"
+    _door.write_text(COVE_DOOR_SH)
+    _door.chmod(0o755)
     (root / ".gitignore").write_text(".env\ndata/\n*.sqlite\n")
 
     return {
