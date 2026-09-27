@@ -82,6 +82,7 @@ Then you're in Mission Control: chat, jules voice capture → your Inbox, the Ba
 
 ## Notes
 
+- Lost access? On this computer, from your Cove folder, run `./cove-lifecycle.sh door` for a new sign-in link. It prints to the terminal only — do not save the URL to a file.
 - The container carries no source — cove-core is mounted from the repo and merged at runtime. `git pull` + recreate the container to update.
 - This is pre-release software. Expect rough edges and changing config.
 

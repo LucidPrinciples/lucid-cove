@@ -7,6 +7,7 @@
 #   ./cove-lifecycle.sh up       <cove-dir>               build + start the stack
 #   ./cove-lifecycle.sh logs     <cove-dir>               follow the app logs
 #   ./cove-lifecycle.sh status   <cove-dir>               show container status
+#   ./cove-lifecycle.sh door     [cove-dir] [--handle h]  mint a fresh sign-in link (terminal only)
 #   ./cove-lifecycle.sh down     <cove-dir>               STOP + DELETE everything (incl. volumes/data)
 #   ./cove-lifecycle.sh redo     <config.yaml> [outdir]   down (if exists) -> new -> up, one shot
 #
@@ -42,6 +43,44 @@ case "$cmd" in
   status)
     dir="${2:?usage: status <cove-dir>}"
     ( cd "$dir" && docker compose ps )
+    ;;
+
+  door)
+    shift
+    dir="."
+    handle=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --handle)
+          handle="${2:?usage: door [cove-dir] [--handle <handle>]}"
+          shift 2
+          ;;
+        --handle=*)
+          handle="${1#--handle=}"
+          shift
+          ;;
+        *)
+          if [ "$dir" = "." ]; then
+            dir="$1"
+            shift
+          else
+            echo "usage: door [cove-dir] [--handle <handle>]" >&2
+            exit 1
+          fi
+          ;;
+      esac
+    done
+    if [ ! -f "$dir/docker-compose.yml" ]; then
+      echo "No docker-compose.yml in $dir" >&2
+      exit 1
+    fi
+    app="$(_appcid "$dir")-app"
+    # Print to this terminal only. Do not log the token or write it to a file.
+    if [ -n "$handle" ]; then
+      docker exec "$app" python -m src.cli.door --handle "$handle"
+    else
+      docker exec "$app" python -m src.cli.door
+    fi
     ;;
 
   down)

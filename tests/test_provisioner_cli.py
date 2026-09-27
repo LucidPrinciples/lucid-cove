@@ -68,6 +68,7 @@ class TestCliGenerateCove:
             "docker/nc-hooks/post-installation/20-apps.sh",
             "NEXT_STEPS.md",
             "connect-mesh.sh",
+            "cove-lifecycle.sh",
         }
         assert produced == expected, f"Extra/missing: {produced.symmetric_difference(expected)}"
 
@@ -160,6 +161,8 @@ class TestCliGenerateCove:
         steps = steps_path.read_text()
         assert "docker-compose" in steps.lower() or "docker compose" in steps.lower()
         assert "deploy" in steps.lower() or "start" in steps.lower()
+        assert "./cove-lifecycle.sh door" in steps
+        assert "Lost access" in steps
 
     def test_port_collision_handling(self, tmp_path):
         """App and Nextcloud ports are wired through to the compose."""
