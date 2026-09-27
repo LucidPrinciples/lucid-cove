@@ -2227,6 +2227,7 @@ async function createProject() {
 // ── Auto-refresh ────────────────────────────────────────────────────────────
 
 setInterval(() => {
+    if (window.__lpSignedOut) return;
     const homePanel = document.getElementById('panel-home');
     if (homePanel && homePanel.classList.contains('active')) {
         // Jules 0113: don't hard-refresh Attention while a setup form is open —
