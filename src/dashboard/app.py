@@ -224,11 +224,13 @@ class OperatorAuthMiddleware(BaseHTTPMiddleware):
                 except Exception:
                     pass
 
-        # No valid auth — reject
+        # No valid auth — reject. Status stays 403 so existing callers don't
+        # change behavior; `code` lets the dashboard show a signed-out panel
+        # instead of an empty board (and stop polling).
         from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=403,
-            content={"detail": "Authentication required"},
+            content={"detail": "Authentication required", "code": "signed_out"},
         )
 
 

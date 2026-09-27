@@ -39,6 +39,90 @@ window.lpStoredRef = function () {
     return m ? decodeURIComponent(m[1]) : '';
 };
 
+// Signed-out recovery (SIGNIN3): one 403 with code signed_out replaces the
+// empty board with a panel and stops polling. Native fetch is kept so the
+// email sign-in POST does not re-enter this wrapper.
+window.__lpNativeFetch = window.fetch.bind(window);
+window.__lpSignedOut = false;
+window.showSignedOutPanel = function showSignedOutPanel() {
+    if (window.__lpSignedOut) return;
+    window.__lpSignedOut = true;
+    if (window.__lpStatusTimer) {
+        clearInterval(window.__lpStatusTimer);
+        window.__lpStatusTimer = null;
+    }
+    if (document.getElementById('lp-signed-out')) return;
+    const publicApp = !!(window.MC && MC.config && MC.config.is_public_app);
+    const overlay = document.createElement('div');
+    overlay.id = 'lp-signed-out';
+    overlay.setAttribute('role', 'dialog');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#0a0a0f;color:#d8d8e0;display:flex;align-items:center;justify-content:center;padding:24px;font-family:system-ui,sans-serif;';
+    const door = publicApp
+        ? `<p style="margin:0 0 12px;line-height:1.5;color:#a8a8b4;">Get a sign-in link by email.</p>
+           <form id="lp-signed-out-form" style="display:flex;gap:8px;flex-wrap:wrap;">
+             <input id="lp-signed-out-email" type="email" autocomplete="email" placeholder="you@example.com"
+                    style="flex:1;min-width:180px;padding:8px 10px;border:1px solid #2a2a36;border-radius:8px;background:#12121a;color:#d8d8e0;">
+             <button type="submit" style="padding:8px 14px;border:0;border-radius:8px;background:#4682b4;color:#fff;cursor:pointer;">Send link</button>
+           </form>
+           <p id="lp-signed-out-msg" style="margin:10px 0 0;font-size:0.85rem;color:#a8a8b4;"></p>`
+        : `<p style="margin:0;line-height:1.5;color:#a8a8b4;">On the computer running your Cove, run <code style="color:#5ce1e6;">./cove-lifecycle.sh door</code> for a new sign-in link.</p>`;
+    overlay.innerHTML = `<div style="max-width:28rem;">
+        <h1 style="margin:0 0 12px;font-size:1.25rem;font-weight:600;">You're signed out on this device.</h1>
+        ${door}
+      </div>`;
+    document.body.appendChild(overlay);
+    const form = document.getElementById('lp-signed-out-form');
+    if (form) {
+        form.addEventListener('submit', async function (ev) {
+            ev.preventDefault();
+            const input = document.getElementById('lp-signed-out-email');
+            const msg = document.getElementById('lp-signed-out-msg');
+            const email = (input && input.value || '').trim();
+            if (!email) { if (msg) msg.textContent = 'Enter the email on this account.'; return; }
+            try {
+                const r = await window.__lpNativeFetch('/api/account/signin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email }),
+                });
+                const d = await r.json().catch(function () { return {}; });
+                if (!msg) return;
+                if (r.ok && d.email_sent) {
+                    msg.textContent = 'Check your email for a sign-in link.';
+                } else if (r.ok && d.signin_link) {
+                    msg.textContent = 'Open the sign-in link that was returned for this account.';
+                } else {
+                    const detail = (typeof d.detail === 'string') ? d.detail : 'Could not send a sign-in link.';
+                    msg.textContent = detail;
+                }
+            } catch (e) {
+                if (msg) msg.textContent = 'Could not send a sign-in link.';
+            }
+        });
+    }
+};
+window.fetch = async function lpSignedOutFetch(input, init) {
+    if (window.__lpSignedOut) {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (url.indexOf('/api/') !== -1) {
+            return new Response(
+                JSON.stringify({ detail: 'Authentication required', code: 'signed_out' }),
+                { status: 403, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+    }
+    const res = await window.__lpNativeFetch(input, init);
+    if (window.__lpSignedOut) return res;
+    try {
+        const url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (res.status === 403 && url.indexOf('/api/') !== -1) {
+            const body = await res.clone().json().catch(function () { return null; });
+            if (body && body.code === 'signed_out') window.showSignedOutPanel();
+        }
+    } catch (e) { /* never break the original call */ }
+    return res;
+};
+
 // ── Global state (shared across tab scripts) ────────────────────────────────
 let activeTab = '';
 let activeBoard = 'attention';  // 'attention' or 'action'
@@ -562,7 +646,7 @@ async function boot() {
 
         // Start status polling
         pollStatus();
-        setInterval(pollStatus, 120_000);
+        window.__lpStatusTimer = setInterval(pollStatus, 120_000);
 
     } catch (e) {
         document.getElementById('header-name').textContent = 'Connection Error';
@@ -1686,6 +1770,7 @@ async function _pollTuningBadge(freq, sub) {
 }
 
 async function pollStatus() {
+    if (window.__lpSignedOut) return;
     try {
         const data = await fetch('/api/status').then(r => r.json());
         const dot = document.getElementById('conn-dot');
