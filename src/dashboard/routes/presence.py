@@ -2,7 +2,7 @@
 Presence routes — multi-Presence support for Cove containers.
 
 When COVE_MODE=multi, this module provides:
-  - Magic link auth (token-based, no passwords)
+  - Sign-in link auth (token-based, no passwords)
   - Per-Presence context injection
   - Presence CRUD (create, list, update)
   - Operator admin endpoints
@@ -12,13 +12,13 @@ The existing single-agent MC works exactly as before.
 
 Auth flow:
   1. Operator creates a Presence via /api/presence/create
-  2. System generates a magic link token
+  2. System generates a sign-in link token
   3. Operator shares the link: https://clearfield.cove.../p/{token}
   4. Person clicks link → token stored in cookie → MC loads with their context
   5. All subsequent requests include the cookie → Presence identified
 
 Multi-session support:
-  - Each magic link click creates a session in auth_sessions table
+  - Each sign-in link click creates a session in auth_sessions table
   - Multiple sessions can be active per account (phone + laptop + tablet)
   - Sessions use a ROLLING 90-day window (batch-10 #3): any authenticated visit slides
     the expiry forward (throttled to once/day), so a device in regular use never expires;
@@ -235,7 +235,7 @@ async def _seed_birth_memory(presence_id, operator_name, agent_identity, reflect
 
 
 def _hash_token(token: str) -> str:
-    """Hash a magic link token for storage."""
+    """Hash a sign-in link token for storage."""
     return hashlib.sha256(token.encode()).hexdigest()
 
 
@@ -341,12 +341,12 @@ async def _create_session(conn, account_id, token_hash: str, device_label: str =
 
 
 # =============================================================================
-# Magic Link Auth
+# Sign-in Link Auth
 # =============================================================================
 
 @router.get("/p/{token}")
 async def signin_link_auth(token: str, request: Request):
-    """Authenticate via magic link. Creates a session, sets cookie, redirects to MC."""
+    """Authenticate via sign-in link. Creates a session, sets cookie, redirects to MC."""
     if COVE_MODE != "multi":
         return RedirectResponse("/")
 
@@ -425,7 +425,7 @@ async def signin_link_auth(token: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"[AUTH] Magic link auth failed: {e}")
+        logging.error(f"[AUTH] Sign-in link auth failed: {e}")
         return _auth_link_error_response(request, 500, "Something went wrong. Please try again.")
 
     # Share the session across the Cove's subdomains (domain=cove domain) so one
@@ -766,13 +766,13 @@ async def create_presence(request: Request):
         "agent_name": "Kai",
         "cove_role": "member",          // "admin" | "member" | "guest"
         "agent_config": { ... },        // optional, from Creation Flow
-        "send_email": true              // send magic link via Brevo (default true)
+        "send_email": true              // send sign-in link via Brevo (default true)
     }
 
     Flow:
       1. Create account in DB
       2. Provision Nextcloud user + folders + Context files
-      3. Send magic link email via Brevo (if send_email=true and email provided)
+      3. Send sign-in link email via Brevo (if send_email=true and email provided)
 
     Returns: { "presence_id": "...", "signin_link": "https://...", "nc": {...} }
     """
@@ -971,7 +971,7 @@ async def _create_presence_record(
     """Core Presence data-entry creation (the Centralized model's unit of work).
 
     Creates the accounts row + initial auth session, provisions a Nextcloud user
-    with the steward-share boundary, and sends a magic link. No container, port,
+    with the steward-share boundary, and sends a sign-in link. No container, port,
     IP, or DB is allocated — a Presence is a row, not a stack.
 
     Shared by:
@@ -1063,7 +1063,7 @@ async def _create_presence_record(
         log.error("Create presence failed: %s", e)
         raise HTTPException(500, "Something went wrong. Please try again.")
 
-    # Magic link lands on the operator's own subdomain when the Cove has subdomain
+    # Sign-in link lands on the operator's own subdomain when the Cove has subdomain
     # routing (wildcard DNS/Caddy) live — the session cookie then scopes to that
     # subdomain. Falls back to the Cove root otherwise, so Coves without a wildcard
     # (or single-mode) are never handed a link that won't resolve.
@@ -1110,7 +1110,7 @@ async def _create_presence_record(
     except Exception as e:
         log.warning("Matrix Space invite for %s (non-fatal): %s", handle, e)
 
-    # Send magic link email via Brevo
+    # Send sign-in link email via Brevo
     email_sent = False
     if send_email and email:
         try:
@@ -1141,12 +1141,12 @@ async def provision_presence(request: Request):
     The Centralized counterpart to /api/flow/agent-provision (which builds an
     Isolated container overlay). Here the derived agent identity lands as a DATA
     ENTRY: an accounts row carrying agent_identity (JSONB), plus a Nextcloud user
-    and a magic link. No new container, port, IP, DB, or Caddy route.
+    and a sign-in link. No new container, port, IP, DB, or Caddy route.
 
     Body (discovery-flow output + the new person's details):
         display_name : str   — the human operator/member's name (required)
         agent_name   : str   — the personal agent's name (required; alias: name)
-        email        : str   — contact email (optional; magic link sent if present)
+        email        : str   — contact email (optional; sign-in link sent if present)
         cove_role    : str   — admin | member | guest (default member)
         archetype, archetype_desc, frequency, frequency_color, frequency_essence,
         tuning_key, tuning_key_song, pronouns, gender, qualities, feeling,
@@ -1850,7 +1850,7 @@ async def set_presence_role(presence_id: str, request: Request):
 
 @router.post("/api/presence/{presence_id}/regenerate-link")
 async def regenerate_link(presence_id: str, request: Request):
-    """Generate a new magic link for a Presence.
+    """Generate a new sign-in link for a Presence.
 
     Creates a new session — does NOT invalidate existing sessions.
     Old sessions remain valid until they expire (90 days).
@@ -1913,7 +1913,7 @@ async def regenerate_link(presence_id: str, request: Request):
 
 
 async def mint_signin_door(account_id, domain: str, scheme: str = "https") -> str:
-    """Mint a rotation-proof, session-backed magic-link door for `account_id` at `domain`
+    """Mint a rotation-proof, session-backed sign-in-link door for `account_id` at `domain`
     and return the /p/{token} URL (empty string if `domain` is blank).
 
     Same machinery as regenerate_link: a fresh token, its accounts.auth_token row, AND a

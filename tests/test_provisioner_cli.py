@@ -2,7 +2,7 @@
 
 Rewritten from the legacy per-agent provisioner tests. The centralized model
 produces a single-stack Cove with all presences in one container, added later
-via the admin UI (magic link), not as separate containers at provision time.
+via the admin UI (sign-in link), not as separate containers at provision time.
 
 Pure generation — no DB, no network.
 """

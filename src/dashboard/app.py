@@ -87,7 +87,7 @@ class OperatorAuthMiddleware(BaseHTTPMiddleware):
       - X-Shared-Secret header matching SHARED_CONTAINER_SECRET
 
     Exceptions: PUBLIC_PATHS and PUBLIC_PREFIXES pass without auth
-    (account creation, magic link, health, checkout, webhooks).
+    (account creation, sign-in link, health, checkout, webhooks).
     OPTIONS always passes for CORS preflight.
 
     In single mode (Stuart/Atlas behind mesh): passes everything through.
@@ -101,8 +101,6 @@ class OperatorAuthMiddleware(BaseHTTPMiddleware):
         "/api/config",
         "/api/account/create",
         "/api/account/signin",
-        "/api/account/magic-link",
-        "/api/account/verify-magic-link",
         "/api/account/ref",
         "/api/contact/submit",
         "/api/presence/me",

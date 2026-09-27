@@ -2,7 +2,7 @@
 # Cove Config — input for the CENTRALIZED provisioner (the primary model)
 # =============================================================================
 # A centralized Cove is ONE stack: a multi-presence app + Postgres + Nextcloud +
-# Redis. Operators/presences are added later from the admin UI (magic link) —
+# Redis. Operators/presences are added later from the admin UI (sign-in link) —
 # NOT as separate containers. This is the open-source / self-host shape.
 #
 # Copy this file, fill it in, and run:

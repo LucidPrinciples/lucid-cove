@@ -4,7 +4,7 @@ centralized.py — the CENTRALIZED Cove provisioner (the primary, open-source mo
 
 Generates a complete, deploy-ready single-stack Cove from a small config file:
 one multi-presence app + Postgres + Nextcloud + Redis. Operators/presences are
-added later from the admin UI (magic link), NOT as separate containers.
+added later from the admin UI (sign-in link), NOT as separate containers.
 
 This is the primary open-source provisioner. The legacy per-agent-container
 path (provision.py / provision_overlay.py) was retired under #SEC5/#99 — personal
@@ -436,7 +436,7 @@ def build_operator_seed_sql(*, pid, name, handle, email, agent_name, cove_name,
                             tier, hashed_token) -> str:
     """Seed the FOUNDING operator (born-owned Cove, #140). Runs after 00-base.sql.
 
-    The claim magic link (printed by the provisioner) authenticates as this
+    The claim sign-in link (printed by the provisioner) authenticates as this
     operator, who then runs the setup wizard to build their Presence + team.
     """
     em = f"'{_sql_str(email)}'" if email else "NULL"
@@ -610,7 +610,7 @@ def build_cove_yaml(cove: dict, op: dict, compute: dict = None, matrix_on: bool 
             "domain": domain,
             "subdomain_routing": bool(domain),   # only when a real domain is set
             "api_provider": "operator",
-            "auth": {"method": "magic_link", "token_expiry_days": 90},
+            "auth": {"method": "signin_link", "token_expiry_days": 90},
             "defaults": {"tuning_family": cove["id"]},
             "compute": compute_block,
         }

@@ -302,7 +302,7 @@ REGISTRY: list[EnvVar] = [
         "30",
         "int",
         "Security",
-        desc="Tighter cap for unauthenticated auth-surface POSTs (signin, magic-link, "
+        desc="Tighter cap for unauthenticated auth-surface POSTs (signin, "
              "account create, contact). Default 30/window.",
     ),
     EnvVar(

@@ -15,7 +15,7 @@ def test_redact_hits_secretish_keys_and_keeps_structure():
         "  id: muller\n"
         "  operator_token: mBYxF-super-secret\n"
         "  auth:\n"
-        "    method: magic_link\n"
+        "    method: signin_link\n"
         "  compute:\n"
         "    video_asr:\n"
         "      mode: external\n"
@@ -30,7 +30,7 @@ def test_redact_hits_secretish_keys_and_keeps_structure():
     assert "operator_token: __REDACTED__" in out
     assert "mode: external" in out           # non-secret values untouched
     assert "name: Muller" in out
-    assert "method: magic_link" in out       # 'magic_link' value under a non-secret key stays
+    assert "method: signin_link" in out      # 'signin_link' value under a non-secret key stays
 
 
 def test_redact_leaves_empty_and_block_values_alone():

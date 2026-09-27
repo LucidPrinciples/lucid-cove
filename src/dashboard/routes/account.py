@@ -3,10 +3,10 @@ Self-service account routes — signup and signin for the shared container.
 
 When COVE_MODE=multi, provides:
   - POST /api/account/create  — Free-tier self-signup
-  - POST /api/account/signin  — Email-based magic link signin
+  - POST /api/account/signin  — Email-based sign-in link
 
 These endpoints are called by landing.html's signup/signin forms.
-Magic link emails sent via Brevo transactional API (see email.py).
+Sign-in link emails sent via Brevo transactional API (see email.py).
 """
 
 import hmac
@@ -31,7 +31,7 @@ UPGRADE_SECRET = env("SHARED_CONTAINER_SECRET")
 
 
 def _hash_token(token: str) -> str:
-    """Hash a magic link token for storage."""
+    """Hash a sign-in link token for storage."""
     return hashlib.sha256(token.encode()).hexdigest()
 
 
@@ -297,7 +297,7 @@ async def create_account(request: Request):
     except Exception:
         pass  # Never block signup on tracking failure
 
-    # Build magic link
+    # Build sign-in link
     scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
     host = request.headers.get("host", "localhost")
     signin_link = f"{scheme}://{host}/p/{raw_token}"
@@ -324,7 +324,7 @@ async def create_account(request: Request):
 
 @router.post("/api/account/signin")
 async def signin(request: Request):
-    """Look up account by email and return a magic link.
+    """Look up account by email and return a sign-in link.
 
     Body: { "email": "user@example.com" }
 
@@ -399,7 +399,7 @@ async def signin(request: Request):
         "ok": True,
         "email_sent": email_sent,
     }
-    # If email wasn't sent, return magic link directly (P620 Coves, dev mode)
+    # If email wasn't sent, return sign-in link directly (P620 Coves, dev mode)
     if not email_sent:
         resp["signin_link"] = signin_link
     return resp
@@ -1014,7 +1014,7 @@ async def mint_self_host_token(request: Request):
     raw token is never stored, so we mint a fresh one, store its hash, and show it a
     single time. SESSION-SAFE: live logins live in auth_sessions (the cookie), not
     auth_token, so rotating auth_token does NOT log the operator out (it only
-    invalidates an unused magic link, which is fine). Self-scoped — acts on the
+    invalidates an unused sign-in link, which is fine). Self-scoped — acts on the
     logged-in account only.
     """
     if COVE_MODE != "multi":
