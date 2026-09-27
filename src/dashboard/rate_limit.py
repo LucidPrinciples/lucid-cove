@@ -145,7 +145,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._enabled = env_bool("RATE_LIMIT_ENABLED", True)
         self._limit = max(1, env_int("RATE_LIMIT_PER_MINUTE", 120))
         self._window = max(1, env_int("RATE_LIMIT_WINDOW_SECONDS", 60))
-        # Tighter budget for unauthenticated auth-surface POSTs (signin, magic link).
+        # Tighter budget for unauthenticated auth-surface POSTs (signin).
         self._auth_limit = max(1, env_int("RATE_LIMIT_AUTH_PER_MINUTE", 30))
         self._counter = SlidingWindowCounter(self._window)
         self._cfg_loaded = True
@@ -156,8 +156,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.method in ("POST", "PUT", "PATCH") and path in {
             "/api/account/signin",
             "/api/account/create",
-            "/api/account/magic-link",
-            "/api/account/verify-magic-link",
             "/api/contact/submit",
         }:
             return self._auth_limit

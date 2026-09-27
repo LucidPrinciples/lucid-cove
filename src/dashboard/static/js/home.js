@@ -1052,7 +1052,7 @@ async function _openMyCove(btn) {
         err = (e && e.message) || 'network error';
     }
 
-    // Door shape guard: magic-link auth is ONLY /p/{token}. Bare /{token} never signs in
+    // Door shape guard: sign-in link auth is ONLY /p/{token}. Bare /{token} never signs in
     // (Roos 7:03 bare path) and looks like a crash.
     if (url) {
         try {

@@ -84,7 +84,7 @@ body { background: #0a0a0f; color: #d8d8e0; font-family: -apple-system, BlinkMac
 .result { background: #14141c; border: 1px solid var(--accent-border); border-radius: 12px; padding: 22px; }
 .result h3 { color: var(--accent); font-size: 18px; margin-bottom: 8px; }
 .result .r-line { font-size: 13px; color: #aaa; margin-bottom: 14px; }
-.result .magic { background: #0e0e16; border: 1px solid #24242f; border-radius: 8px; padding: 12px 14px; font-size: 12.5px; color: var(--accent); word-break: break-all; }
+.result .signin-link { background: #0e0e16; border: 1px solid #24242f; border-radius: 8px; padding: 12px 14px; font-size: 12.5px; color: var(--accent); word-break: break-all; }
 .result .r-note { font-size: 12px; color: #888; margin-top: 12px; line-height: 1.6; }
 .err { color: #ff6b5c; }
 </style>
@@ -563,7 +563,7 @@ async function createPresence() {
       <div class="result">
         <h3>${esc(agent)} is ready.</h3>
         <div class="r-line">${esc(chosen.archetype)} &middot; ${esc(chosen.frequency)} &middot; for ${esc(person)}</div>
-        ${data.signin_link ? `<div class="magic">${esc(data.signin_link)}</div>
+        ${data.signin_link ? `<div class="signin-link">${esc(data.signin_link)}</div>
           <div class="r-note">Share this link with ${esc(person)} to open their Mission Control.${data.email_sent ? ' A copy was emailed.' : ''}</div>` : ''}
         <div class="nav-row">
           <button class="btn btn-ghost" onclick="resetFlow()">Create another</button>

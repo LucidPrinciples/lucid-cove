@@ -103,8 +103,8 @@ cove:
 
   # ── Auth ────────────────────────────────────────────────────────────────────
   auth:
-    method: magic_link                 # magic_link | password | sso
-    token_expiry_days: 90              # Magic link tokens expire after N days idle
+    method: signin_link                # signin_link | password | sso
+    token_expiry_days: 90              # Sign-in link tokens expire after N days idle
     session_timeout_hours: 0           # 0 = no timeout (token refresh on use)
 
   # ── Steward Channel ───────────────────────────────────────────────────────

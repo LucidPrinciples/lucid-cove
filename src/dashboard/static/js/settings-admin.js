@@ -771,7 +771,7 @@ async function _presenceCreate() {
                 result.textContent = 'Created — copy the link below';
                 result.style.color = 'var(--green)';
             }
-            // Show the magic link
+            // Show the sign-in link
             const linkEl = document.getElementById('np-link-display');
             if (linkEl) {
                 linkEl.style.display = 'block';

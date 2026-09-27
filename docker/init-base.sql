@@ -408,7 +408,7 @@ CREATE INDEX IF NOT EXISTS idx_review_reviewer
 --   - Presences (tier='presence'): has agent, FirstName LastName, may be standalone or in Cove
 --   - Cove admins (tier='cove'): full team access, operator of the Cove
 --
--- Auth is magic-link based. Token is hashed (SHA-256) for storage.
+-- Auth is sign-in-link based. Token is hashed (SHA-256) for storage.
 -- The tier column maps directly to permissions.py Tier enum for feature gating.
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -431,7 +431,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     -- Naming
     name_locked     BOOLEAN DEFAULT FALSE,   -- TRUE = name is permanent (paid accounts)
     -- Auth
-    auth_token      TEXT NOT NULL,           -- SHA-256 hash of magic link token
+    auth_token      TEXT NOT NULL,           -- SHA-256 hash of sign-in link token
     active          BOOLEAN DEFAULT TRUE,    -- Soft delete / deactivation
     -- Preferences (per-account feature flags, settings)
     preferences     JSONB DEFAULT '{}',     -- {features: {mirror: true, ...}, mirror_source: "scripture", ...}
@@ -467,7 +467,7 @@ CREATE INDEX IF NOT EXISTS idx_accounts_referred_by
     ON accounts(referred_by);
 
 -- ─── Auth Sessions (multi-device support) ───────────────────────────────────
--- Each magic link click creates a session. Multiple sessions per account.
+-- Each sign-in link click creates a session. Multiple sessions per account.
 -- Sessions expire after 90 days. Signin never invalidates other sessions.
 
 CREATE TABLE IF NOT EXISTS auth_sessions (

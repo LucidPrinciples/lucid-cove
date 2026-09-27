@@ -1,6 +1,6 @@
 -- 011_auth_sessions.sql — Multi-session auth support
 -- Replaces single auth_token column on accounts with a sessions table.
--- Each magic link click creates a session. Multiple sessions can be active
+-- Each sign-in link click creates a session. Multiple sessions can be active
 -- simultaneously (phone + laptop + tablet). Sessions expire after 90 days.
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
