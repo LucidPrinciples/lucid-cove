@@ -19,7 +19,7 @@ def briefs_tmp(tmp_path, monkeypatch):
     return br
 
 
-def test_personal_library_hides_other_presence_and_legacy(briefs_tmp):
+def test_personal_library_is_own_plus_attached(briefs_tmp):
     br = briefs_tmp
     br.publish_doc(
         title="Teresa list",
@@ -34,16 +34,23 @@ def test_personal_library_hides_other_presence_and_legacy(briefs_tmp):
         scope="presence",
     )
     br.publish_doc(
-        title="Shared how briefs work",
-        content_markdown="shared",
+        title="Warehouse plan",
+        content_markdown="shared job",
         presence_id="",
         scope="cove",
+        project_slug="warehouse-liquidation",
+    )
+    br.publish_doc(
+        title="Video pipeline plan",
+        content_markdown="not attached",
+        presence_id="",
+        scope="cove",
+        project_slug="video-pipeline",
     )
     br.publish_doc(
         title="Legacy unscoped",
         content_markdown="old",
     )
-    # Force the last one to the pre-scope shape (empty presence + empty scope)
     data = br._load_index()
     for d in data["docs"]:
         if d.get("slug") == "legacy-unscoped":
@@ -51,10 +58,19 @@ def test_personal_library_hides_other_presence_and_legacy(briefs_tmp):
             d["scope"] = ""
     br._save_index(data)
 
-    mine = {d["slug"] for d in br.list_docs(presence_id="teresa-1", full_cove=False)}
+    attached = {"warehouse-liquidation"}
+    mine = {
+        d["slug"]
+        for d in br.list_docs(
+            presence_id="teresa-1",
+            full_cove=False,
+            attached_project_slugs=attached,
+        )
+    }
     assert "teresa-list" in mine
-    assert "shared-how-briefs-work" in mine
+    assert "warehouse-plan" in mine
     assert "jason-haven-spec" not in mine
+    assert "video-pipeline-plan" not in mine
     assert "legacy-unscoped" not in mine
     other = next(d for d in br._load_index()["docs"] if d.get("slug") == "jason-haven-spec")
     assert not br.doc_visible_to(other, presence_id="teresa-1", full_cove=False)
@@ -63,15 +79,29 @@ def test_personal_library_hides_other_presence_and_legacy(briefs_tmp):
     assert "jason-haven-spec" in steward
     assert "teresa-list" in steward
     assert "legacy-unscoped" in steward
+    assert "video-pipeline-plan" in steward
 
 
 def test_doc_visible_to_rules(briefs_tmp):
     personal = {"presence_id": "t1", "scope": "presence"}
-    cove = {"presence_id": "", "scope": "cove"}
+    attached = {"presence_id": "", "scope": "cove", "project_slug": "ebay"}
+    unattached = {"presence_id": "", "scope": "cove", "project_slug": "video-pipeline"}
     legacy = {"presence_id": "", "scope": ""}
+    slugs = {"ebay"}
     assert briefs_tmp.doc_visible_to(personal, presence_id="t1", full_cove=False)
     assert not briefs_tmp.doc_visible_to(personal, presence_id="other", full_cove=False)
-    assert briefs_tmp.doc_visible_to(cove, presence_id="t1", full_cove=False)
+    assert briefs_tmp.doc_visible_to(
+        attached,
+        presence_id="t1",
+        full_cove=False,
+        attached_project_slugs=slugs,
+    )
+    assert not briefs_tmp.doc_visible_to(
+        unattached,
+        presence_id="t1",
+        full_cove=False,
+        attached_project_slugs=slugs,
+    )
     assert not briefs_tmp.doc_visible_to(
         legacy, presence_id="t1", full_cove=False, for_library=True
     )
