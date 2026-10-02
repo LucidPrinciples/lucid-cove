@@ -226,14 +226,16 @@ def doc_visible_to(
     *,
     presence_id: str = "",
     full_cove: bool = False,
+    for_library: bool = False,
 ) -> bool:
     """Who may see a brief in the library and open it by URL.
 
-    Signed-in doors see their own docs, explicitly cove-scoped docs, and
-    house leftovers (no presence_id, no scope) — those were published
-    before scoping existed and are the live family catalog. Another
-    presence's scoped docs stay closed. Steward/admin full board and
-    single-mode still see everything.
+    Personal handle doors (jason.cove / Atlas): library is own docs plus
+    explicitly cove-scoped shared docs. Unscoped leftovers and another
+    presence's private docs stay off that list. A specific URL can still
+    open a leftover house doc so Links/chat cards do not 404.
+
+    Steward/manager Mission Control and single-mode still see everything.
     """
     if full_cove:
         return True
@@ -245,7 +247,8 @@ def doc_visible_to(
         return True
     if _norm_scope((doc or {}).get("scope") or "") == "cove":
         return True
-    if not owner and not _norm_scope((doc or {}).get("scope") or ""):
+    leftover = not owner and not _norm_scope((doc or {}).get("scope") or "")
+    if leftover and not for_library:
         return True
     return False
 
@@ -291,14 +294,14 @@ async def _library_actor(request: Request | None) -> tuple[str, bool]:
                 force_personal = True
         if force_personal:
             return pid, False
-        role = (p.get("cove_role") or "").strip().lower()
-        # Admin/steward still needs the house catalog on a handle door.
-        # Member handles stay scoped.
-        if role in ("admin", "steward"):
-            return pid, True
         kind = (hc.get("kind") or "").strip().lower()
         if kind == "manager":
             return pid, True
+        # Cove apex admin surface — not a personal handle door (jason.cove).
+        if kind == "cove":
+            role = (p.get("cove_role") or "").strip().lower()
+            if role in ("admin", "steward"):
+                return pid, True
         return pid, False
     except Exception:
         return pid, False
@@ -557,7 +560,9 @@ def list_docs(
             continue
         if status and status != "all" and (d.get("status") or "active") != status:
             continue
-        if not doc_visible_to(d, presence_id=presence_id, full_cove=full_cove):
+        if not doc_visible_to(
+            d, presence_id=presence_id, full_cove=full_cove, for_library=True
+        ):
             continue
         out.append(dict(d))
     out.sort(key=lambda x: x.get("updated_at") or "", reverse=True)

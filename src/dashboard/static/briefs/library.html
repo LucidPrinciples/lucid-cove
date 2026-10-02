@@ -106,11 +106,11 @@
         list.innerHTML = '<div class="empty">No published briefs yet. When an agent publishes one, it lands here and on Links.</div>';
         return;
       }
-      const keep = location.search || "";
+      const libReturn = encodeURIComponent("/briefs" + (location.search || ""));
       list.innerHTML = docs.map(function (d) {
         const k = (d.kind || "brief").toLowerCase();
         return (
-          '<a class="card" href="/briefs/' + encodeURIComponent(d.slug) + keep + '">' +
+          '<a class="card" href="/briefs/' + encodeURIComponent(d.slug) + "?return=" + libReturn + '">' +
           '<div class="row"><span class="badge ' + k + '">' + esc(k) + "</span></div>" +
           "<h2>" + esc(d.title || d.slug) + "</h2>" +
           (d.summary ? "<p>" + esc(d.summary) + "</p>" : "") +
