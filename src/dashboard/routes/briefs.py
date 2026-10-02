@@ -226,14 +226,12 @@ def doc_visible_to(
     *,
     presence_id: str = "",
     full_cove: bool = False,
-    for_reader: bool = False,
 ) -> bool:
-    """Who may see a brief in the library vs open it by URL.
+    """Who may see a brief in the library and open it by URL.
 
-    Personal library: that presence's docs plus explicitly cove-scoped docs.
-    Legacy rows (no presence_id, no scope) stay off personal lists so one
-    member does not inherit the whole Cove index. Direct reader URLs
-    (Links, chat, project modal) still open those house docs. Another
+    Signed-in doors see their own docs, explicitly cove-scoped docs, and
+    house leftovers (no presence_id, no scope) — those were published
+    before scoping existed and are the live family catalog. Another
     presence's scoped docs stay closed. Steward/admin full board and
     single-mode still see everything.
     """
@@ -247,7 +245,7 @@ def doc_visible_to(
         return True
     if _norm_scope((doc or {}).get("scope") or "") == "cove":
         return True
-    if for_reader and not owner and not _norm_scope((doc or {}).get("scope") or ""):
+    if not owner and not _norm_scope((doc or {}).get("scope") or ""):
         return True
     return False
 
@@ -602,9 +600,7 @@ async def api_get_brief(slug: str, request: Request, raw: int = 0):
     if not meta:
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
     pid, full = await _library_actor(request)
-    if not doc_visible_to(
-        meta, presence_id=pid, full_cove=full, for_reader=True
-    ):
+    if not doc_visible_to(meta, presence_id=pid, full_cove=full):
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
     body = _read_body(meta)
     payload = {

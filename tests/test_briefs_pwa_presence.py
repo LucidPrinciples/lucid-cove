@@ -55,12 +55,9 @@ def test_personal_library_hides_other_presence_and_legacy(briefs_tmp):
     assert "teresa-list" in mine
     assert "shared-how-briefs-work" in mine
     assert "jason-haven-spec" not in mine
-    assert "legacy-unscoped" not in mine
-    # Direct URL still opens the house leftover; another presence's doc does not.
-    legacy_meta = next(d for d in br._load_index()["docs"] if d.get("slug") == "legacy-unscoped")
+    assert "legacy-unscoped" in mine
     other = next(d for d in br._load_index()["docs"] if d.get("slug") == "jason-haven-spec")
-    assert br.doc_visible_to(legacy_meta, presence_id="teresa-1", full_cove=False, for_reader=True)
-    assert not br.doc_visible_to(other, presence_id="teresa-1", full_cove=False, for_reader=True)
+    assert not br.doc_visible_to(other, presence_id="teresa-1", full_cove=False)
 
     steward = {d["slug"] for d in br.list_docs(presence_id="jag-1", full_cove=True)}
     assert "jason-haven-spec" in steward
@@ -75,13 +72,10 @@ def test_doc_visible_to_rules(briefs_tmp):
     assert briefs_tmp.doc_visible_to(personal, presence_id="t1", full_cove=False)
     assert not briefs_tmp.doc_visible_to(personal, presence_id="other", full_cove=False)
     assert briefs_tmp.doc_visible_to(cove, presence_id="t1", full_cove=False)
-    assert not briefs_tmp.doc_visible_to(legacy, presence_id="t1", full_cove=False)
+    assert briefs_tmp.doc_visible_to(legacy, presence_id="t1", full_cove=False)
     assert briefs_tmp.doc_visible_to(legacy, presence_id="t1", full_cove=True)
-    assert briefs_tmp.doc_visible_to(
-        legacy, presence_id="t1", full_cove=False, for_reader=True
-    )
     assert not briefs_tmp.doc_visible_to(
-        personal, presence_id="other", full_cove=False, for_reader=True
+        personal, presence_id="other", full_cove=False
     )
 
 
