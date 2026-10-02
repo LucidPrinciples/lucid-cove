@@ -899,8 +899,8 @@ async def _deploy_site_core(nc_url, nc_user, nc_pass, domain, description, agent
     Shared by the /deploy endpoint and the site_deploy agent tool.
     Returns {ok: bool, ...}.
 
-    raise_approval=False is for the lucidtuner.com daily tunings publisher
-    only — caller merges the branch itself with no Attention card.
+    raise_approval=False skips the Attention card so a caller can merge
+    the deploy branch itself. Default remains gated.
     """
     import uuid
     from datetime import datetime, timezone
