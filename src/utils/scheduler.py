@@ -1024,17 +1024,6 @@ class AgentScheduler:
                 asyncio.ensure_future(coro_func(*args))
         return wrapper
 
-    async def _run_tunings_publish(self):
-        """Write today's lucidtuner.com /tunings page and merge without a card."""
-        try:
-            from src.utils.tunings_publish import scheduled_publish
-            result = await scheduled_publish()
-            status = (result or {}).get("skipped") or (result or {}).get("youtube_id") or result
-            print(f"{ts_log()} [scheduler] tunings-publish: {status}")
-        except Exception as e:
-            print(f"{ts_log()} [scheduler] tunings-publish failed: {e}")
-
-
     async def _check_to_delete_size(self):
         """Notify when AgentSkills/To-Delete or video/to-delete exceeds threshold.
 
@@ -1284,20 +1273,6 @@ class AgentScheduler:
         if yt_configured:
             print("[scheduler]   every 15m — YouTube queue processor")
         print(f"[scheduler]   Timezone: {tz}")
-
-        # Daily lucidtuner.com /tunings archive: sidecar + playlist fallback,
-        # write pages, merge without an Attention card. Env-off for other Coves.
-        try:
-            from src.config import get_instance as _gi_tunings
-            _tunings_on = env("TUNINGS_AUTO_PUBLISH", "1") not in ("0", "false", "off")
-            if ((_gi_tunings().get("type") or "personal") == "admin") and _tunings_on:
-                for _t in ("07:35", "07:50", "08:05", "08:20", "08:35"):
-                    schedule.every().day.at(_t, tz).do(
-                        self._schedule_async(self._run_tunings_publish)
-                    )
-                print("[scheduler]   07:35–08:35 — Tuner archive auto-publish")
-        except Exception as e:
-            print(f"[scheduler]   tunings auto-publish not registered: {e}")
 
         # --- Agent-specific additions (overlay hook) ---
         self.setup_agent_schedule()
