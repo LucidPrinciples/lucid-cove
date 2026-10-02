@@ -55,7 +55,7 @@ def test_personal_library_hides_other_presence_and_legacy(briefs_tmp):
     assert "teresa-list" in mine
     assert "shared-how-briefs-work" in mine
     assert "jason-haven-spec" not in mine
-    assert "legacy-unscoped" in mine
+    assert "legacy-unscoped" not in mine
     other = next(d for d in br._load_index()["docs"] if d.get("slug") == "jason-haven-spec")
     assert not br.doc_visible_to(other, presence_id="teresa-1", full_cove=False)
 
@@ -72,7 +72,12 @@ def test_doc_visible_to_rules(briefs_tmp):
     assert briefs_tmp.doc_visible_to(personal, presence_id="t1", full_cove=False)
     assert not briefs_tmp.doc_visible_to(personal, presence_id="other", full_cove=False)
     assert briefs_tmp.doc_visible_to(cove, presence_id="t1", full_cove=False)
-    assert briefs_tmp.doc_visible_to(legacy, presence_id="t1", full_cove=False)
+    assert not briefs_tmp.doc_visible_to(
+        legacy, presence_id="t1", full_cove=False, for_library=True
+    )
+    assert briefs_tmp.doc_visible_to(
+        legacy, presence_id="t1", full_cove=False, for_library=False
+    )
     assert briefs_tmp.doc_visible_to(legacy, presence_id="t1", full_cove=True)
     assert not briefs_tmp.doc_visible_to(
         personal, presence_id="other", full_cove=False
@@ -100,10 +105,22 @@ def test_reader_and_library_close_to_origin():
         assert "tab=ab-links" in html
         assert 'return "/?tab=chat"' in html
         assert "history.back()" not in html
-        assert 'href="/briefs"' not in html
     assert 'id="briefs-back"' in reader
-    assert "← Briefs" not in reader
     assert 'id="briefs-lib"' not in reader
+    assert "← Briefs" in reader
+    assert 'return "/briefs"' in reader
+    assert 'encodeURIComponent("/briefs"' in library
+
+
+def test_handle_door_does_not_inherit_admin_full_library():
+    src = (ROOT / "src/dashboard/routes/briefs.py").read_text()
+    assert 'kind == "cove"' in src
+    assert "for_library=True" in src
+    actor = src.split("async def _library_actor")[1].split("def publish_doc")[0]
+    # Admin full catalog is Cove apex / manager only — not a handle door.
+    assert "if kind == \"manager\":" in actor
+    assert "if kind == \"cove\":" in actor
+    assert actor.find("if kind == \"cove\":") < actor.find('if role in ("admin", "steward")')
 
 
 def test_links_return_covers_brief_slug_and_same_window():
