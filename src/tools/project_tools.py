@@ -625,6 +625,7 @@ async def create_project(name: str, description: str = "",
                 description=description or "",
                 goals=goals or "",
                 published_by="create_project",
+                presence_id=str(presence_id or ""),
             )
             if meta:
                 brief_note = (

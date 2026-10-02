@@ -92,6 +92,13 @@ async def publish_brief(
             return "Provide content_markdown and/or a readable source_path."
 
         project_slug = (project or "").strip()
+        presence_id = ""
+        try:
+            from src.tools.links_tools import _links_presence_ctx
+
+            presence_id = str(_links_presence_ctx.get() or "").strip()
+        except Exception:
+            presence_id = ""
         meta = br.publish_doc(
             title=title,
             content_markdown=content_markdown or "",
@@ -101,6 +108,8 @@ async def publish_brief(
             slug=(slug or "").strip() or None,
             published_by="agent",
             project_slug=project_slug,
+            presence_id=presence_id,
+            scope="presence" if presence_id else "cove",
         )
         url = br.reader_url(meta["slug"])
         pin_msg = ""
@@ -181,7 +190,29 @@ async def list_briefs(kind: str = "", status: str = "active") -> str:
     try:
         from src.dashboard.routes import briefs as br
 
-        docs = br.list_docs(kind=kind or "", status=status or "active")
+        presence_id = ""
+        try:
+            from src.tools.links_tools import _links_presence_ctx
+
+            presence_id = str(_links_presence_ctx.get() or "").strip()
+        except Exception:
+            presence_id = ""
+        full_cove = True
+        try:
+            from src.graphs.channels import _is_manager_channel
+            from src.tools.nextcloud_tools import get_acting_channel
+
+            ch = get_acting_channel()
+            if presence_id and not (ch and _is_manager_channel(ch)):
+                full_cove = False
+        except Exception:
+            full_cove = not presence_id
+        docs = br.list_docs(
+            kind=kind or "",
+            status=status or "active",
+            presence_id=presence_id,
+            full_cove=full_cove,
+        )
         if not docs:
             return "No published briefs."
         lines = []

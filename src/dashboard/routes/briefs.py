@@ -90,6 +90,9 @@ def _save_index(data: dict) -> None:
         proj = str(d.get("project_slug") or "").strip().lower()[:80]
         if proj and not re.match(r"^[a-z0-9][a-z0-9\-]*$", proj):
             proj = ""
+        scope = str(d.get("scope") or "").strip().lower()
+        if scope not in ("", "presence", "cove"):
+            scope = ""
         clean.append({
             "slug": slug,
             "title": str(d.get("title") or slug).strip()[:200],
@@ -98,6 +101,8 @@ def _save_index(data: dict) -> None:
             "summary": str(d.get("summary") or "").strip()[:400],
             "source_path": str(d.get("source_path") or "").strip()[:500],
             "project_slug": proj,
+            "presence_id": str(d.get("presence_id") or "").strip()[:80],
+            "scope": scope,
             "created_at": str(d.get("created_at") or "").strip()[:40],
             "updated_at": str(d.get("updated_at") or "").strip()[:40],
             "published_by": str(d.get("published_by") or "").strip()[:80],
@@ -207,6 +212,93 @@ def _norm_project_slug(project_slug: str = "") -> str:
     return ""
 
 
+def _norm_presence_id(presence_id: str = "") -> str:
+    return str(presence_id or "").strip()[:80]
+
+
+def _norm_scope(scope: str = "") -> str:
+    s = str(scope or "").strip().lower()
+    return s if s in ("presence", "cove") else ""
+
+
+def doc_visible_to(
+    doc: dict,
+    *,
+    presence_id: str = "",
+    full_cove: bool = False,
+) -> bool:
+    """Who may see a brief in the library / reader.
+
+    Personal MC: that presence's docs, plus explicitly cove-scoped docs.
+    Legacy rows (no presence_id, no scope) stay off personal lists so one
+    member does not inherit the whole Cove index. Steward/admin full board
+    and single-mode still see everything.
+    """
+    if full_cove:
+        return True
+    actor = _norm_presence_id(presence_id)
+    if not actor:
+        return False
+    owner = _norm_presence_id(doc.get("presence_id") if isinstance(doc, dict) else "")
+    if owner and owner == actor:
+        return True
+    if _norm_scope((doc or {}).get("scope") or "") == "cove":
+        return True
+    return False
+
+
+async def _library_actor(request: Request | None) -> tuple[str, bool]:
+    """(presence_id, full_cove_library) for the signed-in Mission Control door.
+
+    Mirrors the projects tab rule without importing that module (cycle).
+    Multi + personal door → own docs only. Manager / Cove-admin apex → all.
+    Multi with no presence → nothing (fail closed). Single-mode → all.
+    """
+    if env("COVE_MODE", "single") != "multi":
+        return "", True
+    if request is None:
+        return "", False
+    try:
+        from src.dashboard.routes.presence import get_current_presence
+
+        p = await get_current_presence(request)
+    except Exception:
+        p = None
+    if not p or not p.get("id"):
+        return "", False
+    pid = str(p["id"])
+    try:
+        from src.config import load_cove_config
+        from src.dashboard.host_context import request_host, resolve_host_context
+
+        cove = load_cove_config()
+        hc = resolve_host_context(request_host(request), cove)
+        as_param = (request.query_params.get("as") or "").strip().lower()
+        force_personal = False
+        if as_param:
+            own = (p.get("username") or "").lstrip("@").strip().lower()
+            role = (p.get("cove_role") or "").strip().lower()
+            mgrs = {
+                ((cove.get("steward_channel") or {}).get("name") or "").strip().lower(),
+                ((cove.get("merchant_channel") or {}).get("name") or "").strip().lower(),
+            } - {""}
+            if role == "admin" and as_param in mgrs:
+                hc = {**hc, "kind": "manager", "label": as_param}
+            elif as_param == own:
+                force_personal = True
+        if force_personal:
+            return pid, False
+        kind = (hc.get("kind") or "").strip().lower()
+        if kind == "manager":
+            return pid, True
+        role = (p.get("cove_role") or "").strip().lower()
+        if kind == "cove" and role in ("admin", "steward"):
+            return pid, True
+        return pid, False
+    except Exception:
+        return pid, False
+
+
 def publish_doc(
     *,
     title: str,
@@ -218,6 +310,8 @@ def publish_doc(
     published_by: str = "",
     slug: str | None = None,
     project_slug: str = "",
+    presence_id: str = "",
+    scope: str = "",
 ) -> dict:
     """Create or update a brief/plan/spec. Returns meta dict."""
     _ensure_dirs()
@@ -231,6 +325,10 @@ def publish_doc(
     summary = (summary or "").strip()[:400]
     source_path = (source_path or "").strip()[:500]
     project_slug = _norm_project_slug(project_slug)
+    presence_id = _norm_presence_id(presence_id)
+    scope = _norm_scope(scope)
+    if not scope:
+        scope = "cove" if not presence_id else "presence"
     if source_path and _safe_vault_path(source_path) is None:
         # Keep the path for display only if invalid — do not read it.
         pass
@@ -277,6 +375,8 @@ def publish_doc(
             "created_at": now,
             "updated_at": now,
             "published_by": (published_by or "").strip()[:80],
+            "presence_id": presence_id,
+            "scope": scope,
         }
         docs.append(target)
     else:
@@ -292,6 +392,10 @@ def publish_doc(
         target["updated_at"] = now
         if published_by:
             target["published_by"] = published_by.strip()[:80]
+        if presence_id:
+            target["presence_id"] = presence_id
+        if scope:
+            target["scope"] = scope
         new_slug = target["slug"]
 
     body = content_markdown if content_markdown is not None else ""
@@ -346,6 +450,7 @@ def ensure_project_plan(
     description: str = "",
     goals: str = "",
     published_by: str = "ensure_project_plan",
+    presence_id: str = "",
 ) -> tuple[dict | None, str]:
     """Create a starter plan linked to project_slug if none exists.
 
@@ -388,6 +493,7 @@ def ensure_project_plan(
             summary=(desc_block[:400] if desc_block else f"Plan for {display}"),
             project_slug=slug,
             published_by=(published_by or "ensure_project_plan")[:80],
+            presence_id=presence_id,
         )
         return meta, "created"
     except Exception as e:
@@ -429,7 +535,13 @@ def promote_doc(slug_or_title: str, to_kind: str) -> tuple[dict | None, str]:
     return dict(target), ""
 
 
-def list_docs(kind: str = "", status: str = "active") -> list[dict]:
+def list_docs(
+    kind: str = "",
+    status: str = "active",
+    *,
+    presence_id: str = "",
+    full_cove: bool = True,
+) -> list[dict]:
     kind = (kind or "").strip().lower()
     status = (status or "").strip().lower()
     out = []
@@ -439,6 +551,8 @@ def list_docs(kind: str = "", status: str = "active") -> list[dict]:
         if kind and (d.get("kind") or "") != kind:
             continue
         if status and status != "all" and (d.get("status") or "active") != status:
+            continue
+        if not doc_visible_to(d, presence_id=presence_id, full_cove=full_cove):
             continue
         out.append(dict(d))
     out.sort(key=lambda x: x.get("updated_at") or "", reverse=True)
@@ -465,15 +579,23 @@ async def briefs_reader_page(slug: str):
 
 
 @router.get("/api/briefs")
-async def api_list_briefs(kind: str = "", status: str = "active"):
-    docs = list_docs(kind=kind, status=status or "active")
+async def api_list_briefs(
+    request: Request, kind: str = "", status: str = "active"
+):
+    pid, full = await _library_actor(request)
+    docs = list_docs(
+        kind=kind, status=status or "active", presence_id=pid, full_cove=full
+    )
     return JSONResponse({"ok": True, "docs": docs})
 
 
 @router.get("/api/briefs/{slug}")
-async def api_get_brief(slug: str, raw: int = 0):
+async def api_get_brief(slug: str, request: Request, raw: int = 0):
     meta = _find_meta(slug)
     if not meta:
+        return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
+    pid, full = await _library_actor(request)
+    if not doc_visible_to(meta, presence_id=pid, full_cove=full):
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
     body = _read_body(meta)
     payload = {

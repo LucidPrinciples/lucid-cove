@@ -465,6 +465,7 @@ async def create_project(request: Request):
                 description=description or "",
                 goals=goals or "",
                 published_by="ui_create_project",
+                presence_id=str(insert_presence or ""),
             )
         except Exception as e:
             log.warning("ui create_project plan ensure failed: %s", e)
@@ -613,6 +614,7 @@ async def get_project_detail(project_id: int, request: Request = None):
                     description=proj.get("description") or "",
                     goals=proj.get("goals") or "",
                     published_by="project_detail_backfill",
+                    presence_id="" if full_board else str(presence_id or ""),
                 )
                 if meta:
                     linked = meta

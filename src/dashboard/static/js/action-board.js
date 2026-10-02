@@ -2361,7 +2361,7 @@ function _abLinksWithReturn(url) {
         const u = new URL(String(url), window.location.origin);
         if (u.origin !== window.location.origin) return url;
         const path = u.pathname.replace(/\/+$/, '') || '/';
-        if (path !== '/backlog' && path !== '/jules' && path !== '/gabs' && path !== '/model-lab' && path !== '/knowledge' && path !== '/tables' && path !== '/briefs' && path !== '/books') return url;
+        if (path !== '/backlog' && path !== '/jules' && path !== '/gabs' && path !== '/model-lab' && path !== '/knowledge' && path !== '/tables' && path !== '/briefs' && path !== '/books' && !path.startsWith('/briefs/')) return url;
         if (!u.searchParams.has('return')) u.searchParams.set('return', 'links');
         // Keep relative form for in-Cove paths so host/presence doors stay correct.
         if (String(url).startsWith('/') || !/^[a-z][a-z0-9+.-]*:/i.test(String(url))) {
@@ -2376,8 +2376,10 @@ function _abLinksWithReturn(url) {
 function _abLinksRenderLeaf(c) {
     const openUrl = c.url ? _abLinksWithReturn(c.url) : '';
     const href = openUrl ? ' href="' + _abEsc(openUrl) + '"' : '';
-    // Always new window/tab — board stays put (desktop + mobile browser).
-    const tgt = openUrl ? ' target="_blank" rel="noopener"' : '';
+    // In-Cove tools stay in this window on the PWA so Close can return here.
+    // External URLs still open a new tab on desktop/browser.
+    const sameApp = openUrl && String(openUrl).charAt(0) === '/';
+    const tgt = openUrl && !sameApp ? ' target="_blank" rel="noopener"' : '';
     return '<a class="ablk-card"' + href + tgt + '>'
          + '<div class="ablk-card-t">' + (c.icon ? '<span class="ablk-card-i">' + _abEsc(c.icon) + '</span>' : '')
          + _abEsc(c.title || c.url) + '</div>'
@@ -2410,7 +2412,9 @@ function _abLinksRenderBundle(c, idx) {
             if (label) html += '<span class="ablk-label">' + _abEsc(label) + '</span>';
             if (it.url) {
                 const openUrl = _abLinksWithReturn(it.url);
-                html += '<a class="ablk-link" href="' + _abEsc(openUrl) + '" target="_blank" rel="noopener">'
+                const sameApp = String(openUrl).charAt(0) === '/';
+                html += '<a class="ablk-link" href="' + _abEsc(openUrl) + '"'
+                      + (sameApp ? '' : ' target="_blank" rel="noopener"') + '>'
                       + _abEsc(text) + '</a>';
             } else {
                 html += '<span class="ablk-link-plain">' + _abEsc(text) + '</span>';
