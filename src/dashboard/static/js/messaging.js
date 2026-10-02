@@ -423,7 +423,13 @@ function formatMessage(text) {
     html = html.replace(/(^|[\s(])(\/(?:briefs|backlog)(?:\/[^\s<]*)?)/g, function (_m, pre, path) {
         var trail = '';
         while (path && /[.,);:!?]$/.test(path)) { trail = path.slice(-1) + trail; path = path.slice(0, -1); }
-        return pre + '<a href="' + path + '" target="_blank" rel="noopener">' + path + '</a>' + trail;
+        var href = path;
+        try {
+            var u = new URL(path, window.location.origin);
+            if (!u.searchParams.has('return')) u.searchParams.set('return', 'chat');
+            href = u.pathname + u.search + u.hash;
+        } catch (e) {}
+        return pre + '<a href="' + href + '">' + path + '</a>' + trail;
     });
     return html.replace(/\n/g, '<br>');
 }

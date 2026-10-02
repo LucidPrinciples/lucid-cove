@@ -160,12 +160,26 @@
     border-radius: 10px; padding: 16px;
   }
   .raw-box.open { display: block; }
+  .br-close {
+    position: fixed; top: 10px; right: 12px; z-index: 50;
+    width: 36px; height: 36px; border-radius: 18px;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); font-size: 18px; line-height: 1;
+    display: none; align-items: center; justify-content: center;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    padding: 0;
+  }
+  .br-close:hover { border-color: var(--accent); color: var(--accent); }
+  body.br-show-close { padding-top: 8px; }
+  body.br-show-close .br-close { display: flex; }
+  body.br-show-close .topbar { padding-right: 56px; }
 </style>
 </head>
 <body>
+<button type="button" class="br-close" id="br-close" aria-label="Close" title="Close">×</button>
   <div class="topbar">
-    <a href="/briefs">← Briefs</a>
-    <a href="/?tab=ab-links">Links</a>
+    <a href="/briefs" id="briefs-lib">← Briefs</a>
+    <a href="/?tab=ab-links" id="links-home">Links</a>
     <span class="spacer"></span>
     <span id="kind-badge" class="badge brief">brief</span>
     <button type="button" class="raw-toggle" id="raw-btn" hidden>View source</button>
@@ -262,6 +276,50 @@
     }
   }
   load();
+})();
+</script>
+<script>
+(function () {
+  const btn = document.getElementById("br-close");
+  const lib = document.getElementById("briefs-lib");
+  function isStandalone() {
+    return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
+        || window.navigator.standalone === true;
+  }
+  function returnTarget() {
+    try {
+      const r = (new URLSearchParams(location.search).get("return") || "").trim();
+      if (!r) return "";
+      if (r === "links" || r === "ab-links") return "/?tab=ab-links";
+      if (r === "chat") return "/?tab=chat";
+      if (r === "home" || r === "mc" || r === "attention") return "/";
+      if (r === "action" || r === "ab-actions") return "/?tab=ab-actions";
+      if (r === "tools" || r === "ab-tools") return "/?tab=ab-tools";
+      if (r === "flows" || r === "ab-flows") return "/?tab=ab-flows";
+      if (r.charAt(0) === "/" && r.charAt(1) !== "/") return r;
+    } catch (e) {}
+    return "";
+  }
+  const ret = returnTarget();
+  const keep = location.search || "";
+  if (lib) lib.setAttribute("href", "/briefs" + keep);
+  const canBack = (window.history.length > 1) || !!document.referrer;
+  if (btn && (ret || canBack || isStandalone())) {
+    document.body.classList.add("br-show-close");
+  }
+  if (btn) {
+    btn.addEventListener("click", function () {
+      if (ret) {
+        window.location.href = ret;
+        return;
+      }
+      if (window.history.length > 1) {
+        window.history.back();
+        return;
+      }
+      window.location.href = "/?tab=ab-links";
+    });
+  }
 })();
 </script>
 </body>
