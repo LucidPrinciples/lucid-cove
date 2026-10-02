@@ -892,11 +892,15 @@ async def _write_deploy_manifest(client, base, domain, nc_user, nc_pass,
     await _nc_put(client, url, nc_user, nc_pass, body, content_type="application/json")
 
 
-async def _deploy_site_core(nc_url, nc_user, nc_pass, domain, description, agent_id) -> dict:
+async def _deploy_site_core(nc_url, nc_user, nc_pass, domain, description, agent_id,
+                            raise_approval: bool = True) -> dict:
     """Mirror the NC site folder into a GitHub deploy branch + raise approval.
 
     Shared by the /deploy endpoint and the site_deploy agent tool.
     Returns {ok: bool, ...}.
+
+    raise_approval=False is for the lucidtuner.com daily tunings publisher
+    only — caller merges the branch itself with no Attention card.
     """
     import uuid
     from datetime import datetime, timezone
@@ -974,6 +978,12 @@ async def _deploy_site_core(nc_url, nc_user, nc_pass, domain, description, agent
         return {"ok": True, "no_changes": True, "domain": domain, "file_count": commit["file_count"]}
 
     changed = commit.get("changed", commit["file_count"])
+    if not raise_approval:
+        _dlog(f"Deploy {domain}: branch {branch} committed ({changed} changed) — auto-merge path, no card")
+        return {"ok": True, "domain": domain, "repo": repo, "branch": branch,
+                "file_count": commit["file_count"], "changed": changed,
+                "request_id": None, "auto_merge": True}
+
     _dlog(f"Deploy {domain}: branch {branch} committed ({changed} changed) — raising approval")
 
     # Same approval path as site edits: approve → merge branch to main → Cloudflare deploys
