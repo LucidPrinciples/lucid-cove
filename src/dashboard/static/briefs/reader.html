@@ -178,8 +178,7 @@
 <body>
 <button type="button" class="br-close" id="br-close" aria-label="Close" title="Close">×</button>
   <div class="topbar">
-    <a href="/briefs" id="briefs-lib">← Briefs</a>
-    <a href="/?tab=ab-links" id="links-home">Links</a>
+    <a href="/?tab=ab-links" id="briefs-back">← Back</a>
     <span class="spacer"></span>
     <span id="kind-badge" class="badge brief">brief</span>
     <button type="button" class="raw-toggle" id="raw-btn" hidden>View source</button>
@@ -281,11 +280,7 @@
 <script>
 (function () {
   const btn = document.getElementById("br-close");
-  const lib = document.getElementById("briefs-lib");
-  function isStandalone() {
-    return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
-        || window.navigator.standalone === true;
-  }
+  const back = document.getElementById("briefs-back");
   function returnTarget() {
     try {
       const r = (new URLSearchParams(location.search).get("return") || "").trim();
@@ -296,28 +291,24 @@
       if (r === "action" || r === "ab-actions") return "/?tab=ab-actions";
       if (r === "tools" || r === "ab-tools") return "/?tab=ab-tools";
       if (r === "flows" || r === "ab-flows") return "/?tab=ab-flows";
-      if (r.charAt(0) === "/" && r.charAt(1) !== "/") return r;
+      if (r === "briefs" || r === "/briefs") return "/?tab=ab-links";
+      if (r.charAt(0) === "/" && r.charAt(1) !== "/" && !r.startsWith("/briefs")) return r;
     } catch (e) {}
     return "";
   }
-  const ret = returnTarget();
-  const keep = location.search || "";
-  if (lib) lib.setAttribute("href", "/briefs" + keep);
-  const canBack = (window.history.length > 1) || !!document.referrer;
-  if (btn && (ret || canBack || isStandalone())) {
+  const ret = returnTarget() || "/?tab=ab-links";
+  if (back) {
+    back.setAttribute("href", ret);
+    if (ret.indexOf("tab=chat") !== -1) back.textContent = "← Chat";
+    else if (ret.indexOf("tab=ab-links") !== -1) back.textContent = "← Links";
+    else back.textContent = "← Back";
+  }
+  if (btn) {
     document.body.classList.add("br-show-close");
   }
   if (btn) {
     btn.addEventListener("click", function () {
-      if (ret) {
-        window.location.href = ret;
-        return;
-      }
-      if (window.history.length > 1) {
-        window.history.back();
-        return;
-      }
-      window.location.href = "/?tab=ab-links";
+      window.location.href = ret;
     });
   }
 })();

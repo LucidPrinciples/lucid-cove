@@ -138,10 +138,6 @@
 (function () {
   const btn = document.getElementById("br-close");
   if (!btn) return;
-  function isStandalone() {
-    return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)
-        || window.navigator.standalone === true;
-  }
   function returnTarget() {
     try {
       const r = (new URLSearchParams(location.search).get("return") || "").trim();
@@ -152,25 +148,15 @@
       if (r === "action" || r === "ab-actions") return "/?tab=ab-actions";
       if (r === "tools" || r === "ab-tools") return "/?tab=ab-tools";
       if (r === "flows" || r === "ab-flows") return "/?tab=ab-flows";
-      if (r.charAt(0) === "/" && r.charAt(1) !== "/") return r;
+      if (r === "briefs" || r === "/briefs") return "/?tab=ab-links";
+      if (r.charAt(0) === "/" && r.charAt(1) !== "/" && !r.startsWith("/briefs")) return r;
     } catch (e) {}
     return "";
   }
-  const ret = returnTarget();
-  const canBack = (window.history.length > 1) || !!document.referrer;
-  if (ret || canBack || isStandalone()) {
-    document.body.classList.add("br-show-close");
-  }
+  const ret = returnTarget() || "/?tab=ab-links";
+  document.body.classList.add("br-show-close");
   btn.addEventListener("click", function () {
-    if (ret) {
-      window.location.href = ret;
-      return;
-    }
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    window.location.href = "/?tab=ab-links";
+    window.location.href = ret;
   });
 })();
 </script>

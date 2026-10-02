@@ -92,11 +92,13 @@ def test_reader_and_library_close_to_origin():
     library = (ROOT / "src/dashboard/static/briefs/library.html").read_text()
     for html in (reader, library):
         assert 'id="br-close"' in html
-        assert "return=links" in html or "tab=ab-links" in html
+        assert "tab=ab-links" in html
         assert 'return "/?tab=chat"' in html
-        assert "display-mode: standalone" in html
-    assert 'id="briefs-lib"' in reader
-    assert "/briefs" in reader and "keep" in reader
+        assert "history.back()" not in html
+        assert 'href="/briefs"' not in html
+    assert 'id="briefs-back"' in reader
+    assert "← Briefs" not in reader
+    assert 'id="briefs-lib"' not in reader
 
 
 def test_links_return_covers_brief_slug_and_same_window():
