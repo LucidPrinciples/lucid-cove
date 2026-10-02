@@ -227,15 +227,15 @@ def doc_visible_to(
     presence_id: str = "",
     full_cove: bool = False,
     for_library: bool = False,
+    attached_project_slugs: set[str] | None = None,
 ) -> bool:
     """Who may see a brief in the library and open it by URL.
 
-    Personal handle doors (jason.cove / Atlas): library is own docs plus
-    explicitly cove-scoped shared docs. Unscoped leftovers and another
-    presence's private docs stay off that list. A specific URL can still
-    open a leftover house doc so Links/chat cards do not 404.
-
-    Steward/manager Mission Control and single-mode still see everything.
+    Same share rule as Projects: personal doors list own docs plus docs
+    whose project the presence is attached to (or owns). Another
+    presence's private docs stay hidden. Unscoped leftovers stay off the
+    library; a specific URL can still open one so Links/chat cards do
+    not 404. Steward/manager Mission Control and single-mode see everything.
     """
     if full_cove:
         return True
@@ -245,12 +245,48 @@ def doc_visible_to(
     owner = _norm_presence_id(doc.get("presence_id") if isinstance(doc, dict) else "")
     if owner and owner == actor:
         return True
-    if _norm_scope((doc or {}).get("scope") or "") == "cove":
+    proj = _norm_project_slug((doc or {}).get("project_slug") or "")
+    if proj and attached_project_slugs and proj in attached_project_slugs:
         return True
     leftover = not owner and not _norm_scope((doc or {}).get("scope") or "")
     if leftover and not for_library:
         return True
     return False
+
+
+async def attached_project_slugs_for(presence_id: str) -> set[str]:
+    """Cove projects this presence is a member of, plus their own projects."""
+    actor = _norm_presence_id(presence_id)
+    if not actor:
+        return set()
+    try:
+        from src.memory.database import get_db
+
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT p.slug FROM projects p
+                   WHERE p.slug IS NOT NULL AND p.slug <> ''
+                     AND (
+                       p.presence_id::text = %s
+                       OR (p.presence_id IS NULL AND EXISTS (
+                         SELECT 1 FROM project_members pm
+                         WHERE pm.project_id = p.id
+                           AND pm.presence_id::text = %s
+                       ))
+                     )""",
+                (actor, actor),
+            )
+            rows = await result.fetchall()
+        out = set()
+        for row in rows or []:
+            slug = _norm_project_slug(
+                (row.get("slug") if isinstance(row, dict) else None) or ""
+            )
+            if slug:
+                out.add(slug)
+        return out
+    except Exception:
+        return set()
 
 
 async def _library_actor(request: Request | None) -> tuple[str, bool]:
@@ -549,6 +585,7 @@ def list_docs(
     *,
     presence_id: str = "",
     full_cove: bool = True,
+    attached_project_slugs: set[str] | None = None,
 ) -> list[dict]:
     kind = (kind or "").strip().lower()
     status = (status or "").strip().lower()
@@ -561,7 +598,11 @@ def list_docs(
         if status and status != "all" and (d.get("status") or "active") != status:
             continue
         if not doc_visible_to(
-            d, presence_id=presence_id, full_cove=full_cove, for_library=True
+            d,
+            presence_id=presence_id,
+            full_cove=full_cove,
+            for_library=True,
+            attached_project_slugs=attached_project_slugs,
         ):
             continue
         out.append(dict(d))
@@ -593,8 +634,13 @@ async def api_list_briefs(
     request: Request, kind: str = "", status: str = "active"
 ):
     pid, full = await _library_actor(request)
+    attached = set() if full else await attached_project_slugs_for(pid)
     docs = list_docs(
-        kind=kind, status=status or "active", presence_id=pid, full_cove=full
+        kind=kind,
+        status=status or "active",
+        presence_id=pid,
+        full_cove=full,
+        attached_project_slugs=attached,
     )
     return JSONResponse({"ok": True, "docs": docs})
 
@@ -605,7 +651,13 @@ async def api_get_brief(slug: str, request: Request, raw: int = 0):
     if not meta:
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
     pid, full = await _library_actor(request)
-    if not doc_visible_to(meta, presence_id=pid, full_cove=full):
+    attached = set() if full else await attached_project_slugs_for(pid)
+    if not doc_visible_to(
+        meta,
+        presence_id=pid,
+        full_cove=full,
+        attached_project_slugs=attached,
+    ):
         return JSONResponse({"ok": False, "error": "Not found"}, status_code=404)
     body = _read_body(meta)
     payload = {
