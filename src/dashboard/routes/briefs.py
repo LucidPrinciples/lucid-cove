@@ -293,11 +293,13 @@ async def _library_actor(request: Request | None) -> tuple[str, bool]:
                 force_personal = True
         if force_personal:
             return pid, False
+        role = (p.get("cove_role") or "").strip().lower()
+        # Admin/steward still needs the house catalog on a handle door.
+        # Member handles stay scoped.
+        if role in ("admin", "steward"):
+            return pid, True
         kind = (hc.get("kind") or "").strip().lower()
         if kind == "manager":
-            return pid, True
-        role = (p.get("cove_role") or "").strip().lower()
-        if kind == "cove" and role in ("admin", "steward"):
             return pid, True
         return pid, False
     except Exception:
