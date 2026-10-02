@@ -55,7 +55,9 @@ def test_personal_library_hides_other_presence_and_legacy(briefs_tmp):
     assert "teresa-list" in mine
     assert "shared-how-briefs-work" in mine
     assert "jason-haven-spec" not in mine
-    assert "legacy-unscoped" not in mine
+    assert "legacy-unscoped" in mine
+    other = next(d for d in br._load_index()["docs"] if d.get("slug") == "jason-haven-spec")
+    assert not br.doc_visible_to(other, presence_id="teresa-1", full_cove=False)
 
     steward = {d["slug"] for d in br.list_docs(presence_id="jag-1", full_cove=True)}
     assert "jason-haven-spec" in steward
@@ -70,8 +72,11 @@ def test_doc_visible_to_rules(briefs_tmp):
     assert briefs_tmp.doc_visible_to(personal, presence_id="t1", full_cove=False)
     assert not briefs_tmp.doc_visible_to(personal, presence_id="other", full_cove=False)
     assert briefs_tmp.doc_visible_to(cove, presence_id="t1", full_cove=False)
-    assert not briefs_tmp.doc_visible_to(legacy, presence_id="t1", full_cove=False)
+    assert briefs_tmp.doc_visible_to(legacy, presence_id="t1", full_cove=False)
     assert briefs_tmp.doc_visible_to(legacy, presence_id="t1", full_cove=True)
+    assert not briefs_tmp.doc_visible_to(
+        personal, presence_id="other", full_cove=False
+    )
 
 
 def test_publish_defaults_scope_from_presence(briefs_tmp):

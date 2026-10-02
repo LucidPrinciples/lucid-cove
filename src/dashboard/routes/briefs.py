@@ -227,12 +227,13 @@ def doc_visible_to(
     presence_id: str = "",
     full_cove: bool = False,
 ) -> bool:
-    """Who may see a brief in the library / reader.
+    """Who may see a brief in the library and open it by URL.
 
-    Personal MC: that presence's docs, plus explicitly cove-scoped docs.
-    Legacy rows (no presence_id, no scope) stay off personal lists so one
-    member does not inherit the whole Cove index. Steward/admin full board
-    and single-mode still see everything.
+    Signed-in doors see their own docs, explicitly cove-scoped docs, and
+    house leftovers (no presence_id, no scope) — those were published
+    before scoping existed and are the live family catalog. Another
+    presence's scoped docs stay closed. Steward/admin full board and
+    single-mode still see everything.
     """
     if full_cove:
         return True
@@ -243,6 +244,8 @@ def doc_visible_to(
     if owner and owner == actor:
         return True
     if _norm_scope((doc or {}).get("scope") or "") == "cove":
+        return True
+    if not owner and not _norm_scope((doc or {}).get("scope") or ""):
         return True
     return False
 
@@ -288,11 +291,13 @@ async def _library_actor(request: Request | None) -> tuple[str, bool]:
                 force_personal = True
         if force_personal:
             return pid, False
+        role = (p.get("cove_role") or "").strip().lower()
+        # Admin/steward still needs the house catalog on a handle door.
+        # Member handles stay scoped.
+        if role in ("admin", "steward"):
+            return pid, True
         kind = (hc.get("kind") or "").strip().lower()
         if kind == "manager":
-            return pid, True
-        role = (p.get("cove_role") or "").strip().lower()
-        if kind == "cove" and role in ("admin", "steward"):
             return pid, True
         return pid, False
     except Exception:
