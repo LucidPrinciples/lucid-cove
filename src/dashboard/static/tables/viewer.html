@@ -113,9 +113,7 @@
 </head>
 <body>
   <div class="topbar">
-    <a href="/?tab=ab-links">← Links</a>
-    <a href="/briefs">Briefs</a>
-    <a href="/files">Files</a>
+    <a href="/?tab=ab-links" id="tables-back">← Back</a>
     <span class="spacer"></span>
     <span class="path" id="path-label"></span>
     <span class="mode-pill" id="mode-pill" hidden>View</span>
@@ -389,6 +387,37 @@
     load();
   });
   load();
+})();
+</script>
+<script>
+(function () {
+  const back = document.getElementById("tables-back");
+  function returnTarget() {
+    try {
+      const r = (new URLSearchParams(location.search).get("return") || "").trim();
+      if (!r) return "";
+      if (r === "links" || r === "ab-links") return "/?tab=ab-links";
+      if (r === "chat") return "/?tab=chat";
+      if (r === "home" || r === "mc" || r === "attention") return "/";
+      if (r === "action" || r === "ab-actions") return "/?tab=ab-actions";
+      if (r === "tools" || r === "ab-tools") return "/?tab=ab-tools";
+      if (r === "flows" || r === "ab-flows") return "/?tab=ab-flows";
+      if (r === "projects") return "/?tab=projects";
+      if (r === "briefs" || r === "/briefs") return "/?tab=ab-links";
+      if (r.charAt(0) === "/" && r.charAt(1) !== "/" && !r.startsWith("/briefs") && r !== "/briefs") return r;
+    } catch (e) {}
+    return "";
+  }
+  const ret = returnTarget() || "/?tab=ab-links";
+  if (back) {
+    back.setAttribute("href", ret);
+    if (ret.indexOf("tab=chat") !== -1) back.textContent = "← Chat";
+    else if (ret.indexOf("tab=ab-links") !== -1) back.textContent = "← Links";
+    else if (ret.indexOf("tab=projects") !== -1 || ret.indexOf("project=") !== -1) back.textContent = "← Project";
+    else if (ret.indexOf("tab=home") !== -1 || ret === "/") back.textContent = "← Home";
+    else if (ret.indexOf("tab=calendar") !== -1) back.textContent = "← Calendar";
+    else back.textContent = "← Back";
+  }
 })();
 </script>
 </body>

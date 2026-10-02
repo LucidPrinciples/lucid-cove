@@ -292,6 +292,7 @@
       if (r === "tools" || r === "ab-tools") return "/?tab=ab-tools";
       if (r === "flows" || r === "ab-flows") return "/?tab=ab-flows";
       if (r === "briefs" || r === "/briefs") return "/?tab=ab-links";
+      if (r === "projects") return "/?tab=projects";
       if (r.charAt(0) === "/" && r.charAt(1) !== "/" && !r.startsWith("/briefs")) return r;
     } catch (e) {}
     return "";
@@ -301,6 +302,7 @@
     back.setAttribute("href", ret);
     if (ret.indexOf("tab=chat") !== -1) back.textContent = "← Chat";
     else if (ret.indexOf("tab=ab-links") !== -1) back.textContent = "← Links";
+    else if (ret.indexOf("project=") !== -1 || ret.indexOf("tab=projects") !== -1) back.textContent = "← Project";
     else back.textContent = "← Back";
   }
   if (btn) {

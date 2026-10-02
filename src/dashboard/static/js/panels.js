@@ -903,7 +903,7 @@ function _buildDetailPanels() {
         pdp.className = 'panel';
         pdp.style.display = 'none';
         pdp.innerHTML = `<div class="panel-scroll">
-            <button class="back-btn" onclick="backToProjects()">← Projects</button>
+            <button class="back-btn" id="pdp-back" onclick="backToProjects()">← Back</button>
             <div class="pdp-header">
                 <div class="pdp-header-top">
                     <span id="pdp-status"></span>

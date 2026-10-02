@@ -263,7 +263,7 @@ async function loadAgentTasks(agentId) {
             const priClass = priClassMap[t.priority] || 'p4';
             const priLabel = priLabelMap[t.priority] || 'LOW';
             const projLink = t.project_id
-                ? `<span class="link-like" onclick="showProjectDetail(${t.project_id})" style="color:var(--accent);cursor:pointer;">P-${t.project_id}</span>`
+                ? `<span class="link-like" onclick="openProjectDetail(${t.project_id})" style="color:var(--accent);cursor:pointer;">P-${t.project_id}</span>`
                 : '';
             return `<div class="task-item">
                 <span class="task-status-dot" style="background:${dotColor};" title="${esc(t.status || '')}"></span>
@@ -1201,7 +1201,7 @@ async function loadHomeProjects() {
             const priColor = _homePriColors[pri] || _homePriColors.normal;
             const priTitle = pri.charAt(0).toUpperCase() + pri.slice(1);
 
-            return `<div class="proj-card" onclick="showProjectDetail(${p.id})" style="cursor:pointer;">
+            return `<div class="proj-card" onclick="openProjectDetail(${p.id})" style="cursor:pointer;">
                 <div class="proj-card-row">
                     <span class="task-pri-dot" style="background:${priColor};" title="${ESC(priTitle)} priority"></span>
                     <div class="proj-card-info">
