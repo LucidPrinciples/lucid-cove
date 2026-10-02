@@ -879,7 +879,7 @@ async function loadFamilyMemberTasks(memberId) {
             const priClass = priClassMap[t.priority] || 'p4';
             const priLabel = priLabelMap[t.priority] || 'LOW';
             const projLink = t.project_id
-                ? `<span onclick="showProjectDetail(${t.project_id})" style="color:var(--accent);cursor:pointer;">P-${t.project_id}</span>`
+                ? `<span onclick="openProjectDetail(${t.project_id})" style="color:var(--accent);cursor:pointer;">P-${t.project_id}</span>`
                 : '';
             return `<div class="task-item">
                 <span class="task-status-dot" style="background:${dotColor};" title="${esc(t.status || '')}"></span>

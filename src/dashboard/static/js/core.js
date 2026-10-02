@@ -604,6 +604,18 @@ async function boot() {
         }
         await switchToTab(firstTab);
 
+        // Restore a project overlay after Close from a nested tool page
+        // (plan Full page, CSV table) without dumping the operator on the list.
+        const _wantProject = (_bootParams.get('project') || '').trim();
+        if (_wantProject && typeof openProjectDetail === 'function') {
+            try { await openProjectDetail(_wantProject); } catch (e) { /* non-fatal */ }
+        } else if (_wantProject) {
+            try {
+                await ensureTabScripts('projects');
+                if (typeof showProjectDetail === 'function') showProjectDetail(_wantProject);
+            } catch (e) { /* non-fatal */ }
+        }
+
         // Background: warm the rest once the browser is idle (does not block UI).
         _scheduleIdleTabPrefetch(firstTab);
 
@@ -1713,6 +1725,15 @@ async function switchToTab(tabName) {
             ' input=' + (ci ? 'YES' : 'MISSING') +
             ' mic=' + (mb ? 'YES' : 'MISSING'));
     }
+}
+
+async function openProjectDetail(projectId) {
+    try { await ensureTabScripts('projects'); } catch (e) { /* ignore */ }
+    if (typeof showProjectDetail === 'function') showProjectDetail(projectId);
+}
+
+function switchTab(tabName) {
+    return switchToTab(tabName);
 }
 
 // =============================================================================

@@ -210,6 +210,31 @@ async function saveProjTask(taskId, projectId) {
 // =============================================================================
 let currentProjectId = null;
 let currentProjectBrief = null;
+// Where project detail was opened from (home / calendar / team / projects).
+// Close returns here instead of always dumping on the Projects list.
+let _projectDetailOrigin = null;
+
+function _captureProjectOrigin() {
+    try {
+        const tab = (typeof activeTab !== 'undefined' && activeTab) || '';
+        if (tab && tab !== 'projects' && document.getElementById('panel-project-detail')
+            && !document.getElementById('panel-project-detail').classList.contains('active-grid')) {
+            _projectDetailOrigin = tab;
+        } else if (!_projectDetailOrigin) {
+            _projectDetailOrigin = tab || 'projects';
+        }
+    } catch (e) {
+        _projectDetailOrigin = _projectDetailOrigin || 'projects';
+    }
+}
+
+function _mcReturnForProject(projectId) {
+    const pid = encodeURIComponent(String(projectId || currentProjectId || ''));
+    const origin = _projectDetailOrigin || 'projects';
+    const tab = origin === 'projects' ? 'projects' : origin;
+    if (!pid) return '/?tab=' + encodeURIComponent(tab);
+    return '/?tab=' + encodeURIComponent(tab) + '&project=' + pid;
+}
 
 function _hideProjectBriefCard() {
     currentProjectBrief = null;
@@ -238,7 +263,15 @@ function _renderProjectTablesCard(tables) {
     list.innerHTML = rows.map(t => {
         const title = ESC(t.title || t.path || 'Table');
         const path = ESC(t.path || '');
-        const url = ESC(t.viewer_url);
+        let url = t.viewer_url;
+        try {
+            const u = new URL(String(url), window.location.origin);
+            if (!u.searchParams.has('return')) {
+                u.searchParams.set('return', _mcReturnForProject(currentProjectId));
+            }
+            url = u.pathname + u.search + u.hash;
+        } catch (e) {}
+        url = ESC(url);
         return `<a class="pdp-table-link" href="${url}">` +
             `<span class="pdp-table-title">${title}</span>` +
             (path ? `<span class="pdp-table-path dim">${path}</span>` : '') +
@@ -291,7 +324,17 @@ function openProjectBriefModal(brief) {
     };
     const kind = ESC((b.kind || 'plan').toLowerCase());
     const title = ESC(b.title || 'Plan');
-    const fullUrl = b.url ? ESC(b.url) : '';
+    let fullHref = b.url || '';
+    if (fullHref) {
+        try {
+            const u = new URL(String(fullHref), window.location.origin);
+            if (!u.searchParams.has('return')) {
+                u.searchParams.set('return', _mcReturnForProject(currentProjectId));
+            }
+            fullHref = u.pathname + u.search + u.hash;
+        } catch (e) {}
+    }
+    const fullUrl = fullHref ? ESC(fullHref) : '';
     overlay.innerHTML = `
       <div class="modal-content project-brief-modal" onclick="event.stopPropagation()">
         <div class="modal-header project-brief-header">
@@ -300,7 +343,7 @@ function openProjectBriefModal(brief) {
             <span class="modal-title">${title}</span>
           </div>
           <div class="project-brief-actions">
-            ${fullUrl ? `<a class="btn-small" href="${fullUrl}" target="_blank" rel="noopener">Full page</a>` : ''}
+            ${fullUrl ? `<a class="btn-small" href="${fullUrl}">Full page</a>` : ''}
             <button type="button" class="close-modal" onclick="closeProjectBriefModal()" aria-label="Close">×</button>
           </div>
         </div>
@@ -310,7 +353,22 @@ function openProjectBriefModal(brief) {
 }
 
 async function showProjectDetail(projectId) {
+    _captureProjectOrigin();
     currentProjectId = projectId;
+    const backBtn = document.getElementById('pdp-back');
+    if (backBtn) {
+        const origin = _projectDetailOrigin || 'projects';
+        const labels = {
+            home: '← Home',
+            calendar: '← Calendar',
+            team: '← Team',
+            chat: '← Chat',
+            projects: '← Projects',
+            'ab-links': '← Links',
+            'ab-actions': '← Actions',
+        };
+        backBtn.textContent = labels[origin] || '← Back';
+    }
 
     // Hide all panels, show project detail (class-only)
     document.querySelectorAll('.panel').forEach(p => {
@@ -578,13 +636,17 @@ async function addCommentFromDetail() {
 }
 
 function backToProjects() {
+    const origin = _projectDetailOrigin || 'projects';
     currentProjectId = null;
     _projExpandedTaskId = null;
+    _projectDetailOrigin = null;
+    closeProjectBriefModal();
     document.querySelectorAll('.panel').forEach(p => {
         p.classList.remove('active', 'active-grid', 'active-flex');
         p.style.display = '';
     });
-    switchToTab('projects');
+    if (typeof switchToTab === 'function') switchToTab(origin);
+    else switchTab(origin);
 }
 
 // =============================================================================
@@ -717,7 +779,12 @@ async function showTaskDetail(taskId, fromProjectId) {
 
         // Breadcrumb
         const bc = document.getElementById('tdp-breadcrumb');
-        let crumbs = `<button class="back-btn" onclick="backToProjects()">Projects</button>`;
+        const origin = _projectDetailOrigin || 'projects';
+        const originLabels = {
+            home: 'Home', calendar: 'Calendar', team: 'Team', chat: 'Chat',
+            projects: 'Projects', 'ab-links': 'Links', 'ab-actions': 'Actions',
+        };
+        let crumbs = `<button class="back-btn" onclick="backToProjects()">${originLabels[origin] || 'Back'}</button>`;
         if (_taskDetailProject) {
             crumbs += ` <span class="tdp-bc-sep">›</span> <a class="tdp-bc-link" onclick="showProjectDetail(${_taskDetailProject.id})">${ESC(_taskDetailProject.name || 'Project')}</a>`;
         }

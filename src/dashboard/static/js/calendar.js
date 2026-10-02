@@ -138,7 +138,7 @@ function _renderCalendarEvents(container) {
                 ? lpAgentBadgeHTML(t.assigned_to) : '';
 
             const taskClick = t.project_id
-                ? `onclick="switchTab('projects');setTimeout(()=>showProjectDetail(${t.project_id}),300);" style="cursor:pointer;"`
+                ? `onclick="openProjectDetail(${t.project_id})" style="cursor:pointer;"`
                 : '';
 
             html += `<div class="task-due-card ${prioClass}" ${taskClick}>
