@@ -815,7 +815,7 @@ async def resolve_handle(handle: str):
         if not d.get("matrix_user"):
             sn = env("MATRIX_SERVER_NAME")
             ar = await conn.execute(
-                "SELECT matrix_username FROM accounts WHERE lower(username) = %s", (h,))
+                "SELECT matrix_username FROM accounts WHERE lower(username) = %s AND active = TRUE", (h,))
             arow = await ar.fetchone()
             mu = (arow or {}).get("matrix_username")
             if mu and sn:

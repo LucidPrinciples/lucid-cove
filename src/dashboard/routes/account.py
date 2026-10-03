@@ -10,6 +10,7 @@ Sign-in link emails sent via Brevo transactional API (see email.py).
 """
 
 import hmac
+import logging
 import os
 from src.env import env
 import json
@@ -24,10 +25,33 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 COVE_MODE = env("COVE_MODE", "single")
 COVE_NAME = env("COVE_NAME")
 UPGRADE_SECRET = env("SHARED_CONTAINER_SECRET")
+
+_ADMIN_SORT = {
+    "newest": "created_at DESC NULLS LAST",
+    "oldest": "created_at ASC",
+    "last_access": "last_access DESC NULLS LAST",
+    "name": "LOWER(COALESCE(display_name, username, '')) ASC",
+}
+
+
+def _require_upgrade_secret(
+    request: Request, query_secret: str = "", body: Optional[dict] = None
+) -> None:
+    """Prefer X-Shared-Secret. Query/body fallback stays for one release."""
+    header = (request.headers.get("X-Shared-Secret") or "").strip()
+    body_secret = str((body or {}).get("secret") or "").strip()
+    secret = header or body_secret or (query_secret or "").strip()
+    if not UPGRADE_SECRET or not secret or not hmac.compare_digest(secret, UPGRADE_SECRET):
+        raise HTTPException(403, "Invalid secret")
+
+
+def _iso(val):
+    return val.isoformat() if val else None
 
 
 def _hash_token(token: str) -> str:
@@ -738,20 +762,62 @@ async def lookup_referral(code: str = "", email: str = "", secret: str = ""):
 # =============================================================================
 
 @router.get("/api/admin/accounts")
-async def admin_list_accounts(request: Request, secret: str = ""):
-    """List all accounts with key fields for Haven MC admin dashboard."""
-    if not UPGRADE_SECRET or not hmac.compare_digest(secret, UPGRADE_SECRET):
-        raise HTTPException(403, "Invalid secret")
+async def admin_list_accounts(
+    request: Request,
+    secret: str = "",
+    include_inactive: bool = False,
+    q: str = "",
+    tier: str = "",
+    sort: str = "newest",
+):
+    """List hub accounts for Haven MC. Default: active only, newest first."""
+    _require_upgrade_secret(request, secret)
+
+    sort_key = (sort or "newest").strip().lower()
+    order_sql = _ADMIN_SORT.get(sort_key, _ADMIN_SORT["newest"])
+    q_term = (q or "").strip()
+    tier_term = (tier or "").strip().lower()
+
+    where = []
+    params: list = []
+    if not include_inactive:
+        where.append("active = TRUE")
+    if q_term:
+        like = f"%{q_term}%"
+        where.append(
+            "(COALESCE(display_name, '') ILIKE %s OR COALESCE(username, '') ILIKE %s OR COALESCE(email, '') ILIKE %s)"
+        )
+        params.extend([like, like, like])
+    if tier_term:
+        if tier_term not in VALID_TIERS:
+            raise HTTPException(400, f"Invalid tier: {tier_term}")
+        where.append("tier = %s")
+        params.append(tier_term)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
 
     try:
         from src.memory.database import get_db
         async with get_db() as conn:
-            result = await conn.execute(
-                """SELECT id, display_name, username, email, tier,
-                          referral_code, referred_by, stripe_customer_id,
-                          active, created_at, last_access, updated_at
-                   FROM accounts ORDER BY created_at"""
+            count_result = await conn.execute(
+                """SELECT
+                       COUNT(*) FILTER (WHERE active = TRUE) AS active_count,
+                       COUNT(*) FILTER (WHERE COALESCE(active, TRUE) = FALSE) AS deactivated_count
+                   FROM accounts"""
             )
+            counts_row = await count_result.fetchone() or {}
+            active_count = int(counts_row.get("active_count") or 0)
+            deactivated_count = int(counts_row.get("deactivated_count") or 0)
+
+            list_sql = f"""SELECT id, display_name, username, email, tier,
+                          referral_code, referred_by, stripe_customer_id,
+                          active, created_at, last_access, updated_at,
+                          deactivated_at, deactivated_by, deactivated_reason
+                   FROM accounts{where_sql}
+                   ORDER BY {order_sql}"""
+            if params:
+                result = await conn.execute(list_sql, tuple(params))
+            else:
+                result = await conn.execute(list_sql)
             rows = await result.fetchall()
             accounts = []
             for r in rows:
@@ -765,11 +831,94 @@ async def admin_list_accounts(request: Request, secret: str = ""):
                     "referred_by": str(r["referred_by"]) if r["referred_by"] else None,
                     "stripe_customer_id": r["stripe_customer_id"],
                     "active": r["active"],
-                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-                    "last_access": r["last_access"].isoformat() if r["last_access"] else None,
-                    "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+                    "created_at": _iso(r["created_at"]),
+                    "last_access": _iso(r["last_access"]),
+                    "updated_at": _iso(r["updated_at"]),
+                    "deactivated_at": _iso(r.get("deactivated_at")),
+                    "deactivated_by": r.get("deactivated_by"),
+                    "deactivated_reason": r.get("deactivated_reason"),
                 })
-            return {"accounts": accounts, "count": len(accounts)}
+            return {
+                "accounts": accounts,
+                "count": len(accounts),
+                "active_count": active_count,
+                "deactivated_count": deactivated_count,
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, "Something went wrong. Please try again.")
+
+
+@router.patch("/api/admin/accounts/{account_id}/active")
+async def admin_set_active(account_id: str, request: Request):
+    """Deactivate or reactivate a hub account. Does not touch Stripe."""
+    body = await request.json()
+    _require_upgrade_secret(request, body=body)
+    if "active" not in body:
+        raise HTTPException(400, "active is required")
+    want_active = body.get("active")
+    if not isinstance(want_active, bool):
+        raise HTTPException(400, "active must be a boolean")
+    reason = str(body.get("reason") or "").strip()[:500]
+    actor = str(body.get("actor") or "").strip()[:120]
+
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT id, email, username, active, stripe_customer_id
+                   FROM accounts WHERE id = %s""",
+                (account_id,),
+            )
+            row = await result.fetchone()
+            if not row:
+                raise HTTPException(404, "Account not found")
+
+            if want_active:
+                await conn.execute(
+                    """UPDATE accounts
+                       SET active = TRUE,
+                           deactivated_at = NULL,
+                           deactivated_by = NULL,
+                           deactivated_reason = NULL,
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (account_id,),
+                )
+                log.info(
+                    "account reactivated id=%s actor=%s previous_active=%s",
+                    account_id,
+                    actor or "-",
+                    row.get("active"),
+                )
+            else:
+                await conn.execute(
+                    """UPDATE accounts
+                       SET active = FALSE,
+                           deactivated_at = NOW(),
+                           deactivated_by = %s,
+                           deactivated_reason = %s,
+                           updated_at = NOW()
+                       WHERE id = %s""",
+                    (actor or None, reason or None, account_id),
+                )
+                await conn.execute(
+                    "UPDATE auth_sessions SET active = FALSE WHERE account_id = %s",
+                    (account_id,),
+                )
+
+            return {
+                "ok": True,
+                "id": account_id,
+                "active": want_active,
+                "email": row["email"],
+                "username": row["username"],
+                "stripe_customer_id": row["stripe_customer_id"],
+                "deactivated_reason": None if want_active else (reason or None),
+            }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, "Something went wrong. Please try again.")
 
@@ -778,11 +927,9 @@ async def admin_list_accounts(request: Request, secret: str = ""):
 async def admin_update_tier(account_id: str, request: Request):
     """Change an account's tier directly (bypasses Stripe)."""
     body = await request.json()
-    secret = (body.get("secret") or "").strip()
     new_tier = (body.get("tier") or "").strip().lower()
 
-    if not UPGRADE_SECRET or not hmac.compare_digest(secret, UPGRADE_SECRET):
-        raise HTTPException(403, "Invalid secret")
+    _require_upgrade_secret(request, body=body)
     if new_tier not in VALID_TIERS:
         raise HTTPException(400, f"Invalid tier: {new_tier}")
 
