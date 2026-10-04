@@ -850,6 +850,143 @@ async def admin_list_accounts(
         raise HTTPException(500, "Something went wrong. Please try again.")
 
 
+def _jsonish(val):
+    if val is None:
+        return []
+    if isinstance(val, (list, dict)):
+        return val
+    if isinstance(val, (bytes, bytearray)):
+        val = val.decode("utf-8", "ignore")
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+        except Exception:
+            return []
+        return parsed if isinstance(parsed, (list, dict)) else []
+    return []
+
+
+def _handle_key(value) -> str:
+    return str(value or "").lstrip("@").strip().lower()
+
+
+@router.get("/api/admin/registry")
+async def admin_list_registry(request: Request, secret: str = ""):
+    """List hub registry Coves, Havens, and handles for Haven MC Network.
+
+    Includes inactive Tuner accounts so a Cove still shows when its owner
+    cannot sign in. Does not ping health — that is a later slice.
+    """
+    _require_upgrade_secret(request, secret)
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            cove_result = await conn.execute(
+                """SELECT cove_id, name, owner_handle, domain, homeserver,
+                          space_id, mesh_ip, created_at, last_seen, updated_at
+                   FROM registry_coves
+                   ORDER BY lower(name) ASC"""
+            )
+            cove_rows = await cove_result.fetchall() or []
+
+            haven_result = await conn.execute(
+                """SELECT haven_id, name, owner_handle, space_id, commons_id,
+                          members, member_coves, created_at, updated_at
+                   FROM registry_havens
+                   ORDER BY lower(name) ASC"""
+            )
+            haven_rows = await haven_result.fetchall() or []
+
+            handle_result = await conn.execute(
+                """SELECT h.handle, h.cove_id, h.matrix_user, h.referred_by,
+                          h.last_seen, h.created_at,
+                          a.id AS account_id, a.display_name, a.email,
+                          a.tier, a.active AS account_active
+                   FROM registry_handles h
+                   LEFT JOIN accounts a ON lower(a.username) = lower(h.handle)
+                   ORDER BY lower(h.handle) ASC"""
+            )
+            handle_rows = await handle_result.fetchall() or []
+
+            cove_name_by_id = {}
+            coves = []
+            for r in cove_rows:
+                cid = r.get("cove_id")
+                cove_name_by_id[cid] = r.get("name")
+                coves.append({
+                    "cove_id": cid,
+                    "name": r.get("name"),
+                    "owner_handle": _handle_key(r.get("owner_handle")) or None,
+                    "domain": r.get("domain"),
+                    "homeserver": r.get("homeserver"),
+                    "space_id": r.get("space_id"),
+                    "mesh_ip": r.get("mesh_ip"),
+                    "created_at": _iso(r.get("created_at")),
+                    "last_seen": _iso(r.get("last_seen")),
+                    "updated_at": _iso(r.get("updated_at")),
+                })
+
+            havens = []
+            for r in haven_rows:
+                member_coves = _jsonish(r.get("member_coves"))
+                if not isinstance(member_coves, list):
+                    member_coves = []
+                members = _jsonish(r.get("members"))
+                if not isinstance(members, list):
+                    members = []
+                havens.append({
+                    "haven_id": r.get("haven_id"),
+                    "name": r.get("name"),
+                    "owner_handle": _handle_key(r.get("owner_handle")) or None,
+                    "space_id": r.get("space_id"),
+                    "commons_id": r.get("commons_id"),
+                    "members": members,
+                    "member_coves": member_coves,
+                    "created_at": _iso(r.get("created_at")),
+                    "updated_at": _iso(r.get("updated_at")),
+                })
+
+            handles = []
+            handles_by_cove: dict = {c["cove_id"]: [] for c in coves}
+            for r in handle_rows:
+                handle = _handle_key(r.get("handle"))
+                cid = r.get("cove_id")
+                item = {
+                    "handle": handle,
+                    "cove_id": cid,
+                    "cove_name": cove_name_by_id.get(cid),
+                    "matrix_user": r.get("matrix_user"),
+                    "referred_by": r.get("referred_by"),
+                    "last_seen": _iso(r.get("last_seen")),
+                    "created_at": _iso(r.get("created_at")),
+                    "account_id": str(r["account_id"]) if r.get("account_id") else None,
+                    "display_name": r.get("display_name"),
+                    "email": r.get("email"),
+                    "tier": r.get("tier"),
+                    "account_active": r.get("account_active"),
+                }
+                handles.append(item)
+                if cid in handles_by_cove:
+                    handles_by_cove[cid].append(handle)
+
+            for cove in coves:
+                cove["handles"] = handles_by_cove.get(cove["cove_id"]) or []
+
+            return {
+                "coves": coves,
+                "havens": havens,
+                "handles": handles,
+                "cove_count": len(coves),
+                "haven_count": len(havens),
+                "handle_count": len(handles),
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("admin registry list failed err=%s", e)
+        raise HTTPException(500, "Something went wrong. Please try again.")
+
+
 @router.patch("/api/admin/accounts/{account_id}/active")
 async def admin_set_active(account_id: str, request: Request):
     """Deactivate or reactivate a hub account. Does not touch Stripe."""
