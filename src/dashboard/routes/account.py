@@ -923,6 +923,140 @@ async def admin_set_active(account_id: str, request: Request):
         raise HTTPException(500, "Something went wrong. Please try again.")
 
 
+# Optional keep list (comma-separated usernames in ADMIN_PURGE_KEEP).
+# Cooling is hours since deactivated_at; default 30 days.
+PURGE_DEFAULT_AGE_HOURS = 720
+_PURGE_PRESENCE_TABLES = (
+    "tuning_sessions",
+    "tuning_events",
+    "tuning_favorites",
+    "tuning_streaks",
+    "tuning_preferences",
+)
+
+
+def _username_key(value) -> str:
+    return str(value or "").lstrip("@").strip().lower()
+
+
+def _purge_keep_usernames() -> set:
+    raw = env("ADMIN_PURGE_KEEP", "") or ""
+    return {_username_key(part) for part in raw.split(",") if part.strip()}
+
+
+@router.delete("/api/admin/accounts/{account_id}")
+async def admin_purge_account(account_id: str, request: Request):
+    """Hard-delete a deactivated hub account after cooling. Does not touch Stripe."""
+    body = await request.json()
+    _require_upgrade_secret(request, body=body)
+    confirm = _username_key(body.get("confirm"))
+    actor = str(body.get("actor") or "").strip()[:120]
+    reason = str(body.get("reason") or "").strip()[:500]
+    try:
+        min_age_hours = int(body.get("min_age_hours", PURGE_DEFAULT_AGE_HOURS))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "min_age_hours must be an integer")
+    if min_age_hours < 0:
+        raise HTTPException(400, "min_age_hours must be >= 0")
+
+    try:
+        from src.memory.database import get_db
+        async with get_db() as conn:
+            result = await conn.execute(
+                """SELECT id, email, username, active, stripe_customer_id,
+                          deactivated_at, deactivated_by, deactivated_reason
+                   FROM accounts WHERE id = %s""",
+                (account_id,),
+            )
+            row = await result.fetchone()
+            if not row:
+                raise HTTPException(404, "Account not found")
+
+            username = _username_key(row.get("username"))
+            if not confirm or confirm != username:
+                raise HTTPException(400, "confirm must match username")
+            if username in _purge_keep_usernames():
+                raise HTTPException(403, "Kept accounts cannot be purged")
+            if row.get("active") is not False:
+                raise HTTPException(409, "Account must be deactivated before purge")
+            if row.get("stripe_customer_id"):
+                raise HTTPException(409, "Account has a Stripe customer; cancel there first")
+
+            deactivated_at = row.get("deactivated_at")
+            if min_age_hours > 0:
+                if not deactivated_at:
+                    raise HTTPException(409, "Account has no deactivated_at")
+                age = await conn.execute(
+                    "SELECT EXTRACT(EPOCH FROM (NOW() - %s)) / 3600 AS hours",
+                    (deactivated_at,),
+                )
+                age_row = await age.fetchone() or {}
+                hours = float(age_row.get("hours") or 0)
+                if hours < min_age_hours:
+                    raise HTTPException(
+                        409,
+                        f"Cooling window: {hours:.1f}h of {min_age_hours}h",
+                    )
+
+            handle_row = await conn.execute(
+                "SELECT handle, cove_id FROM registry_handles WHERE lower(handle) = %s",
+                (username,),
+            )
+            handle = await handle_row.fetchone()
+            cove_id = (handle or {}).get("cove_id") if handle else None
+            if cove_id:
+                cove_row = await conn.execute(
+                    """SELECT cove_id, name, owner_handle, domain, homeserver
+                       FROM registry_coves WHERE cove_id = %s""",
+                    (cove_id,),
+                )
+                cove = await cove_row.fetchone()
+                raise HTTPException(
+                    409,
+                    f"Handle still attached to cove {cove_id}"
+                    + (f" ({cove.get('name')})" if cove and cove.get("name") else ""),
+                )
+
+            for table in _PURGE_PRESENCE_TABLES:
+                await conn.execute(
+                    f"DELETE FROM {table} WHERE presence_id = %s",
+                    (account_id,),
+                )
+            await conn.execute(
+                "UPDATE contact_messages SET account_id = NULL WHERE account_id = %s",
+                (account_id,),
+            )
+            await conn.execute(
+                "UPDATE accounts SET referred_by = NULL WHERE referred_by = %s",
+                (account_id,),
+            )
+            if handle:
+                await conn.execute(
+                    "DELETE FROM registry_handles WHERE lower(handle) = %s AND cove_id IS NULL",
+                    (username,),
+                )
+            await conn.execute("DELETE FROM accounts WHERE id = %s", (account_id,))
+            log.info(
+                "account purged id=%s username=%s actor=%s reason=%s",
+                account_id,
+                username,
+                actor or "-",
+                reason or "-",
+            )
+            return {
+                "ok": True,
+                "id": account_id,
+                "username": username,
+                "purged": True,
+                "handle_released": bool(handle),
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("account purge failed id=%s err=%s", account_id, e)
+        raise HTTPException(500, "Something went wrong. Please try again.")
+
+
 @router.patch("/api/admin/accounts/{account_id}/tier")
 async def admin_update_tier(account_id: str, request: Request):
     """Change an account's tier directly (bypasses Stripe)."""
