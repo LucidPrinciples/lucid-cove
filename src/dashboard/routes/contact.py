@@ -22,6 +22,15 @@ CONTACT_SECRET = env("SHARED_CONTAINER_SECRET")
 FORWARD_HEADER = "X-Contact-Forward"
 
 
+def _require_contact_secret(request: Request) -> None:
+    """Prefer X-Shared-Secret. Query fallback stays for one release (HAVENMC2-S5)."""
+    header = (request.headers.get("X-Shared-Secret") or "").strip()
+    query = (request.query_params.get("secret") or "").strip()
+    secret = header or query
+    if not CONTACT_SECRET or not secret or not hmac.compare_digest(secret, CONTACT_SECRET):
+        raise HTTPException(403, "Unauthorized")
+
+
 def shared_hub_url():
     return (env("SHARED_CONTAINER_URL") or "").rstrip("/")
 
@@ -220,9 +229,7 @@ async def submit_contact_public(request: Request):
 @router.get("/api/contact/messages")
 async def list_messages(request: Request):
     """List contact messages. Protected by shared secret (for Haven MC)."""
-    secret = request.query_params.get("secret", "")
-    if not CONTACT_SECRET or not hmac.compare_digest(secret, CONTACT_SECRET):
-        raise HTTPException(403, "Unauthorized")
+    _require_contact_secret(request)
 
     proxied = await proxy_to_hub(request, "GET", "/api/contact/messages")
     if proxied is not None:
@@ -269,9 +276,7 @@ async def list_messages(request: Request):
 @router.patch("/api/contact/messages/{message_id}/archive")
 async def archive_message(message_id: int, request: Request):
     """Archive (or unarchive) a contact message."""
-    secret = request.query_params.get("secret", "")
-    if not CONTACT_SECRET or not hmac.compare_digest(secret, CONTACT_SECRET):
-        raise HTTPException(403, "Unauthorized")
+    _require_contact_secret(request)
 
     body = await request.json()
     if not isinstance(body, dict):
