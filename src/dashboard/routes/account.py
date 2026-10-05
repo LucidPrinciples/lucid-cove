@@ -1251,8 +1251,7 @@ async def admin_update_tier(account_id: str, request: Request):
 @router.get("/api/admin/stats")
 async def admin_stats(request: Request, secret: str = ""):
     """System stats for Haven MC dashboard — account counts, session counts."""
-    if not UPGRADE_SECRET or not hmac.compare_digest(secret, UPGRADE_SECRET):
-        raise HTTPException(403, "Invalid secret")
+    _require_upgrade_secret(request, secret)
 
     try:
         from src.memory.database import get_db
@@ -1304,8 +1303,7 @@ async def admin_activity(request: Request, secret: str = "", limit: int = 50, us
     Returns recent events (logins, listens, mirror clicks, etc.) with user info,
     plus aggregate stats for today/week. Optional `user` param filters by username.
     """
-    if not UPGRADE_SECRET or not hmac.compare_digest(secret, UPGRADE_SECRET):
-        raise HTTPException(403, "Invalid secret")
+    _require_upgrade_secret(request, secret)
 
     try:
         from src.memory.database import get_db
