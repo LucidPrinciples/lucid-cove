@@ -1,5 +1,7 @@
 """BOOKLED1 — P&L helper tests. Dummy amounts only."""
 
+from pathlib import Path
+
 from src.dashboard import books as bk
 
 
@@ -703,3 +705,67 @@ def test_existing_presence_chart_is_not_replaced():
     labels = [c["label"] for c in chart]
     assert "Advertising" in labels
     assert "Car and truck expenses" not in labels
+
+
+
+def test_return_seed_uses_lines_not_form_titles():
+    packet = """
+    Form 1040 U.S. Individual Income Tax Return
+    Schedule C Profit or Loss From Business
+    Gross receipts or sales 12000.00
+    Advertising 400.00
+    Office expense 210.00
+    Other expenses. Attach statement
+    BANK SERVICE CHARGES 48.00
+    COMPUTER HARDWARE/HOSTING/SOFTWARE 900.00
+    RESEARCH 150.00
+    DUES & SUBSCRIPTIONS 75.00
+    Total other expenses 1173.00
+    Form 1120-S
+    """
+    assert bk.looks_like_return_form_name("Form 1040")
+    assert bk.looks_like_return_form_name("Schedule E")
+    assert not bk.looks_like_return_form_name("Bank Service Charges")
+    writeins = bk.collect_return_writeins(packet)
+    assert "Bank Service Charges" in writeins
+    assert "Computer Hardware/Hosting/Software" in writeins
+    chart = bk.seed_working_chart_from_return_text(packet, form="schedule-c")
+    labels = [c["label"] for c in chart]
+    assert "Gross receipts or sales" in labels
+    assert "Advertising" in labels
+    assert "Office expense" in labels
+    assert "Bank Service Charges" in labels
+    assert "Form 1040" not in labels
+    assert "Schedule C" not in labels
+    assert "Form 1120-S" not in labels
+    layers = {c["label"]: c["layer"] for c in chart}
+    assert layers["Advertising"] == "official"
+    assert layers["Bank Service Charges"] == "write-in"
+
+
+def test_return_seed_falls_back_to_form_buckets():
+    chart = bk.seed_working_chart_from_return_text("", form="1120-s")
+    labels = [c["label"] for c in chart]
+    assert "Compensation of officers" in labels
+    assert "Gross receipts or sales" in labels
+    personal = bk.seed_working_chart_from_return_text("nothing matching", form="personal")
+    plabels = [c["label"] for c in personal]
+    assert "Wages, salaries, tips" in plabels
+
+
+def test_first_open_setup_spec_records_form():
+    spec, err = bk.first_open_setup_spec("S Corp LLC", "Operating", "1120-S")
+    assert err is None
+    assert spec["form"] == "1120-s"
+    assert spec["book_id"] == "s-corp-llc"
+
+
+def test_books_page_wires_return_setup():
+    page = Path("src/dashboard/static/books.html").read_text()
+    assert "setupReturn" in page
+    assert "btnSetupSeed" in page
+    assert "/api/books/returns/seed" in page
+    assert "btnNewBook" in page
+    routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
+    assert "/api/books/returns/seed" in routes
+    assert "/api/books/book" in routes

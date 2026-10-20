@@ -106,8 +106,19 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div id="setupView" class="setup-view hide">
   <div class="setup-card">
     <h2>Create your first books</h2>
-    <p class="dim">This Presence has no ledgers yet. Name your business and create a first account to get started.</p>
+    <p class="dim">Drop a prior-year return so dropdowns match what you actually file. Then name the first book and account.</p>
     <div class="setup-fields">
+      <label>Prior-year return
+        <input id="setupReturn" type="file" accept=".pdf,.png,.jpg,.jpeg,.heic,.webp,.txt,.csv">
+      </label>
+      <p class="dim small" id="setupReturnMeta">No return uploaded yet. You can still create books with official form buckets.</p>
+      <label>This book files as
+        <select id="setupForm">
+          <option value="schedule-c">Schedule C</option>
+          <option value="1120-s">Form 1120-S</option>
+          <option value="personal">Personal (1040)</option>
+        </select>
+      </label>
       <label>Business name (filing book)
         <input id="setupBook" type="text" placeholder="e.g., Parents LLC" autocomplete="off">
       </label>
@@ -116,9 +127,10 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
       </label>
     </div>
     <div class="setup-actions">
+      <button type="button" id="btnSetupSeed">Read return</button>
       <button type="button" class="primary" id="btnSetupCreate">Create books</button>
     </div>
-    <p class="dim small">Later you can upload a prior-year return into Files → Bookkeeping/Returns to seed custom categories.</p>
+    <p class="dim small" id="setupChartMeta"></p>
   </div>
 </div>
 <div class="toolbar" id="toolbar">
@@ -132,6 +144,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   <label class="faint">Ledger
     <select id="ledgerSel"></select>
   </label>
+  <button type="button" id="btnNewBook">New book</button>
   <button type="button" id="btnNewAcct">New account</button>
   <button type="button" id="btnProcess">Process</button>
   <label class="faint">Period
@@ -244,7 +257,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div class="status" id="status"></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { path: 'all', book: 'chords', books: [], chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [], transfersOpen: false, tx: null, presence: '', presenceLabel: '', mine: true, spaces: [], members: [] };
+const state = { path: 'all', book: 'chords', books: [], chart: [], year: null, month: null, periods: {years:[], months:[]}, category: null, vendorMap: [], ledgers: [], transfersOpen: false, tx: null, presence: '', presenceLabel: '', mine: true, spaces: [], members: [], setupChart: null, returnFiles: [] };
 
 function money(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -418,7 +431,79 @@ function showSetup(on) {
     if (setup) setup.classList.remove('hide');
     $('hdrMeta').textContent = 'First-open setup';
     $('status').textContent = '';
+    loadReturnsList();
   }
+}
+function describeChart(chart) {
+  const list = chart || [];
+  const writeins = list.filter(c => (c.layer || '') === 'write-in').map(c => c.label);
+  const official = list.filter(c => (c.layer || '') === 'official').length;
+  const bits = [];
+  if (official) bits.push(official + ' official lines');
+  if (writeins.length) bits.push(writeins.length + ' write-ins');
+  return bits.join(' · ');
+}
+function renderSetupChart(chart, files) {
+  state.setupChart = chart || null;
+  const meta = $('setupChartMeta');
+  const filesMeta = $('setupReturnMeta');
+  if (filesMeta) {
+    if (files && files.length) filesMeta.textContent = 'In Returns: ' + files.join(', ');
+    else filesMeta.textContent = 'No return uploaded yet. You can still create books with official form buckets.';
+  }
+  if (meta) {
+    if (chart && chart.length) meta.textContent = 'Dropdowns: ' + describeChart(chart);
+    else meta.textContent = '';
+  }
+}
+async function loadReturnsList() {
+  const r = await fetch('/api/books/returns' + qs());
+  const data = await r.json();
+  if (!data.ok) return;
+  state.returnFiles = data.files || [];
+  renderSetupChart(state.setupChart, state.returnFiles);
+}
+async function uploadSetupReturn() {
+  const input = $('setupReturn');
+  if (!input || !input.files || !input.files[0]) return;
+  showErr('');
+  $('status').textContent = 'Uploading return…';
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  const headers = {};
+  if (state.presence) headers['X-Books-Presence'] = state.presence;
+  const r = await fetch('/api/books/returns' + qs(), { method: 'POST', headers, body: fd });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Could not upload return');
+    return;
+  }
+  state.returnFiles = data.files || [data.name];
+  $('status').innerHTML = '<span class="okmsg">Return saved in Files → Bookkeeping/Returns</span>';
+  renderSetupChart(state.setupChart, state.returnFiles);
+  await seedSetupChart();
+}
+async function seedSetupChart() {
+  showErr('');
+  $('status').textContent = 'Reading return…';
+  const form = ($('setupForm') && $('setupForm').value) || 'schedule-c';
+  const r = await fetch('/api/books/returns/seed', {
+    method: 'POST',
+    headers: booksHeaders(),
+    body: JSON.stringify({ form })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Could not read return');
+    return;
+  }
+  renderSetupChart(data.chart || [], state.returnFiles);
+  const bits = [];
+  if (data.official_count) bits.push(data.official_count + ' official lines');
+  if (data.writein_count) bits.push(data.writein_count + ' write-ins');
+  $('status').innerHTML = '<span class="okmsg">' + escapeHtml(bits.join(' · ') || 'Official form buckets') + '</span>';
 }
 function showPasteBar(on) {
   const bar = $('pasteBar');
@@ -863,13 +948,16 @@ async function processDrop() {
 async function createFirstBooks() {
   const book = ($('setupBook').value || '').trim();
   const account = ($('setupAcct').value || '').trim() || 'Checking';
+  const form = ($('setupForm') && $('setupForm').value) || 'schedule-c';
   if (!book) { showErr('Name the business first'); return; }
   showErr('');
   $('status').textContent = 'Creating books…';
+  const body = { book, account, form };
+  if (state.setupChart && state.setupChart.length) body.chart = state.setupChart;
   const r = await fetch('/api/books/setup', {
     method: 'POST',
     headers: booksHeaders(),
-    body: JSON.stringify({ book, account })
+    body: JSON.stringify(body)
   });
   const data = await r.json();
   if (!data.ok) {
@@ -881,10 +969,41 @@ async function createFirstBooks() {
   if (data.filing_book) state.book = data.filing_book;
   if (data.ledgers) state.ledgers = data.ledgers;
   if (data.books) state.books = data.books;
-  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.filing_book_label || book)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}. Prior returns go in Files → ${escapeHtml(data.returns_folder || 'Bookkeeping/Returns')}.</span>`;
+  if (data.chart) state.chart = data.chart;
+  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.filing_book_label || book)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}.</span>`;
+  await loadSummary();
+}
+async function createBook() {
+  const book = (window.prompt('New filing book name (business or personal)', '') || '').trim();
+  if (!book) return;
+  const account = (window.prompt('First statement account for that book', 'Checking') || '').trim() || 'Checking';
+  const form = (window.prompt('Files as: Schedule C, 1120-S, or Personal', 'Schedule C') || '').trim();
+  showErr('');
+  $('status').textContent = 'Creating book…';
+  const r = await fetch('/api/books/book', {
+    method: 'POST',
+    headers: booksHeaders(),
+    body: JSON.stringify({ book, account, form })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Could not create book');
+    return;
+  }
+  state.path = data.path || state.path;
+  if (data.filing_book) state.book = data.filing_book;
+  if (data.ledgers) state.ledgers = data.ledgers;
+  if (data.books) state.books = data.books;
+  fillBooks();
+  fillLedgers();
+  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.filing_book_label || book)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}</span>`;
   await loadSummary();
 }
 $('btnSetupCreate').onclick = createFirstBooks;
+if ($('btnSetupSeed')) $('btnSetupSeed').onclick = seedSetupChart;
+if ($('setupReturn')) $('setupReturn').onchange = uploadSetupReturn;
+if ($('btnNewBook')) $('btnNewBook').onclick = createBook;
 $('btnNewAcct').onclick = createAccount;
 $('btnProcess').onclick = processDrop;
 $('bookSel').onchange = () => {
