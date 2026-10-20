@@ -5,7 +5,11 @@ GET   /api/books/access         spaces this human may open + grant roster
 POST  /api/books/grants         owner grants another Cove member manage
 DELETE /api/books/grants        owner revokes that grant
 GET   /api/books/summary        category rollup (optional year/month)
+GET   /api/books/returns        files already in Bookkeeping/Returns
+POST  /api/books/returns        upload a prior-year return into Returns
+POST  /api/books/returns/seed   build dropdowns from Returns (labels only)
 POST  /api/books/setup          first-open book + ledger when Organize is empty
+POST  /api/books/book           add another filing book after first-open
 GET   /api/books/lines          transactions for one category
 PATCH /api/books/line           set one category from the working chart
 PATCH /api/books/lines          set many categories at once
@@ -37,7 +41,7 @@ from urllib.parse import quote, unquote
 from xml.etree import ElementTree as ET
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.env import env
@@ -459,9 +463,21 @@ async def _ensure_drop_folder(request: Request, folder: str) -> tuple[str | None
     return None, 200
 
 
-async def _list_drop_files(request: Request, folder: str) -> tuple[list[str], str | None]:
+def _safe_upload_name(name: str) -> str | None:
+    raw = (name or "").replace("\\", "/").split("/")[-1].strip()
+    if not raw or raw.startswith("."):
+        return None
+    if not bk.drop_file_kind(raw):
+        return None
+    cleaned = "".join(ch if ch.isalnum() or ch in " .-_()" else "-" for ch in raw).strip(" .")
+    if not cleaned or not bk.drop_file_kind(cleaned):
+        return None
+    return cleaned[:120]
+
+
+async def _list_folder_files(request: Request, folder: str, prefix: str) -> tuple[list[str], str | None]:
     rel = (folder or "").replace("\\", "/").strip().strip("/")
-    if not rel.startswith(bk.DROP_PREFIX):
+    if not rel.startswith(prefix):
         return [], "Invalid path"
     webdav_base, _user, auth, werr = await _webdav(request, rel)
     if werr or not webdav_base or not auth:
@@ -471,7 +487,7 @@ async def _list_drop_files(request: Request, folder: str) -> tuple[list[str], st
         async with httpx.AsyncClient(auth=auth, timeout=30.0) as client:
             resp = await client.request("PROPFIND", url, headers={"Depth": "1"})
     except Exception as e:
-        logger.warning("books drop list failed")
+        logger.warning("books folder list failed")
         return [], f"List failed: {e}"
     if resp.status_code == 404:
         return [], None
@@ -481,7 +497,7 @@ async def _list_drop_files(request: Request, folder: str) -> tuple[list[str], st
     try:
         root = ET.fromstring(resp.text)
     except ET.ParseError:
-        return [], "Could not read Drop folder"
+        return [], "Could not read folder"
     ns = "{DAV:}"
     folder_name = rel.rstrip("/").split("/")[-1].lower()
     for node in root.findall(f"{ns}response"):
@@ -495,6 +511,62 @@ async def _list_drop_files(request: Request, folder: str) -> tuple[list[str], st
             names.append(name)
     names.sort()
     return names[: bk.MAX_DROP_FILES], None
+
+
+async def _list_drop_files(request: Request, folder: str) -> tuple[list[str], str | None]:
+    return await _list_folder_files(request, folder, bk.DROP_PREFIX)
+
+
+async def _list_return_files(request: Request) -> tuple[list[str], str | None]:
+    return await _list_folder_files(request, bk.RETURNS_PREFIX, bk.RETURNS_PREFIX)
+
+
+async def _read_return_bytes(request: Request, name: str) -> tuple[bytes | None, str | None, int]:
+    kind = bk.drop_file_kind(name)
+    if kind not in ("text", "pdf", "image"):
+        return None, "Not a return file", 400
+    rel = f"{bk.RETURNS_PREFIX}/{name.split('/')[-1]}"
+    if ".." in rel.split("/"):
+        return None, "Invalid path", 400
+    webdav_base, _user, auth, werr = await _webdav(request, rel)
+    if werr or not webdav_base or not auth:
+        return None, werr or "Nextcloud not configured", 503
+    url = f"{webdav_base}/{_quote_path(rel)}"
+    try:
+        async with httpx.AsyncClient(auth=auth, timeout=60.0) as client:
+            resp = await client.get(url)
+    except Exception as e:
+        logger.warning("books return read failed")
+        return None, f"Read failed: {e}", 502
+    if resp.status_code == 404:
+        return None, "Not found", 404
+    if resp.status_code != 200:
+        return None, f"WebDAV error: HTTP {resp.status_code}", 502
+    if len(resp.content) > bk.MAX_RETURN_FILE_BYTES:
+        return None, "Return file is too large", 413
+    return resp.content, None, 200
+
+
+async def _write_return_bytes(request: Request, name: str, data: bytes) -> tuple[str | None, int]:
+    safe = _safe_upload_name(name)
+    if not safe:
+        return "Not a return file", 400
+    if len(data) > bk.MAX_RETURN_FILE_BYTES:
+        return "Return file is too large", 413
+    rel = f"{bk.RETURNS_PREFIX}/{safe}"
+    webdav_base, _user, auth, werr = await _webdav(request, rel)
+    if werr or not webdav_base or not auth:
+        return werr or "Nextcloud not configured", 503
+    url = f"{webdav_base}/{_quote_path(rel)}"
+    try:
+        async with httpx.AsyncClient(auth=auth, timeout=60.0) as client:
+            resp = await client.put(url, content=data)
+    except Exception as e:
+        logger.warning("books return write failed")
+        return f"Upload failed: {e}", 502
+    if resp.status_code not in (200, 201, 204):
+        return f"Upload failed: HTTP {resp.status_code}", 502
+    return None, 200
 
 
 async def _read_drop_bytes(request: Request, folder: str, name: str) -> tuple[bytes | None, str | None, int]:
@@ -699,6 +771,8 @@ async def books_summary(request: Request, path: str = ""):
             "periods": {"years": [], "months": []},
             "ledgers": [],
             "chart": bk.official_schedule_c_chart(),
+            "forms": bk.filing_form_choices(),
+            "returns_folder": bk.RETURNS_PREFIX,
             "vendor_map": [],
             "seeded": 0,
             "pnl": {"income": [], "expenses": [], "transfers": [], "income_total": 0, "expense_total": 0, "net": 0},
@@ -727,6 +801,8 @@ async def books_summary(request: Request, path: str = ""):
             "periods": {"years": [], "months": []},
             "ledgers": [],
             "chart": bk.official_schedule_c_chart(),
+            "forms": bk.filing_form_choices(),
+            "returns_folder": bk.RETURNS_PREFIX,
             "vendor_map": [],
             "seeded": 0,
             "pnl": {"income": [], "expenses": [], "transfers": [], "income_total": 0, "expense_total": 0, "net": 0},
@@ -1374,9 +1450,183 @@ async def books_delete_line(request: Request):
 
 
 
+
+async def _seed_chart_from_returns(request: Request, form: str = "") -> tuple[list[dict], str | None]:
+    """Labels only. Never log packet text. Falls back to official form buckets."""
+    ferr, fstatus = await _ensure_drop_folder(request, bk.RETURNS_PREFIX)
+    if ferr:
+        return bk.official_chart_for_form(form), ferr if fstatus >= 500 else None
+    names, lerr = await _list_return_files(request)
+    if lerr:
+        return bk.official_chart_for_form(form), lerr
+    combined = ""
+    used = 0
+    for name in names:
+        kind = bk.drop_file_kind(name)
+        if kind not in ("text", "pdf", "image"):
+            continue
+        blob, rerr, _status = await _read_return_bytes(request, name)
+        if rerr or blob is None:
+            continue
+        text, _how = bk.extract_return_packet(blob, kind)
+        if text:
+            combined = f"{combined}\n{text}" if combined else text
+            used += 1
+    if not combined:
+        return bk.official_chart_for_form(form), None
+    return bk.seed_working_chart_from_return_text(combined, form=form), None
+
+
+@router.get("/api/books/returns")
+async def books_list_returns(request: Request):
+    owner, _act, err = await _books_target(request)
+    if err or owner is None:
+        return _access_error(err or "No manage grant for those books")
+    ferr, fstatus = await _ensure_drop_folder(request, bk.RETURNS_PREFIX)
+    if ferr:
+        return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
+    names, lerr = await _list_return_files(request)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    return JSONResponse({
+        "ok": True,
+        "folder": bk.RETURNS_PREFIX,
+        "files": names,
+        "forms": bk.filing_form_choices(),
+    })
+
+
+@router.post("/api/books/returns")
+async def books_upload_return(request: Request, file: UploadFile = File(...)):
+    owner, _act, err = await _books_target(request)
+    if err or owner is None:
+        return _access_error(err or "No manage grant for those books")
+    safe = _safe_upload_name(file.filename or "")
+    if not safe:
+        return JSONResponse({"ok": False, "error": "Upload a PDF, image, or text return"}, status_code=400)
+    data = await file.read()
+    ferr, fstatus = await _ensure_drop_folder(request, bk.RETURNS_PREFIX)
+    if ferr:
+        return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
+    werr, wstatus = await _write_return_bytes(request, safe, data)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr}, status_code=wstatus)
+    names, lerr = await _list_return_files(request)
+    if lerr:
+        names = [safe]
+    return JSONResponse({
+        "ok": True,
+        "folder": bk.RETURNS_PREFIX,
+        "name": safe,
+        "files": names,
+    })
+
+
+@router.post("/api/books/returns/seed")
+async def books_seed_returns(request: Request):
+    owner, _act, err = await _books_target(request)
+    if err or owner is None:
+        return _access_error(err or "No manage grant for those books")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    form = str(body.get("form") or body.get("filing_form") or "")
+    chart, serr = await _seed_chart_from_returns(request, form)
+    if serr:
+        return JSONResponse({"ok": False, "error": serr}, status_code=502)
+    preview = bk.chart_public_preview(chart)
+    writeins = [c["label"] for c in preview if c.get("layer") == "write-in"]
+    official = [c["label"] for c in preview if c.get("layer") == "official"]
+    return JSONResponse({
+        "ok": True,
+        "folder": bk.RETURNS_PREFIX,
+        "form": bk.normalize_filing_form(form),
+        "chart": preview,
+        "official_count": len(official),
+        "writein_count": len(writeins),
+        "writeins": writeins,
+    })
+
+
+@router.post("/api/books/book")
+async def books_add_book(request: Request):
+    """Add another filing book after first-open. Does not replace an existing chart."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    names, lerr = await _list_mapped_ledgers(request)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    if not names:
+        return JSONResponse({
+            "ok": False,
+            "error": "Create first books before adding another book",
+            "needs_setup": True,
+        }, status_code=409)
+    spec, serr = bk.first_open_setup_spec(
+        str(body.get("book") or body.get("book_label") or body.get("name") or ""),
+        str(body.get("account") or body.get("ledger") or ""),
+        str(body.get("form") or body.get("filing_form") or ""),
+    )
+    if serr or spec is None:
+        return JSONResponse({"ok": False, "error": serr or "Book name is required"}, status_code=400)
+    wanted = spec["account"]["filename"].lower()
+    if any(n.lower() == wanted for n in names):
+        return JSONResponse({"ok": False, "error": "That ledger already exists"}, status_code=409)
+    loaded = await _load_named_ledgers(request, names)
+    source = loaded[0][1] if loaded else {}
+    chart = None
+    raw_chart = body.get("chart")
+    if isinstance(raw_chart, list) and raw_chart:
+        chart = bk.working_chart_from_payload({"working_chart": raw_chart})
+    if chart is None:
+        seed, serr2 = await _seed_chart_from_returns(request, spec["form"])
+        if serr2:
+            return JSONResponse({"ok": False, "error": serr2}, status_code=502)
+        chart = bk.merge_official_form_into_chart(seed, spec["form"])
+        # Keep existing write-ins from the Presence chart.
+        chart = bk.merge_working_charts([{"working_chart": chart}, source])
+    acct = spec["account"]
+    ferr, fstatus = await _ensure_drop_folder(request, acct["drop_folder"])
+    if ferr:
+        return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
+    payload = bk.empty_account_payload(
+        acct["label"], source, filing_book=spec["book_id"], filing_form=spec["form"]
+    )
+    payload["entity"] = spec["book_label"]
+    payload["filing_book_label"] = spec["book_label"]
+    payload["filing_book"] = spec["book_id"]
+    payload["filing_form"] = spec["form"]
+    payload["working_chart"] = chart
+    payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    werr, wstatus = await _write_ledger(request, acct["path"], payload)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr, "path": acct["path"]}, status_code=wstatus)
+    names.append(acct["filename"])
+    loaded.append((acct["path"], payload))
+    return JSONResponse({
+        "ok": True,
+        "path": acct["path"],
+        "account": acct["label"],
+        "drop_folder": acct["drop_folder"],
+        "filing_book": spec["book_id"],
+        "filing_book_label": spec["book_label"],
+        "filing_form": spec["form"],
+        "chart": bk.chart_public_preview(chart),
+        "ledgers": bk.ledger_choices(names),
+        "books": bk.filing_book_choices([item[1] for item in loaded]),
+    })
+
+
 @router.post("/api/books/setup")
 async def books_setup(request: Request):
-    """First-open only: name a book, create one empty ledger, seed Schedule C."""
+    """First-open only: name a book, create one empty ledger, seed from Returns or form."""
     try:
         body = await request.json()
     except Exception:
@@ -1396,6 +1646,7 @@ async def books_setup(request: Request):
     spec, serr = bk.first_open_setup_spec(
         str(body.get("book") or body.get("book_label") or body.get("name") or ""),
         str(body.get("account") or body.get("ledger") or ""),
+        str(body.get("form") or body.get("filing_form") or ""),
     )
     if serr or spec is None:
         return JSONResponse({"ok": False, "error": serr or "Book name is required"}, status_code=400)
@@ -1404,11 +1655,23 @@ async def books_setup(request: Request):
         ferr, fstatus = await _ensure_drop_folder(request, folder)
         if ferr:
             return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
-    payload = bk.empty_account_payload(acct["label"], {}, filing_book=spec["book_id"])
+    chart = None
+    raw_chart = body.get("chart")
+    if isinstance(raw_chart, list) and raw_chart:
+        chart = bk.working_chart_from_payload({"working_chart": raw_chart})
+    if chart is None:
+        seed, serr2 = await _seed_chart_from_returns(request, spec["form"])
+        if serr2:
+            return JSONResponse({"ok": False, "error": serr2}, status_code=502)
+        chart = seed
+    payload = bk.empty_account_payload(
+        acct["label"], {}, filing_book=spec["book_id"], filing_form=spec["form"]
+    )
     payload["entity"] = spec["book_label"]
     payload["filing_book_label"] = spec["book_label"]
     payload["filing_book"] = spec["book_id"]
-    payload["working_chart"] = bk.official_schedule_c_chart()
+    payload["filing_form"] = spec["form"]
+    payload["working_chart"] = chart
     payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     werr, wstatus = await _write_ledger(request, acct["path"], payload)
     if werr:
@@ -1423,6 +1686,8 @@ async def books_setup(request: Request):
         "returns_folder": bk.RETURNS_PREFIX,
         "filing_book": spec["book_id"],
         "filing_book_label": spec["book_label"],
+        "filing_form": spec["form"],
+        "chart": bk.chart_public_preview(chart),
         "ledgers": bk.ledger_choices(names),
         "books": bk.filing_book_choices([payload]),
     })
@@ -1453,7 +1718,8 @@ async def books_create_account(request: Request):
         }, status_code=409)
     loaded = await _load_named_ledgers(request, names)
     source = loaded[0][1] if loaded else {}
-    payload = bk.empty_account_payload(spec["label"], source, filing_book=book)
+    form = str(body.get("form") or body.get("filing_form") or "")
+    payload = bk.empty_account_payload(spec["label"], source, filing_book=book, filing_form=form)
     payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     ferr, fstatus = await _ensure_drop_folder(request, spec["drop_folder"])
     if ferr:

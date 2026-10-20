@@ -33,6 +33,9 @@ MAX_DROP_FILES = 40
 MAX_DROP_FILE_BYTES = 8_000_000
 MAX_IMPORT_LINES = 2000
 MAX_PDF_PAGES = 24
+MAX_RETURN_PAGES = 80
+MAX_RETURN_OCR_PAGES = 16
+MAX_RETURN_FILE_BYTES = 20_000_000
 MIN_STATEMENT_PAYEE = 3
 MIN_PDF_TEXT_CHARS = 120
 MIN_PDF_TEXT_LINES = 8
@@ -217,6 +220,7 @@ def empty_account_payload(
     label: str,
     source: dict | None = None,
     filing_book: str = "",
+    filing_form: str = "",
 ) -> dict:
     src = source if isinstance(source, dict) else {}
     stem = account_stem(label) or "Account"
@@ -226,13 +230,20 @@ def empty_account_payload(
     same_book = bool(src) and src_book == book
     entity = str(src.get("entity") or "").strip() if same_book else ""
     stored_label = str(src.get("filing_book_label") or "").strip() if same_book else ""
+    form = normalize_filing_form(
+        filing_form or (str(src.get("filing_form") or "") if src else "")
+    )
+    chart = working_chart_from_payload(src)
+    if filing_form:
+        chart = merge_official_form_into_chart(chart, form)
     return {
         "entity": entity,
         "filing_book_label": stored_label or _builtin_filing_book_label(book),
         "account": stem,
         "origin": "account",
         "filing_book": book,
-        "working_chart": working_chart_from_payload(src),
+        "filing_form": form,
+        "working_chart": chart,
         "vendor_map": vendor_map_from_payload(src) if src else [],
         "rows": [],
         "needs_review_count": 0,
@@ -588,6 +599,124 @@ def official_schedule_c_chart() -> list[dict]:
         rec["kind"] = chart_kind(rec["label"], rec)
         out.append(rec)
     return ensure_builtin_chart(out)
+
+
+OFFICIAL_1120S = (
+    {"label": "Gross receipts or sales", "kind": INCOME_KIND, "layer": "official", "code": "1a"},
+    {"label": "Returns and allowances", "kind": INCOME_KIND, "layer": "official", "code": "1b"},
+    {"label": "Other income", "kind": INCOME_KIND, "layer": "official", "code": "5"},
+    {"label": "Compensation of officers", "kind": EXPENSE_KIND, "layer": "official", "code": "7"},
+    {"label": "Salaries and wages", "kind": EXPENSE_KIND, "layer": "official", "code": "8"},
+    {"label": "Repairs and maintenance", "kind": EXPENSE_KIND, "layer": "official", "code": "9"},
+    {"label": "Bad debts", "kind": EXPENSE_KIND, "layer": "official", "code": "10"},
+    {"label": "Rents", "kind": EXPENSE_KIND, "layer": "official", "code": "11"},
+    {"label": "Taxes and licenses", "kind": EXPENSE_KIND, "layer": "official", "code": "12"},
+    {"label": "Interest", "kind": EXPENSE_KIND, "layer": "official", "code": "13"},
+    {"label": "Depreciation", "kind": EXPENSE_KIND, "layer": "official", "code": "14"},
+    {"label": "Advertising", "kind": EXPENSE_KIND, "layer": "official", "code": "16"},
+    {"label": "Pension and profit-sharing", "kind": EXPENSE_KIND, "layer": "official", "code": "17"},
+    {"label": "Employee benefit programs", "kind": EXPENSE_KIND, "layer": "official", "code": "18"},
+    {"label": "Other deductions", "kind": EXPENSE_KIND, "layer": "official", "code": "20"},
+)
+
+OFFICIAL_PERSONAL = (
+    {"label": "Wages, salaries, tips", "kind": INCOME_KIND, "layer": "official", "code": "1a"},
+    {"label": "Taxable interest", "kind": INCOME_KIND, "layer": "official", "code": "2b"},
+    {"label": "Ordinary dividends", "kind": INCOME_KIND, "layer": "official", "code": "3b"},
+    {"label": "IRA distributions", "kind": INCOME_KIND, "layer": "official", "code": "4b"},
+    {"label": "Pensions and annuities", "kind": INCOME_KIND, "layer": "official", "code": "5b"},
+    {"label": "Social security benefits", "kind": INCOME_KIND, "layer": "official", "code": "6b"},
+    {"label": "Capital gain", "kind": INCOME_KIND, "layer": "official", "code": "7"},
+    {"label": "Other income", "kind": INCOME_KIND, "layer": "official", "code": "8z"},
+)
+
+FILING_FORMS = (
+    {"id": "schedule-c", "label": "Schedule C", "chart": "c"},
+    {"id": "1120-s", "label": "Form 1120-S", "chart": "1120s"},
+    {"id": "personal", "label": "Personal (1040)", "chart": "personal"},
+)
+_FORM_IDS = {item["id"] for item in FILING_FORMS}
+
+
+def normalize_filing_form(value: str = "") -> str:
+    raw = " ".join(str(value or "").split()).lower()
+    if not raw:
+        return "schedule-c"
+    aliases = {
+        "c": "schedule-c",
+        "schedule c": "schedule-c",
+        "schedule-c": "schedule-c",
+        "sch c": "schedule-c",
+        "sole prop": "schedule-c",
+        "sole proprietor": "schedule-c",
+        "1120s": "1120-s",
+        "1120-s": "1120-s",
+        "form 1120-s": "1120-s",
+        "form 1120s": "1120-s",
+        "s-corp": "1120-s",
+        "s corp": "1120-s",
+        "scorp": "1120-s",
+        "personal": "personal",
+        "1040": "personal",
+        "form 1040": "personal",
+        "not on a c": "personal",
+    }
+    return aliases.get(raw, "schedule-c" if raw not in _FORM_IDS else raw)
+
+
+def filing_form_label(form: str = "") -> str:
+    fid = normalize_filing_form(form)
+    for item in FILING_FORMS:
+        if item["id"] == fid:
+            return item["label"]
+    return "Schedule C"
+
+
+def filing_form_choices() -> list[dict]:
+    return [{"id": item["id"], "label": item["label"]} for item in FILING_FORMS]
+
+
+def _chart_from_official(items: tuple) -> list[dict]:
+    out = []
+    for item in items:
+        rec = dict(item)
+        rec["kind"] = chart_kind(rec["label"], rec)
+        out.append(rec)
+    return ensure_builtin_chart(out)
+
+
+def official_1120s_chart() -> list[dict]:
+    return _chart_from_official(OFFICIAL_1120S)
+
+
+def official_personal_chart() -> list[dict]:
+    return _chart_from_official(OFFICIAL_PERSONAL)
+
+
+def official_chart_for_form(form: str = "") -> list[dict]:
+    fid = normalize_filing_form(form)
+    if fid == "1120-s":
+        return official_1120s_chart()
+    if fid == "personal":
+        return official_personal_chart()
+    return official_schedule_c_chart()
+
+
+def all_official_catalog() -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for chart in (
+        official_schedule_c_chart(),
+        official_1120s_chart(),
+        official_personal_chart(),
+    ):
+        for item in chart:
+            key = str(item.get("label") or "").strip().lower()
+            if not key or key in seen or item.get("layer") == "builtin":
+                continue
+            seen.add(key)
+            out.append(dict(item))
+    return out
 
 
 def filing_book_display_label(payload: dict | None, book_id: str = "") -> str:
@@ -2081,7 +2210,186 @@ def add_manual_rows(payload: dict, items: list[dict], filing_book: str = "", def
 
 
 
-def first_open_setup_spec(book_label: str, account: str = "") -> tuple[dict | None, str | None]:
+def looks_like_return_form_name(label: str) -> bool:
+    """True for packet titles (Form 1040, Schedule E) that must not become dropdowns."""
+    raw = " ".join(str(label or "").split())
+    if not raw:
+        return True
+    if re.match(r"^\d{4}\b", raw) and re.search(r"\b(form|schedule)\b", raw, re.I):
+        return True
+    if re.match(r"^(form|schedule|schedules)\b", raw, re.I):
+        return True
+    if re.match(r"^(1040|1120-?s|1120|1065|w-2|1099)\b", raw, re.I):
+        return True
+    return False
+
+
+def _title_writein(label: str) -> str:
+    raw = " ".join(str(label or "").split())
+    if raw.isupper() or raw.islower():
+        return raw.title()
+    return raw
+
+
+def extract_return_text(data: bytes) -> tuple[str, str]:
+    """Selectable text from a filed return PDF. Never log the contents."""
+    if not data:
+        return "", "empty"
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        return "", "missing"
+    try:
+        import io
+
+        reader = PdfReader(io.BytesIO(data))
+        pages = list(reader.pages)[:MAX_RETURN_PAGES]
+        parts: list[str] = []
+        for page in pages:
+            chunk = page.extract_text() or ""
+            if chunk.strip():
+                parts.append(chunk)
+        text = "\n".join(parts).strip()
+        return text, "text" if text else "empty"
+    except Exception:
+        return "", "error"
+
+
+def extract_return_packet(data: bytes, kind: str) -> tuple[str, str]:
+    """Digital text first; light OCR only when the PDF has no selectable layer."""
+    if kind == "text":
+        text, how = extract_statement_text(data, kind)
+        return text, how
+    if kind == "pdf":
+        text, how = extract_return_text(data)
+        if how == "missing":
+            return "", "missing"
+        if text:
+            return text, how
+    ocr_kind = "pdf" if kind == "pdf" else "image"
+    otext, omode = extract_ocr_text(data, ocr_kind)
+    if otext:
+        return otext, "ocr"
+    return "", omode or "empty"
+
+
+def _strip_money_tail(line: str) -> str:
+    cleaned = re.sub(r"[\$\s]*[\(\-]?[\d,]+(?:\.\d{2})?\)?\s*$", "", line).strip()
+    cleaned = re.sub(r"^\d{1,2}\s+", "", cleaned).strip()
+    return " ".join(cleaned.split())
+
+
+def collect_return_writeins(text: str) -> list[str]:
+    """Other-expense / other-deduction names from a return packet. Labels only."""
+    out: list[str] = []
+    seen: set[str] = set()
+    grab = False
+    for raw in str(text or "").splitlines():
+        line = " ".join(raw.split())
+        key = line.upper()
+        if re.search(r"OTHER EXPENSES|OTHER DEDUCTIONS", key):
+            if re.match(r"^TOTAL\b", key):
+                grab = False
+                continue
+            grab = True
+            continue
+        if not grab:
+            continue
+        if not line:
+            continue
+        if re.match(r"^(FORM|SCHEDULE|TOTAL|NET PROFIT|ORDINARY BUSINESS|TAX AND PAYMENTS)\b", key):
+            grab = False
+            continue
+        cleaned = _strip_money_tail(line)
+        if len(cleaned) < 4 or not re.search(r"[A-Za-z]", cleaned):
+            continue
+        if looks_like_return_form_name(cleaned):
+            continue
+        if cleaned.lower() in (
+            "other expenses",
+            "other deductions",
+            "itemize",
+            "see statement",
+            "attach statement",
+        ):
+            continue
+        if len(cleaned) > MAX_CATEGORY_LABEL:
+            continue
+        label = _title_writein(cleaned)
+        k = label.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(label)
+    return out
+
+
+def seed_working_chart_from_return_text(text: str, form: str = "") -> list[dict]:
+    """Working dropdowns: used official lines plus write-ins. Never form titles."""
+    blob = str(text or "")
+    blob_l = blob.lower()
+    used: list[dict] = []
+    seen: set[str] = set()
+    for item in all_official_catalog():
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        if label.lower() not in blob_l:
+            continue
+        rec = dict(item)
+        rec["kind"] = chart_kind(rec["label"], rec)
+        used.append(rec)
+        seen.add(label.lower())
+    for writein in collect_return_writeins(blob):
+        key = writein.lower()
+        if key in seen:
+            continue
+        if looks_like_return_form_name(writein):
+            continue
+        used.append({
+            "label": writein,
+            "code": None,
+            "layer": "write-in",
+            "kind": EXPENSE_KIND,
+        })
+        seen.add(key)
+    if not any(item.get("layer") == "official" for item in used):
+        used = official_chart_for_form(form) + [
+            item for item in used if item.get("layer") == "write-in"
+        ]
+    return ensure_builtin_chart(used)
+
+
+def merge_official_form_into_chart(chart: list[dict], form: str = "") -> list[dict]:
+    out = list(chart or [])
+    seen = {str(c.get("label") or "").strip().lower() for c in out}
+    for item in official_chart_for_form(form):
+        key = str(item.get("label") or "").strip().lower()
+        if not key or key in seen:
+            continue
+        out.append(dict(item))
+        seen.add(key)
+    return ensure_builtin_chart(out)
+
+
+def chart_public_preview(chart: list[dict]) -> list[dict]:
+    """Labels and layers only — no amounts."""
+    out = []
+    for item in chart or []:
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        if not label:
+            continue
+        out.append({
+            "label": label,
+            "kind": item.get("kind") or chart_kind(label, item),
+            "layer": item.get("layer") or "official",
+        })
+    return out
+
+
+def first_open_setup_spec(book_label: str, account: str = "", form: str = "") -> tuple[dict | None, str | None]:
     """Name the first filing book and statement ledger for an empty Presence."""
     label = " ".join(str(book_label or "").split())
     if not label:
@@ -2095,8 +2403,11 @@ def first_open_setup_spec(book_label: str, account: str = "") -> tuple[dict | No
     spec, err = new_account_spec(acct)
     if err or spec is None:
         return None, err or "Account name is required"
+    form_id = normalize_filing_form(form)
     return {
         "book_id": book_id,
         "book_label": label,
         "account": spec,
+        "form": form_id,
+        "form_label": filing_form_label(form_id),
     }, None
