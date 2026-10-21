@@ -67,3 +67,14 @@ async def test_write_ledger_gives_up_on_persistent_423(monkeypatch):
     assert status == 502
     assert err == "Write failed: HTTP 423"
     assert client.puts == 5
+
+
+@pytest.mark.asyncio
+async def test_ledger_lock_is_one_per_presence():
+    routes._LEDGER_LOCKS.clear()
+    a = await routes._ledger_lock("11111111-1111-1111-1111-111111111111")
+    b = await routes._ledger_lock("11111111-1111-1111-1111-111111111111")
+    c = await routes._ledger_lock("22222222-2222-2222-2222-222222222222")
+    assert a is b
+    assert a is not c
+    assert a.locked() is False

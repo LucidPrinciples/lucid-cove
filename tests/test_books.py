@@ -120,6 +120,42 @@ def test_batch_recode_and_vendor_map():
     assert bad is None and err
 
 
+def test_process_append_then_apply_vendor_map_places_review_only():
+    payload = {
+        "working_chart": [
+            {"label": "Advertising", "code": None, "layer": "official"},
+            {"label": "Office expense", "code": None, "layer": "official"},
+        ],
+        "vendor_map": [{"phrase": "acme ads", "label": "Advertising", "source": "operator"}],
+        "rows": [
+            _row("2025-01-10", "-9.00", "Office expense", name="Staples Store"),
+        ],
+    }
+    payload["rows"][0]["needs_review"] = False
+    updated, added, skipped, err = bk.append_imported_rows(
+        payload,
+        [
+            {"date": "2025-01-15", "payee": "Acme Ads LLC", "amount": -10.00},
+            {"date": "2025-01-16", "payee": "Unknown Shop", "amount": -4.00},
+        ],
+        source_file="stmt.pdf",
+        filing_book="chords",
+    )
+    assert err is None and updated is not None
+    assert added == 2 and skipped == 0
+    mapped, stats, merr = bk.apply_vendor_map(updated)
+    assert merr is None and mapped is not None
+    assert stats["applied"] == 1
+    assert mapped["rows"][0]["category_label"] == "Office expense"
+    assert mapped["rows"][1]["category_label"] == "Advertising"
+    assert mapped["rows"][1]["needs_review"] is False
+    assert mapped["rows"][1]["match_rule"] == "vendor-map"
+    assert mapped["rows"][2].get("category_label") in (None, bk.UNCATEGORIZED)
+    again, stats2, err2 = bk.apply_vendor_map(mapped)
+    assert err2 is None and stats2["applied"] == 0
+    assert again["rows"][0]["category_label"] == "Office expense"
+
+
 def test_pick_default_ledger_and_account_label():
     assert bk.pick_default_ledger([]) is None
     assert bk.pick_default_ledger(["notes.txt", "a.mapped.json"]) == "Bookkeeping/Organize/a.mapped.json"
@@ -775,11 +811,14 @@ def test_books_page_keeps_process_status():
     page = Path("src/dashboard/static/books.html").read_text()
     assert "loadSummary({ keepStatus: true })" in page
     assert "listed ${files}" in page
+    assert "placed ${totals.mapped} by map" in page
     assert "withPresence({ path, year: state.year || 2025, filing_book: book })" in page
     assert "/api/books/process/" in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
     assert "Drop folder is not in Files yet" in routes
     assert "books process listed=" in routes
+    assert "apply_vendor_map" in routes
+    assert "mapped=%s" in routes
 
 
 
@@ -991,13 +1030,14 @@ def test_process_job_registry_counts_only():
     job = bjobs.create_process_job(actor_id="p1", path="Bookkeeping/Organize/checking.mapped.json", files=10)
     assert job["state"] == "queued"
     assert job["job_id"]
-    bjobs.patch_process_job(job["job_id"], state="running", file_index=3, added=12, pending=1)
+    bjobs.patch_process_job(job["job_id"], state="running", file_index=3, added=12, mapped=4, pending=1)
     pub = bjobs.public_process_job(bjobs.get_process_job(job["job_id"]))
     assert pub["ok"] is True
     assert pub["state"] == "running"
     assert pub["files"] == 10
     assert pub["file_index"] == 3
     assert pub["added"] == 12
+    assert pub["mapped"] == 4
     assert "source_file" not in pub
     assert pub["more_pending"] is False
     missing = bjobs.get_process_job("nope")

@@ -931,6 +931,7 @@ function processStatusBits(data, book, totals) {
   else if (files != null) bits.push(`listed ${files}`);
   if (totals.added) bits.push(`added ${totals.added}`);
   else if (files) bits.push('0 added');
+  if (totals.mapped) bits.push(`placed ${totals.mapped} by map`);
   if (totals.skipped) bits.push(`skipped ${totals.skipped} duplicates`);
   if (data.stamped) bits.push(`stamped ${data.stamped} onto ${data.filing_book || book}`);
   if (totals.ocr) bits.push(`${totals.ocr} from images`);
@@ -976,6 +977,7 @@ async function processDrop() {
   while (true) {
     const totals = {
       added: data.added || 0,
+      mapped: data.mapped || 0,
       skipped: data.skipped || 0,
       pending: data.pending || 0,
       ocr: data.ocr || 0,

@@ -65,6 +65,36 @@ STATIC_PAGE = Path(__file__).resolve().parents[1] / "static" / "books.html"
 MAX_LEDGER_BYTES = 2_000_000
 _TRANSIENT_DAV = {423, 429, 500, 502, 503, 504}
 _RETRY_DELAYS = (0.4, 0.8, 1.6, 3.2)
+_LEDGER_LOCKS: dict[str, asyncio.Lock] = {}
+_LEDGER_LOCKS_GUARD = asyncio.Lock()
+
+
+def _ledger_lock_key(owner_id: str) -> str:
+    return parse_books_presence_id(owner_id) or "_"
+
+
+async def _ledger_lock(owner_id: str) -> asyncio.Lock:
+    key = _ledger_lock_key(owner_id)
+    async with _LEDGER_LOCKS_GUARD:
+        lock = _LEDGER_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _LEDGER_LOCKS[key] = lock
+        return lock
+
+
+async def _presence_id_for_lock(request: Request) -> str:
+    try:
+        want = parse_requested_presence(request)
+    except Exception:
+        want = ""
+    if want:
+        return want
+    try:
+        actor = await _actor_presence(request)
+    except Exception:
+        return ""
+    return str(actor["id"]) if actor and actor.get("id") else ""
 
 
 async def _webdav(request: Request, path: str):
@@ -390,7 +420,7 @@ async def _read_ledger(request: Request, path: str) -> tuple[dict | None, str, s
     return data, clean, None, 200
 
 
-async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str | None, int]:
+async def _write_ledger_unlocked(request: Request, path: str, payload: dict) -> tuple[str | None, int]:
     clean, err = bk.clean_books_path(path)
     if err or not clean:
         return err or "Invalid path", 400
@@ -431,6 +461,12 @@ async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str
         logger.warning("books write failed")
         return f"Write failed: {e}", 502
     return f"Write failed: {last}", 502
+
+
+async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str | None, int]:
+    lock = await _ledger_lock(await _presence_id_for_lock(request))
+    async with lock:
+        return await _write_ledger_unlocked(request, path, payload)
 
 
 async def _mkcol(request: Request, path: str) -> tuple[str | None, int]:
@@ -1770,6 +1806,7 @@ async def _run_process_job(
         file_index=0,
     )
     added = 0
+    mapped = 0
     skipped = 0
     pending = 0
     processed = 0
@@ -1838,6 +1875,10 @@ async def _run_process_job(
                 )
                 continue
             payload = updated
+            mapped_payload, map_stats, map_err = bk.apply_vendor_map(payload)
+            if mapped_payload is not None and not map_err:
+                payload = mapped_payload
+                mapped += int((map_stats or {}).get("applied") or 0)
             added += n_added
             skipped += n_skipped
             processed += 1
@@ -1852,6 +1893,7 @@ async def _run_process_job(
             bjobs.patch_process_job(
                 job_id,
                 added=added,
+                mapped=mapped,
                 skipped=skipped,
                 processed=processed,
                 pending=pending,
@@ -1891,7 +1933,11 @@ async def _run_process_job(
             )
             return
         payload = applied
-        if added or stamped or ledger_book_before != book:
+        mapped_payload, map_stats, map_err = bk.apply_vendor_map(payload)
+        if mapped_payload is not None and not map_err:
+            payload = mapped_payload
+            mapped += int((map_stats or {}).get("applied") or 0)
+        if added or stamped or ledger_book_before != book or mapped:
             payload["filing_book"] = book
             payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             werr, _wstatus = await _write_ledger(request, clean, payload)
@@ -1913,9 +1959,10 @@ async def _run_process_job(
             return
         unread_reason = bk.unread_reason_label(last_err) if pending else None
         logger.warning(
-            "books process listed=%s added=%s pending=%s skipped=%s processed=%s remaining=%s",
+            "books process listed=%s added=%s mapped=%s pending=%s skipped=%s processed=%s remaining=%s",
             len(work),
             added,
+            mapped,
             pending,
             skipped,
             processed,
@@ -1925,6 +1972,7 @@ async def _run_process_job(
             job_id,
             state="done",
             added=added,
+            mapped=mapped,
             skipped=skipped,
             pending=pending,
             processed=processed,
