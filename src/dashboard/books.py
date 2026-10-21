@@ -6,10 +6,15 @@ stay in the Presence Bookkeeping/ tree; this module never logs amounts.
 
 from __future__ import annotations
 
+import json
+import logging
 import re
+import time
 from collections import defaultdict
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, Iterable
+
+_log = logging.getLogger("bookkeeping")
 
 ORGANIZE_PREFIX = "Bookkeeping/Organize"
 DROP_PREFIX = "Bookkeeping/Drop"
@@ -40,6 +45,33 @@ MIN_STATEMENT_PAYEE = 3
 MIN_PDF_TEXT_CHARS = 120
 MIN_PDF_TEXT_LINES = 8
 TEXT_DROP_EXTS = (".csv", ".txt", ".tsv")
+BOOKS_LOCAL_MODEL_DEFAULT = "qwen3:30b-a3b"
+BOOKS_LOCAL_MODEL_BACKUP = "qwen2.5:32b"
+BOOKS_REFUSED_MODEL_NEEDLES = (":cloud", "uncensored", "coder")
+BOOKS_LOCAL_KEEP_ALIVE = "2m"
+BOOKS_PROCESS_BUDGET_S = 80
+BOOKS_FILE_CAP_S = 180
+BOOKS_LOCAL_CHUNK_CHARS = 24_000
+BOOKS_ROWS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "rows": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string"},
+                    "description": {"type": "string"},
+                    "amount": {"type": "number"},
+                },
+                "required": ["date", "description", "amount"],
+            },
+        },
+        "beginning_balance": {"type": "number"},
+        "ending_balance": {"type": "number"},
+    },
+    "required": ["rows"],
+}
 PDF_DROP_EXTS = (".pdf",)
 IMAGE_DROP_EXTS = (".png", ".jpg", ".jpeg", ".heic", ".webp")
 _RESERVED_STEMS = frozenset({
@@ -362,6 +394,8 @@ def extract_and_parse_statement(
     data: bytes,
     kind: str,
     default_year: int | None = None,
+    timeout_s: float | None = None,
+    local_reader: Callable[..., tuple[list[dict], str | None, str]] | None = None,
 ) -> tuple[list[dict], str, list[str]]:
     """Pick digital text or OCR by how many real rows parse. Never log contents."""
     if kind == "text":
@@ -371,7 +405,15 @@ def extract_and_parse_statement(
         rows, errors = parse_pasted_lines(
             text, default_year=default_year, max_lines=MAX_IMPORT_LINES
         )
-        return rows, how, errors
+        if rows:
+            return rows, how, errors
+        reader = local_reader or local_read_statement_rows
+        local_rows, local_err, how_model = reader(
+            text, default_year=default_year, timeout_s=timeout_s
+        )
+        if local_rows:
+            return local_rows, how_model, []
+        return [], how, [local_err or (errors[0] if errors else "layout not recognized")]
     candidates: list[tuple[list[dict], str, list[str]]] = []
     if kind == "pdf":
         dtext, dmode = extract_pdf_text(data)
@@ -397,7 +439,356 @@ def extract_and_parse_statement(
     best = max(candidates, key=lambda item: len(item[0]))
     if best[0]:
         return best
+    text_for_model = ""
+    if kind == "pdf":
+        dtext, dmode = extract_pdf_text(data)
+        if dtext:
+            text_for_model = dtext
+    if not text_for_model:
+        otext, _omode = extract_ocr_text(data, "pdf" if kind == "pdf" else "image")
+        text_for_model = otext or ""
+    if text_for_model.strip():
+        reader = local_reader or local_read_statement_rows
+        local_rows, local_err, how_model = reader(
+            text_for_model, default_year=default_year, timeout_s=timeout_s
+        )
+        if local_rows:
+            return local_rows, how_model, []
+        return [], best[1], [local_err or "layout not recognized"]
     return [], best[1], best[2] or ["No rows found"]
+
+
+def books_model_is_refused(name: str) -> bool:
+    low = (name or "").strip().lower()
+    return any(n in low for n in BOOKS_REFUSED_MODEL_NEEDLES)
+
+
+def books_local_model_candidates() -> tuple[str, str]:
+    from src.env import env
+
+    primary = (env("BOOKS_LOCAL_MODEL") or BOOKS_LOCAL_MODEL_DEFAULT).strip()
+    backup = BOOKS_LOCAL_MODEL_BACKUP
+    return primary, backup
+
+
+def pick_books_local_model(installed: Iterable[str]) -> str | None:
+    names = [(n or "").strip() for n in installed if (n or "").strip()]
+    have = set(names)
+    primary, backup = books_local_model_candidates()
+    for cand in (primary, backup):
+        if not cand or books_model_is_refused(cand):
+            continue
+        if cand in have:
+            return cand
+    return None
+
+
+def _ollama_tags(base_url: str) -> list[str]:
+    import httpx
+
+    url = (base_url or "").rstrip("/") + "/api/tags"
+    with httpx.Client(timeout=8) as client:
+        r = client.get(url)
+    if r.status_code != 200:
+        return []
+    out: list[str] = []
+    for item in (r.json() or {}).get("models") or []:
+        name = (item.get("name") or item.get("model") or "").strip()
+        if name:
+            out.append(name)
+    return out
+
+
+def _books_ollama_host_allowed(host: str) -> bool:
+    h = (host or "").strip().lower()
+    if h in ("host.docker.internal", "localhost", "127.0.0.1"):
+        return True
+    try:
+        import ipaddress
+
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return False
+    if ip.version != 4:
+        return False
+    return bool(
+        ip in ipaddress.ip_network("10.0.0.0/8")
+        or ip in ipaddress.ip_network("172.16.0.0/12")
+        or ip in ipaddress.ip_network("192.168.0.0/16")
+        or ip in ipaddress.ip_network("100.64.0.0/10")
+    )
+
+
+def ollama_json_complete(
+    model: str,
+    prompt: str,
+    *,
+    timeout_s: float,
+    base_url: str | None = None,
+) -> dict | None:
+    """HTTP to Ollama only. Never logs prompt or response text."""
+    if not model or books_model_is_refused(model):
+        return None
+    if base_url:
+        base = base_url.rstrip("/")
+    else:
+        from src.models.provider import _ollama_base_url
+        base = (_ollama_base_url() or "").rstrip("/")
+    from urllib.parse import urlparse
+
+    parsed = urlparse(base)
+    if parsed.scheme not in ("http", "https") or not _books_ollama_host_allowed(
+        parsed.hostname or ""
+    ):
+        _log.info("books local-read failed reason=host")
+        return None
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "think": False,
+        "keep_alive": BOOKS_LOCAL_KEEP_ALIVE,
+        "format": BOOKS_ROWS_SCHEMA,
+        "options": {"temperature": 0},
+    }
+    import httpx
+
+    started = time.monotonic()
+    try:
+        with httpx.Client(timeout=max(5.0, float(timeout_s))) as client:
+            r = client.post(base + "/api/generate", json=payload)
+        if r.status_code != 200:
+            _log.info("books local-read failed reason=http status=%s ms=%s", r.status_code, int((time.monotonic() - started) * 1000))
+            return None
+        body = r.json() or {}
+        raw = body.get("response")
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                _log.info("books local-read failed reason=json ms=%s", int((time.monotonic() - started) * 1000))
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return None
+    except Exception:
+        _log.info("books local-read failed reason=error ms=%s", int((time.monotonic() - started) * 1000))
+        return None
+
+
+def _chunk_statement_text(text: str) -> list[str]:
+    s = (text or "").strip()
+    if not s:
+        return []
+    if len(s) <= BOOKS_LOCAL_CHUNK_CHARS:
+        return [s]
+    pages = re.split(r"\n(?=Page\s+\d+)", s, flags=re.I)
+    chunks: list[str] = []
+    buf = ""
+    for page in pages:
+        if buf and len(buf) + len(page) > BOOKS_LOCAL_CHUNK_CHARS:
+            chunks.append(buf)
+            buf = page
+        else:
+            buf = f"{buf}\n{page}" if buf else page
+    if buf:
+        chunks.append(buf)
+    out: list[str] = []
+    for chunk in chunks:
+        if len(chunk) <= BOOKS_LOCAL_CHUNK_CHARS:
+            out.append(chunk)
+            continue
+        for i in range(0, len(chunk), BOOKS_LOCAL_CHUNK_CHARS):
+            out.append(chunk[i : i + BOOKS_LOCAL_CHUNK_CHARS])
+    return out
+
+
+def statement_period_hint(text: str, default_year: int | None) -> str:
+    year = default_year
+    m = re.search(
+        r"(20\d{2})\s*[-–]\s*(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s*)?(20\d{2})",
+        text or "",
+        re.I,
+    )
+    if m:
+        year = int(m.group(2))
+    if year is None:
+        m = re.search(r"\b(20\d{2})\b", text or "")
+        if m:
+            year = int(m.group(1))
+    return str(year) if year else ""
+
+
+def _looks_like_total_payee(value: str) -> bool:
+    low = clean_statement_payee(value).lower()
+    return any(
+        n in low
+        for n in (
+            "total", "subtotal", "beginning balance", "ending balance",
+            "previous balance", "new balance", "balance forward",
+            "page total", "running balance",
+        )
+    )
+
+
+def parse_statement_balances(text: str) -> tuple[float | None, float | None]:
+    begin = end = None
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        low = line.lower()
+        m = re.search(r"(-?\$?\(?[0-9][0-9,]*(?:\.[0-9]{2})\)?-?)", line)
+        if not m:
+            continue
+        amt = parse_money(m.group(1))
+        if amt is None:
+            continue
+        if begin is None and ("beginning balance" in low or "previous balance" in low or "opening balance" in low):
+            begin = amt
+        if "ending balance" in low or "new balance" in low or "closing balance" in low:
+            end = amt
+    return begin, end
+
+
+def validate_local_rows(
+    items: list[dict],
+    *,
+    default_year: int | None = None,
+    beginning: float | None = None,
+    ending: float | None = None,
+) -> tuple[list[dict], bool, str | None]:
+    """Drop totals/unparseable rows. Reconcile when both balances exist."""
+    year = default_year
+    out: list[dict] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        desc = str(item.get("description") or item.get("payee") or item.get("name") or "")
+        if _looks_like_total_payee(desc) or not payee_is_usable(desc):
+            continue
+        dt = parse_loose_date(str(item.get("date") or ""), year)
+        if dt is None:
+            continue
+        if year is not None and abs(dt.year - year) > 1:
+            continue
+        amt = parse_money(item.get("amount"))
+        if amt is None:
+            continue
+        out.append({
+            "date": dt.strftime("%Y-%m-%d"),
+            "payee": clean_statement_payee(desc)[:200],
+            "amount": amt,
+            "match_rule": "local-model",
+        })
+    if not out:
+        return [], False, "layout not recognized"
+    reconcile_miss = False
+    if beginning is not None and ending is not None:
+        total = sum(r["amount"] for r in out)
+        if abs((beginning + total) - ending) > 0.02:
+            reconcile_miss = True
+            _log.info("books local-read reconcile-miss rows=%s", len(out))
+    return out, reconcile_miss, None
+
+
+def local_read_statement_rows(
+    text: str,
+    *,
+    default_year: int | None = None,
+    timeout_s: float | None = None,
+    complete: Callable[..., dict | None] | None = None,
+    installed: Iterable[str] | None = None,
+    base_url: str | None = None,
+) -> tuple[list[dict], str | None, str]:
+    """Regex-zero fallback: pinned local qwen on Ollama only. Counts in logs, never text."""
+    started = time.monotonic()
+    cap = BOOKS_FILE_CAP_S if timeout_s is None else float(timeout_s)
+    if not (text or "").strip():
+        return [], "layout not recognized", "text"
+    try:
+        if base_url:
+            base = str(base_url).rstrip("/")
+        else:
+            from src.models.provider import _ollama_base_url
+            base = (_ollama_base_url() or "").rstrip("/")
+    except Exception:
+        _log.info("books local-read failed reason=unavailable ms=%s", 0)
+        return [], "local model not available", "text"
+    try:
+        tags = list(installed) if installed is not None else _ollama_tags(base)
+    except Exception:
+        tags = []
+    model = pick_books_local_model(tags)
+    if not model:
+        _log.info("books local-read failed reason=unavailable ms=%s", int((time.monotonic() - started) * 1000))
+        return [], "local model not available", "text"
+    period = statement_period_hint(text, default_year)
+    chunks = _chunk_statement_text(text)
+    merged: list[dict] = []
+    seen: set[str] = set()
+    begin, end = parse_statement_balances(text)
+    fn = complete or ollama_json_complete
+    for chunk in chunks:
+        remaining = cap - (time.monotonic() - started)
+        if remaining < 5:
+            _log.info("books local-read failed reason=timeout ms=%s", int((time.monotonic() - started) * 1000))
+            return [], "model timeout", "text"
+        prompt = (
+            "Extract bank statement transactions as JSON. "
+            f"Statement period year: {period or 'unknown'}. "
+            "Use that year for dates that omit a year. "
+            "Each row: date (YYYY-MM-DD or as printed), description, amount "
+            "(signed: charges/debits negative, deposits/credits positive). "
+            "Skip totals, subtotals, and balance lines. "
+            "Do not invent rows."
+        )
+        prompt = f"{prompt}\n\nSTATEMENT_TEXT:\n{chunk}"
+        body = fn(model, prompt, timeout_s=remaining, base_url=base)
+        if body is None:
+            continue
+        if begin is None:
+            begin = parse_money(body.get("beginning_balance"))
+        if end is None:
+            end = parse_money(body.get("ending_balance"))
+        for item in body.get("rows") or []:
+            if not isinstance(item, dict):
+                continue
+            key = statement_fingerprint(
+                str(item.get("date") or ""),
+                str(item.get("description") or item.get("payee") or ""),
+                item.get("amount"),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    rows, _miss, err = validate_local_rows(
+        merged, default_year=default_year, beginning=begin, ending=end
+    )
+    ms = int((time.monotonic() - started) * 1000)
+    if err:
+        _log.info("books local-read failed reason=empty ms=%s", ms)
+        return [], err, "text"
+    _log.info("books local-read rows=%s ms=%s", len(rows), ms)
+    return rows, None, "model"
+
+
+def unread_reason_label(raw: str | None) -> str | None:
+    s = (raw or "").strip()
+    if not s:
+        return None
+    low = s.lower()
+    if "timeout" in low:
+        return "model timeout"
+    if "not available" in low:
+        return "local model not available"
+    if "no rows" in low or "layout" in low:
+        return "layout not recognized"
+    if "no readable" in low:
+        return "no readable text"
+    if "pdf tools" in low:
+        return "PDF tools are not in this app image yet"
+    return s[:80]
 
 
 def statement_fingerprint(date: str, payee: str, amount: Any) -> str:
@@ -457,11 +848,14 @@ def append_imported_rows(
             continue
         if len(rows) >= MAX_COMBINED_LINES:
             return None, added, skipped, "Ledger is full"
+        rule = str(item.get("match_rule") or "import").strip() or "import"
+        if rule not in ("import", "local-model"):
+            rule = "import"
         row = {
             "origin": "statement",
             "disabled": False,
             "needs_review": True,
-            "match_rule": "import",
+            "match_rule": rule,
             "source_file": src,
             "fields": {
                 "Date": date,
@@ -469,6 +863,8 @@ def append_imported_rows(
                 "Debit/Credit": amt,
             },
         }
+        if rule == "local-model":
+            row["extract_how"] = "model"
         if is_filing_book_id(book):
             row["filing_book"] = book
         rows.append(row)
@@ -924,6 +1320,8 @@ def split_paste_cells(line: str) -> list[str]:
         return []
     if "\t" in raw:
         return [c.strip() for c in raw.split("\t")]
+    if raw.count(",") >= 2:
+        return [c.strip() for c in raw.split(",")]
     if "," in raw and re.search(r"\d", raw):
         return [c.strip() for c in raw.split(",")]
     parts = re.split(r"\s{2,}", raw)
@@ -1030,6 +1428,102 @@ def _line_has_amount(line: str) -> bool:
     return bool(re.search(r"\$?\d{1,3}(?:,\d{3})*\.\d{2}", line or ""))
 
 
+def _header_key(cell: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (cell or "").lower())
+
+
+def csv_column_index(headers: list[str]) -> dict[str, int | None] | None:
+    """Map Date / Description / Amount or Debit+Credit. Never Balance."""
+    keys = [_header_key(h) for h in headers]
+    if not keys:
+        return None
+
+    def find(*names: str) -> int | None:
+        want = set(names)
+        for i, k in enumerate(keys):
+            if k in want:
+                return i
+        for i, k in enumerate(keys):
+            if any(n and (k == n or k.startswith(n)) for n in names):
+                return i
+        return None
+
+    date_i = find(
+        "date", "transdate", "transactiondate", "rundate",
+        "posted", "postdate", "posteddate",
+    )
+    desc_i = find("description", "payee", "name", "memo", "action", "transaction")
+    amount_i = None
+    for i, k in enumerate(keys):
+        if "balance" in k:
+            continue
+        if k in {"amount", "transactionamount"} or k.startswith("amount"):
+            amount_i = i
+            break
+    debit_i = find("debit", "withdrawal", "withdrawals")
+    credit_i = find("credit", "deposit", "deposits")
+    if date_i is None:
+        return None
+    if amount_i is None and debit_i is None and credit_i is None:
+        return None
+    return {
+        "date": date_i,
+        "desc": desc_i,
+        "amount": amount_i,
+        "debit": debit_i,
+        "credit": credit_i,
+    }
+
+
+def parse_headered_rows(
+    lines: list[str],
+    default_year: int | None = None,
+) -> list[dict] | None:
+    """Return rows if the first line is a real CSV header; None if not headered."""
+    if not lines:
+        return None
+    first = lines[0]
+    if "," not in first and "\t" not in first:
+        return None
+    header_cells = coalesce_month_day(split_paste_cells(first))
+    cols = csv_column_index(header_cells)
+    if not cols:
+        return None
+    rows: list[dict] = []
+    date_i = cols["date"] or 0
+    desc_i = cols["desc"]
+    amount_i = cols["amount"]
+    debit_i = cols["debit"]
+    credit_i = cols["credit"]
+    for line in lines[1:]:
+        cells = coalesce_month_day(split_paste_cells(line))
+        if not cells or looks_like_header(cells):
+            continue
+        if date_i >= len(cells):
+            continue
+        dt = parse_loose_date(cells[date_i], default_year)
+        if dt is None:
+            continue
+        desc = ""
+        if desc_i is not None and desc_i < len(cells):
+            desc = clean_statement_payee(cells[desc_i])
+        amt = None
+        if amount_i is not None and amount_i < len(cells):
+            amt = parse_money(cells[amount_i])
+        elif debit_i is not None or credit_i is not None:
+            debit = 0.0
+            credit = 0.0
+            if debit_i is not None and debit_i < len(cells):
+                debit = parse_money(cells[debit_i]) or 0.0
+            if credit_i is not None and credit_i < len(cells):
+                credit = parse_money(cells[credit_i]) or 0.0
+            amt = credit - debit
+        if amt is None or not payee_is_usable(desc):
+            continue
+        rows.append({"date": dt.strftime("%Y-%m-%d"), "payee": desc, "amount": amt})
+    return rows
+
+
 def parse_pasted_lines(
     text: str,
     default_year: int | None = None,
@@ -1046,6 +1540,11 @@ def parse_pasted_lines(
     if len(lines) > cap:
         return [], [f"Paste is over {cap} lines"]
     year = default_year
+    headered = parse_headered_rows(lines, year)
+    if headered is not None:
+        if not headered:
+            return [], ["No rows found"]
+        return headered, []
     lines = stitch_statement_lines(lines)
     if len(lines) > cap:
         lines = lines[:cap]
@@ -1548,6 +2047,8 @@ def line_preview(row: dict, source_path: str, index: int, account: str = "") -> 
         "manual": row_is_manual(row, source_path),
         "filing_book": row_filing_book(row),
         "kind": chart_kind(cat),
+        "match_rule": str(row.get("match_rule") or ""),
+        "read_by_local_model": str(row.get("match_rule") or "") == "local-model",
     }
 
 

@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote
@@ -1782,10 +1783,31 @@ async def books_process_drop(request: Request):
     pending = 0
     processed = 0
     ocr_used = 0
+    model_read = 0
     last_err = None
+    remaining_names: list[str] = []
+    started = time.monotonic()
+    budget = bk.BOOKS_PROCESS_BUDGET_S
+    seen_src = {
+        str(r.get("source_file") or "").replace("\\", "/").split("/")[-1]
+        for r in (payload.get("rows") or [])
+        if isinstance(r, dict) and r.get("source_file")
+    }
+    work = []
     for name in files:
         kind = bk.drop_file_kind(name)
         if kind not in ("text", "pdf", "image"):
+            continue
+        work.append(name)
+    listed = len(work)
+    for name in work:
+        if time.monotonic() - started >= budget:
+            remaining_names.append(name)
+            continue
+        kind = bk.drop_file_kind(name)
+        if name in seen_src:
+            skipped += 1
+            processed += 1
             continue
         blob, rerr2, _rstatus2 = await _read_drop_bytes(request, folder, name)
         if rerr2 or blob is None:
@@ -1793,8 +1815,10 @@ async def books_process_drop(request: Request):
             pending += 1
             continue
         file_year = bk.year_from_drop_name(name, year_i)
+        left = max(5.0, budget - (time.monotonic() - started))
+        file_cap = min(bk.BOOKS_FILE_CAP_S, left)
         parsed, how, errors = bk.extract_and_parse_statement(
-            blob, kind, default_year=file_year
+            blob, kind, default_year=file_year, timeout_s=file_cap
         )
         if how in ("missing", "empty", "error"):
             last_err = {
@@ -1821,6 +1845,14 @@ async def books_process_drop(request: Request):
         processed += 1
         if how == "ocr":
             ocr_used += 1
+        if how == "model" or any(
+            isinstance(item, dict) and item.get("match_rule") == "local-model"
+            for item in parsed
+        ):
+            model_read += n_added
+        seen_src.add(name)
+    pending += len(remaining_names)
+    more_pending = bool(remaining_names)
     applied, stamped, aerr = bk.apply_payload_filing_book(payload, book)
     if aerr or applied is None:
         return JSONResponse({"ok": False, "error": aerr or "Pick a filing book", "path": clean}, status_code=400)
@@ -1833,13 +1865,15 @@ async def books_process_drop(request: Request):
             return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
     elif processed == 0 and pending == 0 and last_err:
         return JSONResponse({"ok": False, "error": last_err, "path": clean, "drop_folder": folder}, status_code=400)
+    unread_reason = bk.unread_reason_label(last_err) if pending else None
     logger.info(
-        "books process listed=%s added=%s pending=%s skipped=%s processed=%s",
-        len(files),
+        "books process listed=%s added=%s pending=%s skipped=%s processed=%s remaining=%s",
+        listed,
         added,
         pending,
         skipped,
         processed,
+        len(remaining_names),
     )
     return JSONResponse({
         "ok": True,
@@ -1853,7 +1887,11 @@ async def books_process_drop(request: Request):
         "processed": processed,
         "stamped": stamped,
         "ocr": ocr_used,
-        "files": len(files),
+        "files": listed,
         "needs_review_count": payload.get("needs_review_count"),
+        "unread_reason": unread_reason,
+        "model_read": model_read,
+        "remaining": len(remaining_names),
+        "more_pending": more_pending,
     })
 

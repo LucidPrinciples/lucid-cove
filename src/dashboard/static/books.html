@@ -225,6 +225,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
         <label>Amount <input id="txAmt" class="amt" type="text" inputmode="decimal"></label>
       </div>
       <label>Payee <input id="txPayee" type="text" autocomplete="off"></label>
+      <p id="txLocalNote" class="muted hide">read by local model, review</p>
       <label>Category <select id="txCat"></select></label>
       <label>Book <select id="txBook"></select></label>
       <div class="batch">
@@ -556,6 +557,10 @@ function openTx(line) {
   fillTxBooks(line.filing_book || state.book);
   $('txDate').value = line.date || '';
   $('txPayee').value = line.payee || '';
+  if ($('txLocalNote')) {
+    if (line.read_by_local_model || line.match_rule === 'local-model') $('txLocalNote').classList.remove('hide');
+    else $('txLocalNote').classList.add('hide');
+  }
   const amt = Number(line.amount);
   $('txAmt').value = Number.isNaN(amt) ? '' : String(amt);
   $('txCat').innerHTML = chartOptions(line.category);
@@ -918,6 +923,24 @@ async function createAccount() {
   $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.account || name)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}</span>`;
   await loadSummary();
 }
+function processStatusBits(data, book, totals) {
+  const bits = [];
+  const files = totals.files != null ? totals.files : data.files;
+  if (files != null) bits.push(`listed ${files}`);
+  if (totals.added) bits.push(`added ${totals.added}`);
+  else if (files) bits.push('0 added');
+  if (totals.skipped) bits.push(`skipped ${totals.skipped} duplicates`);
+  if (data.stamped) bits.push(`stamped ${data.stamped} onto ${data.filing_book || book}`);
+  if (totals.ocr) bits.push(`${totals.ocr} from images`);
+  if (totals.pending) {
+    let unread = `${totals.pending} still unread`;
+    if (data.unread_reason) unread += `: ${data.unread_reason}`;
+    bits.push(unread);
+  }
+  if (totals.model_read) bits.push('read by local model, review');
+  if (!bits.length) bits.push('nothing new');
+  return bits;
+}
 async function processDrop() {
   const path = state.path || '';
   if (!path || path === 'all') {
@@ -928,27 +951,28 @@ async function processDrop() {
   if (!book) { showErr('Pick a filing book before Process'); return; }
   showErr('');
   $('status').textContent = 'Processing Drop folder…';
-  const r = await fetch('/api/books/process', {
-    method: 'POST',
-    headers: booksHeaders(),
-    body: JSON.stringify(withPresence({ path, year: state.year || 2025, filing_book: book }))
-  });
-  const data = await r.json();
-  if (!data.ok) {
-    $('status').textContent = '';
-    showErr(data.error || 'Process failed');
-    return;
-  }
-  const bits = [];
-  if (data.files != null) bits.push(`listed ${data.files}`);
-  if (data.added) bits.push(`added ${data.added}`);
-  else if (data.files) bits.push('0 added');
-  if (data.skipped) bits.push(`skipped ${data.skipped} duplicates`);
-  if (data.stamped) bits.push(`stamped ${data.stamped} onto ${data.filing_book || book}`);
-  if (data.ocr) bits.push(`${data.ocr} from images`);
-  if (data.pending) bits.push(`${data.pending} still unread`);
-  if (!bits.length) bits.push('nothing new');
-  $('status').innerHTML = `<span class="okmsg">${escapeHtml(bits.join(' · '))}</span>`;
+  const totals = { added: 0, skipped: 0, pending: 0, ocr: 0, model_read: 0, files: 0 };
+  let data = null;
+  do {
+    const r = await fetch('/api/books/process', {
+      method: 'POST',
+      headers: booksHeaders(),
+      body: JSON.stringify(withPresence({ path, year: state.year || 2025, filing_book: book }))
+    });
+    data = await r.json();
+    if (!data.ok) {
+      $('status').textContent = '';
+      showErr(data.error || 'Process failed');
+      return;
+    }
+    totals.added += data.added || 0;
+    totals.skipped += data.skipped || 0;
+    totals.pending = data.pending || 0;
+    totals.ocr += data.ocr || 0;
+    totals.model_read += data.model_read || 0;
+    totals.files = data.files != null ? data.files : totals.files;
+    $('status').innerHTML = `<span class="okmsg">${escapeHtml(processStatusBits(data, book, totals).join(' · '))}</span>`;
+  } while (data.more_pending);
   await loadSummary({ keepStatus: true });
 }
 async function createFirstBooks() {
