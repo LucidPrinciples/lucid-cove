@@ -115,6 +115,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
       <label>This book files as
         <select id="setupForm">
           <option value="schedule-c">Schedule C</option>
+          <option value="schedule-e">Schedule E</option>
           <option value="1120-s">Form 1120-S</option>
           <option value="personal">Personal (1040)</option>
         </select>
@@ -131,6 +132,32 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
       <button type="button" class="primary" id="btnSetupCreate">Create books</button>
     </div>
     <p class="dim small" id="setupChartMeta"></p>
+  </div>
+</div>
+<div id="newBookView" class="setup-view hide">
+  <div class="setup-card">
+    <h2>New filing book</h2>
+    <p class="dim">Name the book and how it files. Creates an empty statement ledger and a Drop folder.</p>
+    <div class="setup-fields">
+      <label>Book name
+        <input id="newBookName" type="text" placeholder="e.g., Airbnb LLC" autocomplete="off">
+      </label>
+      <label>Files as
+        <select id="newBookForm">
+          <option value="schedule-c">Schedule C</option>
+          <option value="schedule-e">Schedule E</option>
+          <option value="1120-s">Form 1120-S</option>
+          <option value="personal">Personal (1040)</option>
+        </select>
+      </label>
+      <label>First statement account
+        <input id="newBookAcct" type="text" placeholder="e.g., Checking" value="Checking" autocomplete="off">
+      </label>
+    </div>
+    <div class="setup-actions">
+      <button type="button" id="btnNewBookCancel">Cancel</button>
+      <button type="button" class="primary" id="btnNewBookCreate">Create book</button>
+    </div>
   </div>
 </div>
 <div class="toolbar" id="toolbar">
@@ -419,6 +446,27 @@ function hideViews() {
   $('mapView').style.display = 'none';
   if ($('txView')) $('txView').style.display = 'none';
   if ($('setupView')) $('setupView').classList.add('hide');
+  if ($('newBookView')) $('newBookView').classList.add('hide');
+}
+function showNewBook(on) {
+  const panel = $('newBookView');
+  const bar = $('toolbar');
+  const add = $('addLineBar');
+  if (!panel) return;
+  if (on) {
+    hideViews();
+    panel.classList.remove('hide');
+    if (bar) bar.classList.add('hide');
+    if (add) add.classList.add('hide');
+    $('hdrMeta').textContent = 'New filing book';
+    $('status').textContent = '';
+    showErr('');
+    if ($('newBookName')) $('newBookName').focus();
+  } else {
+    panel.classList.add('hide');
+    if (bar) bar.classList.remove('hide');
+    if (add) add.classList.remove('hide');
+  }
 }
 function showSetup(on) {
   const setup = $('setupView');
@@ -1033,11 +1081,14 @@ async function createFirstBooks() {
   $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.filing_book_label || book)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}.</span>`;
   await loadSummary();
 }
+function openNewBookForm() {
+  showNewBook(true);
+}
 async function createBook() {
-  const book = (window.prompt('New filing book name (business or personal)', '') || '').trim();
-  if (!book) return;
-  const account = (window.prompt('First statement account for that book', 'Checking') || '').trim() || 'Checking';
-  const form = (window.prompt('Files as: Schedule C, 1120-S, or Personal', 'Schedule C') || '').trim();
+  const book = ($('newBookName') && $('newBookName').value || '').trim();
+  const account = ($('newBookAcct') && $('newBookAcct').value || '').trim() || 'Checking';
+  const form = ($('newBookForm') && $('newBookForm').value) || 'schedule-c';
+  if (!book) { showErr('Name the book first'); return; }
   showErr('');
   $('status').textContent = 'Creating book…';
   const r = await fetch('/api/books/book', {
@@ -1057,13 +1108,16 @@ async function createBook() {
   if (data.books) state.books = data.books;
   fillBooks();
   fillLedgers();
+  showNewBook(false);
   $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.filing_book_label || book)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}</span>`;
   await loadSummary();
 }
 $('btnSetupCreate').onclick = createFirstBooks;
 if ($('btnSetupSeed')) $('btnSetupSeed').onclick = seedSetupChart;
 if ($('setupReturn')) $('setupReturn').onchange = uploadSetupReturn;
-if ($('btnNewBook')) $('btnNewBook').onclick = createBook;
+if ($('btnNewBook')) $('btnNewBook').onclick = openNewBookForm;
+if ($('btnNewBookCreate')) $('btnNewBookCreate').onclick = createBook;
+if ($('btnNewBookCancel')) $('btnNewBookCancel').onclick = () => { showNewBook(false); showPnl(); };
 $('btnNewAcct').onclick = createAccount;
 $('btnProcess').onclick = processDrop;
 $('bookSel').onchange = () => {

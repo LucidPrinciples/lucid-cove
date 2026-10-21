@@ -1021,6 +1021,26 @@ OFFICIAL_1120S = (
     {"label": "Other deductions", "kind": EXPENSE_KIND, "layer": "official", "code": "20"},
 )
 
+OFFICIAL_SCHEDULE_E = (
+    {"label": "Rents received", "kind": INCOME_KIND, "layer": "official", "code": "3"},
+    {"label": "Royalties received", "kind": INCOME_KIND, "layer": "official", "code": "4"},
+    {"label": "Advertising", "kind": EXPENSE_KIND, "layer": "official", "code": "5"},
+    {"label": "Auto and travel", "kind": EXPENSE_KIND, "layer": "official", "code": "6"},
+    {"label": "Cleaning and maintenance", "kind": EXPENSE_KIND, "layer": "official", "code": "7"},
+    {"label": "Commissions", "kind": EXPENSE_KIND, "layer": "official", "code": "8"},
+    {"label": "Insurance", "kind": EXPENSE_KIND, "layer": "official", "code": "9"},
+    {"label": "Legal and other professional fees", "kind": EXPENSE_KIND, "layer": "official", "code": "10"},
+    {"label": "Management fees", "kind": EXPENSE_KIND, "layer": "official", "code": "11"},
+    {"label": "Mortgage interest paid to banks", "kind": EXPENSE_KIND, "layer": "official", "code": "12"},
+    {"label": "Other interest", "kind": EXPENSE_KIND, "layer": "official", "code": "13"},
+    {"label": "Repairs", "kind": EXPENSE_KIND, "layer": "official", "code": "14"},
+    {"label": "Supplies", "kind": EXPENSE_KIND, "layer": "official", "code": "15"},
+    {"label": "Taxes", "kind": EXPENSE_KIND, "layer": "official", "code": "16"},
+    {"label": "Utilities", "kind": EXPENSE_KIND, "layer": "official", "code": "17"},
+    {"label": "Depreciation expense or depletion", "kind": EXPENSE_KIND, "layer": "official", "code": "18"},
+    {"label": "Other", "kind": EXPENSE_KIND, "layer": "official", "code": "19"},
+)
+
 OFFICIAL_PERSONAL = (
     {"label": "Wages, salaries, tips", "kind": INCOME_KIND, "layer": "official", "code": "1a"},
     {"label": "Taxable interest", "kind": INCOME_KIND, "layer": "official", "code": "2b"},
@@ -1034,6 +1054,7 @@ OFFICIAL_PERSONAL = (
 
 FILING_FORMS = (
     {"id": "schedule-c", "label": "Schedule C", "chart": "c"},
+    {"id": "schedule-e", "label": "Schedule E", "chart": "e"},
     {"id": "1120-s", "label": "Form 1120-S", "chart": "1120s"},
     {"id": "personal", "label": "Personal (1040)", "chart": "personal"},
 )
@@ -1051,6 +1072,12 @@ def normalize_filing_form(value: str = "") -> str:
         "sch c": "schedule-c",
         "sole prop": "schedule-c",
         "sole proprietor": "schedule-c",
+        "e": "schedule-e",
+        "schedule e": "schedule-e",
+        "schedule-e": "schedule-e",
+        "sch e": "schedule-e",
+        "rental": "schedule-e",
+        "airbnb": "schedule-e",
         "1120s": "1120-s",
         "1120-s": "1120-s",
         "form 1120-s": "1120-s",
@@ -1091,6 +1118,10 @@ def official_1120s_chart() -> list[dict]:
     return _chart_from_official(OFFICIAL_1120S)
 
 
+def official_schedule_e_chart() -> list[dict]:
+    return _chart_from_official(OFFICIAL_SCHEDULE_E)
+
+
 def official_personal_chart() -> list[dict]:
     return _chart_from_official(OFFICIAL_PERSONAL)
 
@@ -1099,6 +1130,8 @@ def official_chart_for_form(form: str = "") -> list[dict]:
     fid = normalize_filing_form(form)
     if fid == "1120-s":
         return official_1120s_chart()
+    if fid == "schedule-e":
+        return official_schedule_e_chart()
     if fid == "personal":
         return official_personal_chart()
     return official_schedule_c_chart()
@@ -1109,6 +1142,7 @@ def all_official_catalog() -> list[dict]:
     out: list[dict] = []
     for chart in (
         official_schedule_c_chart(),
+        official_schedule_e_chart(),
         official_1120s_chart(),
         official_personal_chart(),
     ):

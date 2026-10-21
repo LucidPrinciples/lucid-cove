@@ -794,6 +794,25 @@ def test_first_open_setup_spec_records_form():
     assert err is None
     assert spec["form"] == "1120-s"
     assert spec["book_id"] == "s-corp-llc"
+    rental, rerr = bk.first_open_setup_spec("Airbnb LLC", "Checking", "Schedule E")
+    assert rerr is None
+    assert rental["form"] == "schedule-e"
+    assert rental["form_label"] == "Schedule E"
+
+
+def test_official_schedule_e_part_i_chart():
+    chart = bk.official_chart_for_form("schedule-e")
+    labels = [c["label"] for c in chart]
+    assert "Rents received" in labels
+    assert "Royalties received" in labels
+    assert "Mortgage interest paid to banks" in labels
+    assert "Depreciation expense or depletion" in labels
+    kinds = {c["label"]: c["kind"] for c in chart}
+    assert kinds["Rents received"] == bk.INCOME_KIND
+    assert kinds["Repairs"] == bk.EXPENSE_KIND
+    assert bk.normalize_filing_form("Airbnb") == "schedule-e"
+    forms = {item["id"] for item in bk.filing_form_choices()}
+    assert forms == {"schedule-c", "schedule-e", "1120-s", "personal"}
 
 
 def test_books_page_wires_return_setup():
@@ -802,6 +821,10 @@ def test_books_page_wires_return_setup():
     assert "btnSetupSeed" in page
     assert "/api/books/returns/seed" in page
     assert "btnNewBook" in page
+    assert "newBookView" in page
+    assert "newBookForm" in page
+    assert "schedule-e" in page
+    assert "window.prompt('New filing book name" not in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
     assert "/api/books/returns/seed" in routes
     assert "/api/books/book" in routes
