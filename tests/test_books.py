@@ -59,6 +59,27 @@ def test_pnl_rollup_and_period():
     assert {"year": 2025, "month": 1} in periods["months"]
 
 
+def test_add_write_in_category_kind_and_official_line():
+    payload = {
+        "working_chart": [{"label": "Advertising", "code": None, "layer": "official"}],
+        "rows": [],
+    }
+    updated, rec, err = bk.add_write_in_category(payload, "Cleaning fees", kind="expense", code="19")
+    assert err is None and updated is not None
+    assert rec["label"] == "Cleaning fees"
+    assert rec["kind"] == bk.EXPENSE_KIND
+    assert rec["layer"] == "write-in"
+    assert rec["code"] == "19"
+    again, rec2, err2 = bk.add_write_in_category(updated, "Rents received extra", kind="income")
+    assert err2 is None
+    assert rec2["kind"] == bk.INCOME_KIND
+    labels = [c["label"] for c in updated["working_chart"]]
+    assert "Cleaning fees" in labels
+    assert "Rents received extra" in labels
+    bad, _rec, berr = bk.add_write_in_category(payload, "Nope", kind="transfer")
+    assert bad is None and berr
+
+
 def test_apply_category_uses_working_chart_only():
     payload = {
         "working_chart": [
@@ -118,6 +139,42 @@ def test_batch_recode_and_vendor_map():
     assert [r["phrase"] for r in cleaned["vendor_map"]] == ["ok phrase"]
     bad, err = bk.set_vendor_map(payload, [{"phrase": "x", "label": "Advertising"}])
     assert bad is None and err
+
+
+def test_process_append_then_apply_vendor_map_places_review_only():
+    payload = {
+        "working_chart": [
+            {"label": "Advertising", "code": None, "layer": "official"},
+            {"label": "Office expense", "code": None, "layer": "official"},
+        ],
+        "vendor_map": [{"phrase": "acme ads", "label": "Advertising", "source": "operator"}],
+        "rows": [
+            _row("2025-01-10", "-9.00", "Office expense", name="Staples Store"),
+        ],
+    }
+    payload["rows"][0]["needs_review"] = False
+    updated, added, skipped, err = bk.append_imported_rows(
+        payload,
+        [
+            {"date": "2025-01-15", "payee": "Acme Ads LLC", "amount": -10.00},
+            {"date": "2025-01-16", "payee": "Unknown Shop", "amount": -4.00},
+        ],
+        source_file="stmt.pdf",
+        filing_book="chords",
+    )
+    assert err is None and updated is not None
+    assert added == 2 and skipped == 0
+    mapped, stats, merr = bk.apply_vendor_map(updated)
+    assert merr is None and mapped is not None
+    assert stats["applied"] == 1
+    assert mapped["rows"][0]["category_label"] == "Office expense"
+    assert mapped["rows"][1]["category_label"] == "Advertising"
+    assert mapped["rows"][1]["needs_review"] is False
+    assert mapped["rows"][1]["match_rule"] == "vendor-map"
+    assert mapped["rows"][2].get("category_label") in (None, bk.UNCATEGORIZED)
+    again, stats2, err2 = bk.apply_vendor_map(mapped)
+    assert err2 is None and stats2["applied"] == 0
+    assert again["rows"][0]["category_label"] == "Office expense"
 
 
 def test_pick_default_ledger_and_account_label():
@@ -758,6 +815,25 @@ def test_first_open_setup_spec_records_form():
     assert err is None
     assert spec["form"] == "1120-s"
     assert spec["book_id"] == "s-corp-llc"
+    rental, rerr = bk.first_open_setup_spec("Airbnb LLC", "Checking", "Schedule E")
+    assert rerr is None
+    assert rental["form"] == "schedule-e"
+    assert rental["form_label"] == "Schedule E"
+
+
+def test_official_schedule_e_part_i_chart():
+    chart = bk.official_chart_for_form("schedule-e")
+    labels = [c["label"] for c in chart]
+    assert "Rents received" in labels
+    assert "Royalties received" in labels
+    assert "Mortgage interest paid to banks" in labels
+    assert "Depreciation expense or depletion" in labels
+    kinds = {c["label"]: c["kind"] for c in chart}
+    assert kinds["Rents received"] == bk.INCOME_KIND
+    assert kinds["Repairs"] == bk.EXPENSE_KIND
+    assert bk.normalize_filing_form("Airbnb") == "schedule-e"
+    forms = {item["id"] for item in bk.filing_form_choices()}
+    assert forms == {"schedule-c", "schedule-e", "1120-s", "personal"}
 
 
 def test_books_page_wires_return_setup():
@@ -766,6 +842,13 @@ def test_books_page_wires_return_setup():
     assert "btnSetupSeed" in page
     assert "/api/books/returns/seed" in page
     assert "btnNewBook" in page
+    assert "newBookView" in page
+    assert "newBookForm" in page
+    assert "schedule-e" in page
+    assert "newCatView" in page
+    assert "/api/books/category" in page
+    assert "window.prompt('New filing book name" not in page
+    assert "window.prompt('New expense name" not in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
     assert "/api/books/returns/seed" in routes
     assert "/api/books/book" in routes
@@ -775,11 +858,14 @@ def test_books_page_keeps_process_status():
     page = Path("src/dashboard/static/books.html").read_text()
     assert "loadSummary({ keepStatus: true })" in page
     assert "listed ${files}" in page
+    assert "placed ${totals.mapped} by map" in page
     assert "withPresence({ path, year: state.year || 2025, filing_book: book })" in page
     assert "/api/books/process/" in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
     assert "Drop folder is not in Files yet" in routes
     assert "books process listed=" in routes
+    assert "apply_vendor_map" in routes
+    assert "mapped=%s" in routes
 
 
 
@@ -991,13 +1077,14 @@ def test_process_job_registry_counts_only():
     job = bjobs.create_process_job(actor_id="p1", path="Bookkeeping/Organize/checking.mapped.json", files=10)
     assert job["state"] == "queued"
     assert job["job_id"]
-    bjobs.patch_process_job(job["job_id"], state="running", file_index=3, added=12, pending=1)
+    bjobs.patch_process_job(job["job_id"], state="running", file_index=3, added=12, mapped=4, pending=1)
     pub = bjobs.public_process_job(bjobs.get_process_job(job["job_id"]))
     assert pub["ok"] is True
     assert pub["state"] == "running"
     assert pub["files"] == 10
     assert pub["file_index"] == 3
     assert pub["added"] == 12
+    assert pub["mapped"] == 4
     assert "source_file" not in pub
     assert pub["more_pending"] is False
     missing = bjobs.get_process_job("nope")

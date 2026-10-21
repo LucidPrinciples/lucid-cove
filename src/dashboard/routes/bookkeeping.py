@@ -65,6 +65,36 @@ STATIC_PAGE = Path(__file__).resolve().parents[1] / "static" / "books.html"
 MAX_LEDGER_BYTES = 2_000_000
 _TRANSIENT_DAV = {423, 429, 500, 502, 503, 504}
 _RETRY_DELAYS = (0.4, 0.8, 1.6, 3.2)
+_LEDGER_LOCKS: dict[str, asyncio.Lock] = {}
+_LEDGER_LOCKS_GUARD = asyncio.Lock()
+
+
+def _ledger_lock_key(owner_id: str) -> str:
+    return parse_books_presence_id(owner_id) or "_"
+
+
+async def _ledger_lock(owner_id: str) -> asyncio.Lock:
+    key = _ledger_lock_key(owner_id)
+    async with _LEDGER_LOCKS_GUARD:
+        lock = _LEDGER_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _LEDGER_LOCKS[key] = lock
+        return lock
+
+
+async def _presence_id_for_lock(request: Request) -> str:
+    try:
+        want = parse_requested_presence(request)
+    except Exception:
+        want = ""
+    if want:
+        return want
+    try:
+        actor = await _actor_presence(request)
+    except Exception:
+        return ""
+    return str(actor["id"]) if actor and actor.get("id") else ""
 
 
 async def _webdav(request: Request, path: str):
@@ -301,14 +331,23 @@ async def _load_named_ledgers(request: Request, names: list[str]) -> list[tuple[
 async def _maybe_seed(request: Request, payload: dict, clean: str) -> tuple[dict, int]:
     if bk.vendor_map_from_payload(payload):
         return payload, 0
-    seeded_payload, stats, serr = bk.seed_vendor_map_from_placed(payload)
-    if seeded_payload is None or serr or not stats or not stats.get("added"):
+
+    def apply_fn(fresh: dict):
+        if bk.vendor_map_from_payload(fresh):
+            return fresh, 0, "unchanged"
+        seeded_payload, stats, serr = bk.seed_vendor_map_from_placed(fresh)
+        if seeded_payload is None or serr:
+            return None, 0, serr or "Could not seed map"
+        if not stats or not stats.get("added"):
+            return fresh, 0, "unchanged"
+        return seeded_payload, int(stats.get("added") or 0), None
+
+    updated, _clean, err, _status, extra = await _mutate_ledger(request, clean, apply_fn)
+    if err == "unchanged" or extra is None:
         return payload, 0
-    seeded_payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, _wstatus = await _write_ledger(request, clean, seeded_payload)
-    if werr:
+    if err or updated is None:
         return payload, 0
-    return seeded_payload, int(stats.get("added") or 0)
+    return updated, int(extra or 0)
 
 
 def _choice_payloads(loaded: list[tuple[str, dict]]) -> list[dict]:
@@ -390,7 +429,7 @@ async def _read_ledger(request: Request, path: str) -> tuple[dict | None, str, s
     return data, clean, None, 200
 
 
-async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str | None, int]:
+async def _write_ledger_unlocked(request: Request, path: str, payload: dict) -> tuple[str | None, int]:
     clean, err = bk.clean_books_path(path)
     if err or not clean:
         return err or "Invalid path", 400
@@ -431,6 +470,39 @@ async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str
         logger.warning("books write failed")
         return f"Write failed: {e}", 502
     return f"Write failed: {last}", 502
+
+
+async def _write_ledger(request: Request, path: str, payload: dict) -> tuple[str | None, int]:
+    lock = await _ledger_lock(await _presence_id_for_lock(request))
+    async with lock:
+        return await _write_ledger_unlocked(request, path, payload)
+
+
+def _stamp_ledger(payload: dict) -> dict:
+    payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return payload
+
+
+async def _mutate_ledger(request: Request, path: str, apply_fn):
+    """Re-read under the Presence lock, apply, write the fresh copy.
+
+    apply_fn(payload) -> (updated, extra, err). extra may be None.
+    """
+    lock = await _ledger_lock(await _presence_id_for_lock(request))
+    async with lock:
+        payload, clean, err, status = await _read_ledger(request, path)
+        if err or payload is None:
+            return None, clean, err, status, None
+        updated, extra, uerr = apply_fn(payload)
+        if uerr == "unchanged":
+            return payload, clean, "unchanged", 200, extra
+        if uerr or updated is None:
+            return None, clean, uerr or "Update failed", 400, extra
+        _stamp_ledger(updated)
+        werr, wstatus = await _write_ledger_unlocked(request, clean, updated)
+        if werr:
+            return None, clean, werr, wstatus, extra
+        return updated, clean, None, 200, extra
 
 
 async def _mkcol(request: Request, path: str) -> tuple[str | None, int]:
@@ -972,33 +1044,31 @@ async def books_patch_line(request: Request):
     if not label and not details:
         return JSONResponse({"ok": False, "error": "category is required"}, status_code=400)
 
-    payload, clean, err, status = await _read_ledger(request, path)
-    if err or payload is None:
-        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
     loaded = await _load_named_ledgers(request, ledgers)
-    chart = _chart_with_accounts(loaded, clean, payload)
-    if details:
-        payee = None
-        if "payee" in body or "name" in body:
-            payee = body.get("payee") or body.get("name") or ""
-        updated, uerr = bk.update_row_details(
-            payload,
-            index,
-            date=body.get("date") if "date" in body else None,
-            payee=payee,
-            amount=body.get("amount") if "amount" in body else None,
-            category=label or None,
-            filing_book=body.get("filing_book") if "filing_book" in body else None,
-            chart=chart,
-        )
-    else:
+
+    def apply_fn(payload):
+        chart = _chart_with_accounts(loaded, path, payload)
+        if details:
+            payee = None
+            if "payee" in body or "name" in body:
+                payee = body.get("payee") or body.get("name") or ""
+            updated, uerr = bk.update_row_details(
+                payload,
+                index,
+                date=body.get("date") if "date" in body else None,
+                payee=payee,
+                amount=body.get("amount") if "amount" in body else None,
+                category=label or None,
+                filing_book=body.get("filing_book") if "filing_book" in body else None,
+                chart=chart,
+            )
+            return updated, None, uerr
         updated, uerr = bk.apply_category(payload, index, label, chart=chart)
-    if uerr or updated is None:
-        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+        return updated, None, uerr
+
+    updated, clean, err, status, _extra = await _mutate_ledger(request, path, apply_fn)
+    if err or updated is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
     row = updated["rows"][index]
     return JSONResponse({
         "ok": True,
@@ -1064,18 +1134,16 @@ async def books_patch_lines(request: Request):
         ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, src)
         if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
             return JSONResponse({"ok": False, "error": rerr or "Ledger not found"}, status_code=rstatus if rerr else 400)
-        payload, clean, err, status = await _read_ledger(request, ledger_path)
-        if err or payload is None:
-            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
         loaded = await _load_named_ledgers(request, ledgers)
-        chart = _chart_with_accounts(loaded, clean, payload)
-        updated, uerr = bk.apply_categories(payload, indexes, label, chart=chart)
-        if uerr or updated is None:
-            return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-        updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        werr, wstatus = await _write_ledger(request, clean, updated)
-        if werr:
-            return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+
+        def apply_fn(payload, indexes=indexes, ledger_path=ledger_path):
+            chart = _chart_with_accounts(loaded, ledger_path, payload)
+            updated, uerr = bk.apply_categories(payload, indexes, label, chart=chart)
+            return updated, None, uerr
+
+        updated, clean, err, status, _extra = await _mutate_ledger(request, ledger_path, apply_fn)
+        if err or updated is None:
+            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
         updated_n += len(set(indexes))
         last_map = bk.vendor_map_from_payload(updated)
         review += int(updated.get("needs_review_count") or 0)
@@ -1142,23 +1210,23 @@ async def books_put_map(request: Request):
     review = 0
     last_map: list = []
     last_path = ledger_path
+    apply_now = body.get("apply", True)
     for target in targets:
-        payload, clean, err, status = await _read_ledger(request, target)
-        if err or payload is None:
+        def apply_fn(payload, rules=rules, apply_now=apply_now):
+            updated, uerr = bk.set_vendor_map(payload, rules)
+            if uerr or updated is None:
+                return None, None, uerr
+            applied = {"applied": 0}
+            if apply_now:
+                updated, applied, aerr = bk.apply_vendor_map(updated)
+                if aerr or updated is None:
+                    return None, None, aerr
+            return updated, applied, None
+
+        updated, clean, err, status, extra = await _mutate_ledger(request, target, apply_fn)
+        if err or updated is None:
             return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-        updated, uerr = bk.set_vendor_map(payload, rules)
-        if uerr or updated is None:
-            return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-        applied = {"applied": 0}
-        if body.get("apply", True):
-            updated, applied, aerr = bk.apply_vendor_map(updated)
-            if aerr or updated is None:
-                return JSONResponse({"ok": False, "error": aerr, "path": clean}, status_code=400)
-        updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        werr, wstatus = await _write_ledger(request, clean, updated)
-        if werr:
-            return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
-        applied_n += int((applied or {}).get("applied", 0))
+        applied_n += int((extra or {}).get("applied", 0))
         review += int(updated.get("needs_review_count") or 0)
         last_map = bk.vendor_map_from_payload(updated)
         last_path = clean
@@ -1194,23 +1262,23 @@ async def books_seed_map(request: Request):
     last_path = ledger_path
     apply_now = body.get("apply", True)
     for target in targets:
-        payload, clean, err, status = await _read_ledger(request, target)
-        if err or payload is None:
+        def apply_fn(payload, apply_now=apply_now):
+            updated, stats, serr = bk.seed_vendor_map_from_placed(payload)
+            if serr or updated is None:
+                return None, None, serr
+            applied = {"applied": 0}
+            if apply_now:
+                updated, applied, aerr = bk.apply_vendor_map(updated)
+                if aerr or updated is None:
+                    return None, None, aerr
+            return updated, {"stats": stats, "applied": applied}, None
+
+        updated, clean, err, status, extra = await _mutate_ledger(request, target, apply_fn)
+        if err or updated is None:
             return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-        updated, stats, serr = bk.seed_vendor_map_from_placed(payload)
-        if serr or updated is None:
-            return JSONResponse({"ok": False, "error": serr, "path": clean}, status_code=400)
-        applied = {"applied": 0}
-        if apply_now:
-            updated, applied, aerr = bk.apply_vendor_map(updated)
-            if aerr or updated is None:
-                return JSONResponse({"ok": False, "error": aerr, "path": clean}, status_code=400)
-        updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        werr, wstatus = await _write_ledger(request, clean, updated)
-        if werr:
-            return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
-        seeded += int((stats or {}).get("added") or 0)
-        applied_n += int((applied or {}).get("applied") or 0)
+        extra = extra or {}
+        seeded += int(((extra.get("stats") or {}).get("added") or 0))
+        applied_n += int(((extra.get("applied") or {}).get("applied") or 0))
         review += int(updated.get("needs_review_count") or 0)
         last_map = bk.vendor_map_from_payload(updated)
         last_path = clean
@@ -1254,34 +1322,36 @@ async def books_paste_lines(request: Request):
     clean, payload, err, status = await _ensure_manual_ledger(request, loaded)
     if err:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-    chart = bk.working_chart_from_payload(payload)
-    category = (body.get("category") or body.get("category_label") or "").strip()
     income = bool(body.get("income"))
-    if income and not category:
-        category = bk.gross_receipts_label(chart)
-    if category and bk.chart_lookup(chart, category) is None:
-        category = ""
-    items = []
-    for rec in parsed:
-        amt = rec["amount"]
-        if not income and amt > 0:
-            amt = -amt
-        if income and amt < 0:
-            amt = abs(amt)
-        items.append({
-            "date": rec["date"],
-            "payee": rec["payee"],
-            "amount": amt,
-            "category": category,
-            "filing_book": book,
-        })
-    updated, added, uerr = bk.add_manual_rows(payload, items, filing_book=book, default_category=category)
-    if uerr or updated is None:
-        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+    raw_category = (body.get("category") or body.get("category_label") or "").strip()
+
+    def apply_fn(fresh):
+        chart = bk.working_chart_from_payload(fresh)
+        category = raw_category
+        if income and not category:
+            category = bk.gross_receipts_label(chart)
+        if category and bk.chart_lookup(chart, category) is None:
+            category = ""
+        items = []
+        for rec in parsed:
+            amt = rec["amount"]
+            if not income and amt > 0:
+                amt = -amt
+            if income and amt < 0:
+                amt = abs(amt)
+            items.append({
+                "date": rec["date"],
+                "payee": rec["payee"],
+                "amount": amt,
+                "category": category,
+                "filing_book": book,
+            })
+        updated, added, uerr = bk.add_manual_rows(fresh, items, filing_book=book, default_category=category)
+        return updated, added, uerr
+
+    updated, clean, err, status, added = await _mutate_ledger(request, clean, apply_fn)
+    if err or updated is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
     return JSONResponse({
         "ok": True,
         "path": clean,
@@ -1313,16 +1383,13 @@ async def books_line_book(request: Request):
     book = _parse_book(request, body)
     if book == bk.ALL_BOOKS:
         return JSONResponse({"ok": False, "error": "Pick a filing book"}, status_code=400)
-    payload, clean, err, status = await _read_ledger(request, ledger_path)
-    if err or payload is None:
+    def apply_fn(payload):
+        updated, uerr = bk.set_row_filing_book(payload, index, book)
+        return updated, None, uerr
+
+    updated, clean, err, status, _extra = await _mutate_ledger(request, ledger_path, apply_fn)
+    if err or updated is None:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-    updated, uerr = bk.set_row_filing_book(payload, index, book)
-    if uerr or updated is None:
-        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
     row = updated["rows"][index]
     return JSONResponse({
         "ok": True,
@@ -1350,20 +1417,20 @@ async def books_create_line(request: Request):
     book = _parse_book(request, body)
     if book == bk.ALL_BOOKS:
         book = "chords"
-    updated, line, uerr = bk.add_manual_row(
-        payload,
-        date=(body.get("date") or "").strip(),
-        payee=body.get("payee") or body.get("name") or "",
-        amount=body.get("amount"),
-        category=(body.get("category") or body.get("category_label") or "").strip(),
-        filing_book=book,
-    )
-    if uerr or updated is None:
-        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+
+    def apply_fn(fresh):
+        return bk.add_manual_row(
+            fresh,
+            date=(body.get("date") or "").strip(),
+            payee=body.get("payee") or body.get("name") or "",
+            amount=body.get("amount"),
+            category=(body.get("category") or body.get("category_label") or "").strip(),
+            filing_book=book,
+        )
+
+    updated, clean, err, status, line = await _mutate_ledger(request, clean, apply_fn)
+    if err or updated is None:
+        return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
     return JSONResponse({
         "ok": True,
         "path": clean,
@@ -1394,16 +1461,13 @@ async def books_line_state(request: Request):
         disabled = bool(body.get("disabled"))
     else:
         disabled = True
-    payload, clean, err, status = await _read_ledger(request, ledger_path)
-    if err or payload is None:
+    def apply_fn(payload):
+        updated, uerr = bk.set_row_disabled(payload, index, disabled)
+        return updated, None, uerr
+
+    updated, clean, err, status, _extra = await _mutate_ledger(request, ledger_path, apply_fn)
+    if err or updated is None:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-    updated, uerr = bk.set_row_disabled(payload, index, disabled)
-    if uerr or updated is None:
-        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
     row = updated["rows"][index]
     return JSONResponse({
         "ok": True,
@@ -1433,16 +1497,13 @@ async def books_delete_line(request: Request):
         index = int(body.get("index"))
     except (TypeError, ValueError):
         return JSONResponse({"ok": False, "error": "index is required"}, status_code=400)
-    payload, clean, err, status = await _read_ledger(request, ledger_path)
-    if err or payload is None:
+    def apply_fn(payload):
+        updated, uerr = bk.remove_manual_row(payload, index)
+        return updated, None, uerr
+
+    updated, clean, err, status, _extra = await _mutate_ledger(request, ledger_path, apply_fn)
+    if err or updated is None:
         return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-    updated, uerr = bk.remove_manual_row(payload, index)
-    if uerr or updated is None:
-        return JSONResponse({"ok": False, "error": uerr, "path": clean}, status_code=400)
-    updated["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    werr, wstatus = await _write_ledger(request, clean, updated)
-    if werr:
-        return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
     return JSONResponse({
         "ok": True,
         "path": clean,
@@ -1551,6 +1612,49 @@ async def books_seed_returns(request: Request):
         "official_count": len(official),
         "writein_count": len(writeins),
         "writeins": writeins,
+    })
+
+
+@router.post("/api/books/category")
+async def books_add_category(request: Request):
+    """Add a Presence-local chart bucket to every ledger (return-seed stopgap)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    label = (body.get("label") or body.get("name") or body.get("category") or "").strip()
+    kind = (body.get("kind") or body.get("side") or "expense").strip().lower()
+    code = str(body.get("code") or body.get("official") or body.get("line") or "").strip()
+    names, lerr = await _list_mapped_ledgers(request)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    if not names:
+        return JSONResponse({"ok": False, "error": "Create books before adding a category"}, status_code=409)
+    last_chart: list = []
+    rec = None
+    added = 0
+    for name in names:
+        target = bk.ledger_path_from_name(name)
+        if not target:
+            continue
+
+        def apply_fn(payload, label=label, kind=kind, code=code):
+            updated, item, uerr = bk.add_write_in_category(payload, label, kind=kind, code=code)
+            return updated, item, uerr
+
+        updated, clean, err, status, extra = await _mutate_ledger(request, target, apply_fn)
+        if err or updated is None:
+            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+        rec = extra or rec
+        last_chart = bk.working_chart_from_payload(updated)
+        added += 1
+    return JSONResponse({
+        "ok": True,
+        "category": rec,
+        "chart": bk.chart_public_preview(last_chart),
+        "updated": added,
     })
 
 
@@ -1742,6 +1846,36 @@ async def books_create_account(request: Request):
 
 
 
+def _ingest_drop_file(fresh: dict, parsed: list, name: str, book: str):
+    """Append one parsed statement onto a freshly read ledger, then apply the map."""
+    updated, n_added, n_skipped, uerr = bk.append_imported_rows(
+        fresh, parsed, source_file=name, filing_book=book
+    )
+    if uerr or updated is None:
+        return None, None, uerr
+    mapped_n = 0
+    mapped_payload, map_stats, map_err = bk.apply_vendor_map(updated)
+    if mapped_payload is not None and not map_err:
+        updated = mapped_payload
+        mapped_n = int((map_stats or {}).get("applied") or 0)
+    stamped = 0
+    if n_added:
+        applied, stamped, aerr = bk.apply_payload_filing_book(updated, book)
+        if aerr or applied is None:
+            return None, None, aerr or "Pick a filing book"
+        updated = applied
+        updated["filing_book"] = book
+    extra = {
+        "added": n_added,
+        "skipped": n_skipped,
+        "mapped": mapped_n,
+        "stamped": stamped,
+    }
+    if not n_added and not mapped_n:
+        return updated, extra, "unchanged"
+    return updated, extra, None
+
+
 async def _run_process_job(
     request: Request,
     job_id: str,
@@ -1770,11 +1904,13 @@ async def _run_process_job(
         file_index=0,
     )
     added = 0
+    mapped = 0
     skipped = 0
     pending = 0
     processed = 0
     ocr_used = 0
     model_read = 0
+    stamped = 0
     last_err = None
     try:
         for i, name in enumerate(work, start=1):
@@ -1825,11 +1961,14 @@ async def _run_process_job(
                     unread_reason=bk.unread_reason_label(last_err),
                 )
                 continue
-            updated, n_added, n_skipped, uerr = bk.append_imported_rows(
-                payload, parsed, source_file=name, filing_book=book
-            )
-            if uerr or updated is None:
-                last_err = uerr
+
+            def apply_fn(fresh, parsed=parsed, name=name, book=book):
+                return _ingest_drop_file(fresh, parsed, name, book)
+
+            updated, _clean, err, _status, extra = await _mutate_ledger(request, clean, apply_fn)
+            extra = extra or {}
+            if err and err != "unchanged":
+                last_err = err
                 pending += 1
                 bjobs.patch_process_job(
                     job_id,
@@ -1837,9 +1976,13 @@ async def _run_process_job(
                     unread_reason=bk.unread_reason_label(last_err),
                 )
                 continue
-            payload = updated
+            if updated is not None:
+                payload = updated
+            n_added = int(extra.get("added") or 0)
+            mapped += int(extra.get("mapped") or 0)
+            stamped += int(extra.get("stamped") or 0)
             added += n_added
-            skipped += n_skipped
+            skipped += int(extra.get("skipped") or 0)
             processed += 1
             if how == "ocr":
                 ocr_used += 1
@@ -1852,58 +1995,16 @@ async def _run_process_job(
             bjobs.patch_process_job(
                 job_id,
                 added=added,
+                mapped=mapped,
                 skipped=skipped,
                 processed=processed,
                 pending=pending,
                 ocr=ocr_used,
                 model_read=model_read,
+                stamped=stamped,
+                needs_review_count=payload.get("needs_review_count"),
             )
-            if n_added:
-                applied, stamped, aerr = bk.apply_payload_filing_book(payload, book)
-                if aerr or applied is None:
-                    bjobs.patch_process_job(
-                        job_id,
-                        state="failed",
-                        error=aerr or "Pick a filing book",
-                        finished_at=time.time(),
-                    )
-                    return
-                payload = applied
-                payload["filing_book"] = book
-                payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                werr, _wstatus = await _write_ledger(request, clean, payload)
-                if werr:
-                    bjobs.patch_process_job(
-                        job_id,
-                        state="failed",
-                        error=werr,
-                        finished_at=time.time(),
-                    )
-                    return
-                bjobs.patch_process_job(job_id, stamped=stamped, needs_review_count=payload.get("needs_review_count"))
-        applied, stamped, aerr = bk.apply_payload_filing_book(payload, book)
-        if aerr or applied is None:
-            bjobs.patch_process_job(
-                job_id,
-                state="failed",
-                error=aerr or "Pick a filing book",
-                finished_at=time.time(),
-            )
-            return
-        payload = applied
-        if added or stamped or ledger_book_before != book:
-            payload["filing_book"] = book
-            payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            werr, _wstatus = await _write_ledger(request, clean, payload)
-            if werr:
-                bjobs.patch_process_job(
-                    job_id,
-                    state="failed",
-                    error=werr,
-                    finished_at=time.time(),
-                )
-                return
-        elif processed == 0 and pending == 0 and last_err:
+        if processed == 0 and pending == 0 and last_err:
             bjobs.patch_process_job(
                 job_id,
                 state="failed",
@@ -1911,11 +2012,34 @@ async def _run_process_job(
                 finished_at=time.time(),
             )
             return
+        if added == 0 and (ledger_book_before != book):
+            def stamp_fn(fresh, book=book):
+                applied, n_stamped, aerr = bk.apply_payload_filing_book(fresh, book)
+                if aerr or applied is None:
+                    return None, None, aerr or "Pick a filing book"
+                applied["filing_book"] = book
+                if not n_stamped and bk.infer_filing_book(fresh) == book:
+                    return applied, {"stamped": 0}, "unchanged"
+                return applied, {"stamped": n_stamped}, None
+
+            updated, _clean, err, _status, extra = await _mutate_ledger(request, clean, stamp_fn)
+            if err and err != "unchanged":
+                bjobs.patch_process_job(
+                    job_id,
+                    state="failed",
+                    error=err,
+                    finished_at=time.time(),
+                )
+                return
+            if updated is not None:
+                payload = updated
+            stamped += int((extra or {}).get("stamped") or 0)
         unread_reason = bk.unread_reason_label(last_err) if pending else None
         logger.warning(
-            "books process listed=%s added=%s pending=%s skipped=%s processed=%s remaining=%s",
+            "books process listed=%s added=%s mapped=%s pending=%s skipped=%s processed=%s remaining=%s",
             len(work),
             added,
+            mapped,
             pending,
             skipped,
             processed,
@@ -1925,6 +2049,7 @@ async def _run_process_job(
             job_id,
             state="done",
             added=added,
+            mapped=mapped,
             skipped=skipped,
             pending=pending,
             processed=processed,

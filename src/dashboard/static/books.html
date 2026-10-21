@@ -115,6 +115,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
       <label>This book files as
         <select id="setupForm">
           <option value="schedule-c">Schedule C</option>
+          <option value="schedule-e">Schedule E</option>
           <option value="1120-s">Form 1120-S</option>
           <option value="personal">Personal (1040)</option>
         </select>
@@ -131,6 +132,56 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
       <button type="button" class="primary" id="btnSetupCreate">Create books</button>
     </div>
     <p class="dim small" id="setupChartMeta"></p>
+  </div>
+</div>
+<div id="newBookView" class="setup-view hide">
+  <div class="setup-card">
+    <h2>New filing book</h2>
+    <p class="dim">Name the book and how it files. Creates an empty statement ledger and a Drop folder.</p>
+    <div class="setup-fields">
+      <label>Book name
+        <input id="newBookName" type="text" placeholder="e.g., Airbnb LLC" autocomplete="off">
+      </label>
+      <label>Files as
+        <select id="newBookForm">
+          <option value="schedule-c">Schedule C</option>
+          <option value="schedule-e">Schedule E</option>
+          <option value="1120-s">Form 1120-S</option>
+          <option value="personal">Personal (1040)</option>
+        </select>
+      </label>
+      <label>First statement account
+        <input id="newBookAcct" type="text" placeholder="e.g., Checking" value="Checking" autocomplete="off">
+      </label>
+    </div>
+    <div class="setup-actions">
+      <button type="button" id="btnNewBookCancel">Cancel</button>
+      <button type="button" class="primary" id="btnNewBookCreate">Create book</button>
+    </div>
+  </div>
+</div>
+<div id="newCatView" class="setup-view hide">
+  <div class="setup-card">
+    <h2>Add category</h2>
+    <p class="dim">Presence-local bucket until a return seed lands. Optional official line is the form number (for example 19 or 27a).</p>
+    <div class="setup-fields">
+      <label>Name
+        <input id="newCatName" type="text" placeholder="e.g., Cleaning fees" autocomplete="off">
+      </label>
+      <label>Kind
+        <select id="newCatKind">
+          <option value="expense">Expense</option>
+          <option value="income">Income</option>
+        </select>
+      </label>
+      <label>Official line (optional)
+        <input id="newCatCode" type="text" placeholder="e.g., 19" autocomplete="off">
+      </label>
+    </div>
+    <div class="setup-actions">
+      <button type="button" id="btnNewCatCancel">Cancel</button>
+      <button type="button" class="primary" id="btnNewCatCreate">Add category</button>
+    </div>
   </div>
 </div>
 <div class="toolbar" id="toolbar">
@@ -396,21 +447,42 @@ function chartOptions(selected) {
   if (income.length) parts.push('<optgroup label="Income">' + income.map(opt).join('') + '</optgroup>');
   if (expense.length) parts.push('<optgroup label="Expenses">' + expense.map(opt).join('') + '</optgroup>');
   if (transfer.length) parts.push('<optgroup label="Transfers">' + transfer.map(opt).join('') + '</optgroup>');
-  parts.push('<option value="__write_in_expense__">Add expense…</option>');
+  parts.push('<option value="__write_in_expense__">Add category…</option>');
   return parts.join('') || items.map(opt).join('');
 }
-function promptExpenseWriteIn(sel) {
-  const name = (window.prompt('New expense name (stays on this Presence)', '') || '').trim();
-  if (!name) {
-    if (sel) sel.value = sel.getAttribute('data-was') || '';
-    return '';
+function showNewCategory(on, sel) {
+  const panel = $('newCatView');
+  const bar = $('toolbar');
+  const add = $('addLineBar');
+  if (!panel) return;
+  state.catSel = on ? sel : null;
+  if (on) {
+    hideViews();
+    panel.classList.remove('hide');
+    if (bar) bar.classList.add('hide');
+    if (add) add.classList.add('hide');
+    $('hdrMeta').textContent = 'Add category';
+    $('status').textContent = '';
+    showErr('');
+    if ($('newCatName')) {
+      $('newCatName').value = '';
+      $('newCatName').focus();
+    }
+    if ($('newCatKind')) $('newCatKind').value = 'expense';
+    if ($('newCatCode')) $('newCatCode').value = '';
+  } else {
+    panel.classList.add('hide');
+    if (bar) bar.classList.remove('hide');
+    if (add) add.classList.remove('hide');
   }
-  return name;
 }
 function resolveCategoryValue(sel) {
   if (!sel) return '';
   let category = sel.value || '';
-  if (category === '__write_in_expense__') category = promptExpenseWriteIn(sel);
+  if (category === '__write_in_expense__') {
+    showNewCategory(true, sel);
+    return '';
+  }
   return category;
 }
 function hideViews() {
@@ -419,6 +491,28 @@ function hideViews() {
   $('mapView').style.display = 'none';
   if ($('txView')) $('txView').style.display = 'none';
   if ($('setupView')) $('setupView').classList.add('hide');
+  if ($('newBookView')) $('newBookView').classList.add('hide');
+  if ($('newCatView')) $('newCatView').classList.add('hide');
+}
+function showNewBook(on) {
+  const panel = $('newBookView');
+  const bar = $('toolbar');
+  const add = $('addLineBar');
+  if (!panel) return;
+  if (on) {
+    hideViews();
+    panel.classList.remove('hide');
+    if (bar) bar.classList.add('hide');
+    if (add) add.classList.add('hide');
+    $('hdrMeta').textContent = 'New filing book';
+    $('status').textContent = '';
+    showErr('');
+    if ($('newBookName')) $('newBookName').focus();
+  } else {
+    panel.classList.add('hide');
+    if (bar) bar.classList.remove('hide');
+    if (add) add.classList.remove('hide');
+  }
 }
 function showSetup(on) {
   const setup = $('setupView');
@@ -931,6 +1025,7 @@ function processStatusBits(data, book, totals) {
   else if (files != null) bits.push(`listed ${files}`);
   if (totals.added) bits.push(`added ${totals.added}`);
   else if (files) bits.push('0 added');
+  if (totals.mapped) bits.push(`placed ${totals.mapped} by map`);
   if (totals.skipped) bits.push(`skipped ${totals.skipped} duplicates`);
   if (data.stamped) bits.push(`stamped ${data.stamped} onto ${data.filing_book || book}`);
   if (totals.ocr) bits.push(`${totals.ocr} from images`);
@@ -976,6 +1071,7 @@ async function processDrop() {
   while (true) {
     const totals = {
       added: data.added || 0,
+      mapped: data.mapped || 0,
       skipped: data.skipped || 0,
       pending: data.pending || 0,
       ocr: data.ocr || 0,
@@ -1031,11 +1127,14 @@ async function createFirstBooks() {
   $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.filing_book_label || book)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}.</span>`;
   await loadSummary();
 }
+function openNewBookForm() {
+  showNewBook(true);
+}
 async function createBook() {
-  const book = (window.prompt('New filing book name (business or personal)', '') || '').trim();
-  if (!book) return;
-  const account = (window.prompt('First statement account for that book', 'Checking') || '').trim() || 'Checking';
-  const form = (window.prompt('Files as: Schedule C, 1120-S, or Personal', 'Schedule C') || '').trim();
+  const book = ($('newBookName') && $('newBookName').value || '').trim();
+  const account = ($('newBookAcct') && $('newBookAcct').value || '').trim() || 'Checking';
+  const form = ($('newBookForm') && $('newBookForm').value) || 'schedule-c';
+  if (!book) { showErr('Name the book first'); return; }
   showErr('');
   $('status').textContent = 'Creating book…';
   const r = await fetch('/api/books/book', {
@@ -1055,13 +1154,54 @@ async function createBook() {
   if (data.books) state.books = data.books;
   fillBooks();
   fillLedgers();
+  showNewBook(false);
   $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.filing_book_label || book)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}</span>`;
   await loadSummary();
 }
 $('btnSetupCreate').onclick = createFirstBooks;
 if ($('btnSetupSeed')) $('btnSetupSeed').onclick = seedSetupChart;
 if ($('setupReturn')) $('setupReturn').onchange = uploadSetupReturn;
-if ($('btnNewBook')) $('btnNewBook').onclick = createBook;
+if ($('btnNewBook')) $('btnNewBook').onclick = openNewBookForm;
+if ($('btnNewBookCreate')) $('btnNewBookCreate').onclick = createBook;
+if ($('btnNewBookCancel')) $('btnNewBookCancel').onclick = () => { showNewBook(false); showPnl(); };
+async function createCategory() {
+  const name = ($('newCatName') && $('newCatName').value || '').trim();
+  const kind = ($('newCatKind') && $('newCatKind').value) || 'expense';
+  const code = ($('newCatCode') && $('newCatCode').value || '').trim();
+  if (!name) { showErr('Name the category first'); return; }
+  showErr('');
+  $('status').textContent = 'Adding category…';
+  const r = await fetch('/api/books/category', {
+    method: 'POST',
+    headers: booksHeaders(),
+    body: JSON.stringify({ label: name, kind, code })
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Could not add category');
+    return;
+  }
+  if (data.chart) state.chart = data.chart;
+  const label = (data.category && data.category.label) || name;
+  const sel = state.catSel;
+  showNewCategory(false);
+  const html = chartOptions(label);
+  if ($('batchCat')) $('batchCat').innerHTML = html;
+  if ($('mapCat')) $('mapCat').innerHTML = html;
+  if ($('newCat')) $('newCat').innerHTML = html;
+  if ($('txCat')) $('txCat').innerHTML = html;
+  if (sel) sel.value = label;
+  $('status').innerHTML = `<span class="okmsg">Added ${escapeHtml(label)}</span>`;
+  await loadSummary();
+}
+if ($('btnNewCatCreate')) $('btnNewCatCreate').onclick = createCategory;
+if ($('btnNewCatCancel')) $('btnNewCatCancel').onclick = () => {
+  const sel = state.catSel;
+  if (sel) sel.value = sel.getAttribute('data-was') || '';
+  showNewCategory(false);
+  showPnl();
+};
 $('btnNewAcct').onclick = createAccount;
 $('btnProcess').onclick = processDrop;
 $('bookSel').onchange = () => {
