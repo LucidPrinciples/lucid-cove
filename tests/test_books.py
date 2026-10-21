@@ -769,3 +769,13 @@ def test_books_page_wires_return_setup():
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
     assert "/api/books/returns/seed" in routes
     assert "/api/books/book" in routes
+
+
+def test_books_page_keeps_process_status():
+    page = Path("src/dashboard/static/books.html").read_text()
+    assert "loadSummary({ keepStatus: true })" in page
+    assert "listed ${data.files}" in page
+    assert "withPresence({ path, year: state.year || 2025, filing_book: book })" in page
+    routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
+    assert "Drop folder is not in Files yet" in routes
+    assert "books process listed=" in routes

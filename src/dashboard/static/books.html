@@ -603,12 +603,14 @@ async function loadAccess() {
   if (data.presence_label) state.presenceLabel = data.presence_label;
   fillSpaces();
 }
-async function loadSummary() {
+async function loadSummary(opts) {
+  const keepStatus = !!(opts && opts.keepStatus);
+  const priorStatus = keepStatus ? ($('status').innerHTML || '') : '';
   showErr('');
-  $('status').textContent = 'Loading…';
+  if (!keepStatus) $('status').textContent = 'Loading…';
   const r = await fetch('/api/books/summary' + qs());
   const data = await r.json();
-  if (!data.ok) { showErr(data.error || 'Could not load books'); $('status').textContent = ''; return; }
+  if (!data.ok) { showErr(data.error || 'Could not load books'); if (!keepStatus) $('status').textContent = ''; return; }
   if (data.needs_setup) {
     showSetup(true);
     return;
@@ -634,6 +636,8 @@ async function loadSummary() {
   $('hdrMeta').textContent = `${who}${ent}${acct ? ' · ' + acct : ''} · ${data.row_count || 0} lines · ${mapN} map rules${review}`;
   if (data.seeded) {
     $('status').innerHTML = `<span class="okmsg">Filled ${data.seeded} map rules from placed lines</span>`;
+  } else if (keepStatus && priorStatus) {
+    $('status').innerHTML = priorStatus;
   }
   const pnl = data.pnl || {};
   $('tInc').textContent = money(pnl.income_total);
@@ -672,7 +676,7 @@ async function loadSummary() {
     rows.push(`<tr class="clickable" data-cat="${encodeURIComponent('__disabled__')}"><td>Disabled <span class="pill">restore</span></td><td class="num muted">${pnl.disabled_count}</td><td></td></tr>`);
   }
   $('pnlBody').innerHTML = rows.join('');
-  if (!data.seeded) $('status').textContent = '';
+  if (!data.seeded && !(keepStatus && priorStatus)) $('status').textContent = '';
   $('batchCat').innerHTML = chartOptions();
   $('mapCat').innerHTML = chartOptions();
   if ($('newCat')) $('newCat').innerHTML = chartOptions();
@@ -927,7 +931,7 @@ async function processDrop() {
   const r = await fetch('/api/books/process', {
     method: 'POST',
     headers: booksHeaders(),
-    body: JSON.stringify({ path, year: state.year || 2025, filing_book: book })
+    body: JSON.stringify(withPresence({ path, year: state.year || 2025, filing_book: book }))
   });
   const data = await r.json();
   if (!data.ok) {
@@ -936,14 +940,16 @@ async function processDrop() {
     return;
   }
   const bits = [];
+  if (data.files != null) bits.push(`listed ${data.files}`);
   if (data.added) bits.push(`added ${data.added}`);
+  else if (data.files) bits.push('0 added');
   if (data.skipped) bits.push(`skipped ${data.skipped} duplicates`);
   if (data.stamped) bits.push(`stamped ${data.stamped} onto ${data.filing_book || book}`);
   if (data.ocr) bits.push(`${data.ocr} from images`);
   if (data.pending) bits.push(`${data.pending} still unread`);
   if (!bits.length) bits.push('nothing new');
   $('status').innerHTML = `<span class="okmsg">${escapeHtml(bits.join(' · '))}</span>`;
-  await loadSummary();
+  await loadSummary({ keepStatus: true });
 }
 async function createFirstBooks() {
   const book = ($('setupBook').value || '').trim();

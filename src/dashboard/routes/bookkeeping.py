@@ -490,7 +490,8 @@ async def _list_folder_files(request: Request, folder: str, prefix: str) -> tupl
         logger.warning("books folder list failed")
         return [], f"List failed: {e}"
     if resp.status_code == 404:
-        return [], None
+        logger.warning("books folder list missed")
+        return [], "Drop folder is not in Files yet"
     if resp.status_code not in (207, 200):
         return [], f"WebDAV error: HTTP {resp.status_code}"
     names: list[str] = []
@@ -1832,6 +1833,14 @@ async def books_process_drop(request: Request):
             return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
     elif processed == 0 and pending == 0 and last_err:
         return JSONResponse({"ok": False, "error": last_err, "path": clean, "drop_folder": folder}, status_code=400)
+    logger.info(
+        "books process listed=%s added=%s pending=%s skipped=%s processed=%s",
+        len(files),
+        added,
+        pending,
+        skipped,
+        processed,
+    )
     return JSONResponse({
         "ok": True,
         "path": clean,
