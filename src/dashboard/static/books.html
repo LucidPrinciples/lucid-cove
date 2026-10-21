@@ -926,7 +926,9 @@ async function createAccount() {
 function processStatusBits(data, book, totals) {
   const bits = [];
   const files = totals.files != null ? totals.files : data.files;
-  if (files != null) bits.push(`listed ${files}`);
+  const idx = data.file_index || 0;
+  if (data.state === 'running' && files) bits.push(`file ${idx} of ${files}`);
+  else if (files != null) bits.push(`listed ${files}`);
   if (totals.added) bits.push(`added ${totals.added}`);
   else if (files) bits.push('0 added');
   if (totals.skipped) bits.push(`skipped ${totals.skipped} duplicates`);
@@ -950,30 +952,56 @@ async function processDrop() {
   const book = state.book === 'all-books' ? '' : (state.book || 'chords');
   if (!book) { showErr('Pick a filing book before Process'); return; }
   showErr('');
+  const btn = $('btnProcess');
+  if (btn) btn.disabled = true;
   $('status').textContent = 'Processing Drop folder…';
-  const totals = { added: 0, skipped: 0, pending: 0, ocr: 0, model_read: 0, files: 0 };
-  let data = null;
-  do {
-    const r = await fetch('/api/books/process', {
-      method: 'POST',
-      headers: booksHeaders(),
-      body: JSON.stringify(withPresence({ path, year: state.year || 2025, filing_book: book }))
-    });
-    data = await r.json();
-    if (!data.ok) {
+  try {
+  const start = await fetch('/api/books/process', {
+    method: 'POST',
+    headers: booksHeaders(),
+    body: JSON.stringify(withPresence({ path, year: state.year || 2025, filing_book: book }))
+  });
+  let data = await start.json();
+  if (!data.ok) {
+    $('status').textContent = '';
+    showErr(data.error || 'Process failed');
+    return;
+  }
+  const jobId = data.job_id;
+  if (!jobId) {
+    $('status').textContent = '';
+    showErr('Process did not start');
+    return;
+  }
+  while (true) {
+    const totals = {
+      added: data.added || 0,
+      skipped: data.skipped || 0,
+      pending: data.pending || 0,
+      ocr: data.ocr || 0,
+      model_read: data.model_read || 0,
+      files: data.files || 0
+    };
+    $('status').innerHTML = `<span class="okmsg">${escapeHtml(processStatusBits(data, book, totals).join(' · '))}</span>`;
+    if (data.state === 'done') break;
+    if (data.state === 'failed') {
       $('status').textContent = '';
       showErr(data.error || 'Process failed');
       return;
     }
-    totals.added += data.added || 0;
-    totals.skipped += data.skipped || 0;
-    totals.pending = data.pending || 0;
-    totals.ocr += data.ocr || 0;
-    totals.model_read += data.model_read || 0;
-    totals.files = data.files != null ? data.files : totals.files;
-    $('status').innerHTML = `<span class="okmsg">${escapeHtml(processStatusBits(data, book, totals).join(' · '))}</span>`;
-  } while (data.more_pending);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    const poll = await fetch('/api/books/process/' + encodeURIComponent(jobId), { headers: booksHeaders() });
+    data = await poll.json();
+    if (!data.ok && data.state !== 'running' && data.state !== 'queued') {
+      $('status').textContent = '';
+      showErr(data.error || 'Process failed');
+      return;
+    }
+  }
   await loadSummary({ keepStatus: true });
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 async function createFirstBooks() {
   const book = ($('setupBook').value || '').trim();

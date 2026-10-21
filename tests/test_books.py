@@ -776,6 +776,7 @@ def test_books_page_keeps_process_status():
     assert "loadSummary({ keepStatus: true })" in page
     assert "listed ${files}" in page
     assert "withPresence({ path, year: state.year || 2025, filing_book: book })" in page
+    assert "/api/books/process/" in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
     assert "Drop folder is not in Files yet" in routes
     assert "books process listed=" in routes
@@ -922,6 +923,19 @@ def test_validate_local_rows_skips_totals_and_reconciles():
     assert len(off) == 1
 
 
+def test_local_read_ctx_and_chunk_budget():
+    assert bk.BOOKS_LOCAL_NUM_CTX == 16384
+    assert bk.BOOKS_LOCAL_CHUNK_TOKENS == 10_000
+    assert bk.BOOKS_LOCAL_CHUNK_CHARS == 40_000
+    src = Path("src/dashboard/books.py").read_text()
+    assert '"num_ctx": BOOKS_LOCAL_NUM_CTX' in src
+    long = ("Jun 01 Sample Vendor Co 12.00\n" * 3000)
+    chunks = bk._chunk_statement_text(long)
+    assert chunks
+    assert all(len(c) <= bk.BOOKS_LOCAL_CHUNK_CHARS for c in chunks)
+    assert len(chunks) > 1
+
+
 def test_local_read_timeout_without_hang():
     rows, err, how = bk.local_read_statement_rows(
         "Jun 01 Sample Vendor Co 12.00",
@@ -935,21 +949,75 @@ def test_local_read_timeout_without_hang():
     assert err == "model timeout"
 
 
-def test_unread_reason_and_page_process_rounds():
+def test_unread_reason_and_page_process_job():
     assert bk.unread_reason_label("No rows found") == "layout not recognized"
     assert bk.unread_reason_label("local model not available") == "local model not available"
     assert bk.unread_reason_label("model timeout") == "model timeout"
     page = Path("src/dashboard/static/books.html").read_text()
-    assert "data.more_pending" in page
+    assert "/api/books/process/" in page
+    assert "file ${idx} of ${files}" in page
     assert "unread_reason" in page
     assert "read by local model, review" in page
     assert "processStatusBits" in page
+    assert "data.more_pending" not in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
-    assert "more_pending" in routes
+    assert "/api/books/process/{job_id}" in routes
+    assert "asyncio.create_task" in routes
+    assert "bjobs.retain_task(task)" in routes
+    assert "find_active_process_job" in routes
+    assert "asyncio.to_thread" in routes
+    assert "btn.disabled = true" in page
+    assert "btn.disabled = false" in page
+    assert "BOOKS_FILE_CAP_S" in routes
+    assert "BOOKS_PROCESS_BUDGET_S" not in routes
     assert "unread_reason" in routes
     assert "get_primary_model" not in routes
     src = Path("src/dashboard/books.py").read_text()
     assert "get_primary_model" not in src
     assert "books local-read rows=%s ms=%s" in src
+    assert '_log.warning("books local-read rows=%s ms=%s"' in src
+    assert '_log.info("books local-read' not in src
     assert "BOOKS_LOCAL_MODEL" in src
     assert "think" in src
+    routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
+    assert 'logger.warning(\n            "books process listed=' in routes
+    assert "exc_info=True" not in src
+    assert "str(e)" not in Path("src/dashboard/books.py").read_text().split("def ollama_json_complete")[1].split("def _chunk_statement_text")[0]
+
+
+def test_process_job_registry_counts_only():
+    from src.dashboard import books_jobs as bjobs
+
+    job = bjobs.create_process_job(actor_id="p1", path="Bookkeeping/Organize/checking.mapped.json", files=10)
+    assert job["state"] == "queued"
+    assert job["job_id"]
+    bjobs.patch_process_job(job["job_id"], state="running", file_index=3, added=12, pending=1)
+    pub = bjobs.public_process_job(bjobs.get_process_job(job["job_id"]))
+    assert pub["ok"] is True
+    assert pub["state"] == "running"
+    assert pub["files"] == 10
+    assert pub["file_index"] == 3
+    assert pub["added"] == 12
+    assert "source_file" not in pub
+    assert pub["more_pending"] is False
+    missing = bjobs.get_process_job("nope")
+    assert missing is None
+    path = "Bookkeeping/Organize/checking.mapped.json"
+    assert bjobs.find_active_process_job(path)["job_id"] == job["job_id"]
+    other = bjobs.create_process_job(actor_id="p1", path="Bookkeeping/Organize/other.mapped.json", files=1)
+    assert bjobs.find_active_process_job(path)["job_id"] == job["job_id"]
+    bjobs.patch_process_job(job["job_id"], state="done")
+    assert bjobs.find_active_process_job(path) is None
+    assert bjobs.find_active_process_job(other["path"])["job_id"] == other["job_id"]
+
+    class _FakeTask:
+        def __init__(self):
+            self.cb = None
+        def add_done_callback(self, cb):
+            self.cb = cb
+
+    fake = _FakeTask()
+    bjobs.retain_task(fake)
+    assert fake in bjobs._TASKS
+    fake.cb(fake)
+    assert fake not in bjobs._TASKS
