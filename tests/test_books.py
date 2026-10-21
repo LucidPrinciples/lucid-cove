@@ -774,8 +774,182 @@ def test_books_page_wires_return_setup():
 def test_books_page_keeps_process_status():
     page = Path("src/dashboard/static/books.html").read_text()
     assert "loadSummary({ keepStatus: true })" in page
-    assert "listed ${data.files}" in page
+    assert "listed ${files}" in page
     assert "withPresence({ path, year: state.year || 2025, filing_book: book })" in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
     assert "Drop folder is not in Files yet" in routes
     assert "books process listed=" in routes
+
+
+
+def test_csv_amount_column_not_balance():
+    text = (
+        "Date,Description,Amount,Balance\n"
+        "2025-06-01,Sample Vendor Co,-12.00,1000.00\n"
+        "2025-06-02,Other Merchant LLC,8.50,1008.50\n"
+    )
+    rows, errors = bk.parse_pasted_lines(text, default_year=2025, max_lines=bk.MAX_IMPORT_LINES)
+    assert not errors
+    assert len(rows) == 2
+    assert rows[0]["amount"] == -12.0
+    assert rows[1]["amount"] == 8.5
+
+
+def test_csv_debit_credit_columns():
+    text = (
+        "Date,Payee,Debit,Credit\n"
+        "06/01/2025,Sample Vendor Co,12.00,\n"
+        "06/02/2025,Other Merchant LLC,,8.50\n"
+    )
+    rows, errors = bk.parse_pasted_lines(text, default_year=2025, max_lines=bk.MAX_IMPORT_LINES)
+    assert not errors
+    assert len(rows) == 2
+    assert rows[0]["amount"] == -12.0
+    assert rows[1]["amount"] == 8.5
+
+
+def test_tsv_three_column_still_parses_without_model():
+    text = "2025-06-01\tSample Vendor Co\t12.00\n2025-06-02\tOther Merchant LLC\t8.50"
+    rows, errors = bk.parse_pasted_lines(text, default_year=2025)
+    assert not errors
+    assert len(rows) == 2
+    assert rows[0]["payee"].lower().startswith("sample")
+
+
+def test_pick_books_local_model_pins_and_refuses(monkeypatch):
+    assert bk.pick_books_local_model(["qwen3:30b-a3b", "qwen3.8-27b-uncensored", "qwen3-coder"]) == "qwen3:30b-a3b"
+    assert bk.pick_books_local_model(["qwen2.5:32b", "qwen3-coder:latest"]) == "qwen2.5:32b"
+    assert bk.pick_books_local_model(["qwen3.8-27b-uncensored", "qwen3-coder"]) is None
+    assert bk.pick_books_local_model(["qwen3", "qwen2.5", "qwen3:cloud"]) is None
+    monkeypatch.setattr(bk, "books_local_model_candidates", lambda: ("qwen3", "qwen2.5"))
+    assert bk.pick_books_local_model(["qwen3:30b-a3b", "qwen2.5:32b"]) is None
+    assert bk.books_model_is_refused("qwen3:cloud") is True
+    assert bk.books_model_is_refused("qwen3:30b-a3b") is False
+
+
+def test_local_read_uses_stub_not_cloud(monkeypatch):
+    wrapped = (
+        "Account summary\nBeginning Balance $1,000.00\n"
+        "Activity this period\nSee details in columns\nEnding Balance $988.00\n"
+    )
+    assert bk.parse_pasted_lines(wrapped, default_year=2025)[0] == []
+
+    def reader(text, default_year=None, timeout_s=None, **_k):
+        return (
+            [{"date": "2025-06-01", "payee": "Sample Vendor Co", "amount": -12.0, "match_rule": "local-model"}],
+            None,
+            "model",
+        )
+
+    rows, how, errors = bk.extract_and_parse_statement(
+        wrapped.encode("utf-8"),
+        "text",
+        default_year=2025,
+        local_reader=reader,
+    )
+    assert not errors
+    assert how == "model"
+    assert rows[0]["match_rule"] == "local-model"
+    payload = {"rows": [], "account": "Checking"}
+    updated, added, skipped, err = bk.append_imported_rows(payload, rows, source_file="JUN.txt")
+    assert err is None and added == 1
+    assert updated["rows"][0]["match_rule"] == "local-model"
+    assert bk.line_preview(updated["rows"][0], "Bookkeeping/Organize/checking.mapped.json", 0)["read_by_local_model"] is True
+
+
+def test_local_read_unavailable_without_qwen():
+    rows, err, how = bk.local_read_statement_rows(
+        "Jun 01 Sample Vendor Co 12.00",
+        default_year=2025,
+        installed=[],
+        complete=lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call")),
+        base_url="http://host.docker.internal:11434",
+    )
+    assert rows == []
+    assert err == "local model not available"
+
+
+def test_ollama_json_complete_refuses_cloud_url():
+    assert bk.ollama_json_complete(
+        "qwen3:30b-a3b",
+        "unused",
+        timeout_s=5,
+        base_url="https://openrouter.ai/api",
+    ) is None
+    assert bk.ollama_json_complete(
+        "qwen3:30b-a3b",
+        "unused",
+        timeout_s=5,
+        base_url="https://api.openai.com/v1",
+    ) is None
+    assert bk.ollama_json_complete(
+        "qwen3:30b-a3b",
+        "unused",
+        timeout_s=5,
+        base_url="http://8.8.8.8:11434",
+    ) is None
+    assert bk._books_ollama_host_allowed("host.docker.internal") is True
+    assert bk._books_ollama_host_allowed("localhost") is True
+    assert bk._books_ollama_host_allowed("127.0.0.1") is True
+    assert bk._books_ollama_host_allowed("10.0.0.5") is True
+    assert bk._books_ollama_host_allowed("192.168.1.9") is True
+    assert bk._books_ollama_host_allowed("172.16.0.2") is True
+    assert bk._books_ollama_host_allowed("100.64.1.2") is True
+    assert bk._books_ollama_host_allowed("8.8.8.8") is False
+    assert bk._books_ollama_host_allowed("openrouter.ai") is False
+
+
+def test_validate_local_rows_skips_totals_and_reconciles():
+    items = [
+        {"date": "2025-06-01", "description": "Sample Vendor Co", "amount": -100.0},
+        {"date": "2025-06-01", "description": "Total", "amount": -100.0},
+        {"date": "2025-06-01", "description": "Ending Balance", "amount": 900.0},
+    ]
+    rows, miss, err = bk.validate_local_rows(
+        items, default_year=2025, beginning=1000.0, ending=900.0
+    )
+    assert err is None
+    assert miss is False
+    assert len(rows) == 1
+    off, miss2, err2 = bk.validate_local_rows(
+        [{"date": "2025-06-01", "description": "Sample Vendor Co", "amount": -50.0}],
+        default_year=2025,
+        beginning=1000.0,
+        ending=900.0,
+    )
+    assert err2 is None
+    assert miss2 is True
+    assert len(off) == 1
+
+
+def test_local_read_timeout_without_hang():
+    rows, err, how = bk.local_read_statement_rows(
+        "Jun 01 Sample Vendor Co 12.00",
+        default_year=2025,
+        timeout_s=0.01,
+        installed=["qwen3:30b-a3b"],
+        complete=lambda *a, **k: {"rows": []},
+        base_url="http://host.docker.internal:11434",
+    )
+    assert rows == []
+    assert err == "model timeout"
+
+
+def test_unread_reason_and_page_process_rounds():
+    assert bk.unread_reason_label("No rows found") == "layout not recognized"
+    assert bk.unread_reason_label("local model not available") == "local model not available"
+    assert bk.unread_reason_label("model timeout") == "model timeout"
+    page = Path("src/dashboard/static/books.html").read_text()
+    assert "data.more_pending" in page
+    assert "unread_reason" in page
+    assert "read by local model, review" in page
+    assert "processStatusBits" in page
+    routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
+    assert "more_pending" in routes
+    assert "unread_reason" in routes
+    assert "get_primary_model" not in routes
+    src = Path("src/dashboard/books.py").read_text()
+    assert "get_primary_model" not in src
+    assert "books local-read rows=%s ms=%s" in src
+    assert "BOOKS_LOCAL_MODEL" in src
+    assert "think" in src

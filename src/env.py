@@ -149,6 +149,8 @@ REGISTRY: list[EnvVar] = [
     EnvVar("DEEPGRAM_API_KEY", "", "str", "Models", secret=True, desc="Cloud ASR (Deepgram) for video transcription."),
     EnvVar("OLLAMA_BASE_URL", "http://host.docker.internal:11434", "str", "Models",
            desc="Local Ollama. (was: host.docker.internal vs localhost — canonical host.docker.internal)."),
+    EnvVar("BOOKS_LOCAL_MODEL", "qwen3:30b-a3b", "str", "Models",
+           desc="Local model for statement ingest (qwen3:30b-a3b default, fallback qwen2.5:32b)."),
     EnvVar("PRIMARY_MODEL", "unknown", "str", "Models", desc="Display label for the primary model."),
     EnvVar("FALLBACK_MODEL", "unknown", "str", "Models", desc="Display label for the fallback model."),
 
