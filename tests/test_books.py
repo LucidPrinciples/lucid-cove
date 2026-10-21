@@ -59,6 +59,27 @@ def test_pnl_rollup_and_period():
     assert {"year": 2025, "month": 1} in periods["months"]
 
 
+def test_add_write_in_category_kind_and_official_line():
+    payload = {
+        "working_chart": [{"label": "Advertising", "code": None, "layer": "official"}],
+        "rows": [],
+    }
+    updated, rec, err = bk.add_write_in_category(payload, "Cleaning fees", kind="expense", code="19")
+    assert err is None and updated is not None
+    assert rec["label"] == "Cleaning fees"
+    assert rec["kind"] == bk.EXPENSE_KIND
+    assert rec["layer"] == "write-in"
+    assert rec["code"] == "19"
+    again, rec2, err2 = bk.add_write_in_category(updated, "Rents received extra", kind="income")
+    assert err2 is None
+    assert rec2["kind"] == bk.INCOME_KIND
+    labels = [c["label"] for c in updated["working_chart"]]
+    assert "Cleaning fees" in labels
+    assert "Rents received extra" in labels
+    bad, _rec, berr = bk.add_write_in_category(payload, "Nope", kind="transfer")
+    assert bad is None and berr
+
+
 def test_apply_category_uses_working_chart_only():
     payload = {
         "working_chart": [
@@ -824,7 +845,10 @@ def test_books_page_wires_return_setup():
     assert "newBookView" in page
     assert "newBookForm" in page
     assert "schedule-e" in page
+    assert "newCatView" in page
+    assert "/api/books/category" in page
     assert "window.prompt('New filing book name" not in page
+    assert "window.prompt('New expense name" not in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
     assert "/api/books/returns/seed" in routes
     assert "/api/books/book" in routes

@@ -65,6 +65,19 @@ async def _log_run_start(protocol: str, thread_id: str) -> int:
         return 0
 
 
+def weekly_backup_disabled() -> bool:
+    """Founder weekly git+DB backup is restic-on-host for this Cove.
+
+    Skip the in-app runner when the backup git repo is missing or the
+    operator set DISABLE_WEEKLY_BACKUP. No UI string — status is protocol_runs.
+    """
+    flag = str(env("DISABLE_WEEKLY_BACKUP", "") or "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        return True
+    repo_root = env("BACKUP_REPO_DIR", "/backup/agent")
+    return not (Path(repo_root) / ".git").exists()
+
+
 async def _log_run_finish(run_id: int, status: str, duration_ms: int, error_msg: str = None):
     if not run_id:
         return
@@ -388,7 +401,10 @@ class AgentScheduler:
             return (now - dtv).total_seconds() / 3600.0
 
         box_age_h = _hours_since(first_run) or 0.0
+        skip_weekly = weekly_backup_disabled()
         for protocol, cadence_h, runner, jitter in jobs:
+            if protocol == "weekly-backup" and skip_weekly:
+                continue
             since = _hours_since(last_ok.get(protocol))
             overdue = ((since is None and box_age_h > cadence_h)
                        or (since is not None and since > cadence_h))
@@ -640,14 +656,19 @@ class AgentScheduler:
     async def _run_backup(self):
         """Run the weekly git + DB backup via the backup API endpoint."""
         import httpx
+        protocol = "weekly-backup"
+        thread_id = f"{self._agent_id}-backup-{self._now().strftime('%Y-%m-%d')}"
+        if weekly_backup_disabled():
+            run_id = await _log_run_start(protocol, thread_id)
+            await _log_run_finish(run_id, "skipped", 0, "restic on host")
+            print(f"{ts_log()} [scheduler] weekly-backup skipped: restic on host")
+            return
         port = env("PORT", "8200")
         _secret = env("SHARED_CONTAINER_SECRET")
         _headers = {"X-Shared-Secret": _secret} if _secret else {}
         print(f"{ts_log()} [scheduler] Running weekly backup...")
         # C3-10: log to protocol_runs so "last backup" is a knowable fact — the
         # boot overdue-backstop (and any future status surface) reads it.
-        protocol = "weekly-backup"
-        thread_id = f"{self._agent_id}-backup-{self._now().strftime('%Y-%m-%d')}"
         run_id = await _log_run_start(protocol, thread_id)
         started = time.time()
         try:

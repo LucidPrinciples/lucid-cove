@@ -1986,33 +1986,49 @@ def chart_lookup(chart: list[dict], label: str) -> dict | None:
     return None
 
 
-def add_write_in_expense(payload: dict, label: str) -> tuple[dict | None, dict | None, str | None]:
-    """Add a Presence-local expense bucket. Does not change the product chart."""
+def add_write_in_category(
+    payload: dict,
+    label: str,
+    kind: str = EXPENSE_KIND,
+    code: str = "",
+) -> tuple[dict | None, dict | None, str | None]:
+    """Add a Presence-local chart bucket. Does not change the product chart."""
     if not isinstance(payload, dict):
         return None, None, "Ledger JSON must be an object"
     wanted = " ".join(str(label or "").split())
     if not wanted or wanted == WRITE_IN_EXPENSE:
-        return None, None, "Expense name is required"
+        return None, None, "Category name is required"
     if len(wanted) > MAX_CATEGORY_LABEL:
-        return None, None, f"Expense name is over {MAX_CATEGORY_LABEL} characters"
+        return None, None, f"Category name is over {MAX_CATEGORY_LABEL} characters"
     key = wanted.lower()
     reserved = {UNCATEGORIZED.lower(), ALL_BOOKS, "all", "expenses", "income", "transfers"}
     reserved.update(s.lower() for s in _RESERVED_STEMS)
     if key in reserved:
         return None, None, "That name is reserved"
+    side = str(kind or EXPENSE_KIND).strip().lower()
+    if side not in (INCOME_KIND, EXPENSE_KIND):
+        return None, None, "Kind must be income or expense"
+    official = " ".join(str(code or "").split())
+    if len(official) > 12:
+        return None, None, "Official line is too long"
     stored = working_chart_from_payload(payload)
     hit = chart_lookup(stored, wanted)
     if hit is not None:
         return payload, hit, None
     rec = {
         "label": wanted,
-        "code": None,
+        "code": official or None,
         "layer": "write-in",
-        "kind": EXPENSE_KIND,
+        "kind": side,
     }
     stored.append(rec)
     payload["working_chart"] = stored
     return payload, rec, None
+
+
+def add_write_in_expense(payload: dict, label: str) -> tuple[dict | None, dict | None, str | None]:
+    """Add a Presence-local expense bucket. Does not change the product chart."""
+    return add_write_in_category(payload, label, kind=EXPENSE_KIND)
 
 
 def in_period(row: dict, year: int | None, month: int | None) -> bool:

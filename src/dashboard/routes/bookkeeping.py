@@ -1615,6 +1615,49 @@ async def books_seed_returns(request: Request):
     })
 
 
+@router.post("/api/books/category")
+async def books_add_category(request: Request):
+    """Add a Presence-local chart bucket to every ledger (return-seed stopgap)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+    label = (body.get("label") or body.get("name") or body.get("category") or "").strip()
+    kind = (body.get("kind") or body.get("side") or "expense").strip().lower()
+    code = str(body.get("code") or body.get("official") or body.get("line") or "").strip()
+    names, lerr = await _list_mapped_ledgers(request)
+    if lerr:
+        return JSONResponse({"ok": False, "error": lerr}, status_code=502)
+    if not names:
+        return JSONResponse({"ok": False, "error": "Create books before adding a category"}, status_code=409)
+    last_chart: list = []
+    rec = None
+    added = 0
+    for name in names:
+        target = bk.ledger_path_from_name(name)
+        if not target:
+            continue
+
+        def apply_fn(payload, label=label, kind=kind, code=code):
+            updated, item, uerr = bk.add_write_in_category(payload, label, kind=kind, code=code)
+            return updated, item, uerr
+
+        updated, clean, err, status, extra = await _mutate_ledger(request, target, apply_fn)
+        if err or updated is None:
+            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
+        rec = extra or rec
+        last_chart = bk.working_chart_from_payload(updated)
+        added += 1
+    return JSONResponse({
+        "ok": True,
+        "category": rec,
+        "chart": bk.chart_public_preview(last_chart),
+        "updated": added,
+    })
+
+
 @router.post("/api/books/book")
 async def books_add_book(request: Request):
     """Add another filing book after first-open. Does not replace an existing chart."""
