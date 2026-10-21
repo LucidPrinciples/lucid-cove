@@ -105,6 +105,24 @@ def test_apply_category_uses_working_chart_only():
     assert any(r["phrase"] == "vendor" for r in bk.vendor_map_from_payload(updated))
 
 
+def test_set_vendor_map_can_copy_without_chart():
+    payload = {"working_chart": [], "rows": [], "vendor_map": []}
+    updated, err = bk.set_vendor_map(
+        payload,
+        [{"phrase": "acme ads", "label": "Advertising", "source": "operator"}],
+        require_chart=False,
+    )
+    assert err is None and updated is not None
+    assert updated["vendor_map"][0]["phrase"] == "acme ads"
+    blocked, berr = bk.set_vendor_map(
+        payload,
+        [{"phrase": "acme ads", "label": "Not a real bucket"}],
+        require_chart=True,
+    )
+    assert blocked is None
+    assert berr == "Category is not on the working chart"
+
+
 def test_batch_recode_and_vendor_map():
     payload = {
         "working_chart": [

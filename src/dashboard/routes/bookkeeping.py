@@ -315,6 +315,19 @@ async def _resolve_ledger_path(request: Request, path: str) -> tuple[str | None,
     return bk.ALL_TRANSACTIONS, names, None, 200
 
 
+def _presence_map_targets(ledgers: list[str]) -> list[str]:
+    """Every Organize ledger for this Presence. Map save is Presence-wide."""
+    targets: list[str] = []
+    seen: set[str] = set()
+    for name in ledgers:
+        path = bk.ledger_path_from_name(name)
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        targets.append(path)
+    return targets
+
+
 async def _load_named_ledgers(request: Request, names: list[str]) -> list[tuple[str, dict]]:
     loaded: list[tuple[str, dict]] = []
     for name in names:
@@ -503,6 +516,78 @@ async def _mutate_ledger(request: Request, path: str, apply_fn):
         if werr:
             return None, clean, werr, wstatus, extra
         return updated, clean, None, 200, extra
+
+
+def _map_response_path(ledger_path: str) -> str:
+    if bk.is_all_transactions(ledger_path):
+        return bk.ALL_TRANSACTIONS
+    return ledger_path
+
+
+async def _write_presence_vendor_map(
+    request: Request,
+    targets: list[str],
+    rules: list[dict],
+    apply_now: bool,
+    validate_path: str = "",
+) -> tuple[str | None, str | None, int, dict]:
+    """Set the same vendor_map on every Organize ledger under one Presence lock."""
+    lock = await _ledger_lock(await _presence_id_for_lock(request))
+    applied_n = 0
+    review = 0
+    last_map: list = []
+    last_path = ""
+    preferred = validate_path if validate_path in targets else ""
+    async with lock:
+        if preferred:
+            probe, clean, err, status = await _read_ledger(request, preferred)
+            if err or probe is None:
+                return clean, err or "Ledger not found", status if err else 404, {}
+            checked, cerr = bk.set_vendor_map(probe, rules, require_chart=True)
+            if cerr or checked is None:
+                return clean, cerr or "Could not set map", 400, {}
+            cleaned_rules = bk.vendor_map_from_payload(checked)
+        else:
+            snapshots = []
+            for target in targets:
+                payload, clean, err, status = await _read_ledger(request, target)
+                if err or payload is None:
+                    return clean, err or "Ledger not found", status if err else 404, {}
+                snapshots.append(payload)
+            probe = {
+                "working_chart": bk.merge_working_charts(snapshots),
+                "rows": [],
+                "vendor_map": [],
+            }
+            checked, cerr = bk.set_vendor_map(probe, rules, require_chart=True)
+            if cerr or checked is None:
+                return targets[0] if targets else "", cerr or "Could not set map", 400, {}
+            cleaned_rules = bk.vendor_map_from_payload(checked)
+        for target in targets:
+            payload, clean, err, status = await _read_ledger(request, target)
+            if err or payload is None:
+                return clean, err or "Ledger not found", status if err else 404, {}
+            updated, uerr = bk.set_vendor_map(payload, cleaned_rules, require_chart=False)
+            if uerr or updated is None:
+                return clean, uerr or "Could not set map", 400, {}
+            applied = {"applied": 0}
+            if apply_now:
+                updated, applied, aerr = bk.apply_vendor_map(updated)
+                if aerr or updated is None:
+                    return clean, aerr or "Could not apply map", 400, {}
+            _stamp_ledger(updated)
+            werr, wstatus = await _write_ledger_unlocked(request, clean, updated)
+            if werr:
+                return clean, werr, wstatus, {}
+            applied_n += int((applied or {}).get("applied", 0))
+            review += int(updated.get("needs_review_count") or 0)
+            last_map = bk.vendor_map_from_payload(updated)
+            last_path = clean
+    return last_path, None, 200, {
+        "applied": applied_n,
+        "needs_review_count": review,
+        "vendor_map": last_map,
+    }
 
 
 async def _mkcol(request: Request, path: str) -> tuple[str | None, int]:
@@ -949,7 +1034,7 @@ async def books_summary(request: Request, path: str = ""):
         "periods": bk.available_periods(rows),
         "ledgers": choices,
         "chart": _chart_with_accounts(loaded, clean, payload),
-        "vendor_map": bk.vendor_map_from_payload(payload),
+        "vendor_map": bk.merge_vendor_maps([p for _c, p in loaded]),
         "seeded": seeded,
         "pnl": bk.pnl_from_rows(
             rows,
@@ -1165,13 +1250,14 @@ async def books_get_map(request: Request, path: str = ""):
     loaded = await _load_named_ledgers(request, ledgers)
     if not loaded:
         return JSONResponse({"ok": False, "error": "No mapped ledger in Bookkeeping/Organize"}, status_code=404)
+    payloads = [p for _c, p in loaded]
+    presence_map = bk.merge_vendor_maps(payloads)
     if bk.is_all_transactions(ledger_path):
-        payloads = [p for _c, p in loaded]
         return JSONResponse({
             "ok": True,
             "path": bk.ALL_TRANSACTIONS,
             "chart": bk.merge_working_charts(payloads),
-            "vendor_map": bk.merge_vendor_maps(payloads),
+            "vendor_map": presence_map,
         })
     wanted = next((item for item in loaded if item[0] == ledger_path), None)
     if wanted is None:
@@ -1181,7 +1267,7 @@ async def books_get_map(request: Request, path: str = ""):
         "ok": True,
         "path": clean,
         "chart": bk.working_chart_from_payload(payload),
-        "vendor_map": bk.vendor_map_from_payload(payload),
+        "vendor_map": presence_map,
     })
 
 
@@ -1202,40 +1288,21 @@ async def books_put_map(request: Request):
         return JSONResponse({"ok": False, "error": "vendor_map must be a list"}, status_code=400)
     if len(rules) > 400:
         return JSONResponse({"ok": False, "error": "Too many map rules"}, status_code=400)
-    targets = [ledger_path]
-    if bk.is_all_transactions(ledger_path):
-        targets = [bk.ledger_path_from_name(n) for n in ledgers]
-        targets = [t for t in targets if t]
-    applied_n = 0
-    review = 0
-    last_map: list = []
-    last_path = ledger_path
+    targets = _presence_map_targets(ledgers)
+    if not targets:
+        return JSONResponse({"ok": False, "error": "No mapped ledger in Bookkeeping/Organize"}, status_code=404)
     apply_now = body.get("apply", True)
-    for target in targets:
-        def apply_fn(payload, rules=rules, apply_now=apply_now):
-            updated, uerr = bk.set_vendor_map(payload, rules)
-            if uerr or updated is None:
-                return None, None, uerr
-            applied = {"applied": 0}
-            if apply_now:
-                updated, applied, aerr = bk.apply_vendor_map(updated)
-                if aerr or updated is None:
-                    return None, None, aerr
-            return updated, applied, None
-
-        updated, clean, err, status, extra = await _mutate_ledger(request, target, apply_fn)
-        if err or updated is None:
-            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-        applied_n += int((extra or {}).get("applied", 0))
-        review += int(updated.get("needs_review_count") or 0)
-        last_map = bk.vendor_map_from_payload(updated)
-        last_path = clean
+    last_path, err, status, extra = await _write_presence_vendor_map(
+        request, targets, rules, apply_now, validate_path=ledger_path
+    )
+    if err:
+        return JSONResponse({"ok": False, "error": err, "path": last_path}, status_code=status)
     return JSONResponse({
         "ok": True,
-        "path": bk.ALL_TRANSACTIONS if bk.is_all_transactions(ledger_path) else last_path,
-        "vendor_map": last_map,
-        "applied": applied_n,
-        "needs_review_count": review,
+        "path": _map_response_path(ledger_path) or last_path,
+        "vendor_map": extra.get("vendor_map") or [],
+        "applied": extra.get("applied") or 0,
+        "needs_review_count": extra.get("needs_review_count") or 0,
     })
 
 
@@ -1251,46 +1318,51 @@ async def books_seed_map(request: Request):
     ledger_path, ledgers, rerr, rstatus = await _resolve_ledger_path(request, path)
     if rerr or not ledger_path:
         return JSONResponse({"ok": False, "error": rerr}, status_code=rstatus)
-    targets = [ledger_path]
-    if bk.is_all_transactions(ledger_path):
-        targets = [bk.ledger_path_from_name(n) for n in ledgers]
-        targets = [t for t in targets if t]
-    seeded = 0
-    applied_n = 0
-    review = 0
-    last_map: list = []
-    last_path = ledger_path
+    targets = _presence_map_targets(ledgers)
+    if not targets:
+        return JSONResponse({"ok": False, "error": "No mapped ledger in Bookkeeping/Organize"}, status_code=404)
     apply_now = body.get("apply", True)
-    for target in targets:
-        def apply_fn(payload, apply_now=apply_now):
+    lock = await _ledger_lock(await _presence_id_for_lock(request))
+    async with lock:
+        snapshots: list[tuple[str, dict, dict]] = []
+        for target in targets:
+            payload, clean, err, status = await _read_ledger(request, target)
+            if err or payload is None:
+                return JSONResponse({"ok": False, "error": err or "Ledger not found", "path": clean}, status_code=status if err else 404)
             updated, stats, serr = bk.seed_vendor_map_from_placed(payload)
             if serr or updated is None:
-                return None, None, serr
-            applied = {"applied": 0}
+                return JSONResponse({"ok": False, "error": serr or "Could not seed map", "path": clean}, status_code=400)
+            snapshots.append((clean, updated, stats or {}))
+        merged = bk.merge_vendor_maps([item[1] for item in snapshots])
+        seeded = sum(int((item[2].get("added") or 0)) for item in snapshots)
+        applied_n = 0
+        review = 0
+        last_map = merged
+        last_path = snapshots[-1][0] if snapshots else ""
+        for clean, payload, _stats in snapshots:
+            updated, uerr = bk.set_vendor_map(payload, merged, require_chart=False)
+            if uerr or updated is None:
+                return JSONResponse({"ok": False, "error": uerr or "Could not set map", "path": clean}, status_code=400)
             if apply_now:
                 updated, applied, aerr = bk.apply_vendor_map(updated)
                 if aerr or updated is None:
-                    return None, None, aerr
-            return updated, {"stats": stats, "applied": applied}, None
-
-        updated, clean, err, status, extra = await _mutate_ledger(request, target, apply_fn)
-        if err or updated is None:
-            return JSONResponse({"ok": False, "error": err, "path": clean}, status_code=status)
-        extra = extra or {}
-        seeded += int(((extra.get("stats") or {}).get("added") or 0))
-        applied_n += int(((extra.get("applied") or {}).get("applied") or 0))
-        review += int(updated.get("needs_review_count") or 0)
-        last_map = bk.vendor_map_from_payload(updated)
-        last_path = clean
+                    return JSONResponse({"ok": False, "error": aerr or "Could not apply map", "path": clean}, status_code=400)
+                applied_n += int((applied or {}).get("applied", 0))
+            _stamp_ledger(updated)
+            werr, wstatus = await _write_ledger_unlocked(request, clean, updated)
+            if werr:
+                return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
+            last_map = bk.vendor_map_from_payload(updated)
+            review += int(updated.get("needs_review_count") or 0)
+            last_path = clean
     return JSONResponse({
         "ok": True,
-        "path": bk.ALL_TRANSACTIONS if bk.is_all_transactions(ledger_path) else last_path,
+        "path": _map_response_path(ledger_path) or last_path,
         "vendor_map": last_map,
         "seeded": seeded,
         "applied": applied_n,
         "needs_review_count": review,
     })
-
 
 
 @router.post("/api/books/lines/paste")

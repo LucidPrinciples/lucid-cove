@@ -2407,7 +2407,12 @@ def teach_from_indexes(payload: dict, indexes: list[int], label: str) -> int:
     return taught
 
 
-def set_vendor_map(payload: dict, rules: list[dict]) -> tuple[dict | None, str | None]:
+def set_vendor_map(
+    payload: dict,
+    rules: list[dict],
+    *,
+    require_chart: bool = True,
+) -> tuple[dict | None, str | None]:
     if not isinstance(payload, dict):
         return None, "Ledger JSON must be an object"
     chart = working_chart_from_payload(payload)
@@ -2420,15 +2425,21 @@ def set_vendor_map(payload: dict, rules: list[dict]) -> tuple[dict | None, str |
         label = str(item.get("label") or item.get("category") or "").strip()
         if len(phrase) < MIN_MAP_PHRASE:
             return None, f"Phrase must be at least {MIN_MAP_PHRASE} characters"
-        hit = chart_lookup(chart, label)
-        if hit is None:
+        if not label:
             return None, "Category is not on the working chart"
+        if require_chart:
+            hit = chart_lookup(chart, label)
+            if hit is None:
+                return None, "Category is not on the working chart"
+            stored_label = hit["label"]
+        else:
+            stored_label = label
         if phrase in seen:
             return None, "Duplicate phrase in map"
         seen.add(phrase)
         cleaned.append({
             "phrase": phrase,
-            "label": hit["label"],
+            "label": stored_label,
             "source": item.get("source") or "operator",
         })
     cleaned.sort(key=lambda x: x["phrase"])
