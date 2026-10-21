@@ -51,7 +51,10 @@ BOOKS_REFUSED_MODEL_NEEDLES = (":cloud", "uncensored", "coder")
 BOOKS_LOCAL_KEEP_ALIVE = "2m"
 BOOKS_PROCESS_BUDGET_S = 80
 BOOKS_FILE_CAP_S = 180
-BOOKS_LOCAL_CHUNK_CHARS = 24_000
+BOOKS_LOCAL_NUM_CTX = 16384
+BOOKS_LOCAL_CHUNK_TOKENS = 10_000
+BOOKS_LOCAL_CHARS_PER_TOKEN = 4
+BOOKS_LOCAL_CHUNK_CHARS = BOOKS_LOCAL_CHUNK_TOKENS * BOOKS_LOCAL_CHARS_PER_TOKEN
 BOOKS_ROWS_SCHEMA = {
     "type": "object",
     "properties": {
@@ -540,7 +543,7 @@ def ollama_json_complete(
     if parsed.scheme not in ("http", "https") or not _books_ollama_host_allowed(
         parsed.hostname or ""
     ):
-        _log.info("books local-read failed reason=host")
+        _log.warning("books local-read failed reason=host")
         return None
     payload = {
         "model": model,
@@ -549,7 +552,7 @@ def ollama_json_complete(
         "think": False,
         "keep_alive": BOOKS_LOCAL_KEEP_ALIVE,
         "format": BOOKS_ROWS_SCHEMA,
-        "options": {"temperature": 0},
+        "options": {"temperature": 0, "num_ctx": BOOKS_LOCAL_NUM_CTX},
     }
     import httpx
 
@@ -558,7 +561,7 @@ def ollama_json_complete(
         with httpx.Client(timeout=max(5.0, float(timeout_s))) as client:
             r = client.post(base + "/api/generate", json=payload)
         if r.status_code != 200:
-            _log.info("books local-read failed reason=http status=%s ms=%s", r.status_code, int((time.monotonic() - started) * 1000))
+            _log.warning("books local-read failed reason=http status=%s ms=%s", r.status_code, int((time.monotonic() - started) * 1000))
             return None
         body = r.json() or {}
         raw = body.get("response")
@@ -568,12 +571,12 @@ def ollama_json_complete(
             try:
                 parsed = json.loads(raw)
             except json.JSONDecodeError:
-                _log.info("books local-read failed reason=json ms=%s", int((time.monotonic() - started) * 1000))
+                _log.warning("books local-read failed reason=json ms=%s", int((time.monotonic() - started) * 1000))
                 return None
             return parsed if isinstance(parsed, dict) else None
         return None
     except Exception:
-        _log.info("books local-read failed reason=error ms=%s", int((time.monotonic() - started) * 1000))
+        _log.warning("books local-read failed reason=error ms=%s", int((time.monotonic() - started) * 1000))
         return None
 
 
@@ -687,7 +690,7 @@ def validate_local_rows(
         total = sum(r["amount"] for r in out)
         if abs((beginning + total) - ending) > 0.02:
             reconcile_miss = True
-            _log.info("books local-read reconcile-miss rows=%s", len(out))
+            _log.warning("books local-read reconcile-miss rows=%s", len(out))
     return out, reconcile_miss, None
 
 
@@ -712,7 +715,7 @@ def local_read_statement_rows(
             from src.models.provider import _ollama_base_url
             base = (_ollama_base_url() or "").rstrip("/")
     except Exception:
-        _log.info("books local-read failed reason=unavailable ms=%s", 0)
+        _log.warning("books local-read failed reason=unavailable ms=%s", 0)
         return [], "local model not available", "text"
     try:
         tags = list(installed) if installed is not None else _ollama_tags(base)
@@ -720,7 +723,7 @@ def local_read_statement_rows(
         tags = []
     model = pick_books_local_model(tags)
     if not model:
-        _log.info("books local-read failed reason=unavailable ms=%s", int((time.monotonic() - started) * 1000))
+        _log.warning("books local-read failed reason=unavailable ms=%s", int((time.monotonic() - started) * 1000))
         return [], "local model not available", "text"
     period = statement_period_hint(text, default_year)
     chunks = _chunk_statement_text(text)
@@ -731,7 +734,7 @@ def local_read_statement_rows(
     for chunk in chunks:
         remaining = cap - (time.monotonic() - started)
         if remaining < 5:
-            _log.info("books local-read failed reason=timeout ms=%s", int((time.monotonic() - started) * 1000))
+            _log.warning("books local-read failed reason=timeout ms=%s", int((time.monotonic() - started) * 1000))
             return [], "model timeout", "text"
         prompt = (
             "Extract bank statement transactions as JSON. "
@@ -745,6 +748,9 @@ def local_read_statement_rows(
         prompt = f"{prompt}\n\nSTATEMENT_TEXT:\n{chunk}"
         body = fn(model, prompt, timeout_s=remaining, base_url=base)
         if body is None:
+            if (time.monotonic() - started) >= cap - 0.5:
+                _log.warning("books local-read failed reason=timeout ms=%s", int((time.monotonic() - started) * 1000))
+                return [], "model timeout", "text"
             continue
         if begin is None:
             begin = parse_money(body.get("beginning_balance"))
@@ -767,9 +773,9 @@ def local_read_statement_rows(
     )
     ms = int((time.monotonic() - started) * 1000)
     if err:
-        _log.info("books local-read failed reason=empty ms=%s", ms)
+        _log.warning("books local-read failed reason=empty ms=%s", ms)
         return [], err, "text"
-    _log.info("books local-read rows=%s ms=%s", len(rows), ms)
+    _log.warning("books local-read rows=%s ms=%s", len(rows), ms)
     return rows, None, "model"
 
 

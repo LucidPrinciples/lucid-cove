@@ -17,7 +17,8 @@ GET   /api/books/map            vendor/phrase rules
 PUT   /api/books/map            replace rules; apply to uncategorized
 POST  /api/books/seed-map       fill map from already-placed payees
 POST  /api/books/account        create a blank ledger + Drop folder
-POST  /api/books/process        ingest CSV/text/PDF from that ledger's Drop folder
+POST  /api/books/process        start Drop ingest; returns a job_id immediately
+GET   /api/books/process/{job_id}  poll listed/added/unread and file N of M
 POST  /api/books/line           add a typed line on the Manual book
 POST  /api/books/lines/paste    bulk-add copied statement rows on the Manual book
 PATCH /api/books/line/state     disable or restore a statement or typed line
@@ -1740,6 +1741,225 @@ async def books_create_account(request: Request):
     })
 
 
+
+async def _run_process_job(
+    request: Request,
+    job_id: str,
+    *,
+    ledger_path: str,
+    clean: str,
+    payload: dict,
+    folder: str,
+    label: str,
+    book: str,
+    year_i: int | None,
+    work: list[str],
+    seen_src: set[str],
+    ledger_book_before: str,
+) -> None:
+    from src.dashboard import books_jobs as bjobs
+
+    bjobs.patch_process_job(
+        job_id,
+        state="running",
+        started_at=time.time(),
+        account=label,
+        drop_folder=folder,
+        filing_book=book,
+        files=len(work),
+        file_index=0,
+    )
+    added = 0
+    skipped = 0
+    pending = 0
+    processed = 0
+    ocr_used = 0
+    model_read = 0
+    last_err = None
+    try:
+        for i, name in enumerate(work, start=1):
+            bjobs.patch_process_job(job_id, file_index=i)
+            kind = bk.drop_file_kind(name)
+            if name in seen_src:
+                skipped += 1
+                processed += 1
+                bjobs.patch_process_job(job_id, skipped=skipped, processed=processed)
+                continue
+            blob, rerr2, _rstatus2 = await _read_drop_bytes(request, folder, name)
+            if rerr2 or blob is None:
+                last_err = rerr2
+                pending += 1
+                bjobs.patch_process_job(
+                    job_id,
+                    pending=pending,
+                    unread_reason=bk.unread_reason_label(last_err),
+                )
+                continue
+            file_year = bk.year_from_drop_name(name, year_i)
+            parsed, how, errors = await asyncio.to_thread(
+                bk.extract_and_parse_statement,
+                blob,
+                kind,
+                file_year,
+                bk.BOOKS_FILE_CAP_S,
+            )
+            if how in ("missing", "empty", "error"):
+                last_err = {
+                    "missing": "PDF tools are not in this app image yet",
+                    "empty": "No readable text in that statement",
+                    "error": "Could not read that statement",
+                }.get(how, "Could not read that statement")
+                pending += 1
+                bjobs.patch_process_job(
+                    job_id,
+                    pending=pending,
+                    unread_reason=bk.unread_reason_label(last_err),
+                )
+                continue
+            if not parsed:
+                last_err = (errors or ["No rows found"])[0]
+                pending += 1
+                bjobs.patch_process_job(
+                    job_id,
+                    pending=pending,
+                    unread_reason=bk.unread_reason_label(last_err),
+                )
+                continue
+            updated, n_added, n_skipped, uerr = bk.append_imported_rows(
+                payload, parsed, source_file=name, filing_book=book
+            )
+            if uerr or updated is None:
+                last_err = uerr
+                pending += 1
+                bjobs.patch_process_job(
+                    job_id,
+                    pending=pending,
+                    unread_reason=bk.unread_reason_label(last_err),
+                )
+                continue
+            payload = updated
+            added += n_added
+            skipped += n_skipped
+            processed += 1
+            if how == "ocr":
+                ocr_used += 1
+            if how == "model" or any(
+                isinstance(item, dict) and item.get("match_rule") == "local-model"
+                for item in parsed
+            ):
+                model_read += n_added
+            seen_src.add(name)
+            bjobs.patch_process_job(
+                job_id,
+                added=added,
+                skipped=skipped,
+                processed=processed,
+                pending=pending,
+                ocr=ocr_used,
+                model_read=model_read,
+            )
+            if n_added:
+                applied, stamped, aerr = bk.apply_payload_filing_book(payload, book)
+                if aerr or applied is None:
+                    bjobs.patch_process_job(
+                        job_id,
+                        state="failed",
+                        error=aerr or "Pick a filing book",
+                        finished_at=time.time(),
+                    )
+                    return
+                payload = applied
+                payload["filing_book"] = book
+                payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                werr, _wstatus = await _write_ledger(request, clean, payload)
+                if werr:
+                    bjobs.patch_process_job(
+                        job_id,
+                        state="failed",
+                        error=werr,
+                        finished_at=time.time(),
+                    )
+                    return
+                bjobs.patch_process_job(job_id, stamped=stamped, needs_review_count=payload.get("needs_review_count"))
+        applied, stamped, aerr = bk.apply_payload_filing_book(payload, book)
+        if aerr or applied is None:
+            bjobs.patch_process_job(
+                job_id,
+                state="failed",
+                error=aerr or "Pick a filing book",
+                finished_at=time.time(),
+            )
+            return
+        payload = applied
+        if added or stamped or ledger_book_before != book:
+            payload["filing_book"] = book
+            payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            werr, _wstatus = await _write_ledger(request, clean, payload)
+            if werr:
+                bjobs.patch_process_job(
+                    job_id,
+                    state="failed",
+                    error=werr,
+                    finished_at=time.time(),
+                )
+                return
+        elif processed == 0 and pending == 0 and last_err:
+            bjobs.patch_process_job(
+                job_id,
+                state="failed",
+                error=last_err,
+                finished_at=time.time(),
+            )
+            return
+        unread_reason = bk.unread_reason_label(last_err) if pending else None
+        logger.warning(
+            "books process listed=%s added=%s pending=%s skipped=%s processed=%s remaining=%s",
+            len(work),
+            added,
+            pending,
+            skipped,
+            processed,
+            0,
+        )
+        bjobs.patch_process_job(
+            job_id,
+            state="done",
+            added=added,
+            skipped=skipped,
+            pending=pending,
+            processed=processed,
+            ocr=ocr_used,
+            model_read=model_read,
+            stamped=stamped,
+            unread_reason=unread_reason,
+            needs_review_count=payload.get("needs_review_count"),
+            finished_at=time.time(),
+        )
+    except Exception:
+        logger.warning("books process job failed")
+        bjobs.patch_process_job(
+            job_id,
+            state="failed",
+            error="Process failed",
+            finished_at=time.time(),
+        )
+
+
+@router.get("/api/books/process/{job_id}")
+async def books_process_status(request: Request, job_id: str):
+    from src.dashboard import books_jobs as bjobs
+
+    jid = (job_id or "").strip()
+    job = bjobs.get_process_job(jid)
+    if not job:
+        return JSONResponse({"ok": False, "error": "Job not found"}, status_code=404)
+    actor = await _actor_presence(request)
+    actor_id = str(actor["id"]) if actor and actor.get("id") else ""
+    if job.get("actor_id") and actor_id and job["actor_id"] != actor_id:
+        return JSONResponse({"ok": False, "error": "Job not found"}, status_code=404)
+    return JSONResponse(bjobs.public_process_job(job))
+
+
 @router.post("/api/books/process")
 async def books_process_drop(request: Request):
     try:
@@ -1778,16 +1998,6 @@ async def books_process_drop(request: Request):
         year_i = int(year) if year not in (None, "") else None
     except (TypeError, ValueError):
         return JSONResponse({"ok": False, "error": "year must be an integer"}, status_code=400)
-    added = 0
-    skipped = 0
-    pending = 0
-    processed = 0
-    ocr_used = 0
-    model_read = 0
-    last_err = None
-    remaining_names: list[str] = []
-    started = time.monotonic()
-    budget = bk.BOOKS_PROCESS_BUDGET_S
     seen_src = {
         str(r.get("source_file") or "").replace("\\", "/").split("/")[-1]
         for r in (payload.get("rows") or [])
@@ -1800,98 +2010,35 @@ async def books_process_drop(request: Request):
             continue
         work.append(name)
     listed = len(work)
-    for name in work:
-        if time.monotonic() - started >= budget:
-            remaining_names.append(name)
-            continue
-        kind = bk.drop_file_kind(name)
-        if name in seen_src:
-            skipped += 1
-            processed += 1
-            continue
-        blob, rerr2, _rstatus2 = await _read_drop_bytes(request, folder, name)
-        if rerr2 or blob is None:
-            last_err = rerr2
-            pending += 1
-            continue
-        file_year = bk.year_from_drop_name(name, year_i)
-        left = max(5.0, budget - (time.monotonic() - started))
-        file_cap = min(bk.BOOKS_FILE_CAP_S, left)
-        parsed, how, errors = bk.extract_and_parse_statement(
-            blob, kind, default_year=file_year, timeout_s=file_cap
-        )
-        if how in ("missing", "empty", "error"):
-            last_err = {
-                "missing": "PDF tools are not in this app image yet",
-                "empty": "No readable text in that statement",
-                "error": "Could not read that statement",
-            }.get(how, "Could not read that statement")
-            pending += 1
-            continue
-        if not parsed:
-            last_err = (errors or ["No rows found"])[0]
-            pending += 1
-            continue
-        updated, n_added, n_skipped, uerr = bk.append_imported_rows(
-            payload, parsed, source_file=name, filing_book=book
-        )
-        if uerr or updated is None:
-            last_err = uerr
-            pending += 1
-            continue
-        payload = updated
-        added += n_added
-        skipped += n_skipped
-        processed += 1
-        if how == "ocr":
-            ocr_used += 1
-        if how == "model" or any(
-            isinstance(item, dict) and item.get("match_rule") == "local-model"
-            for item in parsed
-        ):
-            model_read += n_added
-        seen_src.add(name)
-    pending += len(remaining_names)
-    more_pending = bool(remaining_names)
-    applied, stamped, aerr = bk.apply_payload_filing_book(payload, book)
-    if aerr or applied is None:
-        return JSONResponse({"ok": False, "error": aerr or "Pick a filing book", "path": clean}, status_code=400)
-    payload = applied
-    if added or stamped or ledger_book_before != book:
-        payload["filing_book"] = book
-        payload["mapped_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        werr, wstatus = await _write_ledger(request, clean, payload)
-        if werr:
-            return JSONResponse({"ok": False, "error": werr, "path": clean}, status_code=wstatus)
-    elif processed == 0 and pending == 0 and last_err:
-        return JSONResponse({"ok": False, "error": last_err, "path": clean, "drop_folder": folder}, status_code=400)
-    unread_reason = bk.unread_reason_label(last_err) if pending else None
-    logger.info(
-        "books process listed=%s added=%s pending=%s skipped=%s processed=%s remaining=%s",
-        listed,
-        added,
-        pending,
-        skipped,
-        processed,
-        len(remaining_names),
-    )
-    return JSONResponse({
-        "ok": True,
-        "path": clean,
-        "account": label,
-        "drop_folder": folder,
-        "filing_book": book,
-        "added": added,
-        "skipped": skipped,
-        "pending": pending,
-        "processed": processed,
-        "stamped": stamped,
-        "ocr": ocr_used,
-        "files": listed,
-        "needs_review_count": payload.get("needs_review_count"),
-        "unread_reason": unread_reason,
-        "model_read": model_read,
-        "remaining": len(remaining_names),
-        "more_pending": more_pending,
-    })
+    actor = await _actor_presence(request)
+    actor_id = str(actor["id"]) if actor and actor.get("id") else ""
+    from src.dashboard import books_jobs as bjobs
 
+    existing = bjobs.find_active_process_job(clean)
+    if existing:
+        return JSONResponse(bjobs.public_process_job(existing))
+    job = bjobs.create_process_job(actor_id=actor_id, path=clean, files=listed)
+    bjobs.patch_process_job(
+        job["job_id"],
+        account=label,
+        drop_folder=folder,
+        filing_book=book,
+    )
+    task = asyncio.create_task(
+        _run_process_job(
+            request,
+            job["job_id"],
+            ledger_path=ledger_path,
+            clean=clean,
+            payload=payload,
+            folder=folder,
+            label=label,
+            book=book,
+            year_i=year_i,
+            work=work,
+            seen_src=seen_src,
+            ledger_book_before=ledger_book_before,
+        )
+    )
+    bjobs.retain_task(task)
+    return JSONResponse(bjobs.public_process_job(job))
