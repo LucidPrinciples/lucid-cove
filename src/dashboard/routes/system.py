@@ -928,6 +928,8 @@ async def run_backup(request: Request):
         )
         if status.stdout.strip():
             subprocess.run(["git", "add", "-A"], cwd=repo_root, timeout=15)
+            from src.utils.backup_guard import guard_staged
+            guard_staged(repo_root)
             commit = subprocess.run(
                 ["git", "commit", "-m", f"Auto-backup: {now_str}"],
                 capture_output=True, text=True,
@@ -977,6 +979,8 @@ async def run_backup(request: Request):
             subprocess.run(["git", "config", "user.email", backup_email], cwd=str(backup_dir), timeout=10)
             subprocess.run(["git", "config", "user.name", backup_name], cwd=str(backup_dir), timeout=10)
             subprocess.run(["git", "add", "-A"], cwd=str(backup_dir), timeout=15)
+            from src.utils.backup_guard import guard_staged
+            guard_staged(backup_dir)
             subprocess.run(["git", "commit", "-m", f"DB backup: {ts}"], cwd=str(backup_dir), timeout=15)
             push_db = subprocess.run(
                 ["git", "push", "origin", "main"],

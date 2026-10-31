@@ -430,6 +430,8 @@ async def run_cove_backup(trigger: str = "manual") -> dict:
             return st
 
         _run(["git", "add", "-A"], cwd=root, timeout=120)
+        from src.utils.backup_guard import guard_staged
+        guard_staged(root)
         c = _run(["git", "commit", "-m", f"Cove backup {ts} ({trigger})"], cwd=root, timeout=60)
         nothing_new = "nothing to commit" in ((c.stdout or "") + (c.stderr or "")).lower()
         push_url = build_push_url(clean_remote, token)
