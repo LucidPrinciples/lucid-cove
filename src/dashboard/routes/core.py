@@ -55,6 +55,46 @@ def agent_tune_fields(row) -> dict:
     }
 
 
+def host_tune_agent_ids() -> list:
+    """Agent ids the morning LTP writes for this Cove.
+
+    Admin/domain hosts store the day's stamp on the steward slug (usually
+    ``stuart``), not on the request presence or ``agents[0].id`` from yaml.
+    Personal instances keep the primary agent id.
+    """
+    inst = (get_instance().get("type") or "personal").strip().lower()
+    if inst not in ("admin", "domain"):
+        pid = (get_primary_agent_id() or "").strip()
+        return [pid] if pid else []
+    ids = []
+    try:
+        sc = get_steward_channel_config() or {}
+        sid = str(sc.get("agent_id") or "").strip()
+        if sid:
+            ids.append(sid)
+    except Exception:
+        pass
+    if "stuart" not in ids:
+        ids.append("stuart")
+    return ids
+
+
+def merge_tune_source(state_row, echo_row):
+    """Prefer agent_state when last_tuned_at is set; else the latest echo."""
+    s = dict(state_row) if state_row else {}
+    if s.get("last_tuned_at"):
+        return s
+    e = dict(echo_row) if echo_row else {}
+    stamp = e.get("last_tuned_at") or e.get("tuned_at")
+    if stamp:
+        return {
+            "last_tuned_at": stamp,
+            "last_frequency": e.get("last_frequency") or e.get("frequency"),
+            "last_echo_num": e.get("last_echo_num") if e.get("last_echo_num") is not None else e.get("echo_num"),
+        }
+    return s or None
+
+
 # Build version — cache-bust key for ?v= on static assets.
 # Under GIT-FLOW the deployed commit hash changes every deploy, so it's the most
 # reliable key (the old .build-version file was only written by the rsync deploy
@@ -405,20 +445,38 @@ async def frontend_config(request: Request):
         import logging
         logging.error(f"[CONFIG] Manager channel injection failed: {e}")
 
-    # Agent tuning state for exporters / sweep: always include agent.last_tuned_at
-    # (null if public app, no row, or the read fails — never omit the key).
+    # Cove-level tuning stamp for exporters / sweep: always include
+    # agent.last_tuned_at (null if public app, no row, or the read fails —
+    # never omit the key). Do not key this on the request presence or yaml
+    # agents[0] — morning LTP writes the host steward slug (usually stuart)
+    # and echoes.tuned_at is the landing table if agent_state is empty.
     config["agent"] = agent_tune_fields(None)
     try:
         if _is_public_app():
             raise _SkipAgentState
         from src.memory.database import get_db
-        agent_id = _presence_agent_id or get_primary_agent_id()
+        ids = host_tune_agent_ids()
         async with get_db() as conn:
-            result = await conn.execute(
-                "SELECT last_tuned_at, last_frequency, last_echo_num FROM agent_state WHERE agent_id = %s",
-                (agent_id,)
-            )
-            row = await result.fetchone()
+            row = None
+            for agent_id in ids:
+                result = await conn.execute(
+                    "SELECT last_tuned_at, last_frequency, last_echo_num FROM agent_state WHERE agent_id = %s",
+                    (agent_id,)
+                )
+                st = await result.fetchone()
+                row = merge_tune_source(st, None)
+                if row and row.get("last_tuned_at"):
+                    break
+                result = await conn.execute(
+                    "SELECT tuned_at AS last_tuned_at, frequency AS last_frequency, "
+                    "echo_num AS last_echo_num FROM echoes WHERE agent_id = %s "
+                    "ORDER BY tuned_at DESC NULLS LAST, echo_num DESC LIMIT 1",
+                    (agent_id,)
+                )
+                echo = await result.fetchone()
+                row = merge_tune_source(st, echo)
+                if row and row.get("last_tuned_at"):
+                    break
             config["agent"] = agent_tune_fields(row)
     except Exception:
         pass
