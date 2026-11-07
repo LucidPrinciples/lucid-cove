@@ -38,6 +38,23 @@ class _SkipAgentState(Exception):
     """Internal: bail out of an agent_state read on the public app (no agent)."""
 
 
+def agent_tune_fields(row) -> dict:
+    """Always-shaped agent block for /api/config.
+
+    Exporters read agent.last_tuned_at to know if this Cove tuned today.
+    Missing row or null column → last_tuned_at is None, never omit the key.
+    """
+    empty = {"last_tuned_at": None, "last_frequency": None, "last_echo_num": None}
+    if not row:
+        return empty
+    r = dict(row)
+    return {
+        "last_tuned_at": str(r["last_tuned_at"]) if r.get("last_tuned_at") else None,
+        "last_frequency": r.get("last_frequency"),
+        "last_echo_num": r.get("last_echo_num"),
+    }
+
+
 # Build version — cache-bust key for ?v= on static assets.
 # Under GIT-FLOW the deployed commit hash changes every deploy, so it's the most
 # reliable key (the old .build-version file was only written by the rsync deploy
@@ -388,7 +405,9 @@ async def frontend_config(request: Request):
         import logging
         logging.error(f"[CONFIG] Manager channel injection failed: {e}")
 
-    # Add agent tuning state (used by sweep to check if Presence has tuned today)
+    # Agent tuning state for exporters / sweep: always include agent.last_tuned_at
+    # (null if public app, no row, or the read fails — never omit the key).
+    config["agent"] = agent_tune_fields(None)
     try:
         if _is_public_app():
             raise _SkipAgentState
@@ -400,13 +419,7 @@ async def frontend_config(request: Request):
                 (agent_id,)
             )
             row = await result.fetchone()
-            if row:
-                r = dict(row)
-                config["agent"] = {
-                    "last_tuned_at": str(r["last_tuned_at"]) if r.get("last_tuned_at") else None,
-                    "last_frequency": r.get("last_frequency"),
-                    "last_echo_num": r.get("last_echo_num"),
-                }
+            config["agent"] = agent_tune_fields(row)
     except Exception:
         pass
 
