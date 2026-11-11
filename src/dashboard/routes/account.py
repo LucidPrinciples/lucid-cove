@@ -12,7 +12,7 @@ Sign-in link emails sent via Brevo transactional API (see email.py).
 import hmac
 import logging
 import os
-from src.env import env
+from src.env import env, env_bool
 import json
 import uuid
 import hashlib
@@ -135,6 +135,52 @@ def _signin_email_kwargs(request: Request) -> dict:
     return {}
 
 
+_MAIL_FAIL = "We couldn't send the email. Try again in a minute."
+
+
+def _request_names_public_hub(request: Request) -> bool:
+    """True when Host or X-Forwarded-Host names the public hub.
+
+    Any comma-separated part counts. A spoofed Host does not bypass the
+    lock while the other header is app.lucidtuner.com.
+    """
+    from src.dashboard.host_context import is_public_tuner_host
+    for header in ("host", "x-forwarded-host"):
+        raw = request.headers.get(header) or ""
+        for part in raw.split(","):
+            if is_public_tuner_host(part):
+                return True
+    return False
+
+
+def _allow_signin_link_in_response(request: Request) -> bool:
+    """Dev and self-host only. Off by default. Never for the public hub."""
+    if _request_names_public_hub(request):
+        return False
+    return env_bool("SIGNIN_LINK_IN_RESPONSE")
+
+
+def _finish_signin_delivery(request: Request, resp: dict, *, email_sent: bool,
+                            signin_link: str, is_signup: bool) -> dict:
+    """Return the link only when the dev flag allows it.
+
+    A failed send on the public hub, or with the flag off, is a 503.
+    The response and the log omit the link and the address.
+    """
+    if email_sent:
+        return resp
+    if _allow_signin_link_in_response(request):
+        resp["signin_link"] = signin_link
+        return resp
+    from src.dashboard.host_context import request_host
+    log.warning(
+        "signin email was not sent; withholding the link (signup=%s host=%s)",
+        is_signup,
+        request_host(request),
+    )
+    raise HTTPException(503, _MAIL_FAIL)
+
+
 @router.get("/r/{code}")
 async def referral_bounce(code: str, to: Optional[str] = None):
     """Set a 90-day referral cookie on app.lucidcove.org, then redirect.
@@ -192,7 +238,10 @@ async def create_account(request: Request):
         "referred_by": "affiliate-code"  // optional, future use
     }
 
-    Returns: { "signin_link": "https://..." } for immediate signin.
+    Returns ok, presence_id, display_name, and email_sent.
+    The sign-in link is emailed. It is in this response only when
+    SIGNIN_LINK_IN_RESPONSE is on and this host is not app.lucidtuner.com.
+    If the email does not send and the link is withheld, this is a 503.
     """
     if COVE_MODE != "multi":
         raise HTTPException(400, "Account creation not available in single mode")
@@ -350,9 +399,9 @@ async def create_account(request: Request):
         "display_name": display_name or username,
         "email_sent": email_sent,
     }
-    if not email_sent:
-        resp["signin_link"] = signin_link
-    return resp
+    return _finish_signin_delivery(
+        request, resp, email_sent=email_sent, signin_link=signin_link, is_signup=True,
+    )
 
 
 # =============================================================================
@@ -361,12 +410,13 @@ async def create_account(request: Request):
 
 @router.post("/api/account/signin")
 async def signin(request: Request):
-    """Look up account by email and return a sign-in link.
+    """Look up the account by email and email a sign-in link.
 
     Body: { "email": "user@example.com" }
 
-    Until email sending is wired, returns signin_link directly.
-    Future: send link via email, return success message only.
+    Returns ok and email_sent. The link is in this response only when
+    SIGNIN_LINK_IN_RESPONSE is on and this host is not app.lucidtuner.com.
+    If the email does not send and the link is withheld, this is a 503.
     """
     if COVE_MODE != "multi":
         raise HTTPException(400, "Signin not available in single mode")
@@ -436,10 +486,9 @@ async def signin(request: Request):
         "ok": True,
         "email_sent": email_sent,
     }
-    # If email wasn't sent, return sign-in link directly (P620 Coves, dev mode)
-    if not email_sent:
-        resp["signin_link"] = signin_link
-    return resp
+    return _finish_signin_delivery(
+        request, resp, email_sent=email_sent, signin_link=signin_link, is_signup=False,
+    )
 
 
 @router.post("/api/account/connect-key")

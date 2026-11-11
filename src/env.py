@@ -205,6 +205,14 @@ REGISTRY: list[EnvVar] = [
            desc="Sender display name for Tuner Host sign-in mail."),
     EnvVar("BREVO_LIST_ID", "4", "int", "Email", desc="Onboarding contact list id."),
     EnvVar("EMAIL_PRODUCT_NAME", "Lucid Principles", "str", "Email", desc="Product name in email copy."),
+    EnvVar(
+        "SIGNIN_LINK_IN_RESPONSE",
+        "false",
+        "bool",
+        "Email",
+        desc="Dev and self-host only. When mail cannot send, put the sign-in "
+        "link in the response. Off by default. Ignored on app.lucidtuner.com.",
+    ),
 
     # ── Commerce / affiliate ──
     EnvVar("LP_PLATFORM_FEE_RATE", "0.10", "float", "Commerce", desc="Marketplace platform fee."),
