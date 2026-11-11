@@ -166,6 +166,8 @@ body.has-mini-player .mini-player { display: flex !important; }
 .mini-player .mp-info { flex: 1; min-width: 0; overflow: hidden; }
 .mini-player .mp-title { font-size: 0.72rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mini-player .mp-freq { font-size: 0.6rem; color: var(--daily-freq); letter-spacing: 0.08em; }
+.mini-player .mp-status { font-size: 0.62rem; color: #ffb4a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-player .mp-status[hidden] { display: none !important; }
 .mini-player .mp-btn { background: none; border: none; color: var(--dim); cursor: pointer; padding: 6px; border-radius: 50%; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
 .mini-player .mp-btn:hover { color: var(--text); background: var(--card2); }
 .mini-player .mp-btn.mp-play { color: var(--daily-freq); }

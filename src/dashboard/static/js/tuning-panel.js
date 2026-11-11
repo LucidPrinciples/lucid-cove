@@ -33,6 +33,22 @@ let _otConsecutiveErrors = 0;
 let _otPendingPlay = false;     // true = new playlist displayed but not yet loaded into audio
 let _otPlayStartTime = null;    // timestamp when current track started playing (for duration calc)
 let _otCurrentTrackLogged = false; // prevent duplicate play_start for same track
+const OT_ERROR_RETRY_MS = 3000;
+const OT_STALL_QUIET_MS = 15000;
+const OT_FAIL_CAP = 3;
+const OT_PLAYER_LOG_KEY = 'lt_player_log';
+const OT_PLAYER_LOG_MAX = 200;
+const OT_HISTORY_MAX = 20;
+const OT_FAIL_STATUS = 'The stream failed three times. Playback stopped.';
+let _otStallTimer = null;
+let _otErrorTimer = null;
+let _otStallMark = 0;
+let _otAudibleTimer = null;
+let _otRetriedThisTrack = false;
+let _otWantAudio = false;
+let _otReloading = false;
+let _otPlayHistory = [];
+let _otPlayerLog = [];
 
 // ── Shared Player API ───────────────────────────────────────────────────────
 let _otSource = 'lt';           // 'lt' | 'tune' | 'playlist'
@@ -64,6 +80,353 @@ function _otTrackEvent(eventType, extra) {
             body: JSON.stringify(body),
         });
     } catch (e) { /* silent */ }
+}
+
+// ── Car player: log, stall retry, played-track history ─────────────────────
+// The log is for a drive. Track title and player state only. No account data.
+
+function _otPlayerTitle() {
+    const track = otTracks[otIndex];
+    return (track && (track.title || track.principle)) || '';
+}
+
+function _otLogPlayer(event, reason) {
+    const entry = {
+        time: new Date().toISOString(),
+        event: String(event || ''),
+        title: _otPlayerTitle(),
+        reason: String(reason || ''),
+        hidden: false,
+        readyState: null,
+        networkState: null,
+    };
+    try { entry.hidden = !!(document && document.hidden); } catch (e) {}
+    try {
+        if (otAudio) {
+            entry.readyState = otAudio.readyState;
+            entry.networkState = otAudio.networkState;
+        }
+    } catch (e) {}
+    const last = _otPlayerLog[_otPlayerLog.length - 1];
+    if (last && last.event === entry.event && last.reason === entry.reason && last.title === entry.title) return;
+    _otPlayerLog.push(entry);
+    if (_otPlayerLog.length > OT_PLAYER_LOG_MAX) {
+        _otPlayerLog.splice(0, _otPlayerLog.length - OT_PLAYER_LOG_MAX);
+    }
+    try { localStorage.setItem(OT_PLAYER_LOG_KEY, JSON.stringify(_otPlayerLog)); } catch (e) {}
+}
+
+function _otLoadPlayerLog() {
+    try {
+        const raw = localStorage.getItem(OT_PLAYER_LOG_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) { _otPlayerLog = []; return; }
+        _otPlayerLog = parsed.slice(-OT_PLAYER_LOG_MAX).map(e => ({
+            time: String((e && e.time) || ''),
+            event: String((e && e.event) || ''),
+            title: String((e && e.title) || ''),
+            reason: String((e && e.reason) || ''),
+            hidden: !!(e && e.hidden),
+            readyState: (e && e.readyState != null) ? e.readyState : null,
+            networkState: (e && e.networkState != null) ? e.networkState : null,
+        }));
+    } catch (e) {
+        _otPlayerLog = [];
+    }
+}
+
+function otPlayerLogEntries() {
+    return _otPlayerLog.map(e => ({
+        time: e.time,
+        event: e.event,
+        title: e.title,
+        reason: e.reason,
+        hidden: e.hidden,
+        readyState: e.readyState,
+        networkState: e.networkState,
+    }));
+}
+
+function otPlayerLogText() {
+    const header = 'time\tevent\ttitle\treason\thidden\treadyState\tnetworkState';
+    const lines = otPlayerLogEntries().map(e =>
+        [e.time, e.event, e.title, e.reason, e.hidden, e.readyState, e.networkState].join('\t')
+    );
+    return [header].concat(lines).join('\n');
+}
+
+function otCopyPlayerLog() {
+    const text = otPlayerLogText();
+    const btn = document.getElementById('player-log-copy');
+    const status = document.getElementById('player-log-status');
+    const mark = (ok) => {
+        if (btn) btn.textContent = ok ? 'Copied' : 'Copy';
+        if (status) {
+            if (ok && !_otPlayerLog.length) status.textContent = 'No player events yet.';
+            else status.textContent = ok ? '' : 'Could not copy.';
+        }
+        if (ok && btn) setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    };
+    const fallback = () => {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', 'readonly');
+            document.body.appendChild(ta);
+            if (ta.select) ta.select();
+            const ok = document.execCommand('copy');
+            if (ta.remove) ta.remove();
+            return !!ok;
+        } catch (e) {
+            return false;
+        }
+    };
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => mark(true)).catch(() => mark(fallback()));
+            return;
+        }
+    } catch (e) {}
+    mark(fallback());
+}
+
+function _otBindPlayerLogCopy() {
+    const btn = document.getElementById('player-log-copy');
+    if (!btn || btn._otBound) return;
+    btn._otBound = true;
+    btn.addEventListener('click', () => otCopyPlayerLog());
+}
+
+function _otClearFaultTimers() {
+    if (_otStallTimer) {
+        clearTimeout(_otStallTimer);
+        _otStallTimer = null;
+    }
+    if (_otErrorTimer) {
+        clearTimeout(_otErrorTimer);
+        _otErrorTimer = null;
+    }
+}
+
+function _otBufferEnd(audio) {
+    try {
+        const ranges = audio && audio.buffered;
+        if (ranges && ranges.length > 0 && typeof ranges.end === 'function') {
+            const end = ranges.end(ranges.length - 1);
+            if (isFinite(end) && end > 0) return end;
+        }
+    } catch (e) {}
+    return 0;
+}
+
+function _otMediaMark() {
+    if (!otAudio) return 0;
+    const time = (otAudio.currentTime && isFinite(otAudio.currentTime)) ? otAudio.currentTime : 0;
+    return Math.max(time, _otBufferEnd(otAudio));
+}
+
+function _otClearAudibleTimer() {
+    if (_otAudibleTimer) {
+        clearTimeout(_otAudibleTimer);
+        _otAudibleTimer = null;
+    }
+}
+
+function _otShowFailStatus() {
+    const el = document.getElementById('mpStatus');
+    if (!el) return;
+    el.hidden = false;
+    el.textContent = OT_FAIL_STATUS;
+}
+
+function _otClearFailStatus() {
+    const el = document.getElementById('mpStatus');
+    if (!el) return;
+    el.hidden = true;
+    el.textContent = '';
+}
+
+function _otNoteAudible() {
+    _otNeedsResume = false;
+    // Playing again means the load error recovered. A stall watch stays until
+    // the playhead or the buffer actually moves.
+    if (_otErrorTimer) {
+        clearTimeout(_otErrorTimer);
+        _otErrorTimer = null;
+    }
+    if (_otStallTimer && _otMediaMark() > _otStallMark + 0.05) {
+        clearTimeout(_otStallTimer);
+        _otStallTimer = null;
+    }
+    _otClearAudibleTimer();
+    const startedAt = _otMediaMark();
+    _otAudibleTimer = setTimeout(() => {
+        _otAudibleTimer = null;
+        if (!otAudio || otAudio.paused || !_otWantAudio) return;
+        if (_otMediaMark() >= startedAt + 0.25) {
+            _otConsecutiveErrors = 0;
+            _otRetriedThisTrack = false;
+            _otClearFailStatus();
+        }
+    }, 1500);
+}
+
+function _otScheduleError(reason) {
+    if (_otReloading || !otAudio) return;
+    const srcNow = otAudio.src || (otAudio.getAttribute && otAudio.getAttribute('src')) || '';
+    if (!srcNow) return;
+    _otLogPlayer('error', reason || '');
+    if (!_otWantAudio && !otIsPlaying) return;
+    if (_otErrorTimer) return;
+    _otErrorTimer = setTimeout(() => {
+        _otErrorTimer = null;
+        _otResolveError();
+    }, OT_ERROR_RETRY_MS);
+}
+
+function _otArmStallWatch() {
+    if (_otStallTimer || !otAudio) return;
+    const mark = _otMediaMark();
+    _otStallMark = mark;
+    _otStallTimer = setTimeout(() => {
+        _otStallTimer = null;
+        _otOnStallQuiet(mark);
+    }, OT_STALL_QUIET_MS);
+}
+
+function _otWatchStall(kind) {
+    if (_otReloading || !otAudio) return;
+    const srcNow = otAudio.src || (otAudio.getAttribute && otAudio.getAttribute('src')) || '';
+    if (!srcNow) return;
+    _otLogPlayer(kind, '');
+    if (!_otWantAudio && !otIsPlaying) return;
+    _otArmStallWatch();
+}
+
+function _otOnStallQuiet(mark) {
+    if (!_otWantAudio || !otAudio || otAudio.paused) return;
+    if (_otMediaMark() > mark + 0.05) {
+        _otLogPlayer('waiting', 'growing');
+        _otArmStallWatch();
+        return;
+    }
+    _otLogPlayer('retry', 'stall');
+    _otRetrySameTrack();
+}
+
+function _otRetrySameTrack() {
+    const track = otTracks[otIndex];
+    if (!otAudio || !track) return;
+    const url = otGetAudioUrl(track);
+    const pos = (otAudio.currentTime && isFinite(otAudio.currentTime)) ? otAudio.currentTime : 0;
+    if (_otStallTimer) {
+        clearTimeout(_otStallTimer);
+        _otStallTimer = null;
+    }
+    const restore = () => {
+        try { if (otAudio && pos > 0) otAudio.currentTime = pos; } catch (e) {}
+        try { otAudio.removeEventListener('loadedmetadata', restore); } catch (e) {}
+    };
+    if (pos > 0) otAudio.addEventListener('loadedmetadata', restore);
+    _otReloading = true;
+    try {
+        // Assigning src reloads. load() on this live element drops the lock-screen session.
+        otAudio.removeAttribute('src');
+        otAudio.src = url;
+        if (pos > 0) {
+            try { otAudio.currentTime = pos; } catch (e) {}
+        }
+    } catch (e) {}
+    _otReloading = false;
+    _otPlayCurrent('retry');
+}
+
+function _otStopForFailures() {
+    _otWantAudio = false;
+    otIsPlaying = false;
+    _otNeedsResume = false;
+    _otClearFaultTimers();
+    _otClearAudibleTimer();
+    _otLogPlayer('error', 'cap');
+    _otReloading = true;
+    try {
+        if (otAudio) {
+            otAudio.pause();
+            otAudio.removeAttribute('src');
+        }
+    } catch (e) {}
+    _otReloading = false;
+    _otShowFailStatus();
+    try { otUpdateIcons(); } catch (e) {}
+    try { otStopProgress(); } catch (e) {}
+    if ('mediaSession' in navigator) {
+        try { navigator.mediaSession.playbackState = 'paused'; } catch (e) {}
+    }
+}
+
+function _otResolveError() {
+    if (!_otWantAudio || !otAudio) return;
+    _otClearAudibleTimer();
+    _otConsecutiveErrors += 1;
+    if (_otConsecutiveErrors >= OT_FAIL_CAP) {
+        _otStopForFailures();
+        return;
+    }
+    if (!_otRetriedThisTrack) {
+        _otRetriedThisTrack = true;
+        _otLogPlayer('retry', 'same');
+        _otRetrySameTrack();
+        return;
+    }
+    _otRetriedThisTrack = false;
+    _otLogPlayer('retry', 'next');
+    otNext();
+}
+
+function _otResumeAfterStop() {
+    if (otAudio && otAudio.src) return false;
+    if (!otTracks.length) return false;
+    _otConsecutiveErrors = 0;
+    _otRetriedThisTrack = false;
+    _otWantAudio = true;
+    otLoadTrack(otIndex, true);
+    return true;
+}
+
+function _otRememberPlayed(index) {
+    if (index < 0 || index >= otTracks.length) return;
+    if (_otPlayHistory[_otPlayHistory.length - 1] === index) return;
+    _otPlayHistory.push(index);
+    if (_otPlayHistory.length > OT_HISTORY_MAX) {
+        _otPlayHistory.splice(0, _otPlayHistory.length - OT_HISTORY_MAX);
+    }
+}
+
+function _otResetPlayHistory() {
+    _otPlayHistory = [];
+}
+
+function _otForgiveFailures() {
+    _otConsecutiveErrors = 0;
+    _otRetriedThisTrack = false;
+    _otClearFaultTimers();
+}
+
+function _otPublishPosition() {
+    if (!otAudio || !('mediaSession' in navigator) || !navigator.mediaSession) return;
+    if (!('setPositionState' in navigator.mediaSession)) return;
+    const dur = otAudio.duration;
+    if (!isFinite(dur) || dur <= 0) return;
+    let pos = otAudio.currentTime || 0;
+    if (!isFinite(pos) || pos < 0) pos = 0;
+    if (pos > dur) pos = dur;
+    try {
+        navigator.mediaSession.setPositionState({
+            duration: dur,
+            playbackRate: otAudio.playbackRate || 1,
+            position: pos,
+        });
+    } catch (e) {}
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -172,6 +535,7 @@ function _otStableStart(tracks, principle) {
 function _otKeepLoaded(tracks, opts, startAt) {
     opts = opts || {};
     window._otPreview = null;
+    _otResetPlayHistory();
     otTracks = tracks;
     otIndex = startAt;
     if (opts.source) _otSource = opts.source;
@@ -897,9 +1261,14 @@ function _otPrepAudioEl(el) {
 }
 
 /** Bind play/pause/ended/error/metadata on the *current* otAudio element.
- *  Re-run after a dual-buffer swap so listeners stay on the live element. */
+ *  Listeners stay on the node. isLive() follows the otAudio pointer, so a
+ *  recycled buffer must not get a second set (that double-fires pause and ended). */
 function _otBindCurrentAudioEvents() {
-    if (!otAudio || otAudio._otEventsBound) return;
+    if (!otAudio) return;
+    // Live element accepts real pauses. The ignore flag belongs only to a buffer
+    // that this handoff is deliberately stopping.
+    otAudio._otIgnorePause = false;
+    if (otAudio._otEventsBound) return;
     otAudio._otEventsBound = true;
 
     // Every handler ignores events from a retired buffer element after dual-buffer swap
@@ -909,9 +1278,11 @@ function _otBindCurrentAudioEvents() {
     otAudio.addEventListener('loadedmetadata', (ev) => {
         if (!isLive(ev) || !otAudio) return;
         document.querySelectorAll('.ot-time-duration').forEach(el => el.textContent = otFmtTime(otAudio.duration));
+        _otPublishPosition();
     });
     otAudio.addEventListener('ended', (ev) => {
         if (!isLive(ev)) return;
+        _otLogPlayer('ended', '');
         // Log play_end with duration before advancing
         if (_otPlayStartTime) {
             const dur = (Date.now() - _otPlayStartTime) / 1000;
@@ -929,8 +1300,9 @@ function _otBindCurrentAudioEvents() {
         if (!isLive(ev)) return;
         _otResumeCtx();  // desktop safety; no-op on mobile (no context)
         otIsPlaying = true;
+        _otWantAudio = true;
         _otNeedsResume = false;
-        _otConsecutiveErrors = 0;  // Reset on successful play
+        _otLogPlayer('play', '');
         // Track play start (once per track load)
         if (!_otCurrentTrackLogged) {
             _otPlayStartTime = Date.now();
@@ -952,6 +1324,10 @@ function _otBindCurrentAudioEvents() {
         // Dual-buffer swap pauses the retiring element — ignore those
         if (ev.target && ev.target._otIgnorePause) return;
         otIsPlaying = false;
+        _otWantAudio = false;
+        _otNeedsResume = false;
+        _otClearFaultTimers();
+        _otLogPlayer('pause', '');
         // Track pause with duration so far
         if (_otPlayStartTime) {
             const dur = (Date.now() - _otPlayStartTime) / 1000;
@@ -964,30 +1340,27 @@ function _otBindCurrentAudioEvents() {
     });
     otAudio.addEventListener('error', (ev) => {
         if (!isLive(ev)) return;
-        // Do not auto-advance on load error. That skip loop hammered the CDN.
+        if (_otReloading) return;
+        // MEDIA_ERR_ABORTED (1) is the src swap inside a retry, not a failed load.
+        const code = otAudio.error && otAudio.error.code;
+        if (code === 1) return;
+        // Do not auto-advance on the first load error. That skip loop hammered the CDN.
+        // One retry of this track, then the next track, then stop. See _otResolveError.
         console.warn('[player] load error — not skipping');
-        try { otAudio.removeAttribute('src'); otAudio.load(); } catch (e) {}
-        if (_otNextAudio) {
-            try { _otNextAudio.removeAttribute('src'); _otNextAudio.load(); } catch (e) {}
-            _otPreloadIndex = -1;
-        }
-        otIsPlaying = false;
-        otUpdateIcons();
-        otStopProgress();
+        _otScheduleError(code ? String(code) : '');
     });
-    // If the element thinks it is playing but produces no progress while hidden,
-    // mark for foreground resume (common BT A2DP stall after src swap).
+    // Playing resumes the error budget. A stall watch stays until bytes move.
     otAudio.addEventListener('playing', (ev) => {
         if (!isLive(ev)) return;
-        _otNeedsResume = false;
+        _otNoteAudible();
     });
     otAudio.addEventListener('waiting', (ev) => {
         if (!isLive(ev)) return;
-        if (document.hidden && otIsPlaying) _otNeedsResume = true;
+        _otWatchStall('waiting');
     });
     otAudio.addEventListener('stalled', (ev) => {
         if (!isLive(ev)) return;
-        if (document.hidden && otIsPlaying) _otNeedsResume = true;
+        _otWatchStall('stalled');
     });
 }
 
@@ -1018,12 +1391,14 @@ function _otEnsureAudio() {
     if (!window._otVisibilityBound) {
         window._otVisibilityBound = true;
         document.addEventListener('visibilitychange', () => {
+            _otLogPlayer('visibility', document.hidden ? 'hidden' : 'visible');
             if (document.hidden) return;
             _otResumeCtx();
             _otRecoverPlaybackIfNeeded();
         });
         // Some WebViews fire pageshow on BFCache restore without visibilitychange.
         window.addEventListener('pageshow', () => {
+            _otLogPlayer('visibility', 'pageshow');
             _otResumeCtx();
             _otRecoverPlaybackIfNeeded();
         });
@@ -1033,6 +1408,8 @@ function _otEnsureAudio() {
 /** Start playback on otAudio; on rejection while we intended to play, flag resume. */
 function _otPlayCurrent(reason) {
     if (!otAudio || !otAudio.src) return Promise.resolve();
+    _otWantAudio = true;
+    _otClearFailStatus();
     return otAudio.play().then(() => {
         _otNeedsResume = false;
         if (typeof showMiniPlayer === 'function') showMiniPlayer();
@@ -1116,13 +1493,15 @@ function _otHandoffToPreloaded() {
     const incoming = _otNextAudio;
 
     // Suppress pause analytics on the element we are deliberately stopping.
-    // Leave the flag set — isLive() already ignores retired-element events after swap;
-    // flag is belt-and-suspenders if pause races before the pointer moves.
+    // The flag must not stay set once this element is live again, or a car
+    // pause is ignored and unlock starts the music by itself.
+    // _otEventsBound stays as it is: listeners are already on the node.
     if (retiring) retiring._otIgnorePause = true;
     try { if (retiring && !retiring.paused) retiring.pause(); } catch (e) {}
 
     // Swap pointers BEFORE clearing the retiring buffer
     otAudio = incoming;
+    otAudio._otIgnorePause = false;
     _otNextAudio = retiring || new Audio();
     if (!_otNextAudio.parentNode) _otPrepAudioEl(_otNextAudio);
     // Clear retiring buffer so it can preload the track after this one
@@ -1133,8 +1512,7 @@ function _otHandoffToPreloaded() {
     } catch (e) {}
     _otPreloadIndex = -1;
 
-    // Events must sit on the new current element
-    otAudio._otEventsBound = false;
+    // First time this element is live, attach listeners. A recycled one already has them.
     _otBindCurrentAudioEvents();
 
     // Volume parity (desktop GainNode stays on first element only — mobile uses .volume)
@@ -1144,6 +1522,7 @@ function _otHandoffToPreloaded() {
 
     // Sync UI + media session to the handoff track, then play without reassigning .src
     _otApplyTrackUI(nextIndex, { skipSrc: true });
+    _otLogPlayer('handoff', 'preload');
     _otPlayCurrent('handoff');
     return true;
 }
@@ -1211,13 +1590,11 @@ function otSetPlaylist(tracks, opts) {
     if (!tracks || tracks.length === 0) return;
 
     const startAt = (opts.startIndex == null || opts.startIndex < 0) ? 0 : opts.startIndex;
-    if (_otTrackIsLoaded(tracks[startAt])) {
-        _otKeepLoaded(tracks, opts, startAt);
-        return;
-    }
 
     const live = !!(otAudio && !otAudio.paused && otAudio.src);
     // Opening Tune, Playlists, or Drop is not Play. One rule for all three.
+    // A Bluetooth pause is parked, not a new queue. Check that before keep-loaded,
+    // or a matching start file replaces the list and the mini-player label.
     if (live && opts.autoplay !== true) {
         _otPaintPreview(opts.mountId, tracks, opts);
         return;
@@ -1228,7 +1605,16 @@ function otSetPlaylist(tracks, opts) {
         return;
     }
 
+    // A chosen queue gets a fresh failure budget. Browsing a parked player does not.
+    _otForgiveFailures();
+
+    if (_otTrackIsLoaded(tracks[startAt])) {
+        _otKeepLoaded(tracks, opts, startAt);
+        return;
+    }
+
     window._otPreview = null;
+    _otResetPlayHistory();
 
     // Same as original LC Hermes tuner: Play starts this queue, one engine.
     _otPendingPlay = false;
@@ -1326,6 +1712,7 @@ function _otDisplayTrackInfo(index) {
 function otLoadTrack(index, autoplay) {
     if (index < 0 || index >= otTracks.length) return;
     _otEnsureAudio();
+    if (autoplay) _otWantAudio = true;
     // Same file already loaded: play from where it is. Do not seek to 0:00.
     if (_otTrackIsLoaded(otTracks[index])) {
         _otApplyTrackUI(index, { skipSrc: true, keepTime: true });
@@ -1357,6 +1744,7 @@ function _otApplyTrackUI(index, opts) {
         _otPlayStartTime = null;
     }
     otIndex = index;
+    _otRememberPlayed(index);
     const track = otTracks[index];
     if (!opts.skipSrc) {
         // Assigning .src triggers the load automatically. Calling .load() on top of it
@@ -1457,12 +1845,16 @@ function otTogglePlay() {
         otLoadTrack(otIndex, true);
         return;
     }
-    if (!otAudio.src) return;
+    if (!otAudio.src) {
+        _otResumeAfterStop();
+        return;
+    }
     // Icon follows the element, not a flag that can stick after a buffer swap.
     if (_otAudible()) {
         _otNeedsResume = false;
         otAudio.pause();
     } else {
+        _otForgiveFailures();
         _otPlayCurrent('toggle');
     }
 }
@@ -1486,6 +1878,7 @@ function otNext() {
 function otPrev() {
     if (otAudio && otAudio.currentTime > 3) {
         otAudio.currentTime = 0;
+        _otPublishPosition();
         return;
     }
     // Track skip on prev
@@ -1495,8 +1888,21 @@ function otPrev() {
         _otPlayStartTime = null;
         _otCurrentTrackLogged = false;
     }
-    const prev = (otIndex - 1 + otTracks.length) % otTracks.length;
-    otLoadTrack(prev, true);
+    // Random play makes index-1 a different track than the one just heard.
+    // Walk back through tracks that actually played. No history: restart this one.
+    let prior = -1;
+    if (_otPlayHistory.length >= 2 && _otPlayHistory[_otPlayHistory.length - 1] === otIndex) {
+        _otPlayHistory.pop();
+        prior = _otPlayHistory[_otPlayHistory.length - 1];
+    }
+    if (prior < 0 || prior >= otTracks.length) {
+        if (otAudio) {
+            try { otAudio.currentTime = 0; } catch (e) {}
+        }
+        _otPublishPosition();
+        return;
+    }
+    otLoadTrack(prior, true);
 }
 
 function otSetVolume(val) {
@@ -1562,10 +1968,7 @@ function otUpdateProgressUI() {
     if (mpProg) mpProg.style.width = pct + '%';
     // External callback
     if (_otOnProgress) _otOnProgress(pct, otAudio.currentTime, otAudio.duration);
-    // Media Session position
-    if ('mediaSession' in navigator && 'setPositionState' in navigator.mediaSession) {
-        try { navigator.mediaSession.setPositionState({ duration:otAudio.duration, playbackRate:otAudio.playbackRate, position:otAudio.currentTime }); } catch(e){}
-    }
+    _otPublishPosition();
 }
 
 
@@ -1581,33 +1984,52 @@ function _otBindMediaSessionHandlers() {
     window._otMediaHandlersBound = true;
     const ms = navigator.mediaSession;
     ms.setActionHandler('play', () => {
+        _otLogPlayer('media-session', 'play');
         _otResumeCtx();  // desktop safety; no-op on mobile (no context)
+        _otForgiveFailures();
+        if (!otAudio || !otAudio.src) {
+            _otResumeAfterStop();
+            return;
+        }
         _otPlayCurrent('mediasession').then(() => {
-            if (!otAudio.paused) ms.playbackState = 'playing';
+            if (otAudio && !otAudio.paused) ms.playbackState = 'playing';
         });
     });
     ms.setActionHandler('pause', () => {
+        _otLogPlayer('media-session', 'pause');
+        if (!otAudio) return;
         otAudio.pause();
         ms.playbackState = 'paused';
     });
-    ms.setActionHandler('previoustrack', () => otPrev());
-    ms.setActionHandler('nexttrack', () => otNext());
+    ms.setActionHandler('previoustrack', () => {
+        _otLogPlayer('media-session', 'previoustrack');
+        otPrev();
+    });
+    ms.setActionHandler('nexttrack', () => {
+        _otLogPlayer('media-session', 'nexttrack');
+        otNext();
+    });
     // Null out seek so the OS shows prev/next buttons instead of scrubbers.
     try { ms.setActionHandler('seekbackward', null); } catch(e){}
     try { ms.setActionHandler('seekforward', null); } catch(e){}
-    try { ms.setActionHandler('seekto', d => { if(d.seekTime!=null){otAudio.currentTime=d.seekTime;otUpdateProgressUI();} }); } catch(e){}
+    try { ms.setActionHandler('seekto', d => {
+        _otLogPlayer('media-session', 'seekto');
+        if (d.seekTime != null && otAudio) { otAudio.currentTime = d.seekTime; otUpdateProgressUI(); }
+    }); } catch(e){}
 }
 
 /** Update the now-playing metadata for the current track. Handlers are bound once in
  *  _otBindMediaSessionHandlers; this only refreshes title/artwork. */
 function otSetupMediaSession(track) {
-    if (!('mediaSession' in navigator)) return;
+    if (!('mediaSession' in navigator) || !track) return;
+    const folder = String(track.folder || '');
     navigator.mediaSession.metadata = new MediaMetadata({
-        title: track.title,
+        title: track.title || '',
         artist: 'LUCID TUNER',
-        album: track.folder.replace(/_/g, ' '),
-        artwork: [{ src: otGetCoverUrl(track.folder), sizes: '512x512', type: 'image/png' }],
+        album: folder.replace(/_/g, ' '),
+        artwork: [{ src: otGetCoverUrl(track.folder, track.cdnBase), sizes: '512x512', type: 'image/png' }],
     });
+    _otPublishPosition();
     _otBindMediaSessionHandlers();  // idempotent safety if audio was created elsewhere
 }
 
@@ -1664,3 +2086,6 @@ function hideMiniPlayer() {
     if (mp) mp.classList.remove('visible');
     document.body.classList.remove('has-mini-player');
 }
+
+_otLoadPlayerLog();
+_otBindPlayerLogCopy();

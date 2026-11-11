@@ -207,6 +207,7 @@
     <div class="mp-info">
       <div class="mp-title" id="mpTitle">--</div>
       <div class="mp-freq" id="mpFreq"></div>
+      <div class="mp-status" id="mpStatus" hidden></div>
     </div>
     <button type="button" class="mp-btn" onclick="event.stopPropagation(); otPrev();" title="Previous">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
@@ -319,6 +320,14 @@
         </section>
         <section id="troubleshooting" class="help-section">
           <h2 class="help-section-title">Troubleshooting</h2>
+          <div class="glossary-item" id="player-log-entry">
+            <h3 class="glossary-term">Player log</h3>
+            <p>Recent player events on this phone. Copy and send them after a drive if playback stops.</p>
+            <div class="help-contact-actions">
+              <button type="button" class="help-contact-btn" id="player-log-copy">Copy</button>
+              <span class="help-contact-status" id="player-log-status"></span>
+            </div>
+          </div>
           <p class="help-placeholder">Troubleshooting guides and solutions to common issues coming soon.</p>
         </section>
       </div>

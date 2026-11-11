@@ -86,6 +86,20 @@ body.house .mini-player .mp-freq {
   letter-spacing: 0.06em;
   color: var(--mp-freq-color);
 }
+body.house .mini-player .mp-status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #ffb4a8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.house .mini-player .mp-status[hidden] { display: none !important; }
+body.house .mini-player:has(.mp-status:not([hidden])) {
+  height: auto;
+  min-height: 68px;
+}
 body.house .mini-player .mp-btn.mp-play {
   color: var(--mp-freq-color);
 }
