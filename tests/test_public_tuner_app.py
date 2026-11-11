@@ -285,12 +285,19 @@ def test_batch1_words_live_in_one_place():
         "No personal Tune yet.",
         "your last tuning",
         "Your streak",
+        "Start your streak today",
         "Your Tune history",
         "The Field's history",
-        "this is always available in Help",
+        "This is always available in Help.",
         "The player",
     ):
         assert line in copy
+    streak = flow[flow.index("function _tfStreakText"):flow.index("window._tfStreakText")]
+    assert "n < 1" in streak
+    assert "streakZero" in streak
+    coaching = flow[flow.index("const TUNE_COACHING"):flow.index("const TUNE_LIMITS")]
+    assert "—" not in coaching and "–" not in coaching
+    assert "The truth was always there. You just needed to retune the decoder." in coaching
 
     assert "window.LT_COPY" in house
     assert "help-batch1-entries" in house

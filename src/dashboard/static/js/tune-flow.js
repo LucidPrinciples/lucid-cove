@@ -140,16 +140,16 @@ const TUNE_TEMPLATE_MAP = {
 
 const TUNE_COACHING = {
     'Peace': "Calm anchors you in the present moment, creating space for clarity to emerge from the noise. Your decoder is resetting to its natural baseline.",
-    'Clarity': "Clear sight requires cutting through static to find signal. The truth was always there—you just needed to retune the decoder.",
+    'Clarity': "Clear sight requires cutting through static to find signal. The truth was always there. You just needed to retune the decoder.",
     'Momentum': "Forward motion begins with a single intentional step. The Field responds to movement, not waiting.",
     'Trust': "Certainty emerges when you stop demanding proof before you move. The path reveals itself to those already walking.",
-    'Joy': "Joy is not a reward for right living—it's the frequency that makes right living possible.",
+    'Joy': "Joy is not a reward for right living. It's the frequency that makes right living possible.",
     'Connection': "Resonance requires vulnerability. To create constructive interference with another, you must first broadcast authentically.",
-    'Presence': "The only frequency that exists is now. Past and future are interference patterns in the decoder—memory and projection, not reality.",
+    'Presence': "The only frequency that exists is now. Past and future are interference patterns in the decoder. Memory and projection, not reality.",
     'Resilience': "You have already survived everything that has happened to you. That track record is not accidental. It is structural.",
     'Courage': "Action in the presence of fear is the definition of courage. The fear does not leave. You move anyway.",
     'Gratitude': "Appreciation is not passive. It is an active broadcast that reorganizes your reticular activating system toward signal.",
-    'Release': "What you carry that is not yours was never meant to stay. Releasing it is not loss—it is correction.",
+    'Release': "What you carry that is not yours was never meant to stay. Releasing it is not loss. It is correction.",
     'Integration': "Synthesis happens when you stop treating parts of your experience as problems to solve and start treating them as data to include.",
     'Boundary': "A boundary is not a wall. It is a declaration of what frequency you are willing to broadcast at. Everything outside that range is static."
 };
@@ -208,6 +208,7 @@ const LT_COPY = {
     yourLastTuning: "your last tuning",
     fieldRecord: "The Field",
     yourStreak: "Your streak",
+    streakZero: "Start your streak today",
     yourTuneHistory: "Your Tune history",
     fieldHistory: "The Field's history",
     welcomeTitle: "Welcome",
@@ -218,7 +219,7 @@ const LT_COPY = {
         "One free Tune a day. It comes back at midnight on your clock. Pro is unlimited Tune.",
         "Your streak is the days in a row you showed up, on the Field or with Tune. That count is yours. LT's consecutive tuning count stays LT's.",
     ],
-    welcomeEnd: "this is always available in Help",
+    welcomeEnd: "This is always available in Help.",
     helpWelcome: "Welcome",
     helpEntries: [
         {
@@ -321,6 +322,7 @@ async function _tfRefreshStreak() {
 
 function _tfStreakText() {
     const n = Number(tuneFlow.streak) || 0;
+    if (n < 1) return _tfWords().streakZero;
     const unit = n === 1 ? "day" : "days";
     return `${_tfWords().yourStreak}: ${n} ${unit}`;
 }
