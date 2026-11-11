@@ -55,7 +55,9 @@
       try {
         const dropTune = await _tfFetchLatestDropTuning();
         if (dropTune) {
+          if (typeof window._tfNoteFieldDay === "function") window._tfNoteFieldDay();
           await _tfShowTuningDetail(Object.assign({}, dropTune, { _dropHub: true }));
+          if (typeof window.paintHomeStreak === "function") window.paintHomeStreak();
           if (badge) badge.setAttribute("aria-expanded", "true");
           return;
         }

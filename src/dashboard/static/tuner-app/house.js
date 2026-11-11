@@ -77,6 +77,10 @@
     if (route.area === "observer" && typeof loadObserver === "function") {
       loadObserver();
     }
+    if (route.area === "app") {
+      paintHomeStreak();
+      maybeOpenWelcome();
+    }
   }
 
   window.lchGoto = function (href, push) {
@@ -262,6 +266,9 @@
   }
 
   document.getElementById("help-btn")?.addEventListener("click", openHelp);
+  document.getElementById("help-welcome")?.addEventListener("click", () => {
+    openWelcome();
+  });
   document.getElementById("help-close")?.addEventListener("click", closeHelp);
   helpOverlay?.addEventListener("click", (e) => {
     if (e.target.id === "help-overlay") closeHelp();
@@ -1017,6 +1024,121 @@
     if (musicListenCtx) fillMusicEmbed(service, musicListenCtx);
   });
 
+  const WELCOME_SEEN_KEY = "lt_welcome_seen";
+  let welcomePage = 0;
+  let welcomeOffered = false;
+
+  function batchCopy() {
+    return window.LT_COPY || null;
+  }
+
+  function applyBatch1Copy() {
+    const copy = batchCopy();
+    if (!copy) return;
+    const fieldLabel = document.querySelector("#dailyBtn .label");
+    const fieldDesc = document.getElementById("fieldDesc");
+    const tuneLabel = document.querySelector("#tuneBtn .label");
+    const tuneDesc = document.querySelector("#tuneBtn .desc");
+    if (fieldLabel) fieldLabel.textContent = copy.fieldLabel || "";
+    if (fieldDesc) fieldDesc.textContent = copy.fieldDesc || "";
+    if (tuneLabel) tuneLabel.textContent = copy.tuneLabel || "";
+    if (tuneDesc) tuneDesc.textContent = copy.tuneDesc || "";
+    const welcomeBtn = document.getElementById("help-welcome");
+    if (welcomeBtn) welcomeBtn.textContent = copy.helpWelcome || "Welcome";
+    const welcomeTitle = document.getElementById("welcome-title");
+    if (welcomeTitle) welcomeTitle.textContent = copy.welcomeTitle || "Welcome";
+    const mount = document.getElementById("help-batch1-entries");
+    if (mount && Array.isArray(copy.helpEntries)) {
+      mount.replaceChildren();
+      copy.helpEntries.forEach((item) => {
+        const wrap = document.createElement("div");
+        wrap.className = "glossary-item";
+        const dt = document.createElement("dt");
+        dt.textContent = item.dt || "";
+        const dd = document.createElement("dd");
+        dd.textContent = item.dd || "";
+        wrap.append(dt, dd);
+        mount.append(wrap);
+      });
+    }
+  }
+
+  function paintWelcome() {
+    const copy = batchCopy();
+    const pages = (copy && copy.welcomePages) || [];
+    const text = document.getElementById("welcome-text");
+    const end = document.getElementById("welcome-end");
+    const next = document.getElementById("welcome-next");
+    const last = pages.length === 0 || welcomePage >= pages.length - 1;
+    if (text) text.textContent = pages[welcomePage] || "";
+    if (end) {
+      end.textContent = (copy && copy.welcomeEnd) || "";
+      end.hidden = !last;
+    }
+    if (next) {
+      next.textContent = last
+        ? ((copy && copy.welcomeDone) || "Done")
+        : ((copy && copy.welcomeNext) || "Next");
+    }
+  }
+
+  function openWelcome() {
+    const overlay = document.getElementById("welcome-overlay");
+    if (!overlay) return;
+    welcomePage = 0;
+    paintWelcome();
+    overlay.hidden = false;
+  }
+
+  function closeWelcome(markSeen) {
+    const overlay = document.getElementById("welcome-overlay");
+    if (overlay) overlay.hidden = true;
+    if (markSeen) {
+      try { localStorage.setItem(WELCOME_SEEN_KEY, "1"); } catch (_) {}
+    }
+  }
+
+  function advanceWelcome() {
+    const copy = batchCopy();
+    const pages = (copy && copy.welcomePages) || [];
+    if (welcomePage >= pages.length - 1) {
+      closeWelcome(true);
+      return;
+    }
+    welcomePage += 1;
+    paintWelcome();
+  }
+
+  function maybeOpenWelcome() {
+    if (welcomeOffered) return;
+    welcomeOffered = true;
+    try {
+      if (localStorage.getItem(WELCOME_SEEN_KEY) === "1") return;
+    } catch (_) {
+      return;
+    }
+    openWelcome();
+  }
+
+  async function paintHomeStreak() {
+    const el = document.getElementById("home-streak");
+    if (!el) return;
+    if (typeof window._tfRefreshStreak === "function") {
+      try { await window._tfRefreshStreak(); } catch (_) {}
+    }
+    if (typeof window._tfStreakText !== "function") return;
+    el.textContent = window._tfStreakText();
+    el.hidden = false;
+  }
+  window.paintHomeStreak = paintHomeStreak;
+
+  document.getElementById("welcome-next")?.addEventListener("click", advanceWelcome);
+  document.getElementById("welcome-close")?.addEventListener("click", () => closeWelcome(true));
+  document.getElementById("welcome-overlay")?.addEventListener("click", (e) => {
+    if (e.target.id === "welcome-overlay") closeWelcome(true);
+  });
+
+  applyBatch1Copy();
   showHouse(location.pathname, location.search, false);
 })();
 

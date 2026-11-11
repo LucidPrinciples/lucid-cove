@@ -174,7 +174,9 @@ body.house .tune-complete .tf-complete-header {
   padding-bottom: 0.5rem;
 }
 body.house .tf-complete-title {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: 0.01em;
 }
 body.house .tf-complete-freq {
   font-size: 1.15rem;
@@ -381,6 +383,42 @@ textarea.help-contact-input {
 }
 .help-nav-link:hover {
   border-color: #7c5cff;
+}
+button.help-nav-link {
+  font: inherit;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+.welcome-panel {
+  width: min(22.5rem, 100%);
+  height: auto;
+  max-height: min(820px, 92vh);
+}
+.welcome-body {
+  padding: 0.35rem 1.25rem 1.4rem;
+}
+#welcome-text {
+  margin: 0.35rem 0 1rem;
+  font-size: 1.05rem;
+  line-height: 1.55;
+}
+.welcome-end {
+  margin: 0 0 1.1rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--dim, #9a9ab0);
+}
+#welcome-next {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  background: linear-gradient(135deg, #7c5cff, #5ce1e6);
+  color: #f5f3fb;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
 }
 .help-section {
   margin-top: 1.75rem;

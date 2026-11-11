@@ -194,6 +194,8 @@
   font-size: 0.85rem;
   color: var(--text);
   margin-bottom: 2px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .tf-practice-step p {
   font-size: 0.82rem;
@@ -547,11 +549,17 @@
 }
 .tf-complete-title {
   display: block;
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.tf-complete-date {
+  display: block;
+  font-size: 0.82rem;
   color: var(--dim);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .tf-complete-freq {
   display: block;
@@ -598,6 +606,27 @@
 .tf-tune-now-top {
   text-align: center;
   margin-bottom: 1rem;
+}
+.tf-streak {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--dim);
+}
+.tf-tune-state {
+  margin: 0 0 0.7rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--text);
+}
+.tf-tune-state-used,
+.tf-tune-state-pro {
+  color: var(--text);
+}
+.tf-last-empty {
+  text-align: center;
+  color: var(--dim);
+  font-size: 0.9rem;
+  margin: 0.25rem 0 1rem;
 }
 .tf-tune-now-locked-wrap {
   display: flex;
@@ -862,7 +891,14 @@
   font-size: 0.72rem;
   font-weight: 700;
 }
-.tf-modal-drop .ot-step-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 4px; }
+.tf-modal-drop .ot-step-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
 .tf-modal-drop .ot-step-text { font-size: 0.82rem; line-height: 1.65; color: var(--dim); }
 .tf-modal-drop .ot-stream-label {
   font-size: 0.7rem;
