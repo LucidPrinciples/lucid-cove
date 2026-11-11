@@ -475,7 +475,7 @@ async function loadOverviewTuning() {
             </div>
             <div class="tuning-block">
                 <div class="tuning-label">Tuning Key</div>
-                <div class="tuning-value" style="color:${fColor};">${esc(String(data.tuning_key || '--'))}</div>
+                <div class="tuning-value" style="color:${fColor};white-space:pre-line;">${esc(String(data.tuning_key || '--')).split(' / ').join('<br>')}</div>
             </div>
             ${signalType ? `<div class="tuning-block">
                 <div class="tuning-label">Signal</div>

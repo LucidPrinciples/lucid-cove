@@ -137,6 +137,67 @@ function otGetCoverUrl(folder, cdnBase) {
     const mapped = cdnBase ? String(folder || '') : otSignalToFolder(folder);
     return (cdnBase || OT_AUDIO_BASE) + '/' + mapped + '/Cover.png';
 }
+
+/** True when the shared element is actually producing sound. */
+function _otAudible() {
+    return !!(otAudio && otAudio.src && !otAudio.paused);
+}
+
+/** Same file already on the shared element. Do not assign src again. */
+function _otTrackIsLoaded(track) {
+    if (!otAudio || !otAudio.src || !track) return false;
+    const want = otGetAudioUrl(track);
+    if (!want) return false;
+    if (otAudio.src === want) return true;
+    try {
+        return new URL(otAudio.src).href === new URL(want, location.href).href;
+    } catch (e) {
+        const name = track.filename || '';
+        return !!(name && otAudio.src.indexOf(name) !== -1);
+    }
+}
+
+/** Stable list. Start on the tuning's principle when it is in the list, else a random row. */
+function _otStableStart(tracks, principle) {
+    if (!tracks || !tracks.length) return 0;
+    if (principle) {
+        const want = String(principle).toLowerCase();
+        const idx = tracks.findIndex(t => t.principle && String(t.principle).toLowerCase() === want);
+        if (idx >= 0) return idx;
+    }
+    return Math.floor(Math.random() * tracks.length);
+}
+
+/** Keep currentTime. Opening the same track is not a restart. */
+function _otKeepLoaded(tracks, opts, startAt) {
+    opts = opts || {};
+    window._otPreview = null;
+    otTracks = tracks;
+    otIndex = startAt;
+    if (opts.source) _otSource = opts.source;
+    if (opts.label) _otPlaylistLabel = opts.label;
+    if (opts.freqColor) {
+        window._otFreqColor = opts.freqColor;
+        otColorPlayer(opts.freqColor);
+    }
+    if (opts.mountId) otRenderPlayer(opts.mountId);
+    _otApplyTrackUI(startAt, { skipSrc: true, keepTime: true });
+    if (opts.label) {
+        const root = opts.mountId ? document.getElementById(opts.mountId) : null;
+        const label = root ? root.querySelector('.ot-playlist-label') : null;
+        if (label) label.textContent = opts.label;
+        const mpFreq = document.getElementById('mpFreq');
+        if (mpFreq) mpFreq.textContent = _otPlaylistLabel;
+    }
+    if (opts.autoplay === true && otAudio && otAudio.paused) {
+        _otPlayCurrent('same-track');
+    } else if (typeof showMiniPlayer === 'function') {
+        showMiniPlayer();
+    }
+    otUpdateIcons();
+    otUpdateProgressUI();
+    otRenderPlaylist();
+}
 function otFmtTime(s) { if (!s||isNaN(s)) return '0:00'; const m=Math.floor(s/60),ss=Math.floor(s%60); return m+':'+(ss<10?'0':'')+ss; }
 
 function otHexToRgb(hex) {
@@ -262,7 +323,7 @@ function _otPaintPreview(mountId, tracks, opts) {
         el.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
     });
     const playBtn = root.querySelector('.ot-play');
-    if (playBtn) playBtn.setAttribute('onclick', '_otStartPreview(0)');
+    if (playBtn) playBtn.setAttribute('onclick', '_otStartPreview(-1)');
     const list = root.querySelector('.ot-playlist-tracks');
     if (list) {
         list.innerHTML = tracks.map((t, i) =>
@@ -276,8 +337,16 @@ function _otPaintPreview(mountId, tracks, opts) {
 
 function _otStartPreview(index) {
     const preview = window._otPreview;
-    if (!preview || !preview.tracks) return;
-    const o = Object.assign({}, preview.opts, { autoplay: true, startIndex: index || 0 });
+    if (!preview || !preview.tracks || !preview.tracks.length) return;
+    let start = index;
+    if (start == null || start < 0) {
+        if (preview.opts && preview.opts.startIndex != null && preview.opts.startIndex >= 0) {
+            start = preview.opts.startIndex;
+        } else {
+            start = Math.floor(Math.random() * preview.tracks.length);
+        }
+    }
+    const o = Object.assign({}, preview.opts, { autoplay: true, startIndex: start });
     window._otPreview = null;
     otSetPlaylist(preview.tracks, o);
 }
@@ -512,7 +581,10 @@ function otRenderTuning(data) {
     // Tuning key
     if (data.tuning_key) {
         const keyText = document.getElementById('otKeyText');
-        if (keyText) keyText.textContent = data.tuning_key;
+        if (keyText) {
+            keyText.textContent = String(data.tuning_key).split(' / ').join('\n');
+            keyText.style.whiteSpace = 'pre-line';
+        }
     } else {
         const keyEl = document.getElementById('otKeyBlock');
         if (keyEl) keyEl.style.display = 'none';
@@ -736,7 +808,10 @@ async function otInitPlayer(data) {
     // Load favorites
     await otLoadFavorites();
 
-    // Try loading frequency playlist from CDN
+    // Try loading frequency playlist from CDN. If a stream is already on the
+    // shared element, put the old queue back so its label does not change.
+    const loadedTracks = otTracks.slice();
+    let nextTracks = [];
     let freqPlaylistLoaded = false;
     if (freq) {
         try {
@@ -746,6 +821,7 @@ async function otInitPlayer(data) {
                 const rows = otPlaylistRows(await res.json());
                 if (rows.length > 0) {
                     otTracks = rows.map(t => otMapCdnTrack(t, signalFolder));
+                    nextTracks = otTracks.slice();
                     freqPlaylistLoaded = true;
                 }
             }
@@ -755,42 +831,43 @@ async function otInitPlayer(data) {
     }
 
     if (!freqPlaylistLoaded) {
-        otTracks = otBuildTracks(signalFolder);
+        nextTracks = otBuildTracks(signalFolder);
     }
 
-    // Shuffle
-    for (let i = otTracks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [otTracks[i], otTracks[j]] = [otTracks[j], otTracks[i]];
-    }
-
-    // Start with tuning principle if matched
-    if (data && data.principle) {
-        const want = String(data.principle).toLowerCase();
-        const idx = otTracks.findIndex(t => t.principle && t.principle.toLowerCase() === want);
-        if (idx > 0) {
-            const m = otTracks.splice(idx, 1)[0];
-            otTracks.unshift(m);
-        }
-    }
+    // List order stays as loaded. Play starts on this tuning's principle, or a random row.
+    const startAt = _otStableStart(nextTracks, data && data.principle);
 
     // Create audio element
     _otEnsureAudio();
 
-    // If audio is currently playing from another source, show new playlist
-    // in "ready to play" state without interrupting current audio
-    if (otAudio && !otAudio.paused) {
-        _otPendingPlay = true;
-        _otDisplayTrackInfo(0);
-    } else {
-        _otPendingPlay = false;
-        otLoadTrack(0, false);
+    const streamName = freq ? freq + ' Tuning Stream' : signalFolder.replace(/_/g, ' ');
+    const streamLabel = streamName + ' (' + nextTracks.length + ' tracks)';
+
+    // Opening Tune is not Play. A loaded stream keeps its label and its place.
+    if (otAudio && otAudio.src) {
+        otTracks = loadedTracks;
+        const mountId = document.getElementById('tfPlayerMount') ? 'tfPlayerMount' : 'otPlayerMount';
+        _otPaintPreview(mountId, nextTracks, {
+            label: streamName,
+            source: 'tune',
+            freqColor: window._otFreqColor,
+            startIndex: startAt,
+        });
+        return;
     }
+
+    otTracks = nextTracks;
+    _otPlaylistLabel = streamName;
+    _otSource = 'tune';
+    _otPendingPlay = false;
+    otLoadTrack(startAt, false);
     otRenderPlaylist();
 
-    const streamName = freq ? freq + ' Tuning Stream' : signalFolder.replace(/_/g, ' ');
-    const streamLabel = streamName + ' (' + otTracks.length + ' tracks)';
-    document.querySelectorAll('.ot-playlist-label').forEach(el => el.textContent = streamLabel);
+    document.querySelectorAll('#tfPlayerMount .ot-playlist-label, #otPlayerMount .ot-playlist-label, #panel-operator-tuning .ot-playlist-label').forEach(el => {
+        el.textContent = streamLabel;
+    });
+    const mpFreqNow = document.getElementById('mpFreq');
+    if (mpFreqNow) mpFreqNow.textContent = streamName;
 
     // Stream activation label above player
     const streamLabelEl = document.getElementById('otStreamLabel');
@@ -1133,9 +1210,20 @@ function otSetPlaylist(tracks, opts) {
     opts = opts || {};
     if (!tracks || tracks.length === 0) return;
 
+    const startAt = (opts.startIndex == null || opts.startIndex < 0) ? 0 : opts.startIndex;
+    if (_otTrackIsLoaded(tracks[startAt])) {
+        _otKeepLoaded(tracks, opts, startAt);
+        return;
+    }
+
     const live = !!(otAudio && !otAudio.paused && otAudio.src);
     // Opening Tune, Playlists, or Drop is not Play. One rule for all three.
     if (live && opts.autoplay !== true) {
+        _otPaintPreview(opts.mountId, tracks, opts);
+        return;
+    }
+    const parked = !!(otAudio && otAudio.paused && otAudio.src);
+    if (parked && opts.autoplay !== true) {
         _otPaintPreview(opts.mountId, tracks, opts);
         return;
     }
@@ -1220,10 +1308,17 @@ function _otDisplayTrackInfo(index) {
     document.querySelectorAll('.ot-progress-bar').forEach(el => el.style.width = '0%');
     document.querySelectorAll('.ot-time-elapsed').forEach(el => el.textContent = '0:00');
     document.querySelectorAll('.ot-time-duration').forEach(el => el.textContent = '0:00');
-    // Force play icon (not pause — this playlist isn't playing yet)
+    // This list is not the one making sound. Its button shows play.
+    // The mini bar keeps the real play or pause icon.
     document.querySelectorAll('.ot-play-icon').forEach(el => {
         el.innerHTML = '<polygon points="5,3 19,12 5,21"/>';
     });
+    const mpIcon = document.getElementById('mpPlayIcon');
+    if (mpIcon) {
+        mpIcon.innerHTML = _otAudible()
+            ? '<rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/>'
+            : '<polygon points="5,3 19,12 5,21"/>';
+    }
     // Favorites heart
     _otUpdateFavUI();
 }
@@ -1231,6 +1326,14 @@ function _otDisplayTrackInfo(index) {
 function otLoadTrack(index, autoplay) {
     if (index < 0 || index >= otTracks.length) return;
     _otEnsureAudio();
+    // Same file already loaded: play from where it is. Do not seek to 0:00.
+    if (_otTrackIsLoaded(otTracks[index])) {
+        _otApplyTrackUI(index, { skipSrc: true, keepTime: true });
+        if (autoplay && otAudio.paused) _otPlayCurrent('same-track');
+        else otUpdateIcons();
+        if (otAudio && otAudio.currentTime) otUpdateProgressUI();
+        return;
+    }
     // If this index is already warm on the preload buffer, hand off without a cold src set
     if (autoplay && _otNextAudio && _otPreloadIndex === index && _otNextAudio.readyState >= 2 && _otNextAudio.src) {
         if (_otHandoffToPreloaded()) return;
@@ -1249,8 +1352,10 @@ function _otApplyTrackUI(index, opts) {
     opts = opts || {};
     if (index < 0 || index >= otTracks.length) return;
     _otPendingPlay = false;  // Explicit load = no longer pending
-    _otCurrentTrackLogged = false;  // Reset for new track
-    _otPlayStartTime = null;
+    if (!opts.keepTime) {
+        _otCurrentTrackLogged = false;  // Reset for new track
+        _otPlayStartTime = null;
+    }
     otIndex = index;
     const track = otTracks[index];
     if (!opts.skipSrc) {
@@ -1276,11 +1381,13 @@ function _otApplyTrackUI(index, opts) {
         el.textContent = track.folder.replace(/_/g, ' ');
         if (typeof lpSignalColor === 'function') el.style.color = lpSignalColor(track.folder);
     });
-    document.querySelectorAll('.ot-progress-bar').forEach(el => el.style.width = '0%');
-    document.querySelectorAll('.ot-time-elapsed').forEach(el => el.textContent = '0:00');
-    document.querySelectorAll('.ot-time-duration').forEach(el => {
-        el.textContent = (otAudio && otAudio.duration) ? otFmtTime(otAudio.duration) : '0:00';
-    });
+    if (!opts.keepTime) {
+        document.querySelectorAll('.ot-progress-bar').forEach(el => el.style.width = '0%');
+        document.querySelectorAll('.ot-time-elapsed').forEach(el => el.textContent = '0:00');
+        document.querySelectorAll('.ot-time-duration').forEach(el => {
+            el.textContent = (otAudio && otAudio.duration) ? otFmtTime(otAudio.duration) : '0:00';
+        });
+    }
 
     // Playlist active highlight
     const fc = window._otFreqColor || 'var(--accent)';
@@ -1351,7 +1458,8 @@ function otTogglePlay() {
         return;
     }
     if (!otAudio.src) return;
-    if (otIsPlaying) {
+    // Icon follows the element, not a flag that can stick after a buffer swap.
+    if (_otAudible()) {
         _otNeedsResume = false;
         otAudio.pause();
     } else {
@@ -1409,7 +1517,7 @@ function otSetVolume(val) {
 function otUpdateIcons() {
     const playPath = '<polygon points="5,3 19,12 5,21"/>';
     const pausePath = '<rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/>';
-    const svg = otIsPlaying ? pausePath : playPath;
+    const svg = _otAudible() ? pausePath : playPath;
     document.querySelectorAll('.ot-play-icon').forEach(el => {
         if (_otInPreview(el)) return;
         el.innerHTML = svg;

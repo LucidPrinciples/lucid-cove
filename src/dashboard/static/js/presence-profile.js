@@ -284,7 +284,7 @@
             <div><div class="pp-name">${esc(ag.name)}${ag.cove ? ` ${esc(ag.cove)}` : ''}</div>
             <div class="pp-handle">Personal intelligence</div></div></div>
           ${agentFacets}
-          ${ag.tuning_key ? `<div class="pp-key">“${esc(ag.tuning_key)}”</div>` : ''}
+          ${ag.tuning_key ? `<div class="pp-key" style="white-space:pre-line;">“${esc(ag.tuning_key).split(' / ').join('<br>')}”</div>` : ''}
           ${dialsHTML(ag.personality)}
           ${lensHTML(ag.lens)}
           ${chips(ag.skills) ? `<div class="pp-chips">${chips(ag.skills)}</div>` : ''}`

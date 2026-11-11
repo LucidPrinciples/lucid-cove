@@ -279,6 +279,10 @@
     return node;
   }
 
+  function keyBreak(text) {
+    return String(text || "").split(" / ").join("\n");
+  }
+
   function paintTriad(mount, triad, missing) {
     mount.replaceChildren();
     const box = el("div", "ta-triad");
@@ -290,7 +294,7 @@
     }
     box.appendChild(el("p", "ta-triad-freq", triad.frequency || "—"));
     if (triad.principle) box.appendChild(el("p", "ta-triad-principle", triad.principle));
-    if (triad.tuning_key) box.appendChild(el("p", "ta-triad-key", triad.tuning_key));
+    if (triad.tuning_key) box.appendChild(el("p", "ta-triad-key", keyBreak(triad.tuning_key)));
     mount.appendChild(box);
   }
 
@@ -408,7 +412,7 @@
       return;
     }
     card.appendChild(el("p", "ta-run-body", fill(walk.close, triad)));
-    if (triad && triad.tuning_key) card.appendChild(el("p", "ta-run-key", triad.tuning_key));
+    if (triad && triad.tuning_key) card.appendChild(el("p", "ta-run-key", keyBreak(triad.tuning_key)));
     const doneBtn = el("button", "ta-btn", "Mark done");
     doneBtn.type = "button";
     doneBtn.addEventListener("click", () => {
@@ -473,7 +477,7 @@
       card.appendChild(el("p", "ta-card-meta", meta));
       if (open) {
         if (action.triad && action.triad.tuning_key && action.flow !== FLOW_WALK) {
-          card.appendChild(el("p", "ta-run-key", action.triad.tuning_key));
+          card.appendChild(el("p", "ta-run-key", keyBreak(action.triad.tuning_key)));
         }
         if (action.flow === FLOW_WALK) {
           const walk = action.walk || defaultWalkState();

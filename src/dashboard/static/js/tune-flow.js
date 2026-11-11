@@ -206,6 +206,8 @@ const LT_COPY = {
     tuneUnlimited: "Unlimited Tune",
     tuneNone: "No personal Tune yet.",
     yourLastTuning: "your last tuning",
+    tuneSlow: "Your last tuning is still loading.",
+    tuneLoadFail: "Couldn't load your tunings. You can still tune.",
     fieldRecord: "The Field",
     yourStreak: "Your streak",
     streakZero: "Start your streak today",
@@ -403,15 +405,46 @@ const tuneFlow = {
 
 // Countdown timer interval
 let _tfCountdownInterval = null;
+let _tfLoadGen = 0;
 
 // ─── Entry Point (called when Tune tab loads) ────────────────────────────────
+
+function _tfShowTuneWait(container, message) {
+    container.innerHTML = `
+        <div class="tune-flow">
+            <p class="tf-tune-slow">${ESC(message)}</p>
+            ${_tfTuneNowTopHTML()}
+        </div>`;
+}
+
+async function _tfFetchPersonalHistory() {
+    // This is the call that holds "Loading Tune…". /api/tuning/history opens
+    // Postgres through get_db() with no connect timeout, so a slow connect
+    // sits here for about 20s. Abort and let the page say so.
+    const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 8000) : null;
+    try {
+        const histResp = await fetch('/api/tuning/history?limit=100', ctrl ? { signal: ctrl.signal } : undefined);
+        if (!histResp.ok) throw new Error('history');
+        return await histResp.json();
+    } finally {
+        if (timer) clearTimeout(timer);
+    }
+}
 
 async function loadTuneFlow() {
     const container = document.getElementById('panel-tune') || document.querySelector('[id="panel-tune"]');
     if (!container) return;
+    const gen = ++_tfLoadGen;
 
     // Clear any previous countdown
     if (_tfCountdownInterval) { clearInterval(_tfCountdownInterval); _tfCountdownInterval = null; }
+
+    const slowTimer = setTimeout(() => {
+        if (gen !== _tfLoadGen || tuneFlow.step > 0) return;
+        if (container.querySelector('.tune-flow')) return;
+        _tfShowTuneWait(container, _tfWords().tuneSlow);
+    }, 4000);
 
     // Morning-open / cold-start: ?view=latest (or session flag) always opens the
     // latest public Drop — never a blank wizard, never "waiting for today".
@@ -424,10 +457,10 @@ async function loadTuneFlow() {
 
     if (openLatest && !tuneFlow._forceNewFlow) {
         const dropTune = await _tfFetchLatestDropTuning();
+        if (gen !== _tfLoadGen) { clearTimeout(slowTimer); return; }
         if (dropTune) {
             try {
-                const histResp = await fetch('/api/tuning/history?limit=100');
-                const histData = await histResp.json();
+                const histData = await _tfFetchPersonalHistory();
                 const rows = histData.sessions || [];
                 const personal = Array.isArray(rows) ? rows.filter(_tfIsPersonalSession) : [];
                 tuneFlow._sessions = personal;
@@ -435,7 +468,14 @@ async function loadTuneFlow() {
             } catch (e) {
                 tuneFlow.todayCount = 0;
             }
-            try { await _tfRefreshStreak(); } catch (e) {}
+            try {
+                await Promise.race([
+                    _tfRefreshStreak(),
+                    new Promise((resolve) => setTimeout(resolve, 2000)),
+                ]);
+            } catch (e) {}
+            clearTimeout(slowTimer);
+            if (gen !== _tfLoadGen || tuneFlow.step > 0) return;
             tuneFlow.tuningData = dropTune;
             tuneFlow.step = 0;
             await _renderCompletedTuning(container, dropTune);
@@ -449,10 +489,10 @@ async function loadTuneFlow() {
     let todayCount = 0;
     let sessions = [];
 
+    let historyFailed = false;
     try {
         // History includes past days. Personal Tune only. The Field is separate.
-        const histResp = await fetch('/api/tuning/history?limit=100');
-        const histData = await histResp.json();
+        const histData = await _tfFetchPersonalHistory();
         const rows = histData.sessions || histData || [];
         if (Array.isArray(rows)) {
             sessions = rows.filter(_tfIsPersonalSession);
@@ -464,6 +504,7 @@ async function loadTuneFlow() {
             if (anyTune) mostRecentEver = anyTune;
         }
     } catch (e) {
+        historyFailed = true;
         // Fallback: try /api/tuning/today
         try {
             const resp = await fetch('/api/tuning/today');
@@ -471,6 +512,7 @@ async function loadTuneFlow() {
             const isUserInitiated = data.context && data.context.trim() !== '';
             if (data && data.session_id && isUserInitiated) {
                 mostRecentEver = data;
+                historyFailed = false;
                 if (!data.from_previous_day && _isTuningFromToday(data)) {
                     latestTune = data;
                     todayCount = 1;
@@ -479,13 +521,28 @@ async function loadTuneFlow() {
         } catch (e2) {}
     }
 
+    clearTimeout(slowTimer);
+    if (gen !== _tfLoadGen || tuneFlow.step > 0) return;
+
     // The Field is not this person's Tune. An empty personal history stays empty.
     tuneFlow._sessions = sessions;
     tuneFlow.todayCount = todayCount;
-    try { await _tfRefreshStreak(); } catch (e) {}
+    try {
+        await Promise.race([
+            _tfRefreshStreak(),
+            new Promise((resolve) => setTimeout(resolve, 2000)),
+        ]);
+    } catch (e) {}
+    if (gen !== _tfLoadGen || tuneFlow.step > 0) return;
 
     // Pick the best tuning to show: today's if available, otherwise most recent from any day
     const tuneToShow = latestTune || mostRecentEver;
+
+    if (historyFailed && !tuneToShow) {
+        tuneFlow.step = 0;
+        _tfShowTuneWait(container, _tfWords().tuneLoadFail);
+        return;
+    }
 
     // If tuneNow() set the force flag, start fresh only when the daily limit allows
     if (tuneFlow._forceNewFlow) {
@@ -1005,7 +1062,7 @@ function _renderStep6(container) {
                 </div>
                 <div class="tf-key">
                     <p class="tf-key-instruction">This is your anchor. Read it. Hold it. When the frequency starts, let this thought organize your broadcast.</p>
-                    <blockquote class="tf-key-quote">"${ESC(key)}"</blockquote>
+                    <blockquote class="tf-key-quote">"${ESC(key).split(' / ').join('<br>')}"</blockquote>
                 </div>
                 <button class="tf-btn tf-btn-next" onclick="_renderStep7(_tfContainer())">Play Echo</button>
             </div>
@@ -1202,7 +1259,7 @@ async function _renderCompletedTuning(container, data) {
 
             ${key ? `<div class="tf-complete-section tf-complete-key">
                 <span class="tf-section-label">Tuning Key</span>
-                <blockquote class="tf-key-quote">"${ESC(key)}"</blockquote>
+                <blockquote class="tf-key-quote">"${ESC(key).split(' / ').join('<br>')}"</blockquote>
             </div>` : ''}
 
             <div class="tf-complete-section">
@@ -1414,6 +1471,7 @@ function _tfStartCountdown() {
 function _tfStartNewTune() {
     // Free tier: never start a second personal tune the same local day.
     if (_tfBlockIfLocked()) return;
+    _tfLoadGen++;
     const container = _tfContainer();
     if (!container) return;
     // Stop any playing audio — new Tune Now = new experience
@@ -1845,7 +1903,7 @@ async function _tfShowTuningDetail(s) {
 
             ${key ? `<div class="ot-card ot-key" style="border-left-color:${freqColor};">
                 <div class="ot-label" style="color:${freqColor};">Tuning Key</div>
-                <div class="ot-text italic">"${ESC(key)}"</div>
+                <div class="ot-text italic">"${ESC(key).split(' / ').join('<br>')}"</div>
             </div>` : ''}
 
             ${coaching ? `<div class="ot-card">
@@ -2018,25 +2076,18 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
         }
     }
 
-    // Shuffle
-    for (let i = tracks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
-    }
-
-    // Put this tuning's echo first
-    if (s.principle) {
-        const idx = tracks.findIndex(t => t.principle && t.principle.toLowerCase() === s.principle.toLowerCase());
-        if (idx > 0) { const m = tracks.splice(idx, 1)[0]; tracks.unshift(m); }
-    }
-
     if (!tracks.length) return;
+
+    const startIndex = (typeof _otStableStart === 'function')
+        ? _otStableStart(tracks, s.principle)
+        : 0;
 
     otSetPlaylist(tracks, {
         source: 'history',
         label: freq + ' Tuning Stream',
         freqColor: freqColor,
         autoplay: false,
+        startIndex: startIndex,
         mountId: mountId || 'tfModalPlayer',
     });
 }
@@ -2185,17 +2236,9 @@ async function _tfsInit(data) {
         tracks = otBuildTracks(signalFolder);
     }
 
-    // Shuffle
-    for (let i = tracks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
-    }
-
-    // Put tuning echo first
-    if (data.principle) {
-        const idx = tracks.findIndex(t => t.principle && t.principle.toLowerCase() === data.principle.toLowerCase());
-        if (idx > 0) { const m = tracks.splice(idx, 1)[0]; tracks.unshift(m); }
-    }
+    const startIndex = (typeof _otStableStart === 'function')
+        ? _otStableStart(tracks, data.principle)
+        : 0;
 
     // Get frequency color
     const freqUpper = freq.toUpperCase();
@@ -2208,6 +2251,7 @@ async function _tfsInit(data) {
             label: freq + ' Tuning Stream',
             freqColor: freqColor,
             autoplay: false,
+            startIndex: startIndex,
             mountId: 'tfPlayerMount'
         });
     }

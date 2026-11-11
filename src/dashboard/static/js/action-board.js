@@ -3079,7 +3079,7 @@ async function openCreationDetail(actionId) {
         <div class="ab-detail-scroll">
             <div class="ab-detail-content">
                 <h2 class="ab-detail-title">${esc(item.title)}</h2>
-                ${item.tuning_key ? `<p style="color:${_creationFreqColor(item.frequency)};font-style:italic;font-size:13px;margin:4px 0 16px;">"${esc(item.tuning_key)}"</p>` : ''}
+                ${item.tuning_key ? `<p style="color:${_creationFreqColor(item.frequency)};font-style:italic;font-size:13px;margin:4px 0 16px;white-space:pre-line;">"${esc(item.tuning_key).split(' / ').join('<br>')}"</p>` : ''}
                 ${stageBar}
                 <p style="color:#888;font-size:13px;margin:12px 0;">${stageGuidance[item.stage] || ''}</p>
                 ${item.intention ? `<div class="ab-detail-field"><label>Intention</label><p style="color:#ccc;font-size:13px;">${esc(item.intention)}</p></div>` : ''}

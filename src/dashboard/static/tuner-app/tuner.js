@@ -16,11 +16,15 @@
     });
     window.activeTab = which;
     if (!load || which === "app") return;
+    // Do not wait on /api/presence/me. That fetch is MCReady, and a slow
+    // response left this pane on "Loading Tune…" before loadTuneFlow ran.
+    if (which === "tune" && typeof loadTuneFlow === "function") {
+      loadTuneFlow();
+      return;
+    }
     const ready = window.MCReady || Promise.resolve();
     ready.then(() => {
-      if (which === "tune" && typeof loadTuneFlow === "function") {
-        loadTuneFlow();
-      } else if (which === "playlists" && typeof loadPlaylistsTab === "function") {
+      if (which === "playlists" && typeof loadPlaylistsTab === "function") {
         loadPlaylistsTab();
       }
     });
@@ -82,7 +86,13 @@
   });
 
   function applyDrop(freq, colors) {
-    const name = freq || "Peace";
+    const name = String(freq || "").trim();
+    if (!name) {
+      if (freqText) freqText.textContent = "";
+      if (dropTitle) dropTitle.textContent = "Today's Drop";
+      document.documentElement.removeAttribute("data-frequency");
+      return;
+    }
     if (freqText) freqText.textContent = name;
     if (dropTitle) dropTitle.textContent = name;
     document.documentElement.setAttribute("data-frequency", name);
@@ -115,7 +125,7 @@
         colors = pkg.frequency_colors || null;
       } catch (_) {}
     }
-    applyDrop(freq || "Peace", colors);
+    if (freq) applyDrop(freq, colors);
   }
   bootFreqChrome();
 })();

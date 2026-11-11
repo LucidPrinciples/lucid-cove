@@ -161,18 +161,13 @@ function _plPlayFavorites() {
         };
     });
 
-    // Shuffle all
-    for (let i = tracks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
-    }
-
     if (typeof otSetPlaylist === 'function') {
         otSetPlaylist(tracks, {
             source: 'playlist',
             label: 'Favorites (' + tracks.length + ' echoes)',
             freqColor: '#e74c3c',
             autoplay: true,
+            startIndex: tracks.length ? Math.floor(Math.random() * tracks.length) : 0,
             mountId: 'plPlayerMount'
         });
 
@@ -223,18 +218,13 @@ function _plBuildAndPlay(folder, label, color) {
         return;
     }
 
-    // Shuffle
-    for (let i = tracks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
-    }
-
     if (typeof otSetPlaylist === 'function') {
         otSetPlaylist(tracks, {
             source: 'playlist',
             label: label + ' Stream',
             freqColor: color || 'var(--accent)',
             autoplay: true,
+            startIndex: tracks.length ? Math.floor(Math.random() * tracks.length) : 0,
             mountId: 'plPlayerMount'
         });
 
@@ -257,18 +247,13 @@ function _plBuildGenreAndPlay(folder, label, color) {
             cdnBase: OT_GENRE_CDN,
         }));
 
-    // Shuffle
-    for (let i = tracks.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
-    }
-
     if (typeof otSetPlaylist === 'function') {
         otSetPlaylist(tracks, {
             source: 'playlist',
             label: display + ' Album',
             freqColor: color || 'var(--accent)',
             autoplay: true,
+            startIndex: tracks.length ? Math.floor(Math.random() * tracks.length) : 0,
             mountId: 'plPlayerMount'
         });
 
