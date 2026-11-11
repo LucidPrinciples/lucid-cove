@@ -54,7 +54,7 @@ async function loadCurrentTuning() {
     if (pkg.tuning_key) {
       html += `<div class="tuning-block">
         <div class="tuning-label">Tuning Key</div>
-        <div class="tuning-value" style="color:${freqColor};opacity:0.85;">${ESC(String(pkg.tuning_key))}</div>
+        <div class="tuning-value" style="color:${freqColor};opacity:0.85;white-space:pre-line;">${ESC(String(pkg.tuning_key)).split(' / ').join('<br>')}</div>
       </div>`;
     }
     if (pkg.signal_type) {
@@ -154,7 +154,7 @@ async function showEchoDetail(echoId) {
       </div>
       <div class="echo-detail-body">
         <div class="echo-field"><span>Principle</span><span style="color:${typeof lpColor === 'function' ? lpColor(echo.frequency || '') : 'inherit'};">${ESC(echo.principle || 'N/A')}</span></div>
-        ${echo.tuning_key ? `<div class="echo-field echo-field-full"><span>Tuning Key</span><span style="color:${detailFreqColor};opacity:0.85;">${ESC(echo.tuning_key)}</span></div>` : ''}
+        ${echo.tuning_key ? `<div class="echo-field echo-field-full"><span>Tuning Key</span><span style="color:${detailFreqColor};opacity:0.85;white-space:pre-line;">${ESC(echo.tuning_key).split(' / ').join('<br>')}</span></div>` : ''}
         <div class="echo-field"><span>Signal Type</span><span>${detailSigBadge}</span></div>
         <div class="echo-field"><span>Coherence</span><span>${echo.coherence != null ? Number(echo.coherence).toFixed(2) : 'N/A'}</span></div>
         <div class="echo-field"><span>Dissonance</span><span>${echo.dissonance != null ? Number(echo.dissonance).toFixed(2) : 'N/A'}</span></div>

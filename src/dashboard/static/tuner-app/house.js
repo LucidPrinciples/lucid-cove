@@ -81,6 +81,9 @@
       paintHomeStreak();
       maybeOpenWelcome();
     }
+    if (typeof otAudio !== "undefined" && otAudio && otAudio.src && typeof showMiniPlayer === "function") {
+      showMiniPlayer();
+    }
   }
 
   window.lchGoto = function (href, push) {

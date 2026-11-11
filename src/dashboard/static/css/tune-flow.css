@@ -228,6 +228,7 @@
   color: var(--daily-freq, var(--accent));
   font-style: italic;
   line-height: 1.6;
+  white-space: pre-line;
   padding: 1rem 1.25rem;
   margin: 0;
   border-left: 3px solid var(--daily-freq, var(--accent));
@@ -611,6 +612,18 @@
   margin: 0 0 0.35rem;
   font-size: 0.8rem;
   color: var(--dim);
+}
+.tf-tune-slow {
+  margin: 0.75rem 0 0.5rem;
+  color: var(--dim);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+.tf-tune-slow {
+  margin: 0.75rem 0 0.5rem;
+  color: var(--dim);
+  font-size: 0.95rem;
+  line-height: 1.45;
 }
 .tf-tune-state {
   margin: 0 0 0.7rem;

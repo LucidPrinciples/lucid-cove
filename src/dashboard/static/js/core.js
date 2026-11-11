@@ -1764,8 +1764,47 @@ function switchReportsSub(subName) {
 // =============================================================================
 // Status polling
 // =============================================================================
+function _ltCleanFrequency(raw) {
+    const name = String(raw || '').trim();
+    if (!name || name === '\u2014' || name === '-' || name === '\u2013') return '';
+    return name;
+}
+
+function _ltReadLatestFrequency() {
+    try {
+        return _ltCleanFrequency(localStorage.getItem('lt_latest_frequency'));
+    } catch (e) {
+        return '';
+    }
+}
+
+function _ltRememberLatestFrequency(name) {
+    const clean = _ltCleanFrequency(name);
+    if (!clean) return;
+    try { localStorage.setItem('lt_latest_frequency', clean); } catch (e) {}
+}
+
+function _ltPaintFrequency(freq, name) {
+    const clean = _ltCleanFrequency(name);
+    if (!freq || !clean) return;
+    freq.textContent = clean;
+    if (typeof lpFreqColor !== 'function') return;
+    const fc = lpFreqColor(clean);
+    if (!fc || !fc.primary) return;
+    freq.style.color = fc.primary;
+    freq.style.borderColor = fc.primary;
+    const r2 = parseInt(fc.primary.slice(1, 3), 16) || 0;
+    const g2 = parseInt(fc.primary.slice(3, 5), 16) || 0;
+    const b2 = parseInt(fc.primary.slice(5, 7), 16) || 0;
+    freq.style.background = `rgba(${r2},${g2},${b2},0.08)`;
+}
+
 async function _pollTuningBadge(freq, sub) {
-    // Shared helper: populate header freq badge from tuning data
+    // Header pill: last known latest tuning now, then confirm. Never a dash.
+    if (freq) {
+        const saved = _ltReadLatestFrequency();
+        if (saved && !_ltCleanFrequency(freq.textContent)) _ltPaintFrequency(freq, saved);
+    }
     try {
         // All tiers use /api/tuning/operator — single endpoint, flat response shape.
         // Cache-bust: v= on deploy, d= daily
@@ -1773,20 +1812,14 @@ async function _pollTuningBadge(freq, sub) {
         const tuning = await fetch('/api/tuning/operator?' + _cb).then(r => r.ok ? r.json() : null);
         if (tuning && tuning.has_tuning && tuning.frequency) {
             window._todayTuning = tuning;  // stash for home tab
-            freq.textContent = tuning.frequency;
-            const fc = lpFreqColor(tuning.frequency);
-            freq.style.color = fc.primary;
-            freq.style.borderColor = fc.primary;
-            const r2 = parseInt(fc.primary.slice(1,3),16)||0, g2 = parseInt(fc.primary.slice(3,5),16)||0, b2 = parseInt(fc.primary.slice(5,7),16)||0;
-            freq.style.background = `rgba(${r2},${g2},${b2},0.08)`;
+            _ltPaintFrequency(freq, tuning.frequency);
+            _ltRememberLatestFrequency(tuning.frequency);
             // Don't overwrite subtitle — archetype (agent tiers) or @handle
             // (Presence login) are set at boot and should stay. The principle
             // is already visible in the frequency badge.
-        } else {
-            freq.textContent = '—';
         }
     } catch {
-        freq.textContent = '—';
+        // Keep the last known name. A failed confirm is not a new frequency.
     }
 }
 

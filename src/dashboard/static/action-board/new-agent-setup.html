@@ -1187,7 +1187,8 @@ function showIdentityReveal() {
     const tkEl = document.getElementById('ir-tuning-key');
     const songEl = document.getElementById('ir-song');
     if (agentIdentity.tuning_key) {
-        tkEl.textContent = '"' + agentIdentity.tuning_key + '"';
+        tkEl.textContent = '"' + String(agentIdentity.tuning_key).split(' / ').join('\n') + '"';
+        tkEl.style.whiteSpace = 'pre-line';
         tkEl.style.display = 'block';
         songEl.textContent = '— ' + (agentIdentity.tuning_key_song || '');
         songEl.style.display = 'block';

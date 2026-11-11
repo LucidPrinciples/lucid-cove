@@ -346,7 +346,7 @@ function familyPair(member) {
                     ${pa.last_frequency ? `<span class="ac2-freq" style="margin-top:4px;">${typeof lpFreqBadgeHTML === 'function' ? lpFreqBadgeHTML(pa.last_frequency) : esc(pa.last_frequency)}</span>` : ''}
                 </div>
             </div>
-            ${pa.tuning_key ? `<div class="pa-key" style="font-size:0.66rem;color:var(--dim);font-style:italic;margin-top:5px;line-height:1.4;border-left:2px solid ${esc(pa.frequency_color || 'var(--accent)')};padding-left:7px;">${esc(pa.tuning_key)}</div>` : ''}
+            ${pa.tuning_key ? `<div class="pa-key" style="font-size:0.66rem;color:var(--dim);font-style:italic;margin-top:5px;line-height:1.4;border-left:2px solid ${esc(pa.frequency_color || 'var(--accent)')};padding-left:7px;white-space:pre-line;">${esc(pa.tuning_key).split(' / ').join('<br>')}</div>` : ''}
             ${!isPaLive ? `<div style="font-size:0.68rem;color:var(--dim);margin-top:4px;">Container pending</div>` : ''}
         </div>` : `<div class="family-agent-card agent-card-planned family-agent-setup"
              onclick="startAgentSetupFor('${esc(member.id)}', '${esc(member.display_name || member.name)}')"

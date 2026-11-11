@@ -16,11 +16,15 @@
     });
     window.activeTab = which;
     if (!load || which === "app") return;
+    // Do not wait on /api/presence/me. That fetch is MCReady, and a slow
+    // response left this pane on "Loading Tune…" before loadTuneFlow ran.
+    if (which === "tune" && typeof loadTuneFlow === "function") {
+      loadTuneFlow();
+      return;
+    }
     const ready = window.MCReady || Promise.resolve();
     ready.then(() => {
-      if (which === "tune" && typeof loadTuneFlow === "function") {
-        loadTuneFlow();
-      } else if (which === "playlists" && typeof loadPlaylistsTab === "function") {
+      if (which === "playlists" && typeof loadPlaylistsTab === "function") {
         loadPlaylistsTab();
       }
     });
@@ -81,11 +85,34 @@
     if (e.key === "Escape" && overlay && !overlay.hidden) closeDrop();
   });
 
+  function cleanFrequencyName(raw) {
+    const name = String(raw || "").trim();
+    if (!name || name === "\u2014" || name === "-" || name === "\u2013") return "";
+    return name;
+  }
+
+  function readSavedFrequency() {
+    try {
+      return cleanFrequencyName(localStorage.getItem("lt_latest_frequency"));
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function rememberFrequency(name) {
+    const clean = cleanFrequencyName(name);
+    if (!clean) return;
+    try { localStorage.setItem("lt_latest_frequency", clean); } catch (e) {}
+  }
+
   function applyDrop(freq, colors) {
-    const name = freq || "Peace";
+    const name = cleanFrequencyName(freq);
+    // No name yet: leave the last known tuning in place. Never paint a default.
+    if (!name) return;
     if (freqText) freqText.textContent = name;
     if (dropTitle) dropTitle.textContent = name;
     document.documentElement.setAttribute("data-frequency", name);
+    rememberFrequency(name);
     const fromLp = typeof lpFreqColor === "function" ? lpFreqColor(name) : {};
     const c = Object.assign({}, fromLp || {}, colors || {});
     if (c.primary) {
@@ -98,6 +125,10 @@
   window.applyTunerFreqChrome = applyDrop;
 
   async function bootFreqChrome() {
+    // Last visit's latest tuning is already in the pill. Paint it again in
+    // case that inline read did not run, then confirm against the Drop.
+    const saved = readSavedFrequency();
+    if (saved) applyDrop(saved);
     let freq = "";
     let colors = null;
     if (typeof _tfFetchLatestDropTuning === "function") {
@@ -115,7 +146,7 @@
         colors = pkg.frequency_colors || null;
       } catch (_) {}
     }
-    applyDrop(freq || "Peace", colors);
+    if (freq) applyDrop(freq, colors);
   }
   bootFreqChrome();
 })();

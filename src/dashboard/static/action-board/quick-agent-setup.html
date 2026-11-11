@@ -368,7 +368,7 @@ async function loadPresets() {
       <div class="pc-arch">${esc(p.archetype)}</div>
       <div class="pc-freq">${esc(p.frequency)}</div>
       <div class="pc-blurb">${esc(p.blurb)}</div>
-      <div class="pc-key">Tuning key &middot; ${esc(p.tuning_key)}</div>
+      <div class="pc-key" style="white-space:pre-line;">Tuning key &middot; ${esc(p.tuning_key).split(' / ').join('<br>')}</div>
     </div>`).join('');
 }
 
@@ -478,7 +478,7 @@ function toReveal() {
     (chosen.tuning_key_song ? ' &nbsp;&middot;&nbsp; Principle <strong style="color:#cfcfe0">' + esc(chosen.tuning_key_song) + '</strong>' : '') +
     _shadeMeta;
   const keyEl = document.getElementById('rv-key');
-  if (chosen.tuning_key) { keyEl.textContent = '“' + chosen.tuning_key + '”'; keyEl.style.display = ''; }
+  if (chosen.tuning_key) { keyEl.textContent = '“' + String(chosen.tuning_key).split(' / ').join('\n') + '”'; keyEl.style.whiteSpace = 'pre-line'; keyEl.style.display = ''; }
   else { keyEl.style.display = 'none'; }
   const pEl = document.getElementById('rv-personality');
   if (pEl) pEl.textContent = personalitySentence(collectDials());

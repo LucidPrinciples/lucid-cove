@@ -64,7 +64,11 @@ body.house .mini-player {
   bottom: 0;
   height: 68px;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  z-index: 4000;
+  /* Stay inside the visible grid. An implicit row past max-height was clipped, so the bar vanished on Home while audio kept going. */
+  grid-column: 1;
+  grid-row: 1 / -1;
+  align-self: end;
+  z-index: 4500;
   flex: none;
   background: rgba(18, 18, 26, 0.94);
   border-top: 1px solid color-mix(in srgb, var(--mp-freq-color) 38%, transparent);

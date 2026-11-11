@@ -46,6 +46,7 @@
   font-size: 0.82rem;
   line-height: 1.45;
   color: var(--text, #e8e8f0);
+  white-space: pre-line;
 }
 .ta-tabs {
   display: flex;
@@ -166,6 +167,7 @@
   line-height: 1.45;
   margin: 0 0 0.65rem;
   color: var(--text, #e8e8f0);
+  white-space: pre-line;
 }
 .ta-steps {
   margin: 0 0 0.75rem;
