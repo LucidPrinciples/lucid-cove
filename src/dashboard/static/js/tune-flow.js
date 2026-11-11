@@ -432,6 +432,31 @@ async function _tfFetchPersonalHistory() {
     }
 }
 
+function _tfTierBucket() {
+    const level = (typeof MC !== 'undefined' && MC && MC.tier && MC.tier.level) || 0;
+    return level >= 5 ? 'unlimited' : 'free';
+}
+
+function _tfRefreshLimitChrome() {
+    const container = _tfContainer();
+    if (!container || tuneFlow.step > 0) return;
+    const old = container.querySelector('.tf-tune-now-top');
+    if (!old) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = _tfTuneNowTopHTML().trim();
+    const next = wrap.firstElementChild;
+    if (next) old.replaceWith(next);
+    if (_tfFreeTuneUsed()) {
+        _tfStartCountdown();
+        return;
+    }
+    if (_tfCountdownInterval) { clearInterval(_tfCountdownInterval); _tfCountdownInterval = null; }
+    const pro = document.getElementById('lt-pro-overlay');
+    if (pro && pro.remove) pro.remove();
+    const legacy = document.getElementById('tf-upgrade-overlay');
+    if (legacy && legacy.remove) legacy.remove();
+}
+
 async function loadTuneFlow() {
     const container = document.getElementById('panel-tune') || document.querySelector('[id="panel-tune"]');
     if (!container) return;
@@ -439,6 +464,23 @@ async function loadTuneFlow() {
 
     // Clear any previous countdown
     if (_tfCountdownInterval) { clearInterval(_tfCountdownInterval); _tfCountdownInterval = null; }
+
+    // Tier first, with a cap, before any Used-today decision or render.
+    // History still has its own slow state after this. A tier that lands
+    // after the cap corrects the limit chrome once.
+    const tierReady = window.MCReady || Promise.resolve();
+    let tierSettled = false;
+    Promise.resolve(tierReady).then(() => { tierSettled = true; }, () => { tierSettled = true; });
+    await Promise.race([window.MCReady || Promise.resolve(), new Promise(r => setTimeout(r, 3000))]);
+    if (gen !== _tfLoadGen) return;
+    if (!tierSettled) {
+        const before = _tfTierBucket();
+        Promise.resolve(tierReady).then(() => {
+            if (gen !== _tfLoadGen || tuneFlow.step > 0) return;
+            if (_tfTierBucket() === before) return;
+            _tfRefreshLimitChrome();
+        }, () => {});
+    }
 
     const slowTimer = setTimeout(() => {
         if (gen !== _tfLoadGen || tuneFlow.step > 0) return;
