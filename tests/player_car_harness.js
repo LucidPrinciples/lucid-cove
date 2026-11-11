@@ -489,6 +489,24 @@ if (!otPlayerLogEntries().some(function (e) {
 })) fail('canplay did not record the wait from load');
 _otMaybeWarm();
 if (warmFetches.length !== warmBefore + 1) fail('warm fetched up-next twice');
+
+// No page timer. timeupdate past dur-25s is what starts the warm while locked.
+otSetPlaylist(tracks('T', 3), { autoplay: true, startIndex: 0, label: 'T' });
+var beforeTime = warmFetches.length;
+liveAudio().duration = 180;
+liveAudio().buffered = { length: 1, end: function () { return 180; } };
+liveAudio().currentTime = 100;
+liveAudio().readyState = 4;
+_otBuffering = false;
+liveAudio().dispatch('timeupdate');
+if (warmFetches.length !== beforeTime) fail('timeupdate warmed before the last 25 seconds');
+liveAudio().currentTime = 160;
+liveAudio().dispatch('timeupdate');
+if (warmFetches.length !== beforeTime + 1) fail('timeupdate did not warm up-next');
+var timed = warmFetches[warmFetches.length - 1];
+if (timed.range !== 'bytes=0-1048575') fail('timeupdate range was ' + timed.range);
+if (timed.url.indexOf('T1.mp3') === -1) fail('timeupdate warmed ' + timed.url);
+if (timed.readyState < 4) fail('timeupdate warmed readyState ' + timed.readyState);
 Math.random = realRandom;
 _otBuffering = false;
 

@@ -1449,6 +1449,11 @@ function _otBindCurrentAudioEvents() {
         if (!isLive(ev)) return;
         _otWatchStall('stalled');
     });
+    // Page timers stop while the phone is locked. timeupdate still fires then.
+    otAudio.addEventListener('timeupdate', (ev) => {
+        if (!isLive(ev)) return;
+        _otMaybeWarm();
+    });
 }
 
 /** Ensure the shared Audio elements exist. Idempotent.

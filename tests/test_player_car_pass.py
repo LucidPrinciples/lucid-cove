@@ -112,6 +112,8 @@ def test_up_next_is_warmed_with_a_ranged_fetch():
     assert "_otBuffering" in live
     start = text[text.index("function _otStartWarm") : text.index("function _otPreloadIndexTrack")]
     assert "new Audio" not in start
+    tick = text[text.index("addEventListener('timeupdate'") : text.index("function _otEnsureAudio")]
+    assert "_otMaybeWarm()" in tick
 
 
 def test_player_log_in_help_with_copy():
