@@ -28,6 +28,9 @@ body {
   justify-content: space-between;
   gap: 1rem;
   padding: 1rem 1.25rem;
+  padding-top: calc(1rem + env(safe-area-inset-top, 0px));
+  padding-left: calc(1.25rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(1.25rem + env(safe-area-inset-right, 0px));
   border-bottom: 1px solid var(--border);
   background: rgba(10, 10, 15, 0.85);
   backdrop-filter: blur(8px);

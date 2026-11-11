@@ -452,10 +452,21 @@ def test_tuner_action_is_actions_and_flows_only():
     assert "/static/tuner-app/action.js" in html
     assert "/static/tuner-app/action.css" in html
     css_house = (SHELL / "house.css").read_text()
+    css_chrome = (SHELL / "chrome.css").read_text()
+    safe_top = "padding-top: calc(1rem + env(safe-area-inset-top, 0px))"
     assert "body.house-free .board-switch {" not in css_house
     assert 'body.house-free .board-switch a[href="/work"]' in css_house
     assert "body.house .top-end" in css_house
     assert "@media (max-width: 800px)" in css_house
+    assert "grid-template-rows: auto minmax(0, 1fr)" in css_house
+    assert "position: sticky" in css_house
+    assert safe_top in css_chrome
+    assert safe_top in css_house
+    assert "env(safe-area-inset-left, 0px)" in css_chrome
+    assert "env(safe-area-inset-right, 0px)" in css_chrome
+    assert "env(safe-area-inset-left, 0px)" in css_house
+    assert "env(safe-area-inset-right, 0px)" in css_house
+    assert "padding-bottom: 0.7rem" in css_house
 
 
 def test_tuning_chrome_does_not_paint_alignment_label():

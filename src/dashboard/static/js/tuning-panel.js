@@ -3,10 +3,11 @@
 // =============================================================================
 // THE player template for all of cove-core. Every tuning player in the system
 // renders from otPlayerHTML(). Phones play through one audio element so a
-// preload cannot starve the live file. Desktop may warm the next track on a
-// second element only after this one is playing. One MediaSession, one mini
-// player. Any surface can call otSetPlaylist() to take over playback and
-// otRenderPlayer() to mount the player UI.
+// preload cannot starve the live file. The next song is chosen when this one
+// starts, then warmed with a ranged fetch near the end. Desktop may also hold
+// that file on a second element only after this one is playing. One
+// MediaSession, one mini player. Any surface can call otSetPlaylist() to take
+// over playback and otRenderPlayer() to mount the player UI.
 // =============================================================================
 
 const OT_AUDIO_BASE = 'https://audio.lucidtuner.com/Lucid_Tuner';
@@ -37,6 +38,7 @@ let _otCurrentTrackLogged = false; // prevent duplicate play_start for same trac
 const OT_ERROR_RETRY_MS = 3000;
 const OT_STALL_QUIET_MS = 15000;
 const OT_PRELOAD_DELAY_MS = 3000;
+const OT_WARM_LEAD_S = 25;
 const OT_FAIL_CAP = 3;
 const OT_PLAYER_LOG_KEY = 'lt_player_log';
 const OT_PLAYER_LOG_MAX = 200;
@@ -55,6 +57,12 @@ let _otPreloadTimer = null;
 let _otBuffering = false;
 let _otHoldUserPause = false;
 let _otSrcDepth = 0;
+let _otUpNext = -1;
+let _otWarmFor = -1;
+let _otWarming = false;
+let _otWarmGen = 0;
+let _otWarmAbort = null;
+let _otLoadStamp = 0;
 
 // ── Shared Player API ───────────────────────────────────────────────────────
 let _otSource = 'lt';           // 'lt' | 'tune' | 'playlist'
@@ -113,6 +121,7 @@ function _otLoadFile() {
 // Events fired inside this call are still the assignment. The queued pause
 // has not been delivered yet.
 function _otWithSrcChange(fn) {
+    _otAbortWarm();
     _otSrcDepth += 1;
     _otHoldUserPause = true;
     try {
@@ -335,6 +344,7 @@ function _otWatchStall(kind) {
     // The live element is still filling. Do not start a second download.
     _otBuffering = true;
     _otCancelPreload();
+    _otAbortWarm();
     if (_otReloading || !otAudio) return;
     const srcNow = otAudio.src || (otAudio.getAttribute && otAudio.getAttribute('src')) || '';
     if (!srcNow) return;
@@ -585,6 +595,8 @@ function _otKeepLoaded(tracks, opts, startAt) {
     _otResetPlayHistory();
     otTracks = tracks;
     otIndex = startAt;
+    _otDropUpNext();
+    _otEnsureUpNext();
     if (opts.source) _otSource = opts.source;
     if (opts.label) _otPlaylistLabel = opts.label;
     if (opts.freqColor) {
@@ -1331,7 +1343,16 @@ function _otBindCurrentAudioEvents() {
     ['loadstart', 'canplay', 'suspend', 'abort', 'emptied'].forEach((name) => {
         otAudio.addEventListener(name, (ev) => {
             if (!isLive(ev)) return;
-            if (name === 'loadstart') _otReleaseSrcPause();
+            if (name === 'loadstart') {
+                _otReleaseSrcPause();
+                _otLoadStamp = Date.now();
+            }
+            if (name === 'canplay') {
+                const waited = _otLoadStamp ? Math.max(0, Date.now() - _otLoadStamp) : 0;
+                _otLogPlayer('canplay', _otLoadFile() + ' ' + waited);
+                _otMaybeWarm();
+                return;
+            }
             _otLogPlayer(name, _otLoadFile());
         });
     });
@@ -1345,11 +1366,13 @@ function _otBindCurrentAudioEvents() {
             _otPlayStartTime = null;
             _otCurrentTrackLogged = false;
         }
-        // Desktop may hand off a warm buffer. A phone sets src on this element
-        // and play() here, which iOS allows while the screen is locked.
-        if (!_otHandoffToPreloaded()) {
-            otNext();
+        // Desktop may hand off the buffer that is exactly up next. A phone
+        // sets src on this element and play() here, which iOS allows while locked.
+        if (_otUpNextValid() && _otPreloadIndex === _otUpNext) {
+            _otAbortWarm();
+            if (_otHandoffToPreloaded()) return;
         }
+        otNext();
     });
     otAudio.addEventListener('play', (ev) => {
         if (!isLive(ev)) return;
@@ -1414,6 +1437,8 @@ function _otBindCurrentAudioEvents() {
         _otBuffering = false;
         _otReleaseSrcPause();
         _otNoteAudible();
+        _otEnsureUpNext();
+        _otMaybeWarm();
         _otSchedulePreload();
     });
     otAudio.addEventListener('waiting', (ev) => {
@@ -1423,6 +1448,11 @@ function _otBindCurrentAudioEvents() {
     otAudio.addEventListener('stalled', (ev) => {
         if (!isLive(ev)) return;
         _otWatchStall('stalled');
+    });
+    // Page timers stop while the phone is locked. timeupdate still fires then.
+    otAudio.addEventListener('timeupdate', (ev) => {
+        if (!isLive(ev)) return;
+        _otMaybeWarm();
     });
 }
 
@@ -1510,6 +1540,131 @@ function _otPickNextIndex() {
     return next;
 }
 
+function _otFileAt(index) {
+    const track = otTracks[index];
+    return (track && track.filename) ? String(track.filename) : '';
+}
+
+function _otUpNextValid() {
+    return _otUpNext >= 0 && _otUpNext < otTracks.length
+        && (otTracks.length <= 1 || _otUpNext !== otIndex);
+}
+
+/** Choose up next once per track. Previous still walks played history. */
+function _otEnsureUpNext() {
+    if (_otUpNextValid()) return;
+    if (!otTracks.length) {
+        _otUpNext = -1;
+        return;
+    }
+    const next = _otPickNextIndex();
+    _otUpNext = next;
+    if (_otWarmFor !== next) _otAbortWarm();
+    _otWarmFor = -1;
+    _otLogPlayer('upnext', _otFileAt(next));
+}
+
+function _otDropUpNext() {
+    _otUpNext = -1;
+    _otAbortWarm();
+    _otWarmFor = -1;
+}
+
+function _otAbortWarm() {
+    if (!_otWarming && !_otWarmAbort) return;
+    _otWarmGen += 1;
+    _otWarming = false;
+    _otWarmFor = -1;
+    const abort = _otWarmAbort;
+    _otWarmAbort = null;
+    try { if (abort) abort.abort(); } catch (e) {}
+}
+
+function _otLiveLoadInProgress() {
+    if (_otBuffering || _otSrcDepth > 0) return true;
+    if (!otAudio || otAudio.readyState < 4) return true;
+    return false;
+}
+
+function _otFullyBuffered() {
+    if (!otAudio || otAudio.readyState < 4) return false;
+    const dur = otAudio.duration;
+    if (!isFinite(dur) || dur <= 0) return false;
+    return _otBufferEnd(otAudio) >= dur - 0.25;
+}
+
+function _otWarmWindowOpen() {
+    if (!otAudio) return false;
+    const dur = otAudio.duration;
+    if (!isFinite(dur) || dur <= 0) return false;
+    const pos = (otAudio.currentTime && isFinite(otAudio.currentTime)) ? otAudio.currentTime : 0;
+    return pos >= dur - OT_WARM_LEAD_S;
+}
+
+function _otMaybeWarm() {
+    if (_otWarming || _otWarmFor === _otUpNext) return;
+    if (!_otUpNextValid() || _otUpNext === otIndex) return;
+    if (_otLiveLoadInProgress()) return;
+    if (!_otFullyBuffered() || !_otWarmWindowOpen()) return;
+    _otStartWarm(_otUpNext);
+}
+
+function _otLogWarm(gen, file, started, status) {
+    if (gen !== _otWarmGen) return;
+    _otLogPlayer('warm', file + ' ' + (Date.now() - started) + ' ' + status);
+    _otWarming = false;
+}
+
+/** First megabyte of up next. No second audio element. Discard the body. */
+function _otStartWarm(index) {
+    const track = otTracks[index];
+    const url = track ? otGetAudioUrl(track) : '';
+    const file = _otFileAt(index);
+    if (!url || !file) return;
+    const gen = _otWarmGen;
+    const started = Date.now();
+    _otWarmFor = index;
+    _otWarming = true;
+    let signal;
+    try {
+        if (typeof AbortController === 'function') {
+            _otWarmAbort = new AbortController();
+            signal = _otWarmAbort.signal;
+        }
+    } catch (e) {
+        _otWarmAbort = null;
+    }
+    const opts = { headers: { Range: 'bytes=0-1048575' } };
+    if (signal) opts.signal = signal;
+    let pending;
+    try {
+        pending = fetch(url, opts);
+    } catch (e) {
+        _otLogWarm(gen, file, started, 'error');
+        return;
+    }
+    Promise.resolve(pending).then(function (res) {
+        if (gen !== _otWarmGen || _otLiveLoadInProgress()) {
+            if (gen === _otWarmGen) {
+                _otWarming = false;
+                _otWarmFor = -1;
+            }
+            return null;
+        }
+        const body = (res && typeof res.arrayBuffer === 'function') ? res.arrayBuffer() : null;
+        return Promise.resolve(body).then(function () { return res; });
+    }).then(function (res) {
+        if (!res || gen !== _otWarmGen) return;
+        const status = res.status ? res.status : (res.ok ? 200 : 0);
+        _otLogPlayer('warm', file + ' ' + (Date.now() - started) + ' ' + status);
+    }).catch(function () {
+        if (gen !== _otWarmGen) return;
+        _otLogPlayer('warm', file + ' ' + (Date.now() - started) + ' error');
+    }).then(function () {
+        if (gen === _otWarmGen) _otWarming = false;
+    });
+}
+
 /** Preload a following track onto _otNextAudio without touching the live element. */
 function _otPreloadIndexTrack(index) {
     if (_otIsMobile() || !_otNextAudio || index < 0 || index >= otTracks.length) return;
@@ -1555,7 +1710,8 @@ function _otSchedulePreload() {
         _otPreloadTimer = null;
         if (_otIsMobile() || !otIsPlaying || !otAudio || otAudio.paused || !_otWantAudio) return;
         if (_otBuffering || otAudio.readyState < 2) return;
-        _otPreloadIndexTrack(_otPickNextIndex());
+        if (!_otUpNextValid()) return;
+        _otPreloadIndexTrack(_otUpNext);
     }, OT_PRELOAD_DELAY_MS);
 }
 
@@ -1696,6 +1852,7 @@ function otSetPlaylist(tracks, opts) {
 
     window._otPreview = null;
     _otResetPlayHistory();
+    _otDropUpNext();
 
     // Same as original LC Hermes tuner: Play starts this queue, one engine.
     _otPendingPlay = false;
@@ -1743,6 +1900,7 @@ function otSetPlaylist(tracks, opts) {
 
     // Load first track
     otLoadTrack(otIndex, opts.autoplay !== false);
+    _otEnsureUpNext();
 }
 
 
@@ -1950,10 +2108,14 @@ function otNext() {
         _otPlayStartTime = null;
         _otCurrentTrackLogged = false;
     }
-    // Prefer the already-warm preload buffer (same pick otNext would have made)
-    if (_otHandoffToPreloaded()) return;
+    // Play the song stored as up next. A desktop buffer is used only when it
+    // is that same index. Then playing picks the following one.
+    const idx = _otUpNextValid() ? _otUpNext : _otPickNextIndex();
+    _otUpNext = -1;
+    _otAbortWarm();
+    if (_otPreloadIndex === idx && _otHandoffToPreloaded()) return;
     if (otTracks.length <= 1) { otLoadTrack(0, true); return; }
-    otLoadTrack(_otPickNextIndex(), true);
+    otLoadTrack(idx, true);
 }
 
 function otPrev() {
@@ -2029,6 +2191,7 @@ function otStopProgress() {
 }
 
 function otUpdateProgressUI() {
+    _otMaybeWarm();
     if (!otAudio || !otAudio.duration) return;
     const pct = (otAudio.currentTime / otAudio.duration) * 100;
     // If pending, only update mini player — tab player shows new playlist at 0%

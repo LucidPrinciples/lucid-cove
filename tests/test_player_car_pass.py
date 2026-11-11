@@ -100,6 +100,22 @@ def test_mobile_skips_preload_and_src_pause_is_marked():
         assert name in text
 
 
+def test_up_next_is_warmed_with_a_ranged_fetch():
+    text = _panel()
+    assert "const OT_WARM_LEAD_S = 25" in text
+    assert "bytes=0-1048575" in text
+    assert "function _otEnsureUpNext" in text
+    maybe = text[text.index("function _otMaybeWarm") : text.index("function _otLogWarm")]
+    assert "_otLiveLoadInProgress" in maybe
+    live = text[text.index("function _otLiveLoadInProgress") : text.index("function _otFullyBuffered")]
+    assert "readyState < 4" in live
+    assert "_otBuffering" in live
+    start = text[text.index("function _otStartWarm") : text.index("function _otPreloadIndexTrack")]
+    assert "new Audio" not in start
+    tick = text[text.index("addEventListener('timeupdate'") : text.index("function _otEnsureAudio")]
+    assert "_otMaybeWarm()" in tick
+
+
 def test_player_log_in_help_with_copy():
     text = _panel()
     html = HTML.read_text()
