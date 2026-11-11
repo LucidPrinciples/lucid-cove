@@ -55,7 +55,6 @@ let _otPreloadTimer = null;
 let _otBuffering = false;
 let _otHoldUserPause = false;
 let _otSrcDepth = 0;
-let _otSrcStamp = 0;
 
 // ── Shared Player API ───────────────────────────────────────────────────────
 let _otSource = 'lt';           // 'lt' | 'tune' | 'playlist'
@@ -109,8 +108,10 @@ function _otLoadFile() {
     }
 }
 
-// A src swap pauses the element. That pause is ours until the new load
-// reaches loadstart or playing. A pause after that is from the car.
+// A src swap pauses the element. That pause is queued on the media task
+// source and can arrive after a timer, so only loadstart or playing ends it.
+// Events fired inside this call are still the assignment. The queued pause
+// has not been delivered yet.
 function _otWithSrcChange(fn) {
     _otSrcDepth += 1;
     _otHoldUserPause = true;
@@ -118,19 +119,11 @@ function _otWithSrcChange(fn) {
         return fn();
     } finally {
         _otSrcDepth -= 1;
-        if (_otSrcDepth === 0) {
-            const stamp = ++_otSrcStamp;
-            setTimeout(() => {
-                if (stamp !== _otSrcStamp || _otSrcDepth !== 0) return;
-                _otHoldUserPause = false;
-            }, 0);
-        }
     }
 }
 
 function _otReleaseSrcPause() {
     if (_otSrcDepth > 0) return;
-    _otSrcStamp += 1;
     _otHoldUserPause = false;
 }
 

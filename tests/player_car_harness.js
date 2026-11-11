@@ -411,12 +411,16 @@ if (mobileEl.playCount !== mobilePlays + 1) fail('mobile next did not play the s
 if (!mobileEl.src || mobileEl.src === mobileSrc) fail('mobile next did not load a new file');
 navigator.maxTouchPoints = 0;
 
-// After the src-swap pause has settled, a real pause still counts.
+// The load algorithm queues its pause on the media task source. A 0ms timer
+// can run first. That pause is still ours. playing is what ends the hold.
 otSetPlaylist(tracks('U', 2), { autoplay: true, startIndex: 0, label: 'U' });
 flush(0);
 if (!_otWantAudio) fail('playback did not want audio');
+liveAudio().dispatch('pause');
+if (!_otWantAudio) fail('pause after a 0ms timer cleared _otWantAudio');
+liveAudio().dispatch('playing');
 liveAudio().pause();
-if (_otWantAudio) fail('user pause did not clear _otWantAudio');
+if (_otWantAudio) fail('user pause after playing did not clear _otWantAudio');
 
 // 4. Now playing includes genre art and a position.
 otSetupMediaSession({ title: 'Genre Echo', folder: 'Genre_Album', cdnBase: 'https://cdn.example/g' });

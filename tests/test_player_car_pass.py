@@ -91,6 +91,11 @@ def test_mobile_skips_preload_and_src_pause_is_marked():
     pause = text[text.index("addEventListener('pause'") : text.index("addEventListener('error'")]
     assert "_otHoldUserPause" in pause
     assert "function _otWithSrcChange" in text
+    src_change = text[text.index("function _otWithSrcChange") : text.index("function _otReleaseSrcPause")]
+    assert "setTimeout" not in src_change
+    assert "_otHoldUserPause = false" not in src_change
+    release = text[text.index("function _otReleaseSrcPause") : text.index("function _otLogPlayer")]
+    assert "_otHoldUserPause = false" in release
     for name in ("loadstart", "loadedmetadata", "canplay", "suspend", "abort", "emptied", "play-blocked"):
         assert name in text
 
