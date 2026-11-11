@@ -2,10 +2,11 @@
 // tuning-panel.js — Unified Player Template + Audio Engine
 // =============================================================================
 // THE player template for all of cove-core. Every tuning player in the system
-// renders from otPlayerHTML(). The audio engine is shared — dual Audio elements
-// (current + preloaded next) for Bluetooth/lock-screen track handoff, one
-// MediaSession, one mini player. Any surface can call otSetPlaylist() to take
-// over playback and otRenderPlayer() to mount the player UI.
+// renders from otPlayerHTML(). Phones play through one audio element so a
+// preload cannot starve the live file. Desktop may warm the next track on a
+// second element only after this one is playing. One MediaSession, one mini
+// player. Any surface can call otSetPlaylist() to take over playback and
+// otRenderPlayer() to mount the player UI.
 // =============================================================================
 
 const OT_AUDIO_BASE = 'https://audio.lucidtuner.com/Lucid_Tuner';
@@ -35,6 +36,7 @@ let _otPlayStartTime = null;    // timestamp when current track started playing 
 let _otCurrentTrackLogged = false; // prevent duplicate play_start for same track
 const OT_ERROR_RETRY_MS = 3000;
 const OT_STALL_QUIET_MS = 15000;
+const OT_PRELOAD_DELAY_MS = 3000;
 const OT_FAIL_CAP = 3;
 const OT_PLAYER_LOG_KEY = 'lt_player_log';
 const OT_PLAYER_LOG_MAX = 200;
@@ -49,6 +51,10 @@ let _otWantAudio = false;
 let _otReloading = false;
 let _otPlayHistory = [];
 let _otPlayerLog = [];
+let _otPreloadTimer = null;
+let _otBuffering = false;
+let _otHoldUserPause = false;
+let _otSrcDepth = 0;
 
 // ── Shared Player API ───────────────────────────────────────────────────────
 let _otSource = 'lt';           // 'lt' | 'tune' | 'playlist'
@@ -88,6 +94,37 @@ function _otTrackEvent(eventType, extra) {
 function _otPlayerTitle() {
     const track = otTracks[otIndex];
     return (track && (track.title || track.principle)) || '';
+}
+
+function _otLoadFile() {
+    const track = otTracks[otIndex];
+    if (track && track.filename) return String(track.filename);
+    try {
+        const src = (otAudio && (otAudio.currentSrc || otAudio.src)) || '';
+        const part = String(src).split('/').pop() || '';
+        return part.split('?')[0];
+    } catch (e) {
+        return '';
+    }
+}
+
+// A src swap pauses the element. That pause is queued on the media task
+// source and can arrive after a timer, so only loadstart or playing ends it.
+// Events fired inside this call are still the assignment. The queued pause
+// has not been delivered yet.
+function _otWithSrcChange(fn) {
+    _otSrcDepth += 1;
+    _otHoldUserPause = true;
+    try {
+        return fn();
+    } finally {
+        _otSrcDepth -= 1;
+    }
+}
+
+function _otReleaseSrcPause() {
+    if (_otSrcDepth > 0) return;
+    _otHoldUserPause = false;
 }
 
 function _otLogPlayer(event, reason) {
@@ -295,6 +332,9 @@ function _otArmStallWatch() {
 }
 
 function _otWatchStall(kind) {
+    // The live element is still filling. Do not start a second download.
+    _otBuffering = true;
+    _otCancelPreload();
     if (_otReloading || !otAudio) return;
     const srcNow = otAudio.src || (otAudio.getAttribute && otAudio.getAttribute('src')) || '';
     if (!srcNow) return;
@@ -328,17 +368,20 @@ function _otRetrySameTrack() {
         try { otAudio.removeEventListener('loadedmetadata', restore); } catch (e) {}
     };
     if (pos > 0) otAudio.addEventListener('loadedmetadata', restore);
-    _otReloading = true;
-    try {
-        // Assigning src reloads. load() on this live element drops the lock-screen session.
-        otAudio.removeAttribute('src');
-        otAudio.src = url;
-        if (pos > 0) {
-            try { otAudio.currentTime = pos; } catch (e) {}
-        }
-    } catch (e) {}
-    _otReloading = false;
-    _otPlayCurrent('retry');
+    _otWithSrcChange(() => {
+        _otReloading = true;
+        try {
+            // Assigning src reloads. load() on this live element drops the lock-screen session.
+            otAudio.removeAttribute('src');
+            otAudio.src = url;
+            if (pos > 0) {
+                try { otAudio.currentTime = pos; } catch (e) {}
+            }
+            _otLogPlayer('load', _otLoadFile());
+        } catch (e) {}
+        _otReloading = false;
+        _otPlayCurrent('retry');
+    });
 }
 
 function _otStopForFailures() {
@@ -348,14 +391,17 @@ function _otStopForFailures() {
     _otClearFaultTimers();
     _otClearAudibleTimer();
     _otLogPlayer('error', 'cap');
-    _otReloading = true;
-    try {
-        if (otAudio) {
-            otAudio.pause();
-            otAudio.removeAttribute('src');
-        }
-    } catch (e) {}
-    _otReloading = false;
+    _otCancelPreload();
+    _otWithSrcChange(() => {
+        _otReloading = true;
+        try {
+            if (otAudio) {
+                otAudio.pause();
+                otAudio.removeAttribute('src');
+            }
+        } catch (e) {}
+        _otReloading = false;
+    });
     _otShowFailStatus();
     try { otUpdateIcons(); } catch (e) {}
     try { otStopProgress(); } catch (e) {}
@@ -410,6 +456,7 @@ function _otForgiveFailures() {
     _otConsecutiveErrors = 0;
     _otRetriedThisTrack = false;
     _otClearFaultTimers();
+    _otCancelPreload();
 }
 
 function _otPublishPosition() {
@@ -1277,8 +1324,16 @@ function _otBindCurrentAudioEvents() {
 
     otAudio.addEventListener('loadedmetadata', (ev) => {
         if (!isLive(ev) || !otAudio) return;
+        _otLogPlayer('loadedmetadata', _otLoadFile());
         document.querySelectorAll('.ot-time-duration').forEach(el => el.textContent = otFmtTime(otAudio.duration));
         _otPublishPosition();
+    });
+    ['loadstart', 'canplay', 'suspend', 'abort', 'emptied'].forEach((name) => {
+        otAudio.addEventListener(name, (ev) => {
+            if (!isLive(ev)) return;
+            if (name === 'loadstart') _otReleaseSrcPause();
+            _otLogPlayer(name, _otLoadFile());
+        });
     });
     otAudio.addEventListener('ended', (ev) => {
         if (!isLive(ev)) return;
@@ -1290,8 +1345,8 @@ function _otBindCurrentAudioEvents() {
             _otPlayStartTime = null;
             _otCurrentTrackLogged = false;
         }
-        // Prefer preloaded handoff so Bluetooth/lock keeps an already-warm element
-        // instead of assigning .src on a cold load while backgrounded.
+        // Desktop may hand off a warm buffer. A phone sets src on this element
+        // and play() here, which iOS allows while the screen is locked.
         if (!_otHandoffToPreloaded()) {
             otNext();
         }
@@ -1316,13 +1371,15 @@ function _otBindCurrentAudioEvents() {
         otStartProgress();
         showMiniPlayer();
         if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-        // Warm the following track while this one is audible
-        _otSchedulePreload();
+        // play fires before any bytes. Preload waits for playing, below.
     });
     otAudio.addEventListener('pause', (ev) => {
         if (!isLive(ev)) return;
-        // Dual-buffer swap pauses the retiring element — ignore those
-        if (ev.target && ev.target._otIgnorePause) return;
+        // Dual-buffer swap, and the pause a src change emits, are not the car.
+        if ((ev.target && ev.target._otIgnorePause) || _otHoldUserPause) {
+            _otLogPlayer('pause', 'src');
+            return;
+        }
         otIsPlaying = false;
         _otWantAudio = false;
         _otNeedsResume = false;
@@ -1350,9 +1407,14 @@ function _otBindCurrentAudioEvents() {
         _otScheduleError(code ? String(code) : '');
     });
     // Playing resumes the error budget. A stall watch stays until bytes move.
+    // Preload waits until this event plus a few seconds of audio, and never
+    // while waiting. On a phone there is no second element at all.
     otAudio.addEventListener('playing', (ev) => {
         if (!isLive(ev)) return;
+        _otBuffering = false;
+        _otReleaseSrcPause();
         _otNoteAudible();
+        _otSchedulePreload();
     });
     otAudio.addEventListener('waiting', (ev) => {
         if (!isLive(ev)) return;
@@ -1371,8 +1433,12 @@ function _otEnsureAudio() {
     if (otAudio) return;
     otAudio = new Audio();
     _otPrepAudioEl(otAudio);
-    _otNextAudio = new Audio();
-    _otPrepAudioEl(_otNextAudio);
+    // One element on a phone. A preload load() competes with the live file
+    // and leaves it at readyState 0 while the preload gets the bytes.
+    if (!_otIsMobile()) {
+        _otNextAudio = new Audio();
+        _otPrepAudioEl(_otNextAudio);
+    }
 
     // Bind lock screen / Bluetooth media controls once, up front, so they exist before
     // the first track loads and never get torn down between tracks (iOS default path).
@@ -1383,7 +1449,7 @@ function _otEnsureAudio() {
     // iOS ignores .volume — GainNode handles it (see _otEnsureGain)
     const initVol = typeof window._otVolume === 'number' ? window._otVolume : 0.3;
     otAudio.volume = initVol;
-    _otNextAudio.volume = initVol;
+    if (_otNextAudio) _otNextAudio.volume = initVol;
     window._otVolume = initVol;
 
     // Foreground: resume suspended AudioContext (desktop) and retry playback if a
@@ -1414,6 +1480,8 @@ function _otPlayCurrent(reason) {
         _otNeedsResume = false;
         if (typeof showMiniPlayer === 'function') showMiniPlayer();
     }).catch(err => {
+        const rejected = (err && err.name) ? String(err.name) : 'rejected';
+        _otLogPlayer('play-blocked', rejected);
         console.warn('Play blocked (' + (reason || 'play') + '):', err && err.message ? err.message : err);
         // NotAllowedError while backgrounded is the classic lock-screen gap — retry
         // when the page is visible again (unlock / open player).
@@ -1444,7 +1512,7 @@ function _otPickNextIndex() {
 
 /** Preload a following track onto _otNextAudio without touching the live element. */
 function _otPreloadIndexTrack(index) {
-    if (!_otNextAudio || index < 0 || index >= otTracks.length) return;
+    if (_otIsMobile() || !_otNextAudio || index < 0 || index >= otTracks.length) return;
     const track = otTracks[index];
     if (!track) return;
     const url = otGetAudioUrl(track);
@@ -1469,13 +1537,26 @@ function _otPreloadIndexTrack(index) {
     }
 }
 
+function _otCancelPreload() {
+    if (_otPreloadTimer) {
+        clearTimeout(_otPreloadTimer);
+        _otPreloadTimer = null;
+    }
+}
+
 function _otSchedulePreload() {
-    if (!otAudio || !otTracks.length) return;
-    // Defer so we do not contend with the just-started play() decode
-    setTimeout(() => {
-        if (!otIsPlaying || !otAudio) return;
+    _otCancelPreload();
+    // Phones keep a single element. Desktop preloads only after the live
+    // track is actually playing and has stayed audible, never while it is waiting.
+    if (_otIsMobile()) return;
+    if (!otAudio || !otTracks.length || otAudio.paused || !_otWantAudio) return;
+    if (_otBuffering || otAudio.readyState < 2) return;
+    _otPreloadTimer = setTimeout(() => {
+        _otPreloadTimer = null;
+        if (_otIsMobile() || !otIsPlaying || !otAudio || otAudio.paused || !_otWantAudio) return;
+        if (_otBuffering || otAudio.readyState < 2) return;
         _otPreloadIndexTrack(_otPickNextIndex());
-    }, 800);
+    }, OT_PRELOAD_DELAY_MS);
 }
 
 /**
@@ -1483,7 +1564,7 @@ function _otSchedulePreload() {
  * Keeps Bluetooth/lock audio session warmer than assigning .src on otAudio cold.
  */
 function _otHandoffToPreloaded() {
-    if (_otPendingPlay) return false;
+    if (_otIsMobile() || _otPendingPlay) return false;
     if (!_otNextAudio || _otPreloadIndex < 0 || _otPreloadIndex >= otTracks.length) return false;
     // Require the buffer to have data — HAVE_CURRENT_DATA (2)+ 
     if (!(_otNextAudio.readyState >= 2 && _otNextAudio.src)) return false;
@@ -1721,14 +1802,13 @@ function otLoadTrack(index, autoplay) {
         if (otAudio && otAudio.currentTime) otUpdateProgressUI();
         return;
     }
-    // If this index is already warm on the preload buffer, hand off without a cold src set
-    if (autoplay && _otNextAudio && _otPreloadIndex === index && _otNextAudio.readyState >= 2 && _otNextAudio.src) {
-        if (_otHandoffToPreloaded()) return;
-    }
-    _otApplyTrackUI(index, { skipSrc: false });
-    if (autoplay) {
-        _otPlayCurrent('load');
-    }
+    // If this index is already warm on the preload buffer, hand off without a cold src set.
+    // Mobile never has that buffer: ended, next, and previous set src here and play().
+    if (autoplay && _otPreloadIndex === index && _otHandoffToPreloaded()) return;
+    _otWithSrcChange(() => {
+        _otApplyTrackUI(index, { skipSrc: false });
+        if (autoplay) _otPlayCurrent('load');
+    });
 }
 
 /**
@@ -1751,6 +1831,7 @@ function _otApplyTrackUI(index, opts) {
         // resets the element and, on iOS, drops the audio session so the next track is
         // blocked while the screen is locked and the lock screen controls go dead.
         otAudio.src = otGetAudioUrl(track);
+        _otLogPlayer('load', _otLoadFile());
         // Invalidate preload if it pointed at something else
         if (_otPreloadIndex === index) _otPreloadIndex = -1;
     }
