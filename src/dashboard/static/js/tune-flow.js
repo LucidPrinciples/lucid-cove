@@ -194,6 +194,200 @@ function _tfCountdownStr() {
     return `${s}s`;
 }
 
+// Draft screen words for batch 1. Edit here. The Tuner shell paints Home,
+// Help, and the welcome from this object. No em dashes.
+const LT_COPY = {
+    fieldLabel: "The Field",
+    fieldDesc: "today's tuning for everyone",
+    tuneLabel: "Tune",
+    tuneDesc: "you, right now",
+    tuneAvailable: "Your free Tune is available now",
+    tuneUsed: "Used today. Next free Tune at midnight",
+    tuneUnlimited: "Unlimited Tune",
+    tuneNone: "No personal Tune yet.",
+    yourLastTuning: "your last tuning",
+    fieldRecord: "The Field",
+    yourStreak: "Your streak",
+    yourTuneHistory: "Your Tune history",
+    fieldHistory: "The Field's history",
+    welcomeTitle: "Welcome",
+    welcomeNext: "Next",
+    welcomeDone: "Done",
+    welcomePages: [
+        "The Field is today's tuning for everyone. Tune is you, right now.",
+        "One free Tune a day. It comes back at midnight on your clock. Pro is unlimited Tune.",
+        "Your streak is the days in a row you showed up, on the Field or with Tune. That count is yours. LT's consecutive tuning count stays LT's.",
+    ],
+    welcomeEnd: "this is always available in Help",
+    helpWelcome: "Welcome",
+    helpEntries: [
+        {
+            dt: "The Field",
+            dd: "Today's tuning for everyone. LT publishes it. It is the same one everywhere, and it is not your personal Tune.",
+        },
+        {
+            dt: "Tune",
+            dd: "You, right now. One free Tune a day, back at midnight on your clock. Pro is unlimited Tune.",
+        },
+        {
+            dt: "Your streak",
+            dd: "The days in a row you did your tuning, on the Field or with Tune. LT's consecutive tuning count is LT's, not yours.",
+        },
+        {
+            dt: "The player",
+            dd: "Press play and the tuning keeps going while you move between Home, the Field, Tune, and Playlists.",
+        },
+    ],
+};
+window.LT_COPY = LT_COPY;
+
+const LT_FIELD_DAYS_KEY = "lt_field_days";
+
+function _tfWords() {
+    return window.LT_COPY || LT_COPY;
+}
+
+function _tfFieldDays() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(LT_FIELD_DAYS_KEY) || "[]");
+        return Array.isArray(parsed) ? parsed.map(d => String(d).slice(0, 10)) : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function _tfNoteFieldDay() {
+    const today = _tfTodayStr();
+    const days = _tfFieldDays();
+    if (days.indexOf(today) === -1) {
+        days.push(today);
+        try { localStorage.setItem(LT_FIELD_DAYS_KEY, JSON.stringify(days.slice(-400))); } catch (e) {}
+    }
+    return days;
+}
+window._tfNoteFieldDay = _tfNoteFieldDay;
+
+function _tfStreakCount(dayList, todayStr) {
+    const days = Array.from(new Set((dayList || []).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)))).sort();
+    if (!days.length || !todayStr) return 0;
+    const last = days[days.length - 1];
+    const todayDate = new Date(todayStr + "T12:00:00");
+    const y = new Date(todayDate);
+    y.setDate(y.getDate() - 1);
+    const yesterday = `${y.getFullYear()}-${_tfPad2(y.getMonth() + 1)}-${_tfPad2(y.getDate())}`;
+    if (last !== todayStr && last !== yesterday) return 0;
+    let n = 1;
+    for (let i = days.length - 1; i > 0; i--) {
+        const newer = new Date(days[i] + "T12:00:00");
+        const older = new Date(days[i - 1] + "T12:00:00");
+        const diff = Math.round((newer - older) / 86400000);
+        if (diff === 1) n += 1;
+        else break;
+    }
+    return n;
+}
+
+function _tfIsFieldRecord(data) {
+    if (!data) return false;
+    if (data.from_public_drop || data.is_latest || data._fromArchive) return true;
+    const mode = String(data.entry_mode || "");
+    return mode === "Daily drop" || mode === "Archive drop";
+}
+
+function _tfIsPersonalSession(session) {
+    if (!session || _tfIsFieldRecord(session)) return false;
+    return !!(session.session_id || session.context);
+}
+
+async function _tfRefreshStreak() {
+    const days = _tfFieldDays().slice();
+    (tuneFlow._sessions || []).forEach(s => {
+        if (!_tfIsPersonalSession(s)) return;
+        const d = _tfSessionLocalDay(s);
+        if (d) days.push(d);
+    });
+    let n = _tfStreakCount(days, _tfTodayStr());
+    try {
+        const resp = await fetch("/api/tuning/streak");
+        if (resp.ok) {
+            const data = await resp.json();
+            const server = Number(data && data.current_streak) || 0;
+            if (server > n) n = server;
+        }
+    } catch (e) {}
+    tuneFlow.streak = n;
+    return n;
+}
+
+function _tfStreakText() {
+    const n = Number(tuneFlow.streak) || 0;
+    const unit = n === 1 ? "day" : "days";
+    return `${_tfWords().yourStreak}: ${n} ${unit}`;
+}
+window._tfStreakText = _tfStreakText;
+window._tfRefreshStreak = _tfRefreshStreak;
+
+function _tfStreakLine() {
+    return `<p class="tf-streak">${ESC(_tfStreakText())}</p>`;
+}
+
+function _tfFreeTuneUsed() {
+    if (_tfGetDailyLimit() === -1) return false;
+    const count = tuneFlow.todayCount || 0;
+    return count > 0 && !_tfCanTuneAgain(count);
+}
+
+function _tfTuneStateHTML() {
+    const words = _tfWords();
+    if (_tfGetDailyLimit() === -1) {
+        return `<p class="tf-tune-state tf-tune-state-pro">${ESC(words.tuneUnlimited)}</p>`;
+    }
+    if (_tfFreeTuneUsed()) {
+        return `<p class="tf-tune-state tf-tune-state-used">${ESC(words.tuneUsed)}</p>`;
+    }
+    return `<p class="tf-tune-state">${ESC(words.tuneAvailable)}</p>`;
+}
+
+function _tfCoercePracticeStep(item) {
+    if (typeof item === "object" && item) {
+        const title = String(item.title || "").trim();
+        const numbered = !title || /^\d+$/.test(title);
+        return {
+            title: numbered ? "" : title,
+            text: String(item.instruction || item.text || ""),
+        };
+    }
+    return { title: "", text: String(item || "") };
+}
+
+function _tfPracticeTrio(data) {
+    if (!data) return null;
+    const candidates = [];
+    if (Array.isArray(data.practice_steps)) candidates.push(data.practice_steps);
+    if (Array.isArray(data.practice)) candidates.push(data.practice);
+    const obj = data.practice_steps;
+    if (obj && typeof obj === "object" && !Array.isArray(obj) && obj.step1) {
+        candidates.push([obj.step1, obj.step2, obj.step3]);
+    }
+    if (Array.isArray(data.universal_practice)) candidates.push(data.universal_practice);
+    for (let i = 0; i < candidates.length; i++) {
+        const steps = candidates[i].slice(0, 3).map(_tfCoercePracticeStep);
+        if (!steps.some(s => s.title)) continue;
+        while (steps.length < 3) steps.push({ title: "", text: "" });
+        return { step1: steps[0], step2: steps[1], step3: steps[2] };
+    }
+    return null;
+}
+
+function _tfPracticeCompactHTML(practice) {
+    if (!practice) return "";
+    return [practice.step1, practice.step2, practice.step3].map((step, i) => {
+        const title = step && step.title ? `<strong>${ESC(step.title)}</strong>` : "";
+        const text = step && (step.text || step.instruction) ? ESC(step.text || step.instruction) : "";
+        return `<div class="tf-practice-step"><span class="tf-practice-num">${i + 1}</span><div>${title}<p>${text}</p></div></div>`;
+    }).join("");
+}
+
 // ─── Flow State ──────────────────────────────────────────────────────────────
 
 const tuneFlow = {
@@ -229,9 +423,19 @@ async function loadTuneFlow() {
     if (openLatest && !tuneFlow._forceNewFlow) {
         const dropTune = await _tfFetchLatestDropTuning();
         if (dropTune) {
+            try {
+                const histResp = await fetch('/api/tuning/history?limit=100');
+                const histData = await histResp.json();
+                const rows = histData.sessions || [];
+                const personal = Array.isArray(rows) ? rows.filter(_tfIsPersonalSession) : [];
+                tuneFlow._sessions = personal;
+                tuneFlow.todayCount = personal.filter(t => _tfIsPersonalTuneToday(t)).length;
+            } catch (e) {
+                tuneFlow.todayCount = 0;
+            }
+            try { await _tfRefreshStreak(); } catch (e) {}
             tuneFlow.tuningData = dropTune;
             tuneFlow.step = 0;
-            tuneFlow.todayCount = 0;
             await _renderCompletedTuning(container, dropTune);
             return;
         }
@@ -241,20 +445,20 @@ async function loadTuneFlow() {
     let latestTune = null;
     let mostRecentEver = null;
     let todayCount = 0;
+    let sessions = [];
 
     try {
-        // Get history — includes past days
-        const histResp = await fetch('/api/tuning/history?limit=20');
+        // History includes past days. Personal Tune only. The Field is separate.
+        const histResp = await fetch('/api/tuning/history?limit=100');
         const histData = await histResp.json();
-        const sessions = histData.sessions || histData || [];
-        if (Array.isArray(sessions)) {
-            // Count today's tunings
+        const rows = histData.sessions || histData || [];
+        if (Array.isArray(rows)) {
+            sessions = rows.filter(_tfIsPersonalSession);
             const todayTunes = sessions.filter(t => _tfIsPersonalTuneToday(t));
             todayCount = todayTunes.length;
             if (todayTunes.length > 0) latestTune = todayTunes[0];
 
-            // Find most recent tuning from any day (user-initiated)
-            const anyTune = sessions.find(t => t.context);
+            const anyTune = sessions.find(t => t.context) || sessions[0];
             if (anyTune) mostRecentEver = anyTune;
         }
     } catch (e) {
@@ -273,13 +477,10 @@ async function loadTuneFlow() {
         } catch (e2) {}
     }
 
-    // Universal daily Drop fills empty history (habit path / first open)
-    if (!latestTune && !mostRecentEver) {
-        const dropTune = await _tfFetchLatestDropTuning();
-        if (dropTune) mostRecentEver = dropTune;
-    }
-
+    // The Field is not this person's Tune. An empty personal history stays empty.
+    tuneFlow._sessions = sessions;
     tuneFlow.todayCount = todayCount;
+    try { await _tfRefreshStreak(); } catch (e) {}
 
     // Pick the best tuning to show: today's if available, otherwise most recent from any day
     const tuneToShow = latestTune || mostRecentEver;
@@ -305,19 +506,31 @@ async function loadTuneFlow() {
         tuneFlow.error = null;
         _renderStep1(container);
     } else if (tuneToShow) {
-        // Tune tab via nav — show most recent completed tuning
+        // Tune tab via nav shows the most recent personal tuning, dated.
         tuneFlow.tuningData = tuneToShow;
         tuneFlow.step = 0;
         _renderCompletedTuning(container, tuneToShow);
     } else {
-        // No tuning history at all — start the flow
-        tuneFlow.step = 1;
+        tuneFlow.step = 0;
         tuneFlow.context = null;
         tuneFlow.mode = null;
         tuneFlow.tuningData = null;
         tuneFlow.error = null;
-        _renderStep1(container);
+        _renderTuneLanding(container);
     }
+}
+
+function _renderTuneLanding(container) {
+    container.innerHTML = `
+        <div class="tune-flow">
+            <div class="tf-logo">
+                <img src="/static/mark-tuner.png" alt="Lucid Tuner" class="tf-logo-img">
+            </div>
+            ${_tfTuneNowTopHTML()}
+            <p class="tf-last-empty">${ESC(_tfWords().tuneNone)}</p>
+        </div>
+    `;
+    if (_tfFreeTuneUsed()) _tfStartCountdown();
 }
 
 async function _tfFetchLatestDropTuning() {
@@ -726,9 +939,16 @@ function _renderStep5(container) {
     tuneFlow.step = 5;
     const d = tuneFlow.tuningData;
 
-    // Use API practice steps if available, fall back to static templates
+    // Drop practice_steps keep their published titles. Templates are the fallback.
     let steps;
-    if (d.practice && Array.isArray(d.practice) && d.practice.length) {
+    const trio = _tfPracticeTrio(d);
+    if (trio) {
+        steps = [
+            { step: 1, title: trio.step1.title, instruction: trio.step1.text },
+            { step: 2, title: trio.step2.title, instruction: trio.step2.text },
+            { step: 3, title: trio.step3.title, instruction: trio.step3.text },
+        ];
+    } else if (d.practice && Array.isArray(d.practice) && d.practice.length) {
         steps = d.practice;
     } else {
         const freq = d.frequency || tuneFlow.mode.frequency;
@@ -951,29 +1171,15 @@ async function _renderCompletedTuning(container, data) {
     let coaching = (data.universal_coaching || data.tuning_prompt || '').trim();
     if (!coaching) coaching = TUNE_COACHING[freq] || '';
     const templateKey = TUNE_TEMPLATE_MAP[freq] || 'coherence';
-    let practice = TUNE_PRACTICE_TEMPLATES[templateKey];
-    const uPractice = data.universal_practice;
-    if (Array.isArray(uPractice) && uPractice.length >= 3) {
-        const step = (i) => {
-            const s = uPractice[i];
-            if (typeof s === 'object' && s) {
-                return { title: s.title || String(i + 1), text: s.instruction || s.text || '' };
-            }
-            return { title: String(i + 1), text: String(s || '') };
-        };
-        practice = { step1: step(0), step2: step(1), step3: step(2) };
-    } else if (data.practice_steps && Array.isArray(data.practice_steps) && data.practice_steps.length >= 3) {
-        const step = (i) => {
-            const s = data.practice_steps[i] || {};
-            return { title: s.title || String(i + 1), text: s.instruction || s.text || '' };
-        };
-        practice = { step1: step(0), step2: step(1), step3: step(2) };
-    }
+    let practice = _tfPracticeTrio(data) || TUNE_PRACTICE_TEMPLATES[templateKey];
     const audioUrl = data.audio_url || '';
     const echoName = (data.echo_full_name || data.echo_filename || '').replace('.mp3','').replace(/_/g,' ');
     const album = (data.echo_album || '').replace(/_/g,' ');
     const context = data.context || '';
     const entryMode = data.entry_mode || data.initial_state || '';
+    const fieldRecord = _tfIsFieldRecord(data);
+    const recordKicker = fieldRecord ? _tfWords().fieldRecord : _tfWords().yourLastTuning;
+    const recordDate = _tfRecordDateLabel(data);
 
     // Store active session ID for history filtering
     tuneFlow._activeSessionId = data.session_id || '';
@@ -985,10 +1191,11 @@ async function _renderCompletedTuning(container, data) {
             </div>
             ${_tfTuneNowTopHTML()}
             <div class="tf-complete-header">
-                <span class="tf-complete-title">Your Tune</span>
+                <span class="tf-complete-title">${ESC(recordKicker)}</span>
+                ${recordDate ? `<span class="tf-complete-date">${ESC(recordDate)}</span>` : ''}
                 <span class="tf-complete-freq">${ESC(freq)}</span>
                 <span class="tf-complete-principle">${ESC(principle)}</span>
-                ${context ? `<span class="tf-complete-context">${ESC(context)}${entryMode ? ' · ' + ESC(entryMode) : ''}</span>` : ''}
+                ${!fieldRecord && context ? `<span class="tf-complete-context">${ESC(context)}${entryMode ? ' · ' + ESC(entryMode) : ''}</span>` : ''}
             </div>
 
             ${key ? `<div class="tf-complete-section tf-complete-key">
@@ -1004,9 +1211,7 @@ async function _renderCompletedTuning(container, data) {
             <div class="tf-complete-section">
                 <span class="tf-section-label">Practice</span>
                 <div class="tf-practice tf-practice-compact">
-                    <div class="tf-practice-step"><span class="tf-practice-num">1</span><div><strong>${practice.step1.title}</strong> — ${practice.step1.text}</div></div>
-                    <div class="tf-practice-step"><span class="tf-practice-num">2</span><div><strong>${practice.step2.title}</strong> — ${practice.step2.text}</div></div>
-                    <div class="tf-practice-step"><span class="tf-practice-num">3</span><div><strong>${practice.step3.title}</strong> — ${practice.step3.text}</div></div>
+                    ${_tfPracticeCompactHTML(practice)}
                 </div>
             </div>
 
@@ -1169,19 +1374,20 @@ function _tfOpenReflect(mirrorIdx) {
 }
 
 function _tfTuneNowTopHTML() {
-    if (_tfCanTuneAgain(tuneFlow.todayCount)) {
-        return '<div class="tf-tune-now-top"><button type="button" class="tf-btn tf-btn-next tf-btn-tune-now" onclick="_tfStartNewTune()">Tune Now</button></div>';
+    const status = `${_tfStreakLine()}${_tfTuneStateHTML()}`;
+    if (!_tfFreeTuneUsed()) {
+        return `<div class="tf-tune-now-top">${status}<button type="button" class="tf-btn tf-btn-next tf-btn-tune-now" onclick="_tfStartNewTune()">Tune Now</button></div>`;
     }
-    // Free daily lock — last tuning stays. Greyed Tune Now still opens Pro.
-    // Upgrade copy lives on the greyed control itself (not a second button).
+    // Free daily lock. The sentence says the state. The greyed control still opens Pro.
+    const words = _tfWords();
     return `
         <div class="tf-tune-now-top tf-tune-now-locked-wrap">
-            <button type="button" class="tf-btn tf-btn-tune-now tf-btn-tune-now-locked" aria-disabled="true" aria-label="Today's Tune Now is used. Upgrade for unlimited." onclick="_tfUpgrade()">
+            ${status}
+            <button type="button" class="tf-btn tf-btn-tune-now tf-btn-tune-now-locked" aria-disabled="true" aria-label="${ESC(words.tuneUsed)}" onclick="_tfUpgrade()">
                 Tune Now
                 <span class="tf-btn-tune-now-cta">Upgrade for unlimited</span>
             </button>
             <div class="tf-countdown">
-                <span class="tf-countdown-label">Next free tune in</span>
                 <span class="tf-countdown-time" id="tfCountdown">${_tfCountdownStr()}</span>
             </div>
         </div>`;
@@ -1458,7 +1664,7 @@ async function _loadTuneHistory() {
         const recent = past.slice(0, 5);
 
         let html = '<div class="tf-history">';
-        html += '<div class="tf-history-header">Previous Tunings</div>';
+        html += `<div class="tf-history-header">${ESC(_tfWords().yourTuneHistory)}</div>`;
         html += _tfRenderHistRows(recent);
 
         if (past.length > 5) {
@@ -1519,6 +1725,13 @@ function _tfOrdinal(n) {
     const s = ['th', 'st', 'nd', 'rd'];
     const v = num % 100;
     return num + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function _tfRecordDateLabel(data) {
+    if (!data) return "";
+    if (data.date) return _tfFullDropDate(data.date);
+    const day = _tfSessionLocalDay(data);
+    return day ? _tfFullDropDate(day) : "";
 }
 
 function _tfFullDropDate(dateStr) {
@@ -1609,13 +1822,7 @@ async function _tfShowTuningDetail(s) {
     let coaching = (s.universal_coaching || s.tuning_prompt || '').trim();
     if (!coaching) coaching = TUNE_COACHING[freq] || '';
     const templateKey = TUNE_TEMPLATE_MAP[freq] || 'coherence';
-    let practice = TUNE_PRACTICE_TEMPLATES[templateKey];
-    const uPractice = s.universal_practice;
-    if (Array.isArray(uPractice) && uPractice.length >= 3) {
-        practice = { step1: _tfPracticeStep(uPractice[0], 0), step2: _tfPracticeStep(uPractice[1], 1), step3: _tfPracticeStep(uPractice[2], 2) };
-    } else if (s.practice_steps && Array.isArray(s.practice_steps) && s.practice_steps.length >= 3) {
-        practice = { step1: _tfPracticeStep(s.practice_steps[0], 0), step2: _tfPracticeStep(s.practice_steps[1], 1), step3: _tfPracticeStep(s.practice_steps[2], 2) };
-    }
+    let practice = _tfPracticeTrio(s) || TUNE_PRACTICE_TEMPLATES[templateKey];
 
     const overlay = document.createElement('div');
     overlay.id = 'tf-tuning-modal';
@@ -1660,7 +1867,7 @@ async function _tfShowTuningDetail(s) {
             ${_tfLoveEqHTML(s.love_equation, freqColor)}
             <div id="tfDropMirrors"></div>
             <div class="tf-drop-history" id="tfDropHistory" style="display:none;">
-                <div class="tf-history-header">Recent Tunings</div>
+                <div class="tf-history-header">${ESC(_tfWords().fieldHistory)}</div>
                 <div id="tfDropRecent"></div>
             </div>
         </div>
@@ -1736,6 +1943,9 @@ async function _tfOpenDropArchive(idx) {
         date: d.date || '',
         signal_type: d.signal_type || '',
         universal_coaching: d.coaching || d.universal_coaching || '',
+        universal_practice: d.universal_practice || null,
+        practice_steps: d.practice_steps || d.practice || null,
+        from_public_drop: true,
         lt_echo_num: d.sequence || d.lt_echo_num || d.tuning_day || '',
         love_equation: d.love_equation || (d.love_value != null ? { value: d.love_value } : null),
         _fromArchive: true,

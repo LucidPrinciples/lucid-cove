@@ -125,7 +125,7 @@ def test_tuner_home_is_square_two_by_two_not_cove_stack():
     html = (SHELL / "index.html").read_text()
     css = (SHELL / "free-tuner.css").read_text()
     assert 'class="home-grid"' in html
-    assert ">Field<" in html
+    assert ">The Field<" in html
     assert ">Tune<" in html
     assert "pro-badge" in html
     assert "Signal &amp; genre streams" in html or "Signal & genre streams" in html
@@ -151,8 +151,9 @@ def test_tuner_host_pro_modal_is_unlimited_tune_not_operator():
 def test_tuner_home_field_is_drop_not_countdown():
     js = (SHELL / "free-tuner.js").read_text()
     html = (SHELL / "index.html").read_text()
-    assert 'id="fieldDesc">Latest Tuning</' in html
+    assert 'id="fieldDesc">today\'s tuning for everyone</' in html
     assert 'id="fieldDesc">Trust the Field</' not in html
+    assert 'id="fieldDesc">Latest Tuning</' not in html
     assert "_ltFieldCountdown" not in js
     assert "_tfCountdownStr" not in js
     assert 'lchGoto("/tune")' in js
@@ -218,7 +219,7 @@ def test_tune_page_locks_tune_now_keeps_last_tuning():
     flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
     assert "function _tfTuneNowTopHTML" in flow
     assert "tf-btn-tune-now-locked" in flow
-    assert "Next free tune in" in flow
+    assert "Next free Tune at midnight" in flow
     assert "_tfUpgrade()" in flow
     assert "Upgrade for unlimited" in flow
     assert "tf-btn-tune-now-cta" in flow
@@ -255,6 +256,58 @@ def test_settings_signal_sliders_and_ordered_mirrors():
     assert "initMirrorDrag" in js
     assert "settings-ltp-model" not in html
     assert "ltp-model" not in html
+
+
+def test_batch1_words_live_in_one_place():
+    """Home, Tune state, streak, practice titles, welcome, and Help read LT_COPY."""
+    html = (SHELL / "index.html").read_text()
+    house = (SHELL / "house.js").read_text()
+    tuner = (SHELL / "tuner.js").read_text()
+    flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    css = (ROOT / "src/dashboard/static/css/tune-flow.css").read_text()
+
+    assert 'id="home-streak"' in html
+    assert 'id="welcome-overlay"' in html
+    assert 'id="welcome-text"' in html
+    assert 'id="help-welcome"' in html
+    assert 'id="help-batch1-entries"' in html
+    assert ">you, right now<" in html
+
+    copy = flow[flow.index("const LT_COPY"):flow.index("window.LT_COPY")]
+    assert "—" not in copy and "–" not in copy
+    for line in (
+        "The Field",
+        "today's tuning for everyone",
+        "you, right now",
+        "Your free Tune is available now",
+        "Used today. Next free Tune at midnight",
+        "Unlimited Tune",
+        "No personal Tune yet.",
+        "your last tuning",
+        "Your streak",
+        "Your Tune history",
+        "The Field's history",
+        "this is always available in Help",
+        "The player",
+    ):
+        assert line in copy
+
+    assert "window.LT_COPY" in house
+    assert "help-batch1-entries" in house
+    assert "lt_welcome_seen" in house
+    assert "paintHomeStreak" in house
+    assert "_tfNoteFieldDay" in tuner
+    assert "function _tfPracticeTrio" in flow
+    assert "function _tfFreeTuneUsed" in flow
+    assert "function _tfNoteFieldDay" in flow
+    assert "lt_field_days" in flow
+    trio = flow[flow.index("function _tfPracticeTrio"):flow.index("function _tfPracticeCompactHTML")]
+    assert trio.index("practice_steps") < trio.index("universal_practice")
+    assert "Your Tune</span>" not in flow
+    assert "Today's Tune Now is used" not in flow
+    assert "text-transform: none" in css
+    assert ".tf-complete-date" in css
+    assert ".tf-tune-state" in css
 
 
 def test_help_sends_contact_to_haven_inbox():

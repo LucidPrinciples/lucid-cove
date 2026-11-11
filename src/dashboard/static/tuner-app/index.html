@@ -59,6 +59,7 @@
           <h1 class="app-title">Align Your Broadcast</h1>
           <p class="ft-tagline">You're always broadcasting. Tune in, or trust the Field.</p>
         </div>
+        <p id="home-streak" class="home-streak" hidden></p>
 
         <div class="home-grid">
           <button type="button" class="home-tile" id="dailyBtn">
@@ -72,8 +73,8 @@
                   <div class="bar"></div>
                 </div>
               </div>
-              <div class="label">Field</div>
-              <div class="desc" id="fieldDesc">Latest Tuning</div>
+              <div class="label">The Field</div>
+              <div class="desc" id="fieldDesc">today's tuning for everyone</div>
             </div>
           </button>
 
@@ -83,7 +84,7 @@
             <div class="home-tile-inner">
               <span class="icon icon-tune">◈</span>
               <div class="label">Tune</div>
-              <div class="desc">Context + Desired State</div>
+              <div class="desc">you, right now</div>
             </div>
           </button>
 
@@ -250,6 +251,7 @@
           </video>
         </div>
         <nav class="help-nav-links" aria-label="Help sections">
+          <button type="button" class="help-nav-link" id="help-welcome">Welcome</button>
           <a href="#decoder-manual" class="help-nav-link" data-section="decoder-manual">Decoder Manual →</a>
           <a href="#faq" class="help-nav-link" data-section="faq">Frequently Asked Questions →</a>
           <a href="#troubleshooting" class="help-nav-link" data-section="troubleshooting">Troubleshooting →</a>
@@ -258,6 +260,7 @@
           <h2 class="help-section-title">The Decoder Manual</h2>
           <p class="help-subtitle">Core lexicon for understanding the tool</p>
           <dl class="help-glossary">
+            <div id="help-batch1-entries"></div>
             <div class="glossary-item">
               <dt>Broadcast</dt>
               <dd>Your internal state transmitting into the Field. Every thought and emotion sends a Broadcast Frequency.</dd>
@@ -303,6 +306,23 @@
           <h2 class="help-section-title">Troubleshooting</h2>
           <p class="help-placeholder">Troubleshooting guides and solutions to common issues coming soon.</p>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="welcome-overlay" class="drop-overlay" hidden>
+    <div class="drop-panel welcome-panel" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+      <header class="drop-head">
+        <div>
+          <div class="drop-kicker">Lucid Tuner</div>
+          <div id="welcome-title" class="drop-title">Welcome</div>
+        </div>
+        <button type="button" id="welcome-close" class="drop-close" aria-label="Close">×</button>
+      </header>
+      <div class="welcome-body">
+        <p id="welcome-text"></p>
+        <p id="welcome-end" class="welcome-end" hidden></p>
+        <button type="button" id="welcome-next">Next</button>
       </div>
     </div>
   </div>
