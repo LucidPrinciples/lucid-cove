@@ -38,6 +38,19 @@ _ADMIN_SORT = {
     "name": "LOWER(COALESCE(display_name, username, '')) ASC",
 }
 
+# F3: accounts.preferences.test_observer. Event joins MUST be LEFT JOIN and
+# keep anonymous rows (a.id IS NULL). An inner join drops logged-out plays.
+_SQL_NOT_TEST_OBSERVER = (
+    "(a.id IS NULL OR COALESCE((a.preferences->>'test_observer')::boolean, false) "
+    "IS NOT TRUE)"
+)
+_SQL_ACCOUNT_NOT_TEST_OBSERVER = (
+    "COALESCE((preferences->>'test_observer')::boolean, false) IS NOT TRUE"
+)
+_SQL_ACCOUNT_A_NOT_TEST_OBSERVER = (
+    "COALESCE((a.preferences->>'test_observer')::boolean, false) IS NOT TRUE"
+)
+
 
 def _require_upgrade_secret(
     request: Request, query_secret: str = "", body: Optional[dict] = None
@@ -656,8 +669,9 @@ async def _get_affiliate_data(conn, account_id: str, referral_code: str):
         """SELECT display_name, username, email, tier, created_at
            FROM accounts
            WHERE referred_by = %s AND active = TRUE
+             AND """ + _SQL_ACCOUNT_NOT_TEST_OBSERVER + """
            ORDER BY created_at DESC""",
-        (account_id,)
+        (account_id,),
     )
     rows = await result.fetchall()
 
@@ -680,8 +694,9 @@ async def _get_affiliate_data(conn, account_id: str, referral_code: str):
     l1_ids = []
     if rows:
         l1_result = await conn.execute(
-            """SELECT id FROM accounts WHERE referred_by = %s AND active = TRUE""",
-            (account_id,)
+            """SELECT id FROM accounts WHERE referred_by = %s AND active = TRUE
+                 AND """ + _SQL_ACCOUNT_NOT_TEST_OBSERVER,
+            (account_id,),
         )
         l1_ids = [r["id"] for r in await l1_result.fetchall()]
 
@@ -689,7 +704,7 @@ async def _get_affiliate_data(conn, account_id: str, referral_code: str):
     if l1_ids:
         placeholders = ",".join(["%s"] * len(l1_ids))
         l2_result = await conn.execute(
-            f"SELECT COUNT(*) as cnt FROM accounts WHERE referred_by IN ({placeholders}) AND active = TRUE",
+            f"SELECT COUNT(*) as cnt FROM accounts WHERE referred_by IN ({placeholders}) AND active = TRUE AND {_SQL_ACCOUNT_NOT_TEST_OBSERVER}",
             tuple(l1_ids),
         )
         l2_row = await l2_result.fetchone()
@@ -1258,18 +1273,26 @@ async def admin_stats(request: Request, secret: str = ""):
         async with get_db() as conn:
             # Account counts by tier
             result = await conn.execute(
-                "SELECT tier, COUNT(*) as count FROM accounts WHERE active = TRUE GROUP BY tier ORDER BY tier"
+                "SELECT tier, COUNT(*) as count FROM accounts WHERE active = TRUE "
+                "AND " + _SQL_ACCOUNT_NOT_TEST_OBSERVER + " GROUP BY tier ORDER BY tier"
             )
             tier_counts = {r["tier"]: r["count"] for r in await result.fetchall()}
 
             # Total accounts
-            result = await conn.execute("SELECT COUNT(*) as total FROM accounts WHERE active = TRUE")
+            result = await conn.execute(
+                "SELECT COUNT(*) as total FROM accounts WHERE active = TRUE "
+                "AND " + _SQL_ACCOUNT_NOT_TEST_OBSERVER
+            )
             total = (await result.fetchone())["total"]
 
-            # Session count
+            # Session count (keep sessions with no account; skip test observers)
             session_count = 0
             try:
-                result = await conn.execute("SELECT COUNT(*) as total FROM tuning_sessions")
+                result = await conn.execute(
+                    "SELECT COUNT(*) as total FROM tuning_sessions ts "
+                    "LEFT JOIN accounts a ON ts.presence_id = a.id "
+                    "WHERE " + _SQL_NOT_TEST_OBSERVER
+                )
                 session_count = (await result.fetchone())["total"]
             except Exception:
                 pass
@@ -1334,9 +1357,10 @@ async def admin_activity(request: Request, secret: str = "", limit: int = 50, us
                               a.display_name, a.username, a.tier
                        FROM tuning_events te
                        LEFT JOIN accounts a ON te.presence_id = a.id
+                       WHERE """ + _SQL_NOT_TEST_OBSERVER + """
                        ORDER BY te.timestamp DESC
                        LIMIT %s""",
-                    (limit,)
+                    (limit,),
                 )
             recent = []
             for r in await result.fetchall():
@@ -1364,19 +1388,23 @@ async def admin_activity(request: Request, secret: str = "", limit: int = 50, us
             from datetime import datetime, timezone
             today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             result = await conn.execute(
-                """SELECT event_type, COUNT(*) as count
-                   FROM tuning_events WHERE date = %s
-                   GROUP BY event_type ORDER BY count DESC""",
-                (today,)
+                """SELECT te.event_type, COUNT(*) as count
+                   FROM tuning_events te
+                   LEFT JOIN accounts a ON te.presence_id = a.id
+                   WHERE te.date = %s AND """ + _SQL_NOT_TEST_OBSERVER + """
+                   GROUP BY te.event_type ORDER BY count DESC""",
+                (today,),
             )
             today_stats = {r["event_type"]: r["count"] for r in await result.fetchall()}
 
             # Total play duration today
             result = await conn.execute(
-                """SELECT COALESCE(SUM(play_duration), 0) as total_duration
-                   FROM tuning_events
-                   WHERE date = %s AND play_duration IS NOT NULL""",
-                (today,)
+                """SELECT COALESCE(SUM(te.play_duration), 0) as total_duration
+                   FROM tuning_events te
+                   LEFT JOIN accounts a ON te.presence_id = a.id
+                   WHERE te.date = %s AND te.play_duration IS NOT NULL
+                     AND """ + _SQL_NOT_TEST_OBSERVER,
+                (today,),
             )
             total_duration = (await result.fetchone())["total_duration"]
 
@@ -1389,6 +1417,7 @@ async def admin_activity(request: Request, secret: str = "", limit: int = 50, us
                    LEFT JOIN tuning_events te ON te.presence_id = a.id
                        AND te.timestamp > NOW() - INTERVAL '7 days'
                    WHERE a.active = TRUE
+                     AND """ + _SQL_ACCOUNT_A_NOT_TEST_OBSERVER + """
                    GROUP BY a.id, a.display_name, a.username, a.tier, a.last_access
                    ORDER BY last_event DESC NULLS LAST
                    LIMIT 20""",
