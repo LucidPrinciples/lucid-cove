@@ -166,7 +166,7 @@
     const map = {
       "{frequency}": t.frequency || "this frequency",
       "{principle}": t.principle || "this principle",
-      "{key}": t.tuning_key || "today’s Key",
+      "{key}": keyBreak(t.tuning_key || "today’s Key"),
     };
     let out = String(text || "");
     Object.keys(map).forEach((token) => {
