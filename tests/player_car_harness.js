@@ -61,6 +61,7 @@ class FakeAudio {
     this.style = {};
     this._otIgnorePause = false;
     this._otEventsBound = false;
+    this.buffered = { length: 0, end() { return 0; } };
   }
   get src() { return this._src; }
   set src(v) {
@@ -69,6 +70,7 @@ class FakeAudio {
     this._src = next;
     this.readyState = next ? 4 : 0;
     this.networkState = next ? 2 : 0;
+    if (next) this.dispatch('loadedmetadata');
   }
   getAttribute(name) { return name === 'src' ? this._src : null; }
   setAttribute(name, value) { if (name === 'src') this.src = value; }
@@ -229,6 +231,11 @@ function hasLog(event, reason) {
     return e.event === event && (reason == null || e.reason === reason);
   });
 }
+function countLog(event, reason) {
+  return otPlayerLogEntries().filter(function (e) {
+    return e.event === event && (reason == null || e.reason === reason);
+  }).length;
+}
 
 // 3. Previous walks played history, not index-1.
 otSetPlaylist(tracks('H', 5), { autoplay: true, startIndex: 0, label: 'H' });
@@ -319,19 +326,40 @@ if (!hasLog('error', 'cap')) fail('missing cap log');
 fireVisibility();
 if (plays() !== playsBeforeStop) fail('unlock resumed after the cap');
 
-// A waiting stall while locked retries once, on a fresh queue.
+// A slow buffer that grows again within 15s does not retry, skip, or stop.
 otSetPlaylist(tracks('W', 3), { autoplay: true, startIndex: 0, label: 'W' });
 document.hidden = true;
-var stallTitle = title();
-var playsBeforeStall = plays();
+var slowTitle = title();
+var playsBeforeSlow = plays();
+var retriesBeforeSlow = countLog('retry');
 liveAudio().dispatch('waiting');
 var waitingEntry = otPlayerLogEntries().filter(function (e) { return e.event === 'waiting'; }).pop();
 if (!waitingEntry) fail('waiting was not logged');
 if (waitingEntry.hidden !== true) fail('waiting log lost document.hidden');
-flush(3000);
-if (title() !== stallTitle) fail('stall retry left the track');
-if (plays() !== playsBeforeStall + 1) fail('stall did not retry while hidden');
-if (!hasLog('retry', 'same')) fail('stall did not log a retry');
+flush(10000);
+liveAudio().buffered = { length: 1, end: function () { return 12; } };
+flush(5000);
+if (title() !== slowTitle) fail('slow buffer changed track to ' + title());
+if (plays() !== playsBeforeSlow) fail('slow buffer reloaded or skipped');
+if (countLog('retry') !== retriesBeforeSlow) fail('slow buffer logged a retry');
+if (!nodes.mpStatus.hidden && nodes.mpStatus.textContent.indexOf('three times') !== -1) fail('slow buffer stopped playback');
+if (!hasLog('waiting', 'growing')) fail('slow buffer did not log growth');
+
+// A dead stream with no growth for 15s reloads the same track at its position.
+otSetPlaylist(tracks('D', 3), { autoplay: true, startIndex: 0, label: 'D' });
+document.hidden = true;
+var deadTitle = title();
+var playsBeforeDead = plays();
+liveAudio().currentTime = 40;
+liveAudio().buffered = { length: 1, end: function () { return 40; } };
+liveAudio().dispatch('stalled');
+flush(15000);
+if (title() !== deadTitle) fail('dead stream left the track: ' + title());
+if (plays() !== playsBeforeDead + 1) fail('dead stream did not reload the same track');
+if (Math.abs(liveAudio().currentTime - 40) > 0.2) fail('reload lost position ' + liveAudio().currentTime);
+if (!nodes.mpStatus.hidden && nodes.mpStatus.textContent.indexOf('three times') !== -1) fail('dead stream spent the error cap');
+if (!hasLog('retry', 'stall')) fail('dead reload was not logged');
+if (!hasLog('stalled', '')) fail('stalled was not logged');
 
 // 4. Now playing includes genre art and a position.
 otSetupMediaSession({ title: 'Genre Echo', folder: 'Genre_Album', cdnBase: 'https://cdn.example/g' });

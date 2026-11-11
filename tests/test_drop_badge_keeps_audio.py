@@ -52,7 +52,8 @@ def test_error_does_not_skip_next():
     assert "not skipping" in text
     assert "otNext(); }, 1500)" not in text
     assert "const OT_FAIL_CAP = 3" in text
-    assert "const OT_STALL_RETRY_MS = 3000" in text
+    assert "const OT_ERROR_RETRY_MS = 3000" in text
+    assert "const OT_STALL_QUIET_MS = 15000" in text
     assert "_otRetriedThisTrack" in text
     assert "otAudio.load()" not in text[text.index("function _otRetrySameTrack") : text.index("function _otStopForFailures")]
 

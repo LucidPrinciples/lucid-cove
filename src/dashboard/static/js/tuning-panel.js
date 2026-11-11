@@ -33,13 +33,16 @@ let _otConsecutiveErrors = 0;
 let _otPendingPlay = false;     // true = new playlist displayed but not yet loaded into audio
 let _otPlayStartTime = null;    // timestamp when current track started playing (for duration calc)
 let _otCurrentTrackLogged = false; // prevent duplicate play_start for same track
-const OT_STALL_RETRY_MS = 3000;
+const OT_ERROR_RETRY_MS = 3000;
+const OT_STALL_QUIET_MS = 15000;
 const OT_FAIL_CAP = 3;
 const OT_PLAYER_LOG_KEY = 'lt_player_log';
 const OT_PLAYER_LOG_MAX = 200;
 const OT_HISTORY_MAX = 20;
 const OT_FAIL_STATUS = 'The stream failed three times. Playback stopped.';
 let _otStallTimer = null;
+let _otErrorTimer = null;
+let _otStallMark = 0;
 let _otAudibleTimer = null;
 let _otRetriedThisTrack = false;
 let _otWantAudio = false;
@@ -194,11 +197,32 @@ function _otBindPlayerLogCopy() {
     btn.addEventListener('click', () => otCopyPlayerLog());
 }
 
-function _otClearStallTimer() {
+function _otClearFaultTimers() {
     if (_otStallTimer) {
         clearTimeout(_otStallTimer);
         _otStallTimer = null;
     }
+    if (_otErrorTimer) {
+        clearTimeout(_otErrorTimer);
+        _otErrorTimer = null;
+    }
+}
+
+function _otBufferEnd(audio) {
+    try {
+        const ranges = audio && audio.buffered;
+        if (ranges && ranges.length > 0 && typeof ranges.end === 'function') {
+            const end = ranges.end(ranges.length - 1);
+            if (isFinite(end) && end > 0) return end;
+        }
+    } catch (e) {}
+    return 0;
+}
+
+function _otMediaMark() {
+    if (!otAudio) return 0;
+    const time = (otAudio.currentTime && isFinite(otAudio.currentTime)) ? otAudio.currentTime : 0;
+    return Math.max(time, _otBufferEnd(otAudio));
 }
 
 function _otClearAudibleTimer() {
@@ -223,14 +247,23 @@ function _otClearFailStatus() {
 }
 
 function _otNoteAudible() {
-    _otClearStallTimer();
     _otNeedsResume = false;
+    // Playing again means the load error recovered. A stall watch stays until
+    // the playhead or the buffer actually moves.
+    if (_otErrorTimer) {
+        clearTimeout(_otErrorTimer);
+        _otErrorTimer = null;
+    }
+    if (_otStallTimer && _otMediaMark() > _otStallMark + 0.05) {
+        clearTimeout(_otStallTimer);
+        _otStallTimer = null;
+    }
     _otClearAudibleTimer();
-    const startedAt = otAudio ? (otAudio.currentTime || 0) : 0;
+    const startedAt = _otMediaMark();
     _otAudibleTimer = setTimeout(() => {
         _otAudibleTimer = null;
         if (!otAudio || otAudio.paused || !_otWantAudio) return;
-        if ((otAudio.currentTime || 0) >= startedAt + 0.25) {
+        if (_otMediaMark() >= startedAt + 0.25) {
             _otConsecutiveErrors = 0;
             _otRetriedThisTrack = false;
             _otClearFailStatus();
@@ -238,18 +271,47 @@ function _otNoteAudible() {
     }, 1500);
 }
 
-function _otScheduleFault(kind, reason) {
+function _otScheduleError(reason) {
     if (_otReloading || !otAudio) return;
     const srcNow = otAudio.src || (otAudio.getAttribute && otAudio.getAttribute('src')) || '';
     if (!srcNow) return;
-    _otLogPlayer(kind, reason || '');
+    _otLogPlayer('error', reason || '');
     if (!_otWantAudio && !otIsPlaying) return;
-    if (_otStallTimer) return;
-    const mark = otAudio.currentTime || 0;
+    if (_otErrorTimer) return;
+    _otErrorTimer = setTimeout(() => {
+        _otErrorTimer = null;
+        _otResolveError();
+    }, OT_ERROR_RETRY_MS);
+}
+
+function _otArmStallWatch() {
+    if (_otStallTimer || !otAudio) return;
+    const mark = _otMediaMark();
+    _otStallMark = mark;
     _otStallTimer = setTimeout(() => {
         _otStallTimer = null;
-        _otResolveFault(kind, mark);
-    }, OT_STALL_RETRY_MS);
+        _otOnStallQuiet(mark);
+    }, OT_STALL_QUIET_MS);
+}
+
+function _otWatchStall(kind) {
+    if (_otReloading || !otAudio) return;
+    const srcNow = otAudio.src || (otAudio.getAttribute && otAudio.getAttribute('src')) || '';
+    if (!srcNow) return;
+    _otLogPlayer(kind, '');
+    if (!_otWantAudio && !otIsPlaying) return;
+    _otArmStallWatch();
+}
+
+function _otOnStallQuiet(mark) {
+    if (!_otWantAudio || !otAudio || otAudio.paused) return;
+    if (_otMediaMark() > mark + 0.05) {
+        _otLogPlayer('waiting', 'growing');
+        _otArmStallWatch();
+        return;
+    }
+    _otLogPlayer('retry', 'stall');
+    _otRetrySameTrack();
 }
 
 function _otRetrySameTrack() {
@@ -257,17 +319,22 @@ function _otRetrySameTrack() {
     if (!otAudio || !track) return;
     const url = otGetAudioUrl(track);
     const pos = (otAudio.currentTime && isFinite(otAudio.currentTime)) ? otAudio.currentTime : 0;
+    if (_otStallTimer) {
+        clearTimeout(_otStallTimer);
+        _otStallTimer = null;
+    }
+    const restore = () => {
+        try { if (otAudio && pos > 0) otAudio.currentTime = pos; } catch (e) {}
+        try { otAudio.removeEventListener('loadedmetadata', restore); } catch (e) {}
+    };
+    if (pos > 0) otAudio.addEventListener('loadedmetadata', restore);
     _otReloading = true;
     try {
         // Assigning src reloads. load() on this live element drops the lock-screen session.
         otAudio.removeAttribute('src');
         otAudio.src = url;
         if (pos > 0) {
-            const restore = () => {
-                try { if (otAudio) otAudio.currentTime = pos; } catch (e) {}
-                try { otAudio.removeEventListener('loadedmetadata', restore); } catch (e) {}
-            };
-            otAudio.addEventListener('loadedmetadata', restore);
+            try { otAudio.currentTime = pos; } catch (e) {}
         }
     } catch (e) {}
     _otReloading = false;
@@ -278,7 +345,7 @@ function _otStopForFailures() {
     _otWantAudio = false;
     otIsPlaying = false;
     _otNeedsResume = false;
-    _otClearStallTimer();
+    _otClearFaultTimers();
     _otClearAudibleTimer();
     _otLogPlayer('error', 'cap');
     _otReloading = true;
@@ -297,10 +364,8 @@ function _otStopForFailures() {
     }
 }
 
-function _otResolveFault(kind, mark) {
+function _otResolveError() {
     if (!_otWantAudio || !otAudio) return;
-    const moved = (otAudio.currentTime || 0) > (mark || 0) + 0.25;
-    if (kind !== 'error' && !otAudio.paused && moved) return;
     _otClearAudibleTimer();
     _otConsecutiveErrors += 1;
     if (_otConsecutiveErrors >= OT_FAIL_CAP) {
@@ -310,8 +375,7 @@ function _otResolveFault(kind, mark) {
     if (!_otRetriedThisTrack) {
         _otRetriedThisTrack = true;
         _otLogPlayer('retry', 'same');
-        if (kind === 'error') _otRetrySameTrack();
-        else _otPlayCurrent('retry');
+        _otRetrySameTrack();
         return;
     }
     _otRetriedThisTrack = false;
@@ -345,6 +409,7 @@ function _otResetPlayHistory() {
 function _otForgiveFailures() {
     _otConsecutiveErrors = 0;
     _otRetriedThisTrack = false;
+    _otClearFaultTimers();
 }
 
 function _otPublishPosition() {
@@ -1261,7 +1326,7 @@ function _otBindCurrentAudioEvents() {
         otIsPlaying = false;
         _otWantAudio = false;
         _otNeedsResume = false;
-        _otClearStallTimer();
+        _otClearFaultTimers();
         _otLogPlayer('pause', '');
         // Track pause with duration so far
         if (_otPlayStartTime) {
@@ -1280,22 +1345,22 @@ function _otBindCurrentAudioEvents() {
         const code = otAudio.error && otAudio.error.code;
         if (code === 1) return;
         // Do not auto-advance on the first load error. That skip loop hammered the CDN.
-        // One retry of this track, then the next track, then stop. See _otResolveFault.
+        // One retry of this track, then the next track, then stop. See _otResolveError.
         console.warn('[player] load error — not skipping');
-        _otScheduleFault('error', code ? String(code) : '');
+        _otScheduleError(code ? String(code) : '');
     });
-    // A stall while the phone is locked used to wait for unlock. Retry here.
+    // Playing resumes the error budget. A stall watch stays until bytes move.
     otAudio.addEventListener('playing', (ev) => {
         if (!isLive(ev)) return;
         _otNoteAudible();
     });
     otAudio.addEventListener('waiting', (ev) => {
         if (!isLive(ev)) return;
-        _otScheduleFault('waiting');
+        _otWatchStall('waiting');
     });
     otAudio.addEventListener('stalled', (ev) => {
         if (!isLive(ev)) return;
-        _otScheduleFault('stalled');
+        _otWatchStall('stalled');
     });
 }
 

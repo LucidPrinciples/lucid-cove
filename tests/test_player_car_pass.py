@@ -61,6 +61,22 @@ def test_now_playing_uses_cdn_base_and_position():
     assert "LUCID TUNER" in setup
 
 
+def test_stall_does_not_spend_the_error_cap():
+    text = _panel()
+    watch = text[text.index("function _otArmStallWatch") : text.index("function _otRetrySameTrack")]
+    assert "otNext(" not in watch
+    assert "_otConsecutiveErrors" not in watch
+    assert "OT_STALL_QUIET_MS" in watch
+    waiting = text[text.index("addEventListener('waiting'") : text.index("addEventListener('stalled'")]
+    assert "_otWatchStall('waiting')" in waiting
+    assert "_otScheduleError" not in waiting
+    stalled = text[text.index("addEventListener('stalled'") : text.index("addEventListener('stalled'") + 180]
+    assert "_otWatchStall('stalled')" in stalled
+    err = text[text.index("function _otResolveError") : text.index("function _otResumeAfterStop")]
+    assert "OT_FAIL_CAP" in err
+    assert "otNext()" in err
+
+
 def test_player_log_in_help_with_copy():
     text = _panel()
     html = HTML.read_text()
