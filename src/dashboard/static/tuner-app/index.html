@@ -48,6 +48,18 @@
       <button type="button" id="freq-badge" class="freq-badge" aria-label="Open today’s Drop">
         <span id="freq-text"></span>
       </button>
+      <script>
+      (function () {
+        try {
+          var name = localStorage.getItem("lt_latest_frequency");
+          name = name && String(name).trim();
+          if (!name || name === "\u2014" || name === "-" || name === "\u2013") return;
+          var el = document.getElementById("freq-text");
+          if (el) el.textContent = name;
+          document.documentElement.setAttribute("data-frequency", name);
+        } catch (e) {}
+      })();
+      </script>
     </div>
   </header>
 
