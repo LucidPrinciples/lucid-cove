@@ -61,20 +61,36 @@ class FakeAudio {
     this.style = {};
     this._otIgnorePause = false;
     this._otEventsBound = false;
+    this._pauseAfterPlay = false;
     this.buffered = { length: 0, end() { return 0; } };
   }
   get src() { return this._src; }
   set src(v) {
     const next = String(v || '');
-    if (next !== this._src) this.currentTime = 0;
+    const changed = next !== this._src;
+    const replacing = changed && !!this._src && !!next;
+    if (changed) this.currentTime = 0;
     this._src = next;
     this.readyState = next ? 4 : 0;
     this.networkState = next ? 2 : 0;
-    if (next) this.dispatch('loadedmetadata');
+    if (replacing) {
+      if (!this.paused) this._pauseAfterPlay = true;
+      this.dispatch('abort');
+      this.dispatch('emptied');
+    }
+    if (changed && next) {
+      this.dispatch('loadstart');
+      this.dispatch('loadedmetadata');
+      this.dispatch('canplay');
+    }
   }
   getAttribute(name) { return name === 'src' ? this._src : null; }
   setAttribute(name, value) { if (name === 'src') this.src = value; }
-  removeAttribute(name) { if (name === 'src') this._src = ''; }
+  removeAttribute(name) {
+    if (name !== 'src') return;
+    if (this._src && !this.paused) this._pauseAfterPlay = true;
+    this._src = '';
+  }
   addEventListener(name, fn) {
     (this.listeners[name] = this.listeners[name] || []).push(fn);
   }
@@ -93,6 +109,11 @@ class FakeAudio {
     if (this._src) this.readyState = 4;
     this.dispatch('play');
     this.dispatch('playing');
+    // iPhone delivers the src-swap pause after play and waiting, same turn.
+    if (this._pauseAfterPlay) {
+      this._pauseAfterPlay = false;
+      this.dispatch('pause');
+    }
     return Promise.resolve();
   }
   pause() {
@@ -260,6 +281,7 @@ var parkedTitle = title();
 var parkedSrc = liveAudio().src;
 var parkedLabel = nodes.mpFreq.textContent;
 liveAudio().currentTime = 42;
+flush(0);
 liveAudio().pause();
 otSetPlaylist(tracks('P', 4), { autoplay: false, startIndex: 0, label: 'PARKED-LIST' });
 if (title() !== parkedTitle) fail('parked browse changed the title to ' + title());
@@ -277,10 +299,11 @@ if (liveAudio().src !== parkedSrc) fail('car play loaded a different file');
 var beforeA = audios[0].playCount;
 var beforeB = audios[1].playCount;
 otSetPlaylist(tracks('C', 3), { autoplay: true, startIndex: 0, label: 'C' });
-flush(800);
+flush(3000);
 otNext();
-flush(800);
+flush(3000);
 otNext();
+flush(0);
 if (audios[1].playCount !== beforeB + 1) fail('preload buffer never went live');
 if (audios[0].playCount !== beforeA + 2) fail('retired buffer did not become live again');
 if (liveAudio() !== audios[0]) fail('live element after two handoffs is not the original');
@@ -302,6 +325,7 @@ liveAudio().dispatch('error');
 flush(3000);
 if (title() !== retryTitle) fail('first fault left the track early: ' + title());
 if (plays() !== playsBeforeRetry + 1) fail('first fault did not retry the same track');
+if (!_otWantAudio) fail('retry pause cleared _otWantAudio');
 if (!hasLog('error', '')) fail('missing error log');
 if (!hasLog('retry', 'same')) fail('missing same-track retry log');
 
@@ -360,6 +384,39 @@ if (Math.abs(liveAudio().currentTime - 40) > 0.2) fail('reload lost position ' +
 if (!nodes.mpStatus.hidden && nodes.mpStatus.textContent.indexOf('three times') !== -1) fail('dead stream spent the error cap');
 if (!hasLog('retry', 'stall')) fail('dead reload was not logged');
 if (!hasLog('stalled', '')) fail('stalled was not logged');
+
+// A phone has one element. Preload must not run in the old 800ms window or after it.
+navigator.maxTouchPoints = 1;
+var idle = audios.filter(function (a) { return a !== liveAudio(); });
+var idlePlays = idle.map(function (a) { return a.playCount; });
+var mobileLogAt = otPlayerLogEntries().length;
+otSetPlaylist(tracks('M', 4), { autoplay: true, startIndex: 0, label: 'M' });
+var mobileEl = liveAudio();
+flush(800);
+flush(5000);
+idle.forEach(function (a, i) {
+  if (a.src) fail('mobile preloaded ' + a.src);
+  if (a.playCount !== idlePlays[i]) fail('mobile handoff played a second element');
+});
+var mobileLogs = otPlayerLogEntries().slice(mobileLogAt);
+if (mobileLogs.some(function (e) { return e.event === 'handoff'; })) fail('mobile logged a handoff');
+if (!mobileLogs.some(function (e) { return e.event === 'loadstart' && e.reason.indexOf('M0.mp3') !== -1; })) {
+  fail('load did not log the file name');
+}
+var mobileSrc = mobileEl.src;
+var mobilePlays = mobileEl.playCount;
+otNext();
+if (liveAudio() !== mobileEl) fail('mobile next left the live element');
+if (mobileEl.playCount !== mobilePlays + 1) fail('mobile next did not play the same element');
+if (!mobileEl.src || mobileEl.src === mobileSrc) fail('mobile next did not load a new file');
+navigator.maxTouchPoints = 0;
+
+// After the src-swap pause has settled, a real pause still counts.
+otSetPlaylist(tracks('U', 2), { autoplay: true, startIndex: 0, label: 'U' });
+flush(0);
+if (!_otWantAudio) fail('playback did not want audio');
+liveAudio().pause();
+if (_otWantAudio) fail('user pause did not clear _otWantAudio');
 
 // 4. Now playing includes genre art and a position.
 otSetupMediaSession({ title: 'Genre Echo', folder: 'Genre_Album', cdnBase: 'https://cdn.example/g' });

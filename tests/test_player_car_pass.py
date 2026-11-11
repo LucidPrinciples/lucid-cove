@@ -77,6 +77,24 @@ def test_stall_does_not_spend_the_error_cap():
     assert "otNext()" in err
 
 
+def test_mobile_skips_preload_and_src_pause_is_marked():
+    text = _panel()
+    sched = text[text.index("function _otSchedulePreload") : text.index("function _otHandoffToPreloaded")]
+    assert "_otIsMobile()" in sched
+    assert "OT_PRELOAD_DELAY_MS" in sched
+    assert "800" not in sched
+    assert "readyState < 2" in sched
+    play = text[text.index("addEventListener('play'") : text.index("addEventListener('pause'")]
+    assert "_otSchedulePreload()" not in play
+    playing = text[text.index("addEventListener('playing'") : text.index("addEventListener('waiting'")]
+    assert "_otSchedulePreload()" in playing
+    pause = text[text.index("addEventListener('pause'") : text.index("addEventListener('error'")]
+    assert "_otHoldUserPause" in pause
+    assert "function _otWithSrcChange" in text
+    for name in ("loadstart", "loadedmetadata", "canplay", "suspend", "abort", "emptied", "play-blocked"):
+        assert name in text
+
+
 def test_player_log_in_help_with_copy():
     text = _panel()
     html = HTML.read_text()
