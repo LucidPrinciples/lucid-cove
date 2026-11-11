@@ -151,6 +151,7 @@ function flush(ms) {
   }
 }
 
+const warmFetches = [];
 const media = {
   metadata: null,
   playbackState: 'none',
@@ -212,7 +213,20 @@ const sandbox = {
   navigator: { mediaSession: media },
   document: document,
   esc(s) { return String(s == null ? '' : s); },
-  fetch: async () => ({ ok: true, json: async () => ({ favorites: [] }) }),
+  fetch: async (url, opts) => {
+    const headers = (opts && opts.headers) || {};
+    const range = headers.Range || headers.range || '';
+    if (range) {
+      warmFetches.push({
+        url: String(url),
+        range: String(range),
+        readyState: live ? live.readyState : -1,
+      });
+      return { ok: true, status: 206, arrayBuffer: async () => new ArrayBuffer(0) };
+    }
+    return { ok: true, json: async () => ({ favorites: [] }) };
+  },
+  warmFetches: warmFetches,
   audios: audios,
   nodes: nodes,
   media: media,
@@ -421,6 +435,62 @@ if (!_otWantAudio) fail('pause after a 0ms timer cleared _otWantAudio');
 liveAudio().dispatch('playing');
 liveAudio().pause();
 if (_otWantAudio) fail('user pause after playing did not clear _otWantAudio');
+
+// Up next is what ended and next play. Warm stays off while the live file is loading.
+var realRandom = Math.random;
+Math.random = function () {
+  var len = otTracks.length || 1;
+  var want = (otIndex + 1) % len;
+  return (want + 0.01) / len;
+};
+otSetPlaylist(tracks('N', 4), { autoplay: true, startIndex: 0, label: 'N' });
+var upNext = otPlayerLogEntries().filter(function (e) { return e.event === 'upnext'; }).pop();
+if (!upNext || upNext.reason.indexOf('N1.mp3') === -1) fail('up-next was ' + (upNext && upNext.reason));
+otNext();
+if (title() !== 'N1') fail('next played ' + title() + ' instead of up-next');
+var upAfterNext = otPlayerLogEntries().filter(function (e) { return e.event === 'upnext'; }).pop();
+if (!upAfterNext || upAfterNext.reason.indexOf('N2.mp3') === -1) {
+  fail('next did not pick a new up-next: ' + (upAfterNext && upAfterNext.reason));
+}
+liveAudio().dispatch('ended');
+if (title() !== 'N2') fail('ended played ' + title() + ' instead of up-next');
+otSetPlaylist(tracks('Q', 4), { autoplay: true, startIndex: 0, label: 'Q' });
+var upQueue = otPlayerLogEntries().filter(function (e) { return e.event === 'upnext'; }).pop();
+if (!upQueue || upQueue.reason.indexOf('Q1.mp3') === -1) fail('new queue kept ' + (upQueue && upQueue.reason));
+var warmBefore = warmFetches.length;
+var idleSrc = audios.filter(function (a) { return a !== liveAudio(); }).map(function (a) { return a.src; });
+liveAudio().duration = 180;
+liveAudio().buffered = { length: 1, end: function () { return 180; } };
+liveAudio().currentTime = 160;
+liveAudio().readyState = 1;
+_otBuffering = true;
+_otMaybeWarm();
+if (warmFetches.length !== warmBefore) fail('warm ran while waiting');
+_otBuffering = false;
+liveAudio().readyState = 3;
+_otMaybeWarm();
+if (warmFetches.length !== warmBefore) fail('warm ran while the live element was still loading');
+liveAudio().currentTime = 100;
+liveAudio().readyState = 4;
+_otMaybeWarm();
+if (warmFetches.length !== warmBefore) fail('warm ran before the last 25 seconds');
+liveAudio().currentTime = 160;
+_otMaybeWarm();
+if (warmFetches.length !== warmBefore + 1) fail('warm did not fetch up-next');
+var warmed = warmFetches[warmFetches.length - 1];
+if (warmed.range !== 'bytes=0-1048575') fail('range was ' + warmed.range);
+if (warmed.url.indexOf('Q1.mp3') === -1) fail('warmed ' + warmed.url);
+if (warmed.readyState < 4) fail('warm overlapped readyState ' + warmed.readyState);
+audios.filter(function (a) { return a !== liveAudio(); }).forEach(function (a, i) {
+  if (a.src !== idleSrc[i]) fail('warm used a second audio element');
+});
+if (!otPlayerLogEntries().some(function (e) {
+  return e.event === 'canplay' && e.reason.indexOf('.mp3') !== -1 && e.reason.split(' ').length >= 2;
+})) fail('canplay did not record the wait from load');
+_otMaybeWarm();
+if (warmFetches.length !== warmBefore + 1) fail('warm fetched up-next twice');
+Math.random = realRandom;
+_otBuffering = false;
 
 // 4. Now playing includes genre art and a position.
 otSetupMediaSession({ title: 'Genre Echo', folder: 'Genre_Album', cdnBase: 'https://cdn.example/g' });
