@@ -283,7 +283,6 @@ def test_batch1_words_live_in_one_place():
         "Used today. Next free Tune at midnight",
         "Unlimited Tune",
         "No personal Tune yet.",
-        "This Tune is shaped by your answers: what you're doing and the frequency you want to broadcast. The Field is today's tuning for everyone.",
         "your last tuning",
         "Your streak",
         "Start your streak today",
@@ -316,7 +315,9 @@ def test_batch1_words_live_in_one_place():
     assert "text-transform: none" in css
     assert ".tf-complete-date" in css
     assert ".tf-tune-state" in css
-    assert ".tf-shaped" in css
+    assert ".tf-shaped" not in css
+    assert "tuneShaped" not in flow
+    assert "shaped by your answers" not in flow
 
 
 def test_tune_shaped_copy_and_loading_lines():
@@ -340,8 +341,9 @@ def test_tune_shaped_copy_and_loading_lines():
     assert "Steady / Okay" in step3
     assert "Clear / Energized" in step3
     step4 = flow[flow.index("function _renderStep4"):flow.index("function _renderStep5")]
-    assert "tuneShaped" in step4
-    assert "d.coaching || TUNE_COACHING[freq]" in step4
+    assert "tuneShaped" not in step4
+    assert "tf-shaped" not in step4
+    assert "_tfReadCoaching(d.coaching || TUNE_COACHING[freq]" in step4
 
 
 def test_feeling_answer_does_not_feed_selection():
@@ -367,6 +369,48 @@ def test_signal_before_is_saved_when_answered():
     assert "signal_after" not in save
 
 
+def test_api_coaching_dashes_are_cleaned_for_reading():
+    """The model still writes em dashes. Step 4, the card, and the detail read a cleaned line."""
+    import json
+    import shutil
+    import subprocess
+
+    flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    fn = flow[flow.index("function _tfReadCoaching"):flow.index("function _tfCoachingText")]
+    assert "\\u2014" in fn and "\\u2013" in fn
+    step4 = flow[flow.index("function _renderStep4"):flow.index("function _renderStep5")]
+    assert "_tfReadCoaching(" in step4
+    detail = flow[flow.index("async function _tfShowTuningDetail"):flow.index("function _tfCloseDetailModal")]
+    assert "_tfCoachingText(s," in detail
+    node = shutil.which("node")
+    assert node, "node is required to run the coaching cleaner"
+    cases = [
+        ("locked on the flow signal \u2014 this is the Passing Tide",
+         "locked on the flow signal. This is the Passing Tide"),
+        ("Joy is not a reward \u2014 it's the frequency.",
+         "Joy is not a reward. It's the frequency."),
+        ("done. \u2014 next stays a sentence",
+         "done. Next stays a sentence"),
+        ("already there\u2014you just needed to retune",
+         "already there. You just needed to retune"),
+    ]
+    script = fn + "\nconst cases = " + json.dumps(cases) + """;
+const bad = [];
+for (const [inp, exp] of cases) {
+  const got = _tfReadCoaching(inp);
+  if (got !== exp) bad.push({ got, exp });
+}
+if (bad.length) {
+  console.error(JSON.stringify(bad));
+  process.exit(1);
+}
+console.log("OK");
+"""
+    ran = subprocess.run([node, "-e", script], capture_output=True, text=True)
+    assert ran.returncode == 0, ran.stderr or ran.stdout
+    assert "OK" in ran.stdout
+
+
 def test_personal_card_shows_request_coaching_and_sent_answers():
     flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
     helper = flow[flow.index("function _tfCoachingText"):flow.index("function _tfIsPersonalSession")]
@@ -381,9 +425,11 @@ def test_personal_card_shows_request_coaching_and_sent_answers():
     assert "data.initial_state" in complete
     assert "entry_mode" not in complete
     assert "entryMode" not in complete
-    assert "tuneShaped" in complete
+    assert "tuneShaped" not in complete
+    assert "tf-shaped" not in complete
     assert "answerLine" in complete
     assert "_tfCoachingText(data, freq, fieldRecord)" in complete
+    assert "return _tfReadCoaching(coaching)" in helper
 
 
 def test_signal_readings_migration_is_idempotent():

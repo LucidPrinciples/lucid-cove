@@ -205,7 +205,6 @@ const LT_COPY = {
     tuneUsed: "Used today. Next free Tune at midnight",
     tuneUnlimited: "Unlimited Tune",
     tuneNone: "No personal Tune yet.",
-    tuneShaped: "This Tune is shaped by your answers: what you're doing and the frequency you want to broadcast. The Field is today's tuning for everyone.",
     yourLastTuning: "your last tuning",
     tuneSlow: "Your last tuning is still loading.",
     tuneLoadFail: "Couldn't load your tunings. You can still tune.",
@@ -298,6 +297,16 @@ function _tfIsFieldRecord(data) {
     return mode === "Daily drop" || mode === "Archive drop";
 }
 
+// API coaching is written by the model. People read this, so a dash becomes a sentence.
+function _tfReadCoaching(text) {
+    let s = String(text || '');
+    s = s.replace(/[ \t]*[\u2014\u2013][ \t]*/g, '. ');
+    s = s.replace(/\.{2,}/g, '.');
+    s = s.replace(/\.\s+\./g, '.');
+    s = s.replace(/\.\s+([a-z])/g, function(_, ch) { return '. ' + ch.toUpperCase(); });
+    return s.trim();
+}
+
 function _tfCoachingText(data, freq, fieldRecord) {
     let coaching = '';
     if (fieldRecord) {
@@ -307,7 +316,7 @@ function _tfCoachingText(data, freq, fieldRecord) {
         if (!coaching) coaching = ((data && (data.universal_coaching || data.tuning_prompt)) || '').trim();
     }
     if (!coaching) coaching = TUNE_COACHING[freq] || '';
-    return coaching;
+    return _tfReadCoaching(coaching);
 }
 
 function _tfIsPersonalSession(session) {
@@ -1044,7 +1053,7 @@ function _renderStep4(container) {
     const d = tuneFlow.tuningData;
     const freq = d.frequency || tuneFlow.mode.frequency;
     // Use LLM-generated coaching from API, fall back to static
-    const coaching = d.coaching || TUNE_COACHING[freq] || TUNE_COACHING['Peace'];
+    const coaching = _tfReadCoaching(d.coaching || TUNE_COACHING[freq] || TUNE_COACHING['Peace']);
 
     container.innerHTML = `
         <div class="panel-scroll tune-flow">
@@ -1052,7 +1061,6 @@ function _renderStep4(container) {
                 <div class="tf-header">
                     <span class="tf-step-num">◉</span>
                     <h3 class="tf-frequency">${freq}</h3>
-                    <p class="tf-shaped">${ESC(_tfWords().tuneShaped)}</p>
                 </div>
                 <div class="tf-coaching">
                     <p class="tf-coaching-text">${coaching}</p>
@@ -1311,7 +1319,6 @@ async function _renderCompletedTuning(container, data) {
     const activity = String(data.context || '').trim();
     const need = String(data.initial_state || '').trim();
     const answerLine = [activity, need].filter(Boolean).join(' · ');
-    const shaped = fieldRecord ? '' : (_tfWords().tuneShaped || '');
     const recordKicker = fieldRecord ? _tfWords().fieldRecord : _tfWords().yourLastTuning;
     const recordDate = _tfRecordDateLabel(data);
 
@@ -1329,7 +1336,6 @@ async function _renderCompletedTuning(container, data) {
                 ${recordDate ? `<span class="tf-complete-date">${ESC(recordDate)}</span>` : ''}
                 <span class="tf-complete-freq">${ESC(freq)}</span>
                 <span class="tf-complete-principle">${ESC(principle)}</span>
-                ${shaped ? `<p class="tf-shaped">${ESC(shaped)}</p>` : ''}
                 ${!fieldRecord && answerLine ? `<span class="tf-complete-context">${ESC(answerLine)}</span>` : ''}
             </div>
 
