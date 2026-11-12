@@ -1219,32 +1219,67 @@ function _renderStep7(container) {
         </div>
     `;
 
-    // Play just the single echo — no playlist, focused listening
+    // First press plays the day's Echo. The frequency stream is attached behind it.
     _tfPlaySingleEcho(d);
 }
 
+let _tfEchoStreamGen = 0;
+
 function _tfPlaySingleEcho(data) {
-    // Build a single-track "playlist" with just the echo
+    data = data || {};
     const signalFolder = (typeof otSignalToFolder === 'function')
         ? otSignalToFolder(data.signal_type) : (data.echo_album || 'Drive_Signal');
+    const echo = (typeof otEchoTrack === 'function') ? otEchoTrack(data) : null;
     const filename = (data.echo_filename || '').replace(/\.mp3$/, '') + '.mp3';
     const principle = data.principle || data.echo_full_name || filename.replace(/_/g,' ').replace('.mp3','');
-
-    const track = {
+    const track = echo || {
         title: principle + ' (' + signalFolder.replace(/_Signal$/, '').replace(/_/g, ' ') + ' Signal Echo)',
         filename: filename,
         folder: signalFolder,
         principle: principle
     };
+    const label = (data.frequency || 'Tuning') + ' Tuning Stream';
 
     if (typeof otSetPlaylist === 'function') {
         otSetPlaylist([track], {
             source: 'tune',
-            label: (data.frequency || 'Tuning') + ' Echo',
+            label: label,
             autoplay: true,
+            startIndex: 0,
             mountId: 'tfEchoPlayer'
         });
     }
+
+    const freq = data.frequency || '';
+    if (!freq || typeof OT_PLAYLIST_CDN === 'undefined' || typeof fetch !== 'function') return;
+    const gen = ++_tfEchoStreamGen;
+    (async function () {
+        let tracks = [];
+        try {
+            const res = await fetch(OT_PLAYLIST_CDN + '/' + String(freq).toLowerCase() + '.json');
+            if (res.ok) {
+                const rows = (typeof otPlaylistRows === 'function')
+                    ? otPlaylistRows(await res.json()) : [];
+                if (rows.length && typeof otMapCdnTrack === 'function') {
+                    tracks = rows.map(function (t) { return otMapCdnTrack(t, signalFolder); });
+                }
+            }
+        } catch (e) {}
+        if (gen !== _tfEchoStreamGen) return;
+        if (typeof _otSource !== 'undefined' && _otSource && _otSource !== 'tune') return;
+        if (!tracks.length) tracks = [track];
+        const placed = (typeof otPlaceEcho === 'function')
+            ? otPlaceEcho(tracks, data)
+            : { tracks: tracks, index: 0 };
+        if (typeof otSetPlaylist !== 'function') return;
+        otSetPlaylist(placed.tracks, {
+            source: 'tune',
+            label: label,
+            autoplay: true,
+            startIndex: placed.index,
+            mountId: 'tfEchoPlayer'
+        });
+    })();
 }
 
 // tfAudio functions removed — step 7 now uses persistent otAudio via _tfsInit/otSetPlaylist

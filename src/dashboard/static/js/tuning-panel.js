@@ -643,6 +643,15 @@ function otEchoTrack(data) {
     };
 }
 
+/** Next row while a stream is playing. Random, never the current row, and it does not stop. */
+function otStreamNextIndex(length, current, random) {
+    const roll = (typeof random === "function") ? random : Math.random;
+    if (!length || length <= 1) return 0;
+    let next;
+    do { next = Math.floor(roll() * length); } while (next === current);
+    return next;
+}
+
 function otPlaceEcho(tracks, data) {
     const list = (tracks || []).slice();
     const echo = otEchoTrack(data);
@@ -650,22 +659,18 @@ function otPlaceEcho(tracks, data) {
         return { tracks: list, index: _otStableStart(list, data && data.principle) };
     }
     const want = echo.filename.toLowerCase();
-    const idx = list.findIndex(function (t) {
-        return String((t && t.filename) || "").toLowerCase() === want;
-    });
-    if (idx < 0) {
-        const freq = data && data.frequency ? String(data.frequency) : "";
-        const line = "NOT IN STREAM " + echo.filename
-            + (freq ? " frequency=" + freq : "")
-            + " at " + new Date().toISOString();
-        if (typeof _otLogPlayer === "function") _otLogPlayer("echo-missing", line);
-        if (typeof console !== "undefined" && console.error) console.error("[player] " + line);
-        return { tracks: list, index: 0 };
+    let row = null;
+    const rest = [];
+    for (let i = 0; i < list.length; i++) {
+        const name = String((list[i] && list[i].filename) || "").toLowerCase();
+        if (name === want) {
+            if (!row) row = list[i];
+        } else {
+            rest.push(list[i]);
+        }
     }
-    if (idx > 0) {
-        list.unshift(list.splice(idx, 1)[0]);
-    }
-    return { tracks: list, index: 0 };
+    rest.unshift(row || echo);
+    return { tracks: rest, index: 0 };
 }
 
 /** Keep currentTime. Opening the same track is not a restart. */
@@ -1339,7 +1344,7 @@ async function otInitPlayer(data) {
         nextTracks = otBuildTracks(signalFolder);
     }
 
-    // Today's echo plays first only when that file is already in the stream.
+    // The day's Echo is first. The curated rows stay behind it.
     const placed = otPlaceEcho(nextTracks, data);
     nextTracks = placed.tracks;
     const startAt = placed.index;
@@ -1630,11 +1635,7 @@ function _otRecoverPlaybackIfNeeded() {
 
 /** Pick the next index the same way otNext does (random, not current). */
 function _otPickNextIndex() {
-    if (!otTracks.length) return 0;
-    if (otTracks.length <= 1) return 0;
-    let next;
-    do { next = Math.floor(Math.random() * otTracks.length); } while (next === otIndex);
-    return next;
+    return otStreamNextIndex(otTracks.length, otIndex);
 }
 
 function _otFileAt(index) {

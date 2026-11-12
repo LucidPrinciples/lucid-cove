@@ -72,9 +72,12 @@ console.log("OK");
     assert "OK" in ran.stdout
 
 
-def test_echo_moves_to_the_front_only_when_the_stream_has_it():
+def _echo_helpers():
     panel = _read(PANEL)
-    src = panel[panel.index("function otSignalToFolder"):panel.index("function _otKeepLoaded")]
+    return panel[panel.index("function otSignalToFolder"):panel.index("function _otKeepLoaded")]
+
+
+def test_day_echo_is_the_drop_file_at_the_top_without_a_duplicate():
     node = shutil.which("node")
     assert node
     data = {
@@ -83,34 +86,92 @@ def test_echo_moves_to_the_front_only_when_the_stream_has_it():
         "signal_type": "Raw",
         "audio_url": "https://audio.lucidtuner.com/Lucid_Tuner/Raw_Signal/The_Passing_Tide_Raw_Echo.mp3",
     }
-    script = """
-const log = [];
-function _otLogPlayer(event, reason) { log.push(event + " " + reason); }
-""" + src + "\nconst data = " + json.dumps(data) + """;
-const tracks = [
+    script = _echo_helpers() + "\nconst data = " + json.dumps(data) + """;
+const stream = [
   { filename: "Pattern_Ground_Echo.mp3", folder: "Ground_Signal", principle: "Pattern", title: "Pattern" },
   { filename: "The_Passing_Tide_Ground_Echo.mp3", folder: "Ground_Signal", principle: "The Passing Tide", title: "Ground" },
-  { filename: "The_Passing_Tide_Raw_Echo.mp3", folder: "Raw_Signal", principle: "The Passing Tide", title: "Raw" },
+  { filename: "The_Passing_Tide_Raw_Echo.mp3", folder: "Raw_Signal", principle: "The Passing Tide", title: "Raw row" },
+  { filename: "The_Passing_Tide_Raw_Echo.mp3", folder: "Raw_Signal", principle: "The Passing Tide", title: "Raw copy" },
   { filename: "The_Passing_Tide_Open_Echo.mp3", folder: "Open_Signal", principle: "The Passing Tide", title: "Open" },
 ];
-const placed = otPlaceEcho(tracks, data);
-if (placed.index !== 0 || placed.tracks[0].filename !== "The_Passing_Tide_Raw_Echo.mp3") {
-  console.error(JSON.stringify(placed));
-  process.exit(1);
-}
+const placed = otPlaceEcho(stream, data);
+if (placed.index !== 0 || placed.tracks[0].title !== "Raw row") process.exit(1);
+if (placed.tracks[0].filename !== "The_Passing_Tide_Raw_Echo.mp3") process.exit(1);
 if (placed.tracks.length !== 4) process.exit(1);
-if (log.length !== 0) process.exit(1);
-const missing = otPlaceEcho(tracks.filter(t => t.filename.indexOf("Raw") < 0), data);
-if (missing.tracks.length !== 3) process.exit(1);
-if (missing.tracks.some(t => t.filename === "The_Passing_Tide_Raw_Echo.mp3")) process.exit(1);
-if (missing.index !== 0 || missing.tracks[0].filename !== "Pattern_Ground_Echo.mp3") process.exit(1);
-if (log.length !== 1 || log[0].indexOf("echo-missing") !== 0) process.exit(1);
-if (log[0].indexOf("NOT IN STREAM The_Passing_Tide_Raw_Echo.mp3") < 0) process.exit(1);
-if (log[0].indexOf("frequency=Trust") < 0) process.exit(1);
+const names = placed.tracks.map(t => t.filename);
+if (names.filter(n => n === "The_Passing_Tide_Raw_Echo.mp3").length !== 1) process.exit(1);
+const missing = otPlaceEcho(stream.filter(t => t.filename.indexOf("Raw") < 0), data);
+if (missing.index !== 0) process.exit(1);
+if (missing.tracks[0].filename !== "The_Passing_Tide_Raw_Echo.mp3") process.exit(1);
+if (missing.tracks.length !== 4) process.exit(1);
+if (missing.tracks[1].filename !== "Pattern_Ground_Echo.mp3") process.exit(1);
 console.log("OK");
 """
     ran = subprocess.run([node, "-e", script], capture_output=True, text=True)
     assert ran.returncode == 0, ran.stderr or ran.stdout
+
+
+def test_after_the_echo_the_stream_keeps_playing_at_random():
+    panel = _read(PANEL)
+    pick = panel[panel.index("function _otPickNextIndex"):panel.index("function _otFileAt")]
+    assert "otStreamNextIndex(otTracks.length, otIndex)" in pick
+    node = shutil.which("node")
+    assert node
+    data = {
+        "frequency": "Trust",
+        "principle": "The Passing Tide",
+        "signal_type": "Raw",
+        "audio_url": "https://audio.lucidtuner.com/Lucid_Tuner/Raw_Signal/The_Passing_Tide_Raw_Echo.mp3",
+    }
+    script = _echo_helpers() + "\nconst data = " + json.dumps(data) + """;
+const stream = [
+  { filename: "Pattern_Ground_Echo.mp3", title: "Pattern" },
+  { filename: "The_Passing_Tide_Ground_Echo.mp3", title: "Ground" },
+  { filename: "Listen_Raw_Echo.mp3", title: "Listen" },
+  { filename: "Love_Song_Raw_Echo.mp3", title: "Love" },
+];
+const placed = otPlaceEcho(stream, data);
+if (placed.tracks[0].filename !== "The_Passing_Tide_Raw_Echo.mp3") process.exit(1);
+const rolls = [0.0, 0.9, 0.4, 0.2, 0.7];
+let roll = 0;
+function rnd() { return rolls[roll++ % rolls.length]; }
+let current = 0;
+const heard = [placed.tracks[0].filename];
+for (let n = 0; n < 8; n++) {
+  const next = otStreamNextIndex(placed.tracks.length, current, rnd);
+  if (next === current || next < 0 || next >= placed.tracks.length) process.exit(1);
+  heard.push(placed.tracks[next].filename);
+  current = next;
+}
+if (heard[1] === "Pattern_Ground_Echo.mp3") process.exit(1);
+const later = heard.slice(1);
+if (new Set(later).size < 2) process.exit(1);
+console.log("OK");
+"""
+    ran = subprocess.run([node, "-e", script], capture_output=True, text=True)
+    assert ran.returncode == 0, ran.stderr or ran.stdout
+
+
+def test_player_shows_the_echo_before_play_and_play_echo_starts_it():
+    flow = _read(FLOW)
+    panel = _read(PANEL)
+    build = flow[flow.index("async function _tfBuildModalPlaylist"):flow.index("function _tfOpenFullHistory")]
+    assert "autoplay: false" in build
+    assert "startIndex: placed.index" in build
+    stream = flow[flow.index("async function _tfsInit"):]
+    assert "autoplay: false" in stream
+    assert "startIndex: startIndex" in stream
+    preview = panel[panel.index("function _otPaintPreview"):panel.index("function _otStartPreview")]
+    assert "tracks[start]" in preview
+    play = flow[flow.index("function _tfPlaySingleEcho"):flow.index("function _renderStep8")]
+    fetch_at = play.index("await fetch")
+    assert fetch_at > 0
+    first_press = play[:fetch_at]
+    assert "otEchoTrack(data)" in first_press
+    assert "autoplay: true" in first_press
+    assert "otSetPlaylist([track]" in first_press
+    assert "await " not in first_press
+    assert "otPlaceEcho(tracks, data)" in play[fetch_at:]
 
 
 def test_welcome_is_per_account_and_placeholder_stays_off_tune_screens():
