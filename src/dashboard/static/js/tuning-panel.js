@@ -55,6 +55,7 @@ let _otPlayHistory = [];
 let _otPlayerLog = [];
 let _otPreloadTimer = null;
 let _otBuffering = false;
+let _otSounding = false;
 let _otHoldUserPause = false;
 let _otSrcDepth = 0;
 let _otUpNext = -1;
@@ -560,7 +561,33 @@ function otGetCoverUrl(folder, cdnBase) {
 
 /** True when the shared element is actually producing sound. */
 function _otAudible() {
-    return !!(otAudio && otAudio.src && !otAudio.paused);
+    return !!(otAudio && otAudio.src && !otAudio.paused && _otSounding && !_otBuffering);
+}
+
+/** Play was asked for, and nothing is audible yet. */
+function _otLoadingSound() {
+    return !!(otAudio && otAudio.src && _otWantAudio && !otAudio.paused && !_otAudible());
+}
+
+function _otPublishPlaybackState() {
+    if (!('mediaSession' in navigator)) return;
+    try {
+        navigator.mediaSession.playbackState = _otAudible() ? 'playing' : 'paused';
+    } catch (e) {}
+}
+
+function _otPaintLoadStatus() {
+    const el = document.getElementById('mpStatus');
+    if (!el || el.textContent === OT_FAIL_STATUS) return;
+    if (_otLoadingSound()) {
+        el.hidden = false;
+        el.textContent = 'Loading';
+        return;
+    }
+    if (el.textContent === 'Loading') {
+        el.hidden = true;
+        el.textContent = '';
+    }
 }
 
 /** Same file already on the shared element. Do not assign src again. */
@@ -1344,8 +1371,11 @@ function _otBindCurrentAudioEvents() {
         otAudio.addEventListener(name, (ev) => {
             if (!isLive(ev)) return;
             if (name === 'loadstart') {
+                _otSounding = false;
                 _otReleaseSrcPause();
                 _otLoadStamp = Date.now();
+                _otPublishPlaybackState();
+                otUpdateIcons();
             }
             if (name === 'canplay') {
                 const waited = _otLoadStamp ? Math.max(0, Date.now() - _otLoadStamp) : 0;
@@ -1358,6 +1388,8 @@ function _otBindCurrentAudioEvents() {
     });
     otAudio.addEventListener('ended', (ev) => {
         if (!isLive(ev)) return;
+        _otSounding = false;
+        _otPublishPlaybackState();
         _otLogPlayer('ended', '');
         // Log play_end with duration before advancing
         if (_otPlayStartTime) {
@@ -1393,8 +1425,8 @@ function _otBindCurrentAudioEvents() {
         otUpdateIcons();
         otStartProgress();
         showMiniPlayer();
-        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-        // play fires before any bytes. Preload waits for playing, below.
+        // play fires before any bytes. Do not report playing until sound starts.
+        _otPublishPlaybackState();
     });
     otAudio.addEventListener('pause', (ev) => {
         if (!isLive(ev)) return;
@@ -1404,6 +1436,7 @@ function _otBindCurrentAudioEvents() {
             return;
         }
         otIsPlaying = false;
+        _otSounding = false;
         _otWantAudio = false;
         _otNeedsResume = false;
         _otClearFaultTimers();
@@ -1416,7 +1449,7 @@ function _otBindCurrentAudioEvents() {
         }
         otUpdateIcons();
         otStopProgress();
-        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+        _otPublishPlaybackState();
     });
     otAudio.addEventListener('error', (ev) => {
         if (!isLive(ev)) return;
@@ -1434,20 +1467,27 @@ function _otBindCurrentAudioEvents() {
     // while waiting. On a phone there is no second element at all.
     otAudio.addEventListener('playing', (ev) => {
         if (!isLive(ev)) return;
+        _otSounding = true;
         _otBuffering = false;
         _otReleaseSrcPause();
         _otNoteAudible();
         _otEnsureUpNext();
         _otMaybeWarm();
         _otSchedulePreload();
+        _otPublishPlaybackState();
+        otUpdateIcons();
     });
     otAudio.addEventListener('waiting', (ev) => {
         if (!isLive(ev)) return;
         _otWatchStall('waiting');
+        _otPublishPlaybackState();
+        otUpdateIcons();
     });
     otAudio.addEventListener('stalled', (ev) => {
         if (!isLive(ev)) return;
         _otWatchStall('stalled');
+        _otPublishPlaybackState();
+        otUpdateIcons();
     });
     // Page timers stop while the phone is locked. timeupdate still fires then.
     otAudio.addEventListener('timeupdate', (ev) => {
@@ -2166,14 +2206,22 @@ function otSetVolume(val) {
 function otUpdateIcons() {
     const playPath = '<polygon points="5,3 19,12 5,21"/>';
     const pausePath = '<rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/>';
-    const svg = _otAudible() ? pausePath : playPath;
+    const audible = _otAudible();
+    const loading = _otLoadingSound();
+    const svg = audible ? pausePath : playPath;
     document.querySelectorAll('.ot-play-icon').forEach(el => {
         if (_otInPreview(el)) return;
         el.innerHTML = svg;
     });
+    document.querySelectorAll('.ot-btn.ot-play, #mpPlayBtn').forEach(el => {
+        if (_otInPreview(el)) return;
+        el.classList.toggle('is-loading', loading);
+        el.title = audible ? 'Pause' : (loading ? 'Loading' : 'Play');
+    });
     // Mini player icon
     const mpIcon = document.getElementById('mpPlayIcon');
     if (mpIcon) mpIcon.innerHTML = svg;
+    _otPaintLoadStatus();
 }
 
 
@@ -2236,7 +2284,7 @@ function _otBindMediaSessionHandlers() {
             return;
         }
         _otPlayCurrent('mediasession').then(() => {
-            if (otAudio && !otAudio.paused) ms.playbackState = 'playing';
+            _otPublishPlaybackState();
         });
     });
     ms.setActionHandler('pause', () => {

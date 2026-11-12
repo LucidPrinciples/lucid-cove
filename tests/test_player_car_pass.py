@@ -116,6 +116,24 @@ def test_up_next_is_warmed_with_a_ranged_fetch():
     assert "_otMaybeWarm()" in tick
 
 
+def test_silent_play_is_loading_not_playing():
+    text = _panel()
+    audible = text[text.index("function _otAudible") : text.index("function _otLoadingSound")]
+    assert "_otSounding" in audible
+    assert "_otBuffering" in audible
+    play = text[text.index("addEventListener('play'") : text.index("addEventListener('pause'")]
+    assert "playbackState = 'playing'" not in play
+    assert "_otPublishPlaybackState()" in play
+    playing = text[text.index("addEventListener('playing'") : text.index("addEventListener('waiting'")]
+    assert "_otSounding = true" in playing
+    assert "_otSchedulePreload()" in playing
+    assert "_otPublishPlaybackState()" in playing
+    icons = text[text.index("function otUpdateIcons") : text.index("function otStartProgress")]
+    assert "_otLoadingSound()" in icons
+    assert "is-loading" in icons
+    assert "Loading" in text
+
+
 def test_player_log_in_help_with_copy():
     text = _panel()
     html = HTML.read_text()
