@@ -55,15 +55,7 @@
       <div class="status-dot mobile-hide" id="conn-dot" title="Connection"></div>
       <div class="freq-badge" id="header-freq" onclick="if(typeof openOperatorTuning==='function')openOperatorTuning()" style="cursor:pointer" title="Open Tuning"></div>
       <script>
-      (function () {
-        try {
-          var name = localStorage.getItem("lt_latest_frequency");
-          name = name && String(name).trim();
-          if (!name || name === "\u2014" || name === "-" || name === "\u2013") return;
-          var el = document.getElementById("header-freq");
-          if (el) el.textContent = name;
-        } catch (e) {}
-      })();
+      /* Last frequency is per account. core.js paints it after sign-in. */
       </script>
     </div>
   </header>

@@ -161,18 +161,12 @@ function _plPlayFavorites() {
         };
     });
 
-    if (typeof otSetPlaylist === 'function') {
-        otSetPlaylist(tracks, {
-            source: 'playlist',
-            label: 'Favorites (' + tracks.length + ' echoes)',
-            freqColor: '#e74c3c',
-            autoplay: true,
-            startIndex: tracks.length ? Math.floor(Math.random() * tracks.length) : 0,
-            mountId: 'plPlayerMount'
-        });
-
-        _plRevealPlayerMount();
-    }
+    _plShowPlaylist(tracks, {
+        source: 'playlist',
+        label: 'Favorites (' + tracks.length + ' echoes)',
+        freqColor: '#e74c3c',
+        mountId: 'plPlayerMount'
+    });
 }
 
 /** Refresh the favorites card (called after fav add/remove from player) */
@@ -218,18 +212,12 @@ function _plBuildAndPlay(folder, label, color) {
         return;
     }
 
-    if (typeof otSetPlaylist === 'function') {
-        otSetPlaylist(tracks, {
-            source: 'playlist',
-            label: label + ' Stream',
-            freqColor: color || 'var(--accent)',
-            autoplay: true,
-            startIndex: tracks.length ? Math.floor(Math.random() * tracks.length) : 0,
-            mountId: 'plPlayerMount'
-        });
-
-        _plRevealPlayerMount();
-    }
+    _plShowPlaylist(tracks, {
+        source: 'playlist',
+        label: label + ' Stream',
+        freqColor: color || 'var(--accent)',
+        mountId: 'plPlayerMount'
+    });
 }
 
 /** Build and play a genre album (Chords_of_Truth_Echoes CDN) */
@@ -247,18 +235,21 @@ function _plBuildGenreAndPlay(folder, label, color) {
             cdnBase: OT_GENRE_CDN,
         }));
 
-    if (typeof otSetPlaylist === 'function') {
-        otSetPlaylist(tracks, {
-            source: 'playlist',
-            label: display + ' Album',
-            freqColor: color || 'var(--accent)',
-            autoplay: true,
-            startIndex: tracks.length ? Math.floor(Math.random() * tracks.length) : 0,
-            mountId: 'plPlayerMount'
-        });
+    _plShowPlaylist(tracks, {
+        source: 'playlist',
+        label: display + ' Album',
+        freqColor: color || 'var(--accent)',
+        mountId: 'plPlayerMount'
+    });
+}
 
-        _plRevealPlayerMount();
-    }
+function _plShowPlaylist(tracks, opts) {
+    if (!tracks || !tracks.length || typeof _otPaintPreview !== 'function') return;
+    _otPaintPreview(opts.mountId, tracks, Object.assign({}, opts, {
+        autoplay: false,
+        startIndex: 0
+    }));
+    _plRevealPlayerMount();
 }
 
 

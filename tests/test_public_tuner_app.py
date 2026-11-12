@@ -343,7 +343,7 @@ def test_tune_shaped_copy_and_loading_lines():
     step4 = flow[flow.index("function _renderStep4"):flow.index("function _renderStep5")]
     assert "tuneShaped" not in step4
     assert "tf-shaped" not in step4
-    assert "_tfReadCoaching(d.coaching || TUNE_COACHING[freq]" in step4
+    assert "_tfCoachingHTML(d.coaching || TUNE_COACHING[freq]" in step4
 
 
 def test_feeling_answer_does_not_feed_selection():
@@ -378,8 +378,11 @@ def test_api_coaching_dashes_are_cleaned_for_reading():
     flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
     fn = flow[flow.index("function _tfReadCoaching"):flow.index("function _tfCoachingText")]
     assert "\\u2014" in fn and "\\u2013" in fn
+    # Step 4 renders through the HTML helper. That helper cleans dashes first.
+    html = flow[flow.index("function _tfCoachingHTML"):flow.index("function _tfCoachingText")]
+    assert "_tfReadCoaching(" in html
     step4 = flow[flow.index("function _renderStep4"):flow.index("function _renderStep5")]
-    assert "_tfReadCoaching(" in step4
+    assert "_tfCoachingHTML(" in step4
     detail = flow[flow.index("async function _tfShowTuningDetail"):flow.index("function _tfCloseDetailModal")]
     assert "_tfCoachingText(s," in detail
     node = shutil.which("node")

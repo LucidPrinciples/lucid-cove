@@ -1770,18 +1770,40 @@ function _ltCleanFrequency(raw) {
     return name;
 }
 
+if (typeof window.ltAccountId !== 'function') {
+    window.ltAccountId = function () {
+        const p = window.MC && window.MC.presence;
+        const id = p && p.id;
+        return id ? String(id) : '';
+    };
+}
+if (typeof window.ltAccountKey !== 'function') {
+    window.ltAccountKey = function (base) {
+        const id = window.ltAccountId();
+        return id ? (base + ':' + id) : base;
+    };
+}
+
+function _ltFrequencyKey() {
+    if (!window.ltAccountId()) return '';
+    return window.ltAccountKey('lt_latest_frequency');
+}
+
 function _ltReadLatestFrequency() {
+    const key = _ltFrequencyKey();
+    if (!key) return '';
     try {
-        return _ltCleanFrequency(localStorage.getItem('lt_latest_frequency'));
+        return _ltCleanFrequency(localStorage.getItem(key));
     } catch (e) {
         return '';
     }
 }
 
 function _ltRememberLatestFrequency(name) {
+    const key = _ltFrequencyKey();
     const clean = _ltCleanFrequency(name);
-    if (!clean) return;
-    try { localStorage.setItem('lt_latest_frequency', clean); } catch (e) {}
+    if (!key || !clean) return;
+    try { localStorage.setItem(key, clean); } catch (e) {}
 }
 
 function _ltPaintFrequency(freq, name) {
