@@ -650,14 +650,22 @@ function otPlaceEcho(tracks, data) {
         return { tracks: list, index: _otStableStart(list, data && data.principle) };
     }
     const want = echo.filename.toLowerCase();
-    let idx = list.findIndex(function (t) {
+    const idx = list.findIndex(function (t) {
         return String((t && t.filename) || "").toLowerCase() === want;
     });
     if (idx < 0) {
-        list.unshift(echo);
-        idx = 0;
+        const freq = data && data.frequency ? String(data.frequency) : "";
+        const line = "NOT IN STREAM " + echo.filename
+            + (freq ? " frequency=" + freq : "")
+            + " at " + new Date().toISOString();
+        if (typeof _otLogPlayer === "function") _otLogPlayer("echo-missing", line);
+        if (typeof console !== "undefined" && console.error) console.error("[player] " + line);
+        return { tracks: list, index: 0 };
     }
-    return { tracks: list, index: idx };
+    if (idx > 0) {
+        list.unshift(list.splice(idx, 1)[0]);
+    }
+    return { tracks: list, index: 0 };
 }
 
 /** Keep currentTime. Opening the same track is not a restart. */
@@ -1331,7 +1339,7 @@ async function otInitPlayer(data) {
         nextTracks = otBuildTracks(signalFolder);
     }
 
-    // Today's echo is the row on screen. The published playlist can omit that file.
+    // Today's echo plays first only when that file is already in the stream.
     const placed = otPlaceEcho(nextTracks, data);
     nextTracks = placed.tracks;
     const startAt = placed.index;

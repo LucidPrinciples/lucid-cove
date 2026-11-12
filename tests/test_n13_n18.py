@@ -72,30 +72,41 @@ console.log("OK");
     assert "OK" in ran.stdout
 
 
-def test_missing_raw_echo_is_inserted_at_the_front():
+def test_echo_moves_to_the_front_only_when_the_stream_has_it():
     panel = _read(PANEL)
     src = panel[panel.index("function otSignalToFolder"):panel.index("function _otKeepLoaded")]
     node = shutil.which("node")
     assert node
     data = {
+        "frequency": "Trust",
         "principle": "The Passing Tide",
         "signal_type": "Raw",
         "audio_url": "https://audio.lucidtuner.com/Lucid_Tuner/Raw_Signal/The_Passing_Tide_Raw_Echo.mp3",
     }
-    script = src + "\nconst data = " + json.dumps(data) + """;
+    script = """
+const log = [];
+function _otLogPlayer(event, reason) { log.push(event + " " + reason); }
+""" + src + "\nconst data = " + json.dumps(data) + """;
 const tracks = [
   { filename: "Pattern_Ground_Echo.mp3", folder: "Ground_Signal", principle: "Pattern", title: "Pattern" },
   { filename: "The_Passing_Tide_Ground_Echo.mp3", folder: "Ground_Signal", principle: "The Passing Tide", title: "Ground" },
+  { filename: "The_Passing_Tide_Raw_Echo.mp3", folder: "Raw_Signal", principle: "The Passing Tide", title: "Raw" },
   { filename: "The_Passing_Tide_Open_Echo.mp3", folder: "Open_Signal", principle: "The Passing Tide", title: "Open" },
-  { filename: "The_Passing_Tide_Rise_Echo.mp3", folder: "Rise_Signal", principle: "The Passing Tide", title: "Rise" },
 ];
 const placed = otPlaceEcho(tracks, data);
-const row = placed.tracks[placed.index];
-if (!row || row.filename !== "The_Passing_Tide_Raw_Echo.mp3" || placed.index !== 0) {
+if (placed.index !== 0 || placed.tracks[0].filename !== "The_Passing_Tide_Raw_Echo.mp3") {
   console.error(JSON.stringify(placed));
   process.exit(1);
 }
-if (placed.tracks.length !== 5) process.exit(1);
+if (placed.tracks.length !== 4) process.exit(1);
+if (log.length !== 0) process.exit(1);
+const missing = otPlaceEcho(tracks.filter(t => t.filename.indexOf("Raw") < 0), data);
+if (missing.tracks.length !== 3) process.exit(1);
+if (missing.tracks.some(t => t.filename === "The_Passing_Tide_Raw_Echo.mp3")) process.exit(1);
+if (missing.index !== 0 || missing.tracks[0].filename !== "Pattern_Ground_Echo.mp3") process.exit(1);
+if (log.length !== 1 || log[0].indexOf("echo-missing") !== 0) process.exit(1);
+if (log[0].indexOf("NOT IN STREAM The_Passing_Tide_Raw_Echo.mp3") < 0) process.exit(1);
+if (log[0].indexOf("frequency=Trust") < 0) process.exit(1);
 console.log("OK");
 """
     ran = subprocess.run([node, "-e", script], capture_output=True, text=True)
