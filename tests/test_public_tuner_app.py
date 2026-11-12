@@ -283,6 +283,7 @@ def test_batch1_words_live_in_one_place():
         "Used today. Next free Tune at midnight",
         "Unlimited Tune",
         "No personal Tune yet.",
+        "This Tune is shaped by your answers: what you're doing and the frequency you want to broadcast. The Field is today's tuning for everyone.",
         "your last tuning",
         "Your streak",
         "Start your streak today",
@@ -315,6 +316,89 @@ def test_batch1_words_live_in_one_place():
     assert "text-transform: none" in css
     assert ".tf-complete-date" in css
     assert ".tf-tune-state" in css
+    assert ".tf-shaped" in css
+
+
+def test_tune_shaped_copy_and_loading_lines():
+    """A personal Tune says the answers set the frequency. The feeling step stays a reading."""
+    flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    messages = flow[flow.index("const QUANTUM_MESSAGES"):flow.index("function _renderStep3")]
+    for line in (
+        "Your answers set the frequency. The field selects the song inside it.",
+        "What you are doing names the broadcast. The field selects the song inside that frequency.",
+        "The frequency you want to broadcast is set. The field selects the Signal inside it.",
+        "Your decoder holds the frequency you want to broadcast. The field selects the song inside it.",
+        "Alignment begins with your answers. The field selects the song inside the frequency.",
+    ):
+        assert line in messages
+    assert "Your answer chose" not in flow
+    assert "selects your frequency" not in flow
+    assert "\u2014" not in messages and "\u2013" not in messages
+    assert "I am a Broadcast Frequency" in flow[flow.index("const FIELD_INTENTION"):flow.index("const QUANTUM_MESSAGES")]
+    step3 = flow[flow.index("function _renderStep3"):flow.index("function _tfSetE")]
+    assert "Heavy / Stuck" in step3
+    assert "Steady / Okay" in step3
+    assert "Clear / Energized" in step3
+    step4 = flow[flow.index("function _renderStep4"):flow.index("function _renderStep5")]
+    assert "tuneShaped" in step4
+    assert "d.coaching || TUNE_COACHING[freq]" in step4
+
+
+def test_feeling_answer_does_not_feed_selection():
+    flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    start = flow.index("async function _tfRequestTuning")
+    body = flow[start:flow.index("if (!resp.ok)", start)]
+    assert "frequency: tuneFlow.mode.frequency" in body
+    assert "signal_before" not in body
+    assert "eStart" not in body
+    saved = flow[flow.index("tuneFlow.tuningData = data"):flow.index("function _renderStep4")]
+    assert "_tfSaveSignalBefore()" in saved
+
+
+def test_signal_before_is_saved_when_answered():
+    """Leaving after the feeling step still PATCHes signal_before. Step 8 is not required."""
+    flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    choose = flow[flow.index("function _tfSetE"):flow.index("function _tfSaveSignalBefore")]
+    assert "_tfSaveSignalBefore()" in choose
+    save = flow[flow.index("function _tfSaveSignalBefore"):flow.index("function _tfShowReceiveButton")]
+    assert "method: 'PATCH'" in save
+    assert "signal_before: value" in save
+    assert "user_feedback" not in save
+    assert "signal_after" not in save
+
+
+def test_personal_card_shows_request_coaching_and_sent_answers():
+    flow = (ROOT / "src/dashboard/static/js/tune-flow.js").read_text()
+    helper = flow[flow.index("function _tfCoachingText"):flow.index("function _tfIsPersonalSession")]
+    personal = helper[helper.index("} else {"):helper.index("if (!coaching) coaching = TUNE_COACHING")]
+    assert personal.index("data.coaching") < personal.index("universal_coaching")
+    field = helper[helper.index("if (fieldRecord)"):helper.index("} else {")]
+    assert "universal_coaching" in field
+    assert "data.coaching" not in field
+    assert "TUNE_COACHING[freq]" in helper
+    complete = flow[flow.index("async function _renderCompletedTuning"):flow.index("function _tfCheckedMirrorSources")]
+    assert "data.context" in complete
+    assert "data.initial_state" in complete
+    assert "entry_mode" not in complete
+    assert "entryMode" not in complete
+    assert "tuneShaped" in complete
+    assert "answerLine" in complete
+    assert "_tfCoachingText(data, freq, fieldRecord)" in complete
+
+
+def test_signal_readings_migration_is_idempotent():
+    """051 widens SMALLINT once. A later startup sees REAL and does not alter again."""
+    sql = (ROOT / "docker/migrations/051_signal_readings_real.sql").read_text()
+    init = (ROOT / "docker/init-base.sql").read_text()
+    assert sql.count("data_type = 'smallint'") == 2
+    assert sql.count("ALTER COLUMN signal_before TYPE REAL") == 1
+    assert sql.count("ALTER COLUMN signal_after TYPE REAL") == 1
+    before_alter = sql.split("ALTER COLUMN signal_before")[0]
+    after_alter = sql.split("ALTER COLUMN signal_after")[0]
+    assert before_alter.count("data_type = 'smallint'") == 1
+    assert after_alter.count("data_type = 'smallint'") == 2
+    assert "signal_before       REAL" in init
+    assert "signal_after        REAL" in init
 
 
 def test_help_sends_contact_to_haven_inbox():
@@ -342,7 +426,7 @@ def test_tune_detail_module_mounts_player_like_drop():
     end = flow.index("function _tfCloseDetailModal")
     detail = flow[start:end]
     assert "data.universal_coaching" not in detail
-    assert "s.universal_coaching" in detail
+    assert "_tfCoachingText(s," in detail
     assert 'id="tfModalPlayer"' in detail
     assert "${audioUrl ?" not in detail
     assert "_tfBuildModalPlaylist" in detail

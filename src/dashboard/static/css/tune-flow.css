@@ -582,6 +582,13 @@
   color: var(--dim);
   margin-top: 4px;
 }
+.tf-shaped {
+  display: block;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text);
+  margin-top: 0.75rem;
+}
 .tf-complete-section {
   background: var(--card);
   border: 1px solid var(--daily-signal-border, var(--border));
