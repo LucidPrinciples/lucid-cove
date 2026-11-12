@@ -223,6 +223,61 @@ async def referral_bounce(code: str, to: Optional[str] = None):
     return response
 
 
+
+async def _replace_unverified_signup(conn, replace_raw, email, username, email_row, user_row):
+    """Return the signup row whose email may be corrected, or None.
+
+    None keeps today's 409. The signup link is unused when last_access is
+    still null. A click does not add a session, so a later session is any
+    auth_sessions row whose label is not signup.
+    """
+    if email_row is None and user_row is None:
+        return None
+    raw = str(replace_raw or "").strip()
+    if not raw:
+        return None
+    try:
+        replace_id = str(uuid.UUID(raw))
+    except (ValueError, AttributeError, TypeError):
+        return None
+    result = await conn.execute(
+        """SELECT id, username, email, display_name, created_at, last_access
+           FROM accounts WHERE id = %s""",
+        (replace_id,),
+    )
+    target = await result.fetchone()
+    if not target:
+        return None
+    tid = str(target["id"])
+    if email_row and str(email_row["id"]) != tid:
+        return None
+    if user_row and str(user_row["id"]) != tid:
+        return None
+    if (target["username"] or "").lower() != username:
+        return None
+    if (target["email"] or "").lower() == email:
+        return None
+    if target["last_access"] is not None:
+        return None
+    created = target["created_at"]
+    if created is None:
+        return None
+    from datetime import datetime, timedelta, timezone
+    if getattr(created, "tzinfo", None) is None:
+        created = created.replace(tzinfo=timezone.utc)
+    if created < datetime.now(timezone.utc) - timedelta(hours=24):
+        return None
+    later = await conn.execute(
+        """SELECT 1 FROM auth_sessions
+           WHERE account_id = %s
+             AND LOWER(COALESCE(device_label, '')) <> 'signup'""",
+        (tid,),
+    )
+    if await later.fetchone():
+        return None
+    return target
+
+
 # =============================================================================
 # Self-Service Signup
 # =============================================================================
@@ -253,6 +308,7 @@ async def create_account(request: Request):
     referred_by = (body.get("referred_by") or "").strip()
     signup_source = (body.get("source") or "direct").strip()
     frequency_choice = (body.get("frequency_choice") or "").strip()
+    replace_presence_id = body.get("replace_presence_id") or ""
 
     if not email:
         raise HTTPException(400, "Email is required")
@@ -270,6 +326,8 @@ async def create_account(request: Request):
     presence_id = uuid.uuid4()
     raw_token = secrets.token_urlsafe(32)
     hashed_token = _hash_token(raw_token)
+    email_corrected = False
+    corrected_from = ""
 
     try:
         from src.memory.database import get_db
@@ -278,63 +336,91 @@ async def create_account(request: Request):
             result = await conn.execute(
                 "SELECT id FROM accounts WHERE email = %s", (email,)
             )
-            if await result.fetchone():
-                raise HTTPException(409, "An account with this email already exists. Try signing in instead.")
+            email_row = await result.fetchone()
 
             # Check for duplicate username
             result = await conn.execute(
                 "SELECT id FROM accounts WHERE username = %s", (username,)
             )
-            if await result.fetchone():
-                raise HTTPException(409, "This username is taken. Try another one.")
+            user_row = await result.fetchone()
 
-            # Resolve referral code of referring account
-            referrer_id = None
-            if referred_by:
-                ref_result = await conn.execute(
-                    "SELECT id FROM accounts WHERE referral_code = %s AND active = TRUE",
-                    (referred_by.upper(),)
+            replaced_row = None
+            if email_row or user_row:
+                replaced_row = await _replace_unverified_signup(
+                    conn, replace_presence_id, email, username, email_row, user_row,
                 )
-                ref_row = await ref_result.fetchone()
-                if ref_row:
-                    referrer_id = ref_row["id"]
+                if not replaced_row:
+                    if email_row:
+                        raise HTTPException(409, "An account with this email already exists. Try signing in instead.")
+                    raise HTTPException(409, "This username is taken. Try another one.")
+                # Rotate auth_token too. /p/{token} still accepts that column
+                # when no active session matches, so the old link would live on.
+                presence_id = replaced_row["id"]
+                corrected_from = replaced_row["email"] or ""
+                email_corrected = True
+                stored_name = str(replaced_row["display_name"] or "").strip()
+                if stored_name:
+                    display_name = stored_name
+                await conn.execute(
+                    """UPDATE accounts SET email = %s, auth_token = %s, updated_at = NOW()
+                       WHERE id = %s""",
+                    (email, hashed_token, presence_id),
+                )
+                await conn.execute(
+                    "UPDATE auth_sessions SET active = FALSE WHERE account_id = %s",
+                    (presence_id,),
+                )
+                from src.dashboard.routes.presence import _create_session
+                await _create_session(conn, presence_id, hashed_token, "signup")
 
-            # Generate unique referral code for this new account
-            referral_code = await _generate_referral_code(conn)
+            if not email_corrected:
+                # Resolve referral code of referring account
+                referrer_id = None
+                if referred_by:
+                    ref_result = await conn.execute(
+                        "SELECT id FROM accounts WHERE referral_code = %s AND active = TRUE",
+                        (referred_by.upper(),)
+                    )
+                    ref_row = await ref_result.fetchone()
+                    if ref_row:
+                        referrer_id = ref_row["id"]
 
-            # Create the account
-            await conn.execute(
-                """INSERT INTO accounts (id, display_name, username, email, agent_name,
-                                          last_name, tier, cove_role, auth_token, active,
-                                          referred_by, referral_code)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s)""",
-                (presence_id,
-                 display_name or username,
-                 username,
-                 email,
-                 "",
-                 COVE_NAME,
-                 "free",
-                 "member",
-                 hashed_token,
-                 referrer_id,
-                 referral_code)
-            )
-            # Create a session for the initial token
-            from src.dashboard.routes.presence import _create_session
-            await _create_session(conn, presence_id, hashed_token, "signup")
+                # Generate unique referral code for this new account
+                referral_code = await _generate_referral_code(conn)
 
-            # Affiliate edge (#169): reserve this handle in the Haven registry and record
-            # who recruited them — the top of the funnel for the marketplace affiliate
-            # program. `referred_by` is the captured referral code/handle; reserve_handle
-            # resolves it → canonical handle, validates, and stores it set-once. Best-
-            # effort so a registry hiccup never blocks signup.
-            try:
-                from src.dashboard.routes.registry import reserve_handle
-                await reserve_handle(conn, username, referred_by=referred_by)
-            except Exception as _reg_err:
-                import logging
-                logging.warning(f"registry handle reserve skipped for {username}: {_reg_err}")
+                # Create the account
+                await conn.execute(
+                    """INSERT INTO accounts (id, display_name, username, email, agent_name,
+                                              last_name, tier, cove_role, auth_token, active,
+                                              referred_by, referral_code)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE, %s, %s)""",
+                    (presence_id,
+                     display_name or username,
+                     username,
+                     email,
+                     "",
+                     COVE_NAME,
+                     "free",
+                     "member",
+                     hashed_token,
+                     referrer_id,
+                     referral_code)
+                )
+                # Create a session for the initial token
+                from src.dashboard.routes.presence import _create_session
+                await _create_session(conn, presence_id, hashed_token, "signup")
+
+                # Affiliate edge (#169): reserve this handle in the Haven registry and record
+                # who recruited them — the top of the funnel for the marketplace affiliate
+                # program. `referred_by` is the captured referral code/handle; reserve_handle
+                # resolves it → canonical handle, validates, and stores it set-once. Best-
+                # effort so a registry hiccup never blocks signup.
+                try:
+                    from src.dashboard.routes.registry import reserve_handle
+                    await reserve_handle(conn, username, referred_by=referred_by)
+                except Exception as _reg_err:
+                    import logging
+                    logging.warning(f"registry handle reserve skipped for {username}: {_reg_err}")
     except HTTPException:
         raise
     except Exception as e:
@@ -373,13 +459,22 @@ async def create_account(request: Request):
         now = datetime.now(tz.utc)
         from src.memory.database import get_db
         async with get_db() as conn:
-            await conn.execute(
-                """INSERT INTO tuning_events (presence_id, event_type, event_data, date, time)
-                   VALUES (%s, 'signup', %s, %s, %s)""",
-                (presence_id,
-                 json.dumps({"source": signup_source, "referred_by": referred_by or None, "frequency_choice": frequency_choice or None}),
-                 now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
-            )
+            if email_corrected:
+                await conn.execute(
+                    """INSERT INTO tuning_events (presence_id, event_type, event_data, date, time)
+                       VALUES (%s, 'email_corrected', %s, %s, %s)""",
+                    (presence_id,
+                     json.dumps({"previous_email": corrected_from, "email": email}),
+                     now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
+                )
+            else:
+                await conn.execute(
+                    """INSERT INTO tuning_events (presence_id, event_type, event_data, date, time)
+                       VALUES (%s, 'signup', %s, %s, %s)""",
+                    (presence_id,
+                     json.dumps({"source": signup_source, "referred_by": referred_by or None, "frequency_choice": frequency_choice or None}),
+                     now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"))
+                )
     except Exception:
         pass  # Never block signup on tracking failure
 
