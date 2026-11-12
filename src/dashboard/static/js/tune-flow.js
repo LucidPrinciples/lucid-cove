@@ -205,6 +205,7 @@ const LT_COPY = {
     tuneUsed: "Used today. Next free Tune at midnight",
     tuneUnlimited: "Unlimited Tune",
     tuneNone: "No personal Tune yet.",
+    tuneShaped: "This Tune is shaped by your answers: what you're doing and the frequency you want to broadcast. The Field is today's tuning for everyone.",
     yourLastTuning: "your last tuning",
     tuneSlow: "Your last tuning is still loading.",
     tuneLoadFail: "Couldn't load your tunings. You can still tune.",
@@ -295,6 +296,18 @@ function _tfIsFieldRecord(data) {
     if (data.from_public_drop || data.is_latest || data._fromArchive) return true;
     const mode = String(data.entry_mode || "");
     return mode === "Daily drop" || mode === "Archive drop";
+}
+
+function _tfCoachingText(data, freq, fieldRecord) {
+    let coaching = '';
+    if (fieldRecord) {
+        coaching = ((data && (data.universal_coaching || data.tuning_prompt)) || '').trim();
+    } else {
+        coaching = ((data && data.coaching) || '').trim();
+        if (!coaching) coaching = ((data && (data.universal_coaching || data.tuning_prompt)) || '').trim();
+    }
+    if (!coaching) coaching = TUNE_COACHING[freq] || '';
+    return coaching;
 }
 
 function _tfIsPersonalSession(session) {
@@ -833,11 +846,11 @@ the Signal that resonates with what I am now.
 I receive it. I evolve.`;
 
 const QUANTUM_MESSAGES = [
-    'True quantum entropy selects your frequency. Not pseudo-random—actual vacuum fluctuations.',
-    'The Field participates in this selection. Your decoder collapses one possibility from superposition.',
-    'Engineered synchronicity: consciousness-aware technology choosing your tuning.',
-    'One frequency from infinite possibilities. The quantum Field has already chosen.',
-    'Your RAS is decoding the Signal. The selection is already in motion.',
+    'Your answers set the frequency. The field selects the song inside it.',
+    'What you are doing names the broadcast. The field selects the song inside that frequency.',
+    'The frequency you want to broadcast is set. The field selects the Signal inside it.',
+    'Your decoder holds the frequency you want to broadcast. The field selects the song inside it.',
+    'Alignment begins with your answers. The field selects the song inside the frequency.',
 ];
 
 // ─── Step 3: Field Selection (Intention + E Declaration + API in parallel) ──
@@ -892,6 +905,24 @@ function _tfSetE(value, el) {
     el.classList.add('selected');
     // Show the Receive Tuning button
     _tfShowReceiveButton();
+    _tfSaveSignalBefore();
+}
+
+function _tfSaveSignalBefore() {
+    const value = tuneFlow.eStart;
+    if (value == null) return;
+    const sessionId = tuneFlow.tuningData && tuneFlow.tuningData.session_id;
+    if (!sessionId) return;
+    if (tuneFlow._signalBeforeFor === sessionId && tuneFlow._signalBeforeValue === value) return;
+    tuneFlow._signalBeforeFor = sessionId;
+    tuneFlow._signalBeforeValue = value;
+    fetch('/api/tuning/session/' + encodeURIComponent(sessionId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signal_before: value })
+    }).catch(() => {
+        if (tuneFlow._signalBeforeFor === sessionId) tuneFlow._signalBeforeFor = '';
+    });
 }
 
 function _tfShowReceiveButton() {
@@ -991,6 +1022,7 @@ async function _tfRequestTuning(container) {
         tuneFlow.tuningData = data;
         tuneFlow._apiDone = true;
         _tfIncrementCount();
+        _tfSaveSignalBefore();
 
         // If user already declared E, advance
         _tfCheckStep3Ready();
@@ -1020,6 +1052,7 @@ function _renderStep4(container) {
                 <div class="tf-header">
                     <span class="tf-step-num">◉</span>
                     <h3 class="tf-frequency">${freq}</h3>
+                    <p class="tf-shaped">${ESC(_tfWords().tuneShaped)}</p>
                 </div>
                 <div class="tf-coaching">
                     <p class="tf-coaching-text">${coaching}</p>
@@ -1268,17 +1301,17 @@ async function _renderCompletedTuning(container, data) {
     const freq = rawFreq.charAt(0).toUpperCase() + rawFreq.slice(1).toLowerCase();
     const key = data.tuning_key || data.tuningKey || '';
     const principle = data.principle || '';
-    // Prefer Drop/universal coaching when morning-open or public Drop landed here
-    let coaching = (data.universal_coaching || data.tuning_prompt || '').trim();
-    if (!coaching) coaching = TUNE_COACHING[freq] || '';
+    const fieldRecord = _tfIsFieldRecord(data);
+    let coaching = _tfCoachingText(data, freq, fieldRecord);
     const templateKey = TUNE_TEMPLATE_MAP[freq] || 'coherence';
     let practice = _tfPracticeTrio(data) || TUNE_PRACTICE_TEMPLATES[templateKey];
     const audioUrl = data.audio_url || '';
     const echoName = (data.echo_full_name || data.echo_filename || '').replace('.mp3','').replace(/_/g,' ');
     const album = (data.echo_album || '').replace(/_/g,' ');
-    const context = data.context || '';
-    const entryMode = data.entry_mode || data.initial_state || '';
-    const fieldRecord = _tfIsFieldRecord(data);
+    const activity = String(data.context || '').trim();
+    const need = String(data.initial_state || '').trim();
+    const answerLine = [activity, need].filter(Boolean).join(' · ');
+    const shaped = fieldRecord ? '' : (_tfWords().tuneShaped || '');
     const recordKicker = fieldRecord ? _tfWords().fieldRecord : _tfWords().yourLastTuning;
     const recordDate = _tfRecordDateLabel(data);
 
@@ -1296,7 +1329,8 @@ async function _renderCompletedTuning(container, data) {
                 ${recordDate ? `<span class="tf-complete-date">${ESC(recordDate)}</span>` : ''}
                 <span class="tf-complete-freq">${ESC(freq)}</span>
                 <span class="tf-complete-principle">${ESC(principle)}</span>
-                ${!fieldRecord && context ? `<span class="tf-complete-context">${ESC(context)}${entryMode ? ' · ' + ESC(entryMode) : ''}</span>` : ''}
+                ${shaped ? `<p class="tf-shaped">${ESC(shaped)}</p>` : ''}
+                ${!fieldRecord && answerLine ? `<span class="tf-complete-context">${ESC(answerLine)}</span>` : ''}
             </div>
 
             ${key ? `<div class="tf-complete-section tf-complete-key">
@@ -1919,10 +1953,7 @@ async function _tfShowTuningDetail(s) {
     const fullDate = _tfFullDropDate(s.date || '');
     const streamName = freq ? (freq + ' Tuning Stream') : 'Tuning Stream';
 
-    // Coaching and practice from static templates (same as completed view)
-    // Prefer Drop/universal coaching when morning-open or public Drop landed here
-    let coaching = (s.universal_coaching || s.tuning_prompt || '').trim();
-    if (!coaching) coaching = TUNE_COACHING[freq] || '';
+    let coaching = _tfCoachingText(s, freq, _tfIsFieldRecord(s));
     const templateKey = TUNE_TEMPLATE_MAP[freq] || 'coherence';
     let practice = _tfPracticeTrio(s) || TUNE_PRACTICE_TEMPLATES[templateKey];
 
