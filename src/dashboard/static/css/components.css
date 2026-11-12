@@ -952,6 +952,10 @@ tr:last-child td { border-bottom: none; }
 .ot-btn:hover { color: var(--text); background: var(--card2); }
 .ot-btn.ot-play { width: 56px; height: 56px; font-size: 1.5rem; color: var(--daily-freq); border: 2px solid var(--daily-freq); }
 .ot-btn.ot-play:hover { background: rgba(255,255,255,0.06); }
+
+.ot-btn.ot-play.is-loading,
+#mpPlayBtn.is-loading { animation: ot-load-pulse 1s ease-in-out infinite; }
+@keyframes ot-load-pulse { 50% { opacity: 0.35; } }
 .ot-volume { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 0.75rem; }
 .ot-volume label { font-size: 0.65rem; color: var(--dim); }
 .ot-volume input[type="range"] { width: 120px; accent-color: var(--daily-freq); height: 28px; cursor: pointer; }

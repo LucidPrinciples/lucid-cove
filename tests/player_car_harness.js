@@ -161,13 +161,20 @@ const media = {
   setPositionState(state) { this.position = state; },
 };
 
+const playIcon = makeNode('playIcon');
+const playBtn = makeNode('playBtn');
+
 const document = {
   hidden: false,
   getElementById(id) {
     if (!nodes[id]) nodes[id] = makeNode(id);
     return nodes[id];
   },
-  querySelectorAll() { return []; },
+  querySelectorAll(sel) {
+    if (sel === '.ot-play-icon') return [playIcon];
+    if (sel === '.ot-btn.ot-play, #mpPlayBtn') return [playBtn];
+    return [];
+  },
   querySelector() { return null; },
   createElement() { return makeNode('el'); },
   addEventListener(name, fn) {
@@ -212,6 +219,8 @@ const sandbox = {
   },
   navigator: { mediaSession: media },
   document: document,
+  playIcon: playIcon,
+  playBtn: playBtn,
   esc(s) { return String(s == null ? '' : s); },
   fetch: async (url, opts) => {
     const headers = (opts && opts.headers) || {};
@@ -532,6 +541,30 @@ var saved = storage.lt_player_log || '';
 if (!saved) fail('log was not saved');
 if (/email|account|token|tier|presence/i.test(saved)) fail('log saved account data');
 if (otPlayerLogText().indexOf('time\\tevent\\ttitle') !== 0) fail('copy text has no header');
+
+// A play event before any sound is loading, not playing.
+otSetPlaylist(tracks('S', 2), { autoplay: true, startIndex: 0, label: 'S' });
+var silent = liveAudio();
+silent.paused = false;
+silent.readyState = 0;
+_otSounding = false;
+_otBuffering = false;
+_otWantAudio = true;
+media.playbackState = 'none';
+silent.dispatch('play');
+if (media.playbackState === 'playing') fail('play event reported playing while silent');
+if (!playBtn.classList.contains('is-loading')) fail('silent play did not show loading');
+if (playIcon.innerHTML.indexOf('rect') !== -1) fail('silent play showed the pause mark');
+var status = document.getElementById('mpStatus');
+if (!status || status.textContent !== 'Loading') fail('status was ' + (status && status.textContent));
+silent.readyState = 4;
+silent.dispatch('playing');
+if (media.playbackState !== 'playing') fail('playing event left state ' + media.playbackState);
+if (playBtn.classList.contains('is-loading')) fail('playing kept the loading state');
+if (playIcon.innerHTML.indexOf('rect') === -1) fail('playing did not show pause');
+silent.dispatch('waiting');
+if (media.playbackState === 'playing') fail('waiting stayed playing while silent');
+if (!playBtn.classList.contains('is-loading')) fail('waiting did not return to loading');
 `;
 
 try {
