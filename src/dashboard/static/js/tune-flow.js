@@ -216,10 +216,9 @@ const LT_COPY = {
     welcomeTitle: "Welcome",
     welcomeNext: "Next",
     welcomeDone: "Done",
-    // N18 PLACEHOLDER. Chords writes this one-time Field versus Tune line.
-    // Welcome only. Do not copy it onto the Tune screens or Home.
+    // N18. One-time welcome line. Welcome only. Do not copy it onto the Tune screens or Home.
     welcomePages: [
-        "PLACEHOLDER. Chords writes the one-time line on the Field versus Tune.",
+        "The Field is today's tuning for everyone. A Tune is selected for you based on your answers.",
         "One free Tune a day. It comes back at midnight on your clock. Pro is unlimited Tune.",
         "Your streak is the days in a row you showed up, on the Field or with Tune. That count is yours. LT's consecutive tuning count stays LT's.",
     ],

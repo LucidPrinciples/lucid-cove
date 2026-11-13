@@ -174,14 +174,16 @@ def test_player_shows_the_echo_before_play_and_play_echo_starts_it():
     assert "otPlaceEcho(tracks, data)" in play[fetch_at:]
 
 
-def test_welcome_is_per_account_and_placeholder_stays_off_tune_screens():
+def test_welcome_line_is_per_account_and_stays_off_tune_screens():
     flow = _read(FLOW)
     house = _read(HOUSE)
     copy = flow[flow.index("const LT_COPY"):flow.index("window.LT_COPY")]
-    assert "PLACEHOLDER. Chords writes the one-time line on the Field versus Tune." in copy
+    line = "The Field is today's tuning for everyone. A Tune is selected for you based on your answers."
+    assert line in copy
+    assert "PLACEHOLDER. Chords writes" not in copy
     assert "\u2014" not in copy and "\u2013" not in copy
     steps = flow[flow.index("function _renderStep1"):flow.index("function _renderCompletedTuning")]
-    assert "PLACEHOLDER. Chords writes" not in steps
+    assert line not in steps
     welcome = house[house.index("async function maybeOpenWelcome"):house.index("async function paintHomeStreak")]
     assert "MCReady" in welcome
     assert "ltAccountKey(WELCOME_SEEN_KEY)" in welcome
