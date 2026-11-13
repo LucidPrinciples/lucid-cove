@@ -91,18 +91,27 @@
     return name;
   }
 
+  function frequencyKey() {
+    const id = (typeof window.ltAccountId === "function") ? window.ltAccountId() : "";
+    if (!id || typeof window.ltAccountKey !== "function") return "";
+    return window.ltAccountKey("lt_latest_frequency");
+  }
+
   function readSavedFrequency() {
+    const key = frequencyKey();
+    if (!key) return "";
     try {
-      return cleanFrequencyName(localStorage.getItem("lt_latest_frequency"));
+      return cleanFrequencyName(localStorage.getItem(key));
     } catch (e) {
       return "";
     }
   }
 
   function rememberFrequency(name) {
+    const key = frequencyKey();
     const clean = cleanFrequencyName(name);
-    if (!clean) return;
-    try { localStorage.setItem("lt_latest_frequency", clean); } catch (e) {}
+    if (!key || !clean) return;
+    try { localStorage.setItem(key, clean); } catch (e) {}
   }
 
   function applyDrop(freq, colors) {
@@ -125,8 +134,16 @@
   window.applyTunerFreqChrome = applyDrop;
 
   async function bootFreqChrome() {
-    // Last visit's latest tuning is already in the pill. Paint it again in
-    // case that inline read did not run, then confirm against the Drop.
+    // Wait for the account, then paint that account's last frequency.
+    // A browser-wide value would show the previous sign-in.
+    try {
+      if (window.MCReady) {
+        await Promise.race([
+          window.MCReady,
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      }
+    } catch (e) {}
     const saved = readSavedFrequency();
     if (saved) applyDrop(saved);
     let freq = "";

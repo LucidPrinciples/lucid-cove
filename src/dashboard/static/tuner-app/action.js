@@ -96,9 +96,13 @@
     return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
   }
 
+  function actionKey(base) {
+    return (typeof window.ltAccountKey === "function") ? window.ltAccountKey(base) : base;
+  }
+
   function loadStore() {
     try {
-      const raw = JSON.parse(localStorage.getItem(STORE) || "null");
+      const raw = JSON.parse(localStorage.getItem(actionKey(STORE)) || "null");
       if (!raw || raw.day !== localDay() || !Array.isArray(raw.actions)) {
         return { day: localDay(), actions: [] };
       }
@@ -110,7 +114,7 @@
 
   function saveStore(data) {
     try {
-      localStorage.setItem(STORE, JSON.stringify(data));
+      localStorage.setItem(actionKey(STORE), JSON.stringify(data));
     } catch (_) {}
   }
 
@@ -124,7 +128,7 @@
   function loadActive() {
     const base = emptyActive();
     try {
-      const raw = JSON.parse(localStorage.getItem(ACTIVE_STORE) || "null");
+      const raw = JSON.parse(localStorage.getItem(actionKey(ACTIVE_STORE)) || "null");
       if (!raw || typeof raw !== "object") return base;
       base[FLOW_WALK] = !!raw[FLOW_WALK];
       base[FLOW_GRATITUDE] = !!raw[FLOW_GRATITUDE];
@@ -136,7 +140,7 @@
 
   function saveActive(active) {
     try {
-      localStorage.setItem(ACTIVE_STORE, JSON.stringify(active));
+      localStorage.setItem(actionKey(ACTIVE_STORE), JSON.stringify(active));
     } catch (_) {}
   }
 
@@ -577,6 +581,14 @@
   }
 
   async function loadTunerAction() {
+    try {
+      if (window.MCReady) {
+        await Promise.race([
+          window.MCReady,
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      }
+    } catch (_) {}
     let drop = null;
     if (typeof _tfFetchLatestDropTuning === "function") {
       try {

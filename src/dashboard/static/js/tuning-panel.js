@@ -615,6 +615,64 @@ function _otStableStart(tracks, principle) {
     return Math.floor(Math.random() * tracks.length);
 }
 
+function otEchoTrack(data) {
+    data = data || {};
+    let filename = String(data.echo_filename || "");
+    let folder = "";
+    const url = String(data.audio_url || "");
+    if (url) {
+        try {
+            const parts = new URL(url).pathname.split("/").filter(Boolean);
+            const file = decodeURIComponent(parts[parts.length - 1] || "");
+            const dir = decodeURIComponent(parts[parts.length - 2] || "");
+            if (file) filename = file;
+            if (dir) folder = dir;
+        } catch (e) {}
+    }
+    filename = filename.replace(/^\s+|\s+$/g, "");
+    if (!filename) return null;
+    if (!/\.mp3$/i.test(filename)) filename += ".mp3";
+    folder = otSignalToFolder(folder || data.signal_type);
+    const principle = data.principle || otTrackPrinciple(null, filename);
+    const signalDisplay = folder.replace(/_Signal$/, "").replace(/_/g, " ");
+    return {
+        title: principle + " (" + signalDisplay + " Signal Echo)",
+        filename: filename,
+        folder: folder,
+        principle: principle,
+    };
+}
+
+/** Next row while a stream is playing. Random, never the current row, and it does not stop. */
+function otStreamNextIndex(length, current, random) {
+    const roll = (typeof random === "function") ? random : Math.random;
+    if (!length || length <= 1) return 0;
+    let next;
+    do { next = Math.floor(roll() * length); } while (next === current);
+    return next;
+}
+
+function otPlaceEcho(tracks, data) {
+    const list = (tracks || []).slice();
+    const echo = otEchoTrack(data);
+    if (!echo) {
+        return { tracks: list, index: _otStableStart(list, data && data.principle) };
+    }
+    const want = echo.filename.toLowerCase();
+    let row = null;
+    const rest = [];
+    for (let i = 0; i < list.length; i++) {
+        const name = String((list[i] && list[i].filename) || "").toLowerCase();
+        if (name === want) {
+            if (!row) row = list[i];
+        } else {
+            rest.push(list[i]);
+        }
+    }
+    rest.unshift(row || echo);
+    return { tracks: rest, index: 0 };
+}
+
 /** Keep currentTime. Opening the same track is not a restart. */
 function _otKeepLoaded(tracks, opts, startAt) {
     opts = opts || {};
@@ -759,7 +817,9 @@ function _otPaintPreview(mountId, tracks, opts) {
     const root = document.getElementById(mountId);
     if (!root) return;
     window._otPreview = { tracks: tracks, opts: opts, mountId: mountId };
-    const track = tracks[0];
+    const start = (opts.startIndex == null || opts.startIndex < 0 || opts.startIndex >= tracks.length)
+        ? 0 : opts.startIndex;
+    const track = tracks[start];
     const coverUrl = otGetCoverUrl(track.folder, track.cdnBase);
     const img = root.querySelector('.ot-cover-img');
     if (img && coverUrl) { img.src = coverUrl; img.style.display = 'block'; }
@@ -777,7 +837,7 @@ function _otPaintPreview(mountId, tracks, opts) {
     const list = root.querySelector('.ot-playlist-tracks');
     if (list) {
         list.innerHTML = tracks.map((t, i) =>
-            '<div class="ot-pl-track">' +
+            '<div class="ot-pl-track' + (i === start ? ' active' : '') + '">' +
             '<span class="ot-pl-num">' + (i + 1) + '</span>' +
             '<span class="ot-pl-name" onclick="_otStartPreview(' + i + ')">' +
             String(t.title || '').replace(/</g, '') + '</span></div>'
@@ -1284,8 +1344,10 @@ async function otInitPlayer(data) {
         nextTracks = otBuildTracks(signalFolder);
     }
 
-    // List order stays as loaded. Play starts on this tuning's principle, or a random row.
-    const startAt = _otStableStart(nextTracks, data && data.principle);
+    // The day's Echo is first. The curated rows stay behind it.
+    const placed = otPlaceEcho(nextTracks, data);
+    nextTracks = placed.tracks;
+    const startAt = placed.index;
 
     // Create audio element
     _otEnsureAudio();
@@ -1573,11 +1635,7 @@ function _otRecoverPlaybackIfNeeded() {
 
 /** Pick the next index the same way otNext does (random, not current). */
 function _otPickNextIndex() {
-    if (!otTracks.length) return 0;
-    if (otTracks.length <= 1) return 0;
-    let next;
-    do { next = Math.floor(Math.random() * otTracks.length); } while (next === otIndex);
-    return next;
+    return otStreamNextIndex(otTracks.length, otIndex);
 }
 
 function _otFileAt(index) {

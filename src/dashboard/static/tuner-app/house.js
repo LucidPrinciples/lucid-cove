@@ -336,9 +336,15 @@
     el.hidden = false;
   }
 
+  function houseSettingsKey() {
+    return (typeof window.ltAccountKey === "function")
+      ? window.ltAccountKey(SETTINGS_KEY)
+      : SETTINGS_KEY;
+  }
+
   function loadHouseSettings() {
     try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
+      const raw = localStorage.getItem(houseSettingsKey());
       const data = raw ? JSON.parse(raw) : {};
       return data && typeof data === "object" && !Array.isArray(data) ? data : {};
     } catch (_) {
@@ -406,7 +412,7 @@
     const cur = loadHouseSettings();
     const merged = Object.assign({ v: 1 }, cur, next);
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
+      localStorage.setItem(houseSettingsKey(), JSON.stringify(merged));
     } catch (_) {
       return null;
     }
@@ -851,7 +857,9 @@
     openOverlay(settingsOverlay);
   }
 
-  applyHouseSettingsToMC();
+  (window.MCReady || Promise.resolve()).then(() => {
+    applyHouseSettingsToMC();
+  }).catch(() => {});
 
   const dropOverlay = document.getElementById("drop-overlay");
   if (dropOverlay && typeof MutationObserver === "function") {
@@ -1096,9 +1104,12 @@
   function closeWelcome(markSeen) {
     const overlay = document.getElementById("welcome-overlay");
     if (overlay) overlay.hidden = true;
-    if (markSeen) {
-      try { localStorage.setItem(WELCOME_SEEN_KEY, "1"); } catch (_) {}
-    }
+    if (!markSeen) return;
+    const id = (typeof window.ltAccountId === "function") ? window.ltAccountId() : "";
+    const key = (id && typeof window.ltAccountKey === "function")
+      ? window.ltAccountKey(WELCOME_SEEN_KEY)
+      : WELCOME_SEEN_KEY;
+    try { localStorage.setItem(key, "1"); } catch (_) {}
   }
 
   function advanceWelcome() {
@@ -1112,11 +1123,23 @@
     paintWelcome();
   }
 
-  function maybeOpenWelcome() {
+  async function maybeOpenWelcome() {
     if (welcomeOffered) return;
     welcomeOffered = true;
     try {
-      if (localStorage.getItem(WELCOME_SEEN_KEY) === "1") return;
+      if (window.MCReady) {
+        await Promise.race([
+          window.MCReady,
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      }
+    } catch (_) {}
+    const id = (typeof window.ltAccountId === "function") ? window.ltAccountId() : "";
+    const key = (id && typeof window.ltAccountKey === "function")
+      ? window.ltAccountKey(WELCOME_SEEN_KEY)
+      : WELCOME_SEEN_KEY;
+    try {
+      if (localStorage.getItem(key) === "1") return;
     } catch (_) {
       return;
     }
@@ -1126,6 +1149,14 @@
   async function paintHomeStreak() {
     const el = document.getElementById("home-streak");
     if (!el) return;
+    try {
+      if (window.MCReady) {
+        await Promise.race([
+          window.MCReady,
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      }
+    } catch (_) {}
     if (typeof window._tfRefreshStreak === "function") {
       try { await window._tfRefreshStreak(); } catch (_) {}
     }

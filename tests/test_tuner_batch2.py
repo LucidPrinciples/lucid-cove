@@ -38,8 +38,8 @@ def test_pill_shows_last_known_tuning_not_a_default():
     block = html[start:end]
     _no_hardcoded_frequency(block)
     assert 'id="freq-text"' in block
-    assert "lt_latest_frequency" in block
-    assert "try {" in block
+    assert "per account" in block
+    assert "localStorage.getItem" not in block
     assert ">Peace<" not in html
     assert 'data-frequency="Peace"' not in html
     chrome = tuner[tuner.index("function cleanFrequencyName"):tuner.index("bootFreqChrome();")]
@@ -57,7 +57,8 @@ def test_pill_shows_last_known_tuning_not_a_default():
     header = dash[h0:h1]
     _no_hardcoded_frequency(header)
     assert "mdash" not in header.lower()
-    assert "lt_latest_frequency" in header
+    assert "per account" in header
+    assert "localStorage.getItem" not in header
     core = _read(STATIC / "js/core.js")
     poll = core[core.index("function _ltCleanFrequency"):core.index("async function pollStatus")]
     _no_hardcoded_frequency(poll)
@@ -102,7 +103,7 @@ def test_key_slash_becomes_a_line_break():
     assert "white-space: pre-line" in css
 
 
-def test_one_player_keeps_place_and_starts_at_random():
+def test_one_player_keeps_place_and_playlist_open_stays_idle():
     panel = _read(PANEL)
     lists = _read(STATIC / "js/playlists.js")
     house = _read(SHELL / "house.js")
@@ -121,8 +122,11 @@ def test_one_player_keeps_place_and_starts_at_random():
     toggle = panel[panel.index("function otTogglePlay"):panel.index("function otNext")]
     assert "_otAudible()" in toggle
     assert "[tracks[i], tracks[j]]" not in lists
-    assert "startIndex:" in lists
-    assert "Math.random() * tracks.length" in lists
+    assert "function _plShowPlaylist" in lists
+    assert "autoplay: true" not in lists
+    assert "otSetPlaylist(" not in lists
+    assert "startIndex: 0" in lists
+    assert "Math.random() * tracks.length" not in lists
     assert "showMiniPlayer()" in house
     assert "grid-row: 1 / -1" in css
 

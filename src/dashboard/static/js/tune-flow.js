@@ -216,8 +216,9 @@ const LT_COPY = {
     welcomeTitle: "Welcome",
     welcomeNext: "Next",
     welcomeDone: "Done",
+    // N18. One-time welcome line. Welcome only. Do not copy it onto the Tune screens or Home.
     welcomePages: [
-        "The Field is today's tuning for everyone. Tune is you, right now.",
+        "The Field is today's tuning for everyone. A Tune is selected for you based on your answers.",
         "One free Tune a day. It comes back at midnight on your clock. Pro is unlimited Tune.",
         "Your streak is the days in a row you showed up, on the Field or with Tune. That count is yours. LT's consecutive tuning count stays LT's.",
     ],
@@ -244,7 +245,25 @@ const LT_COPY = {
 };
 window.LT_COPY = LT_COPY;
 
+if (typeof window.ltAccountId !== "function") {
+    window.ltAccountId = function () {
+        const p = window.MC && window.MC.presence;
+        const id = p && p.id;
+        return id ? String(id) : "";
+    };
+}
+if (typeof window.ltAccountKey !== "function") {
+    window.ltAccountKey = function (base) {
+        const id = window.ltAccountId();
+        return id ? (base + ":" + id) : base;
+    };
+}
+
 const LT_FIELD_DAYS_KEY = "lt_field_days";
+
+function _tfAccountStoreKey(base) {
+    return window.ltAccountKey(base);
+}
 
 function _tfWords() {
     return window.LT_COPY || LT_COPY;
@@ -252,7 +271,7 @@ function _tfWords() {
 
 function _tfFieldDays() {
     try {
-        const parsed = JSON.parse(localStorage.getItem(LT_FIELD_DAYS_KEY) || "[]");
+        const parsed = JSON.parse(localStorage.getItem(_tfAccountStoreKey(LT_FIELD_DAYS_KEY)) || "[]");
         return Array.isArray(parsed) ? parsed.map(d => String(d).slice(0, 10)) : [];
     } catch (e) {
         return [];
@@ -264,7 +283,7 @@ function _tfNoteFieldDay() {
     const days = _tfFieldDays();
     if (days.indexOf(today) === -1) {
         days.push(today);
-        try { localStorage.setItem(LT_FIELD_DAYS_KEY, JSON.stringify(days.slice(-400))); } catch (e) {}
+        try { localStorage.setItem(_tfAccountStoreKey(LT_FIELD_DAYS_KEY), JSON.stringify(days.slice(-400))); } catch (e) {}
     }
     return days;
 }
@@ -305,6 +324,12 @@ function _tfReadCoaching(text) {
     s = s.replace(/\.\s+\./g, '.');
     s = s.replace(/\.\s+([a-z])/g, function(_, ch) { return '. ' + ch.toUpperCase(); });
     return s.trim();
+}
+
+function _tfCoachingHTML(text) {
+    const clean = _tfReadCoaching(text);
+    const esc = (typeof ESC === "function") ? ESC(clean) : String(clean);
+    return esc.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
 }
 
 function _tfCoachingText(data, freq, fieldRecord) {
@@ -934,51 +959,62 @@ function _tfSaveSignalBefore() {
     });
 }
 
+function _tfRevealReceive(el) {
+    if (!el) return;
+    let node = el.parentElement;
+    let scroller = null;
+    while (node && node !== document.body) {
+        const oy = window.getComputedStyle(node).overflowY;
+        if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight + 8) {
+            scroller = node;
+            break;
+        }
+        node = node.parentElement;
+    }
+    if (!scroller) scroller = document.getElementById("house-shell");
+    if (!scroller) return;
+    const m = el.getBoundingClientRect();
+    const s = scroller.getBoundingClientRect();
+    if (m.top >= s.top + 8 && m.bottom <= s.bottom - 8) return;
+    const next = scroller.scrollTop + (m.bottom - s.bottom) + 16;
+    scroller.scrollTo({ top: Math.max(0, next), behavior: "smooth" });
+}
+
+function _tfReceiveReadyHTML() {
+    return '<button type="button" class="tf-btn tf-btn-receive tf-receive-ready" id="tfReceiveBtn" onclick="_tfReceiveTuning()">Tap to receive your tuning</button>';
+}
+
+function _tfReceiveWaitingHTML() {
+    return '<p class="tf-receive-status" id="tfReceiveStatus">Your tuning is still on its way.</p>';
+}
+
 function _tfShowReceiveButton() {
     const container = _tfContainer();
     if (!container) return;
-    // Don't duplicate
-    if (document.getElementById('tfReceiveBtn')) {
-        // Update state if API just became ready
-        if (tuneFlow._apiDone) _tfSetReceiveReady();
-        return;
+    let btnWrap = document.getElementById("tfReceiveWrap");
+    if (!btnWrap) {
+        btnWrap = document.createElement("div");
+        btnWrap.className = "tf-receive-wrap";
+        btnWrap.id = "tfReceiveWrap";
+        const step = container.querySelector(".tf-step-3");
+        if (step) step.appendChild(btnWrap);
     }
-
-    const btnWrap = document.createElement('div');
-    btnWrap.className = 'tf-receive-wrap';
-    btnWrap.id = 'tfReceiveWrap';
-    btnWrap.innerHTML = tuneFlow._apiDone
-        ? `<button class="tf-btn tf-btn-receive tf-receive-ready" id="tfReceiveBtn" onclick="_tfReceiveTuning()">Receive Your Tuning</button>`
-        : `<button class="tf-btn tf-btn-receive tf-receive-waiting" id="tfReceiveBtn" onclick="_tfReceiveTuning()">Connecting with the Field...</button>`;
-
-    const step = container.querySelector('.tf-step-3');
-    if (step) step.appendChild(btnWrap);
+    if (tuneFlow._apiDone) _tfSetReceiveReady();
+    else if (!document.getElementById("tfReceiveStatus") && !document.getElementById("tfReceiveBtn")) {
+        btnWrap.innerHTML = _tfReceiveWaitingHTML();
+        _tfRevealReceive(btnWrap);
+    }
 }
 
 function _tfSetReceiveReady() {
-    const btn = document.getElementById('tfReceiveBtn');
-    if (!btn) return;
-    btn.textContent = 'Receive Your Tuning';
-    btn.classList.remove('tf-receive-waiting');
-    btn.classList.add('tf-receive-ready');
+    const wrap = document.getElementById("tfReceiveWrap");
+    if (!wrap || document.getElementById("tfReceiveBtn")) return;
+    wrap.innerHTML = _tfReceiveReadyHTML();
+    _tfRevealReceive(wrap);
 }
 
 function _tfReceiveTuning() {
-    if (!tuneFlow._apiDone) {
-        // Not ready yet — give feedback
-        const btn = document.getElementById('tfReceiveBtn');
-        if (btn) {
-            btn.textContent = 'Almost there...';
-            btn.classList.add('tf-receive-nudge');
-            setTimeout(() => {
-                if (btn) {
-                    btn.textContent = 'Connecting with the Field...';
-                    btn.classList.remove('tf-receive-nudge');
-                }
-            }, 1500);
-        }
-        return;
-    }
+    if (!tuneFlow._apiDone) return;
     // Ready — advance
     if (tuneFlow._qMsgInterval) clearInterval(tuneFlow._qMsgInterval);
     const container = _tfContainer();
@@ -1053,7 +1089,7 @@ function _renderStep4(container) {
     const d = tuneFlow.tuningData;
     const freq = d.frequency || tuneFlow.mode.frequency;
     // Use LLM-generated coaching from API, fall back to static
-    const coaching = _tfReadCoaching(d.coaching || TUNE_COACHING[freq] || TUNE_COACHING['Peace']);
+    const coaching = _tfCoachingHTML(d.coaching || TUNE_COACHING[freq] || TUNE_COACHING['Peace']);
 
     container.innerHTML = `
         <div class="panel-scroll tune-flow">
@@ -1177,37 +1213,72 @@ function _renderStep7(container) {
                     <div class="tf-echo-subtitle">${ESC(signalFolder)}</div>
                     <div id="tfEchoPlayer"></div>
                 </div>
-                <button class="tf-btn tf-btn-next" onclick="_renderStep8(_tfContainer())">Complete Tuning</button>
+                <button type="button" class="tf-btn tf-btn-next tf-btn-complete" onclick="_renderStep8(_tfContainer())">Complete Tuning</button>
             </div>
         </div>
     `;
 
-    // Play just the single echo — no playlist, focused listening
+    // First press plays the day's Echo. The frequency stream is attached behind it.
     _tfPlaySingleEcho(d);
 }
 
+let _tfEchoStreamGen = 0;
+
 function _tfPlaySingleEcho(data) {
-    // Build a single-track "playlist" with just the echo
+    data = data || {};
     const signalFolder = (typeof otSignalToFolder === 'function')
         ? otSignalToFolder(data.signal_type) : (data.echo_album || 'Drive_Signal');
+    const echo = (typeof otEchoTrack === 'function') ? otEchoTrack(data) : null;
     const filename = (data.echo_filename || '').replace(/\.mp3$/, '') + '.mp3';
     const principle = data.principle || data.echo_full_name || filename.replace(/_/g,' ').replace('.mp3','');
-
-    const track = {
+    const track = echo || {
         title: principle + ' (' + signalFolder.replace(/_Signal$/, '').replace(/_/g, ' ') + ' Signal Echo)',
         filename: filename,
         folder: signalFolder,
         principle: principle
     };
+    const label = (data.frequency || 'Tuning') + ' Tuning Stream';
 
     if (typeof otSetPlaylist === 'function') {
         otSetPlaylist([track], {
             source: 'tune',
-            label: (data.frequency || 'Tuning') + ' Echo',
-            autoplay: false,
+            label: label,
+            autoplay: true,
+            startIndex: 0,
             mountId: 'tfEchoPlayer'
         });
     }
+
+    const freq = data.frequency || '';
+    if (!freq || typeof OT_PLAYLIST_CDN === 'undefined' || typeof fetch !== 'function') return;
+    const gen = ++_tfEchoStreamGen;
+    (async function () {
+        let tracks = [];
+        try {
+            const res = await fetch(OT_PLAYLIST_CDN + '/' + String(freq).toLowerCase() + '.json');
+            if (res.ok) {
+                const rows = (typeof otPlaylistRows === 'function')
+                    ? otPlaylistRows(await res.json()) : [];
+                if (rows.length && typeof otMapCdnTrack === 'function') {
+                    tracks = rows.map(function (t) { return otMapCdnTrack(t, signalFolder); });
+                }
+            }
+        } catch (e) {}
+        if (gen !== _tfEchoStreamGen) return;
+        if (typeof _otSource !== 'undefined' && _otSource && _otSource !== 'tune') return;
+        if (!tracks.length) tracks = [track];
+        const placed = (typeof otPlaceEcho === 'function')
+            ? otPlaceEcho(tracks, data)
+            : { tracks: tracks, index: 0 };
+        if (typeof otSetPlaylist !== 'function') return;
+        otSetPlaylist(placed.tracks, {
+            source: 'tune',
+            label: label,
+            autoplay: true,
+            startIndex: placed.index,
+            mountId: 'tfEchoPlayer'
+        });
+    })();
 }
 
 // tfAudio functions removed — step 7 now uses persistent otAudio via _tfsInit/otSetPlaylist
@@ -1346,7 +1417,7 @@ async function _renderCompletedTuning(container, data) {
 
             <div class="tf-complete-section">
                 <span class="tf-section-label">Coaching</span>
-                <p class="tf-coaching-text">${coaching}</p>
+                <p class="tf-coaching-text">${_tfCoachingHTML(coaching)}</p>
             </div>
 
             <div class="tf-complete-section">
@@ -1987,7 +2058,7 @@ async function _tfShowTuningDetail(s) {
 
             ${coaching ? `<div class="ot-card">
                 <div class="ot-label">Coaching</div>
-                <div class="ot-text">${ESC(coaching)}</div>
+                <div class="ot-text">${_tfCoachingHTML(coaching)}</div>
             </div>` : ''}
 
             ${practice ? `<div class="ot-practice">
@@ -2155,18 +2226,18 @@ async function _tfBuildModalPlaylist(s, freq, signalFolder, freqColor, mountId) 
         }
     }
 
+    const placed = (typeof otPlaceEcho === "function")
+        ? otPlaceEcho(tracks, s)
+        : { tracks: tracks, index: 0 };
+    tracks = placed.tracks;
     if (!tracks.length) return;
-
-    const startIndex = (typeof _otStableStart === 'function')
-        ? _otStableStart(tracks, s.principle)
-        : 0;
 
     otSetPlaylist(tracks, {
         source: 'history',
         label: freq + ' Tuning Stream',
         freqColor: freqColor,
         autoplay: false,
-        startIndex: startIndex,
+        startIndex: placed.index,
         mountId: mountId || 'tfModalPlayer',
     });
 }
@@ -2315,9 +2386,11 @@ async function _tfsInit(data) {
         tracks = otBuildTracks(signalFolder);
     }
 
-    const startIndex = (typeof _otStableStart === 'function')
-        ? _otStableStart(tracks, data.principle)
-        : 0;
+    const placed = (typeof otPlaceEcho === "function")
+        ? otPlaceEcho(tracks, data)
+        : { tracks: tracks, index: 0 };
+    tracks = placed.tracks;
+    const startIndex = placed.index;
 
     // Get frequency color
     const freqUpper = freq.toUpperCase();

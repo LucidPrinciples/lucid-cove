@@ -471,11 +471,35 @@
   animation: pulse 1.8s ease-in-out infinite;
 }
 .tf-receive-ready {
-  background: var(--daily-freq, var(--accent));
-  color: var(--bg, #0a0a0f);
-  border-color: var(--daily-freq, var(--accent));
+  background: var(--freq-primary, var(--daily-freq, #5ce1e6));
+  color: #0f1117;
+  border-color: var(--freq-primary, var(--daily-freq, #5ce1e6));
   animation: none;
   opacity: 1;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.tf-receive-status {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.4;
+  color: var(--text, #e8e8f0);
+}
+.tf-step-7 .tf-btn-complete {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 16px 18px;
+  border: none;
+  border-radius: 12px;
+  background: var(--freq-primary, var(--daily-freq, #5ce1e6));
+  color: #0f1117;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  cursor: pointer;
 }
 .tf-receive-ready:hover {
   filter: brightness(1.1);
