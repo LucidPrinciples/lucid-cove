@@ -51,6 +51,11 @@ BOOKS_REFUSED_MODEL_NEEDLES = (":cloud", "uncensored", "coder")
 BOOKS_LOCAL_KEEP_ALIVE = "2m"
 BOOKS_PROCESS_BUDGET_S = 80
 BOOKS_FILE_CAP_S = 180
+BOOKS_GPU_MIN_FREE_GB = 8
+BOOKS_GPU_WINDOW_START = (5, 15)
+BOOKS_GPU_WINDOW_END = (7, 30)
+BOOKS_GPU_TZ = "America/New_York"
+_GPU_FREE_UNSET = object()
 BOOKS_LOCAL_NUM_CTX = 16384
 BOOKS_LOCAL_CHUNK_TOKENS = 10_000
 BOOKS_LOCAL_CHARS_PER_TOKEN = 4
@@ -694,6 +699,84 @@ def validate_local_rows(
     return out, reconcile_miss, None
 
 
+def books_in_morning_video_window(now: datetime | None = None) -> bool:
+    """True during the 05:15–07:30 ET morning video window. Errors treat as in-window."""
+    try:
+        from datetime import time as dt_time
+        from zoneinfo import ZoneInfo
+
+        tz = ZoneInfo(BOOKS_GPU_TZ)
+        if now is None:
+            current = datetime.now(tz)
+        elif now.tzinfo is None:
+            current = now.replace(tzinfo=tz)
+        else:
+            current = now.astimezone(tz)
+        start = dt_time(*BOOKS_GPU_WINDOW_START)
+        end = dt_time(*BOOKS_GPU_WINDOW_END)
+        return start <= current.time() < end
+    except Exception:
+        return True
+
+
+def books_gpu_free_gb() -> float | None:
+    """Host free VRAM in GiB via nvidia-smi. None if the probe fails."""
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        line = (result.stdout or "").strip().splitlines()
+        if not line:
+            return None
+        raw = line[0].split(",")[0].strip()
+        if not raw or raw in ("[N/A]", "N/A"):
+            return None
+        return round(float(raw) / 1024.0, 1)
+    except Exception:
+        return None
+
+
+def books_local_read_gpu_reason(
+    *,
+    now: datetime | None = None,
+    free_gb: Any = _GPU_FREE_UNSET,
+) -> str | None:
+    """Block local-read during the morning window or when free VRAM is under 8 GB.
+
+    The 05:15–07:30 ET window is fail-closed. A missing VRAM probe (None) does
+    not block — log gpu_probe=na and continue. A working probe under 8 GB blocks.
+    """
+    try:
+        if books_in_morning_video_window(now):
+            return "GPU busy: morning video window"
+    except Exception:
+        return "GPU busy: morning video window"
+    try:
+        gb = books_gpu_free_gb() if free_gb is _GPU_FREE_UNSET else free_gb
+        if gb is None:
+            _log.warning("books local-read gpu_probe=na")
+            return None
+        free = float(gb)
+        if free < BOOKS_GPU_MIN_FREE_GB:
+            return f"GPU busy: {free:.1f} GB free, needs 8"
+        return None
+    except Exception:
+        _log.warning("books local-read gpu_probe=na")
+        return None
+
+
 def local_read_statement_rows(
     text: str,
     *,
@@ -702,12 +785,18 @@ def local_read_statement_rows(
     complete: Callable[..., dict | None] | None = None,
     installed: Iterable[str] | None = None,
     base_url: str | None = None,
+    now: datetime | None = None,
+    free_gb: Any = _GPU_FREE_UNSET,
 ) -> tuple[list[dict], str | None, str]:
     """Regex-zero fallback: pinned local qwen on Ollama only. Counts in logs, never text."""
     started = time.monotonic()
     cap = BOOKS_FILE_CAP_S if timeout_s is None else float(timeout_s)
     if not (text or "").strip():
         return [], "layout not recognized", "text"
+    block = books_local_read_gpu_reason(now=now, free_gb=free_gb)
+    if block:
+        _log.warning("books local-read failed reason=gpu ms=%s", 0)
+        return [], block, "text"
     try:
         if base_url:
             base = str(base_url).rstrip("/")
@@ -786,6 +875,8 @@ def unread_reason_label(raw: str | None) -> str | None:
     low = s.lower()
     if "timeout" in low:
         return "model timeout"
+    if low.startswith("gpu busy"):
+        return s[:80]
     if "not available" in low:
         return "local model not available"
     if "no rows" in low or "layout" in low:
