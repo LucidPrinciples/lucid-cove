@@ -1,8 +1,14 @@
 """BOOKLED1 — P&L helper tests. Dummy amounts only."""
 
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from src.dashboard import books as bk
+
+_ET = ZoneInfo("America/New_York")
+_AFTER_WINDOW = datetime(2026, 11, 18, 14, 0, tzinfo=_ET)
+_IN_WINDOW = datetime(2026, 11, 18, 6, 20, tzinfo=_ET)
 
 
 def _row(date, amount, category=None, name="Vendor", review=False):
@@ -969,6 +975,8 @@ def test_local_read_unavailable_without_qwen():
         installed=[],
         complete=lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not call")),
         base_url="http://host.docker.internal:11434",
+        now=_AFTER_WINDOW,
+        free_gb=9.2,
     )
     assert rows == []
     assert err == "local model not available"
@@ -1048,9 +1056,104 @@ def test_local_read_timeout_without_hang():
         installed=["qwen3:30b-a3b"],
         complete=lambda *a, **k: {"rows": []},
         base_url="http://host.docker.internal:11434",
+        now=_AFTER_WINDOW,
+        free_gb=9.2,
     )
     assert rows == []
     assert err == "model timeout"
+
+
+def test_books_gpu_guard_window_and_free():
+    assert bk.books_in_morning_video_window(_IN_WINDOW) is True
+    assert bk.books_in_morning_video_window(_AFTER_WINDOW) is False
+    assert bk.books_in_morning_video_window(datetime(2026, 11, 18, 5, 15, tzinfo=_ET)) is True
+    assert bk.books_in_morning_video_window(datetime(2026, 11, 18, 7, 30, tzinfo=_ET)) is False
+    assert bk.books_local_read_gpu_reason(now=_IN_WINDOW, free_gb=24.0) == "GPU busy: morning video window"
+    assert bk.books_local_read_gpu_reason(now=_AFTER_WINDOW, free_gb=7.9) == "GPU busy: 7.9 GB free, needs 8"
+    assert bk.books_local_read_gpu_reason(now=_AFTER_WINDOW, free_gb=8.0) is None
+    assert bk.books_local_read_gpu_reason(now=_AFTER_WINDOW, free_gb=9.2) is None
+    assert bk.books_local_read_gpu_reason(now=_AFTER_WINDOW, free_gb=None) is None
+
+    def boom(*_a, **_k):
+        raise RuntimeError("probe failed")
+
+    rows, err, how = bk.local_read_statement_rows(
+        "Jun 01 Sample Vendor Co 12.00",
+        default_year=2025,
+        installed=["qwen3:30b-a3b"],
+        complete=lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not load")),
+        base_url="http://host.docker.internal:11434",
+        now=_IN_WINDOW,
+        free_gb=24.0,
+    )
+    assert rows == []
+    assert how == "text"
+    assert err == "GPU busy: morning video window"
+    assert bk.unread_reason_label(err) == "GPU busy: morning video window"
+
+    rows, err, how = bk.local_read_statement_rows(
+        "Jun 01 Sample Vendor Co 12.00",
+        default_year=2025,
+        installed=["qwen3:30b-a3b"],
+        complete=lambda *a, **k: (_ for _ in ()).throw(AssertionError("should not load")),
+        base_url="http://host.docker.internal:11434",
+        now=_AFTER_WINDOW,
+        free_gb=7.1,
+    )
+    assert rows == []
+    assert err == "GPU busy: 7.1 GB free, needs 8"
+    assert bk.unread_reason_label(err) == "GPU busy: 7.1 GB free, needs 8"
+
+    called = {"n": 0}
+
+    def stub(*_a, **_k):
+        called["n"] += 1
+        return {"rows": []}
+
+    rows, err, how = bk.local_read_statement_rows(
+        "Jun 01 Sample Vendor Co 12.00",
+        default_year=2025,
+        installed=["qwen3:30b-a3b"],
+        complete=stub,
+        base_url="http://host.docker.internal:11434",
+        now=_AFTER_WINDOW,
+        free_gb=9.2,
+    )
+    assert called["n"] == 1
+    assert err == "layout not recognized"
+
+    orig_window = bk.books_in_morning_video_window
+    orig_free = bk.books_gpu_free_gb
+    try:
+        bk.books_in_morning_video_window = boom  # type: ignore[method-assign]
+        assert bk.books_local_read_gpu_reason(now=_AFTER_WINDOW, free_gb=9.2) == "GPU busy: morning video window"
+        bk.books_in_morning_video_window = orig_window  # type: ignore[method-assign]
+        bk.books_gpu_free_gb = boom  # type: ignore[method-assign]
+        assert bk.books_local_read_gpu_reason(now=_AFTER_WINDOW) is None
+    finally:
+        bk.books_in_morning_video_window = orig_window  # type: ignore[method-assign]
+        bk.books_gpu_free_gb = orig_free  # type: ignore[method-assign]
+
+
+def test_books_gpu_guard_missing_probe_does_not_block():
+    called = {"n": 0}
+
+    def stub(*_a, **_k):
+        called["n"] += 1
+        return {"rows": []}
+
+    rows, err, how = bk.local_read_statement_rows(
+        "Jun 01 Sample Vendor Co 12.00",
+        default_year=2025,
+        installed=["qwen3:30b-a3b"],
+        complete=stub,
+        base_url="http://host.docker.internal:11434",
+        now=_AFTER_WINDOW,
+        free_gb=None,
+    )
+    assert called["n"] == 1
+    assert err == "layout not recognized"
+    assert bk.books_local_read_gpu_reason(now=_AFTER_WINDOW, free_gb=None) is None
 
 
 def test_unread_reason_and_page_process_job():
