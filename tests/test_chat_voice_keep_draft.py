@@ -81,8 +81,9 @@ def test_voice_js_keeps_over_at_end_and_parks_draft():
     assert "Dictate — big mic button, hide textarea + send" in VOICE_JS
     assert "mode === 'voice'" in VOICE_JS
     # Stop copies heard words into the box instead of wiping them.
-    stop = VOICE_JS.split("function voiceStop()")[1].split("function micPause()")[0]
+    stop = VOICE_JS.split("async function voiceStop()")[1].split("function micPause()")[0]
     assert "parkVoiceDraft()" in stop
+    assert "voiceFlushOpenChunk" in stop
     assert "voicePartial = '';" not in stop.split("parkVoiceDraft()")[0]
     # Intentional mic teardown must not look like a phone call.
     pause = VOICE_JS.split("function micPause()")[1].split("function updateMicState")[0]
