@@ -77,8 +77,6 @@ def test_voice_js_keeps_over_at_end_and_parks_draft():
     assert "interrupted" in VOICE_JS
     assert "Do not auto-resume" in VOICE_JS
     assert "voiceIgnoringMicLoss" in VOICE_JS
-    # Dictate still hides Send; Voice keeps it.
-    assert "Dictate — big mic button, hide textarea + send" in VOICE_JS
     assert "mode === 'voice'" in VOICE_JS
     # Stop copies heard words into the box instead of wiping them.
     stop = VOICE_JS.split("async function voiceStop()")[1].split("function micPause()")[0]

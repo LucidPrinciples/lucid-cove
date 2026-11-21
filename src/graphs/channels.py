@@ -155,7 +155,7 @@ class ChannelState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add]
     agent_id: str
     channel: str
-    input_mode: Optional[str]  # "type", "dictate", or "voice"
+    input_mode: Optional[str]  # "type" or "voice"
     agent_identity: Optional[dict]  # Centralized model: per-Presence identity (persona + dials)
     error: Optional[str]
     context_usage: Optional[dict]
@@ -1129,14 +1129,6 @@ async def agent_node(state: ChannelState) -> dict:
             "Avoid lists, code blocks, markdown, and formatting that doesn't translate to speech. "
             "If something needs detail, give the spoken summary and say the full text is on screen.\n"
         )
-    elif input_mode == "dictate":
-        input_mode_note = (
-            "\n\n## Input Mode: Dictate\n"
-            "The operator is speaking but reading your response as text. "
-            "Their message may have transcription artifacts. Respond normally but be aware "
-            "their phrasing may be less precise than typed input.\n"
-        )
-
     full_system = system_prompt + date_context + channel_addition + crossfeed + vault_context + knowledge_context + semantic_context + approval_note + resolved_note + input_mode_note
 
     # Trim old tool calls/results before sending to model

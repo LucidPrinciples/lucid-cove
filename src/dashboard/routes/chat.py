@@ -605,7 +605,7 @@ async def send_message(request: Request):
     body = await request.json()
     user_message = body.get("message", "").strip()
     ch = body.get("channel", "") or get_default_channel()
-    input_mode = body.get("input_mode", "type")  # type, dictate, or voice
+    input_mode = body.get("input_mode", "type")  # type or voice
     agent_id = await _personal_agent_id(request)
 
     # Centralized model (multi-mode): resolve THIS Presence's identity so the agent

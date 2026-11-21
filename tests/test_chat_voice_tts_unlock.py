@@ -29,7 +29,7 @@ def test_tts_resumes_interrupted_and_fails_open():
     assert "TTS_DECODE_TIMEOUT_MS = 8000" in VOICE_JS
     assert "TTS_PLAY_PAD_MS = 2000" in VOICE_JS
     assert "TTS_PLAY_TIMEOUT_MS" not in VOICE_JS
-    play = VOICE_JS.split("function playTTS(text)")[1].split(
+    play = VOICE_JS.split("function playTTS(text")[1].split(
         "function syncVoiceBox"
     )[0]
     assert "resumeTTSAudioCtx" in play

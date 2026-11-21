@@ -295,7 +295,7 @@
 .chat-input-area textarea::placeholder { color: var(--dim); }
 .chat-input-area textarea:focus { border-color: var(--daily-freq); box-shadow: 0 0 6px var(--daily-signal-glow); }
 
-/* Chat mode bar — Type / Dictate / Voice */
+/* Chat mode bar — Text / Voice */
 .chat-mode-bar {
     display: flex;
     gap: 6px;
@@ -331,7 +331,36 @@
     50% { box-shadow: 0 0 8px 3px var(--daily-signal-glow); }
 }
 
-/* Mic button — full-width, shown in Dictate / Voice modes */
+.voice-listen-hint {
+    margin: 0;
+    padding: 0 14px 6px;
+    font-size: 0.78rem;
+    color: var(--dim);
+    line-height: 1.35;
+}
+.voice-listen-hint[hidden] { display: none !important; }
+
+.msg-listen {
+    margin-left: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--dim);
+    font-family: inherit;
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+}
+.msg-listen:hover { border-color: var(--daily-freq); color: var(--daily-freq); }
+.msg-listen.playing {
+    border-color: var(--daily-freq);
+    color: var(--daily-freq);
+    background: var(--daily-signal-subtle);
+}
+
+/* Mic button — full-width, shown in Voice mode */
 .btn-mic-full {
     flex: 1;
     background: var(--bg);
@@ -940,7 +969,9 @@
   .btn-stop { min-height: 44px; }
 
   /* Voice on a phone: message box full width, mic + Send on the row below.
-     Desktop Voice, Type, and Dictate keep the original single row. */
+     Desktop Voice and Text keep the original single row. */
+  .voice-listen-hint { padding: 0 0.75rem 6px; font-size: 0.72rem; }
+  .msg-listen { min-height: 32px; padding: 4px 10px; }
   .chat-input-area.chat-voice-composer {
     flex-wrap: wrap;
     align-items: stretch;
