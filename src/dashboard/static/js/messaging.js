@@ -373,6 +373,20 @@ function addMessage(role, content, timestamp, model, thinking) {
         leftSide.appendChild(modelTag);
     }
 
+    if (role !== 'user' && content) {
+        const listen = document.createElement('button');
+        listen.type = 'button';
+        listen.className = 'msg-listen';
+        listen.setAttribute('aria-label', 'Listen');
+        listen.textContent = 'Listen';
+        listen.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (typeof toggleListenReply === 'function') toggleListenReply(listen, content);
+        });
+        leftSide.appendChild(listen);
+    }
+
     header.appendChild(leftSide);
 
     if (timestamp) {
@@ -1350,6 +1364,7 @@ function initChat() {
     document.querySelectorAll('.chat-mode-btn').forEach(btn => {
         btn.addEventListener('click', () => { if (typeof switchChatMode === 'function') switchChatMode(btn.dataset.mode); });
     });
+    if (typeof restoreChatMode === 'function') restoreChatMode();
 
     // Manager/admin MC → read-only supervisory view (rendered by manager-chat.js's
     // initStewardChat, which auto-runs right after this script). Skip the interactive

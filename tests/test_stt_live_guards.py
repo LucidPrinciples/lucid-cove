@@ -59,6 +59,5 @@ def test_ws_clears_buffer_on_start_recording():
 def test_voice_js_refuses_junk_autosend_and_reuses_socket():
     js = (ROOT / "src/dashboard/static/js/voice.js").read_text(encoding="utf-8")
     assert "function isHallucinatedTranscript" in js
-    assert "Didn't catch that" in js
     assert "Always create a fresh WebSocket per recording session" not in js
     assert "start_recording clears the server buffer" in js

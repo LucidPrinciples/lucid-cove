@@ -1,20 +1,18 @@
 // =============================================================================
-// Voice — Dictation, voice conversation, TTS
+// Voice — conversation mode + TTS
 // =============================================================================
-// Three input modes: Type (default, no voice), Dictate (mic→text→send),
-// Voice (continuous mic→text→send→TTS→auto-resume).
+// Two input modes: Text (type) and Voice (continuous mic → send → TTS).
+// Stop in Voice is dictation: words land in the box to edit or Send.
 // Depends on chat.js being loaded first (uses sendMessage, addSystemMessage, etc.)
 // =============================================================================
 
-// =============================================================================
-// Chat modes — Type / Dictate / Voice
-// =============================================================================
-// Type:    text input → text response (default)
-// Dictate: mic input → text fills input → text response
-// Voice:   mic input → text fills input → text response + TTS audio playback
-// =============================================================================
-let chatMode = 'type';     // 'type' | 'dictate' | 'voice'
+let chatMode = 'type';     // 'type' | 'voice'  (legacy 'dictate' falls back to type)
 let ttsAudio = null;       // currently playing Audio element
+const CHAT_MODE_KEY = 'lp_chat_mode';
+
+function normalizeChatMode(mode) {
+    return mode === 'voice' ? 'voice' : 'type';
+}
 
 // The mic (getUserMedia) only exists in a SECURE CONTEXT (HTTPS or localhost). On a
 // plain-http self-host (http://box:8204) navigator.mediaDevices is undefined → a
@@ -25,7 +23,11 @@ function micSecureContextIssue() {
 }
 
 function switchChatMode(mode) {
-    if (mode === chatMode) return;
+    mode = normalizeChatMode(mode);
+    if (mode === chatMode) {
+        try { localStorage.setItem(CHAT_MODE_KEY, mode); } catch (e) {}
+        return;
+    }
 
     // Stop any active recording, voice conversation, or TTS
     if (voiceActive) voiceStop();
@@ -33,6 +35,7 @@ function switchChatMode(mode) {
     ttsStopPlayback();
 
     chatMode = mode;
+    try { localStorage.setItem(CHAT_MODE_KEY, mode); } catch (e) {}
 
     // Update mode bar buttons
     document.querySelectorAll('.chat-mode-btn').forEach(btn => {
@@ -42,7 +45,6 @@ function switchChatMode(mode) {
     const composer = document.querySelector('.chat-input-area');
     if (composer) composer.classList.toggle('chat-voice-composer', mode === 'voice');
 
-    // Toggle between textarea (Type) and big mic button (Dictate/Voice)
     const micBtn = getMicBtn();
     const sendBtn = document.getElementById('chat-send');
     const input = document.getElementById('chat-input');
@@ -53,20 +55,31 @@ function switchChatMode(mode) {
         if (micBtn) micBtn.style.display = 'none';
         if (sendBtn) sendBtn.style.display = '';
         if (input) input.placeholder = `Ask ${_getActiveAIName()} anything...`;
-    } else if (mode === 'voice') {
-        // Hands-free: keep the message box and Send so send does not depend on
-        // hearing "Over". Dictate (below) still hides both.
+        setVoiceListenHint(false);
+    } else {
         if (input) input.style.display = '';
         if (micBtn) micBtn.style.display = '';
         if (sendBtn) sendBtn.style.display = '';
         if (micLabel) micLabel.textContent = 'Tap to Talk';
-    } else {
-        // Dictate — big mic button, hide textarea + send
-        if (input) input.style.display = 'none';
-        if (micBtn) micBtn.style.display = '';
-        if (sendBtn) sendBtn.style.display = 'none';
-        if (micLabel) micLabel.textContent = 'Tap to Talk';
     }
+}
+
+function restoreChatMode() {
+    let saved = 'type';
+    try { saved = localStorage.getItem(CHAT_MODE_KEY) || 'type'; } catch (e) {}
+    const next = normalizeChatMode(saved);
+    if (next === chatMode) {
+        try { localStorage.setItem(CHAT_MODE_KEY, next); } catch (e) {}
+        return;
+    }
+    switchChatMode(next);
+}
+
+function setVoiceListenHint(on) {
+    const hint = document.getElementById('voice-listen-hint');
+    if (!hint) return;
+    if (on) hint.removeAttribute('hidden');
+    else hint.setAttribute('hidden', '');
 }
 
 // =============================================================================
@@ -342,10 +355,11 @@ function fetchTTSChunk(text) {
     });
 }
 
-function playTTS(text) {
+function playTTS(text, opts) {
     return new Promise(async (resolve) => {
-        // Only auto-speak in Voice conversation mode. Dictate / Type leave text on screen.
-        if (!text || chatMode !== 'voice') { resolve(); return; }
+        opts = opts || {};
+        // Auto-speak only in Voice. Listen on a text reply passes {force:true}.
+        if (!text || (chatMode !== 'voice' && !opts.force)) { resolve(); return; }
 
         ttsResolve = resolve;
         ttsCancelled = false;
@@ -766,31 +780,37 @@ function updateMicState(state) {
         case 'idle':
             label.textContent = 'Tap to Talk';
             btn.title = 'Tap to talk';
+            setVoiceListenHint(false);
             break;
         case 'listening':
             btn.classList.add('recording');
-            label.textContent = "Listening... (say 'Over')";
-            btn.title = 'Listening — say Over to send, or tap to end';
+            label.textContent = 'Listening...';
+            btn.title = 'Listening';
+            setVoiceListenHint(true);
             break;
         case 'transcribing':
             btn.classList.add('processing');
             label.textContent = 'Transcribing...';
             btn.title = 'Transcribing';
+            setVoiceListenHint(false);
             break;
         case 'thinking':
             btn.classList.add('processing');
             label.textContent = _getActiveAIName() + ' thinking...';
             btn.title = 'Thinking';
+            setVoiceListenHint(false);
             break;
         case 'speaking':
             btn.classList.add('speaking');
             label.textContent = _getActiveAIName() + ' speaking...';
-            btn.title = 'Speaking — tap to stop';
+            btn.title = 'Speaking — tap Stop';
+            setVoiceListenHint(false);
             break;
         case 'unavailable':
             btn.classList.add('processing');
             label.textContent = 'Voice unavailable';
             btn.title = 'Voice unavailable';
+            setVoiceListenHint(false);
             break;
     }
 }
@@ -830,6 +850,11 @@ async function micStartContinuous() {
             voiceStop();
             return;
         }
+    }
+
+    // start_recording clears the server buffer so a new listen does not keep the last clip.
+    if (micWs && micWs.readyState === WebSocket.OPEN) {
+        micWs.send(JSON.stringify({ type: 'start_recording', mode: 'full' }));
     }
 
     const _secIssue = micSecureContextIssue();
@@ -917,37 +942,6 @@ function _setupScriptProcessorContinuous(src, handler) {
             i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
         handler(i16.buffer, rms);
-    };
-    src.connect(micProcessor);
-    micProcessor.connect(micAudioCtx.destination);
-}
-
-// ScriptProcessor fallback for browsers without AudioWorklet (dictate mode)
-function _setupScriptProcessorDictate(src) {
-    micProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1);
-    micProcessor.onaudioprocess = (e) => {
-        if (!micRecording || !micWs || micWs.readyState !== WebSocket.OPEN) return;
-        const f32 = e.inputBuffer.getChannelData(0);
-        const nativeRate = micAudioCtx.sampleRate;
-        let samples = f32;
-        if (nativeRate !== 16000) {
-            const ratio = nativeRate / 16000;
-            const newLen = Math.floor(f32.length / ratio);
-            samples = new Float32Array(newLen);
-            for (let i = 0; i < newLen; i++) {
-                const srcIdx = i * ratio;
-                const idx = Math.floor(srcIdx);
-                const frac = srcIdx - idx;
-                const next = Math.min(idx + 1, f32.length - 1);
-                samples[i] = f32[idx] * (1 - frac) + f32[next] * frac;
-            }
-        }
-        const i16 = new Int16Array(samples.length);
-        for (let i = 0; i < samples.length; i++) {
-            const s = Math.max(-1, Math.min(1, samples[i]));
-            i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-        micWs.send(i16.buffer);
     };
     src.connect(micProcessor);
     micProcessor.connect(micAudioCtx.destination);
@@ -1092,9 +1086,6 @@ function handleVoiceTranscript(text) {
     }
 }
 
-// =============================================================================
-// Dictation mic — tap-to-record, transcribe, auto-submit
-// =============================================================================
 let micRecording = false;
 let micProcessing = false;
 let micStream = null;
@@ -1104,165 +1095,12 @@ let micWs = null;
 
 function getMicBtn() { return document.getElementById('chat-mic'); }
 
-function micConnect() {
-    // Connect to pipecat-voice WebSocket for STT (host resolved from compute.voice).
-    const voiceBase = MC.voiceUrl('ws');
-    if (!voiceBase) { console.warn('[voice] no voice backend configured'); return; }
-    micWs = new WebSocket(`${voiceBase}/ws`);
-    micWs.binaryType = 'arraybuffer';
-
-    micWs.onmessage = (e) => {
-        if (typeof e.data !== 'string') return;
-        try {
-            const msg = JSON.parse(e.data);
-            if (msg.type === 'transcript' && msg.text) {
-                // Only process transcript AFTER user tapped stop (micProcessing=true).
-                // Ignores server-side partials during recording that caused premature sends.
-                if (!micProcessing) return;
-                if (isHallucinatedTranscript(msg.text)) {
-                    addSystemMessage("Didn't catch that — tap to talk again.");
-                    micStopProcessing();
-                    return;
-                }
-                const input = document.getElementById('chat-input');
-                if (input) {
-                    input.value = msg.text;
-                    input.style.height = 'auto';
-                    input.style.height = Math.min(input.scrollHeight, 150) + 'px';
-                }
-                sendMessage();
-            }
-            if (msg.type === 'silence') {
-                if (micProcessing) {
-                    addSystemMessage("Didn't catch that — tap to talk again.");
-                    micStopProcessing();
-                }
-            }
-            if (msg.type === 'done' || msg.type === 'error') {
-                // Only reset UI during processing phase (after user tapped stop).
-                // Server sends silence/done during recording — ignore those.
-                if (micProcessing) {
-                    if (msg.type === 'error') {
-                        addSystemMessage('Voice: ' + (msg.message || 'error'));
-                    }
-                    micStopProcessing();
-                }
-            }
-        } catch (ex) {}
-    };
-
-    micWs.onclose = () => { micWs = null; };
-    micWs.onerror = (e) => { console.error('[mic] WS error'); micWs = null; micStopProcessing(); };
-}
-
-async function micStart() {
-    const btn = getMicBtn();
-    if (!btn || micProcessing || sending) return;
-
-    // Reuse an open socket. start_recording clears the server buffer so a
-    // second tap does not need a new WebSocket (that was doubling /ws).
-    if (!micWs || micWs.readyState !== WebSocket.OPEN) {
-        if (micWs) { try { micWs.close(); } catch(e) {} micWs = null; }
-        micConnect();
-        try {
-            await new Promise((resolve, reject) => {
-                const check = setInterval(() => {
-                    if (micWs && micWs.readyState === WebSocket.OPEN) {
-                        clearInterval(check); resolve();
-                    }
-                }, 100);
-                setTimeout(() => { clearInterval(check); reject(new Error('Voice server timeout')); }, 5000);
-            });
-        } catch (err) {
-            console.error('[mic] WS connect FAILED:', err);
-            return;
-        }
-    }
-
-    // Tell server which mode we're in so it doesn't auto-clear the buffer
-    if (micWs && micWs.readyState === WebSocket.OPEN) {
-        micWs.send(JSON.stringify({ type: 'start_recording', mode: chatMode === 'voice' ? 'full' : 'transcribe' }));
-    }
-
-    // Unlock AudioContext for TTS on this user gesture (Voice mode)
-    if (chatMode === 'voice') ensureTTSAudioCtx();
-
-    const _secIssue2 = micSecureContextIssue();
-    if (_secIssue2) { addSystemMessage(_secIssue2); return; }
-
-    micRecording = true;
-    btn.classList.add('recording');
-    btn.title = 'Tap to stop';
-    const micLabel = document.getElementById('mic-label');
-    if (micLabel) micLabel.textContent = 'Tap to Stop';
-
-    try {
-        micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
-        });
-        micAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        const src = micAudioCtx.createMediaStreamSource(micStream);
-
-        // ScriptProcessor — proven to work with pipecat-voice.
-        // AudioWorklet migration deferred (buffer transfer issues with WebSocket).
-        micProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1);
-        micProcessor.onaudioprocess = (e) => {
-            if (!micRecording || !micWs || micWs.readyState !== WebSocket.OPEN) return;
-            const f32 = e.inputBuffer.getChannelData(0);
-            const i16 = new Int16Array(f32.length);
-            for (let i = 0; i < f32.length; i++) {
-                let s = Math.max(-1, Math.min(1, f32[i]));
-                i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-            }
-            micWs.send(i16.buffer);
-        };
-        src.connect(micProcessor);
-        micProcessor.connect(micAudioCtx.destination);
-    } catch (err) {
-        console.error('[mic] getUserMedia FAILED:', err);
-        addSystemMessage(micSecureContextIssue() || 'Mic access failed — check browser permissions');
-        micStop();
-    }
-}
-
 function micStop() {
     micRecording = false;
-    const btn = getMicBtn();
-
-    // Clean up audio
-    if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
-    if (micAudioCtx) { micAudioCtx.close(); micAudioCtx = null; }
-    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-
-    // Send end_audio with transcribe mode
-    const micLabel = document.getElementById('mic-label');
-    if (micWs && micWs.readyState === WebSocket.OPEN) {
-        micWs.send(JSON.stringify({ type: 'end_audio', mode: 'transcribe' }));
-        micProcessing = true;
-        if (btn) {
-            btn.classList.remove('recording');
-            btn.classList.add('processing');
-            btn.title = 'Transcribing...';
-        }
-        if (micLabel) micLabel.textContent = 'Transcribing...';
-    } else {
-        if (btn) {
-            btn.classList.remove('recording');
-            btn.title = 'Tap to talk';
-        }
-        if (micLabel) micLabel.textContent = 'Tap to Talk';
-    }
-}
-
-function micStopProcessing() {
     micProcessing = false;
-    const btn = getMicBtn();
-    if (btn) {
-        btn.classList.remove('recording', 'processing');
-        btn.title = 'Tap to talk';
-    }
-    const micLabel = document.getElementById('mic-label');
-    if (micLabel) micLabel.textContent = 'Tap to Talk';
+    if (micProcessor) { try { micProcessor.disconnect(); } catch (e) {} micProcessor = null; }
+    if (micAudioCtx) { try { micAudioCtx.close(); } catch (e) {} micAudioCtx = null; }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
 }
 
 let _micToggleLock = false;
@@ -1271,15 +1109,37 @@ function micToggle() {
     _micToggleLock = true;
     setTimeout(() => { _micToggleLock = false; }, 300);
 
-    if (chatMode === 'voice') {
-        const btn = getMicBtn();
-        const speaking = ttsPlaying || (btn && btn.classList.contains('speaking'));
-        if (speaking) {
-            ttsStopPlayback();
-            return;
-        }
-        if (voiceActive) { voiceStop(); } else { voiceStart(); }
-    } else {
-        if (micRecording) { micStop(); } else { micStart(); }
+    if (chatMode !== 'voice') return;
+    const btn = getMicBtn();
+    const speaking = ttsPlaying || (btn && btn.classList.contains('speaking'));
+    if (speaking) {
+        ttsStopPlayback();
+        return;
     }
+    if (voiceActive) { voiceStop(); } else { voiceStart(); }
+}
+
+function toggleListenReply(btn, text) {
+    if (!btn) return;
+    ensureTTSAudioCtx();
+    const already = btn.classList.contains('playing') && ttsPlaying;
+    document.querySelectorAll('.msg-listen.playing').forEach((el) => {
+        el.classList.remove('playing');
+        el.setAttribute('aria-pressed', 'false');
+    });
+    if (already) {
+        ttsStopPlayback();
+        return;
+    }
+    ttsStopPlayback();
+    btn.classList.add('playing');
+    btn.setAttribute('aria-pressed', 'true');
+    playTTS(text, { force: true }).then(() => {
+        btn.classList.remove('playing');
+        btn.setAttribute('aria-pressed', 'false');
+    });
+}
+
+if (document.getElementById('mode-type') || document.getElementById('mode-voice')) {
+    restoreChatMode();
 }

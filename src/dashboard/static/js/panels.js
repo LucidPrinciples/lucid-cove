@@ -222,10 +222,10 @@ function _defaultPanelHTML(tabId) {
             </div>
             <div class="activity-live" id="activity-live" style="display:none;"></div>
             <div class="chat-mode-bar">
-                <button class="chat-mode-btn active" data-mode="type" id="mode-type">Type</button>
-                <button class="chat-mode-btn" data-mode="dictate" id="mode-dictate">Dictate</button>
+                <button class="chat-mode-btn active" data-mode="type" id="mode-type">Text</button>
                 <button class="chat-mode-btn" data-mode="voice" id="mode-voice">Voice</button>
             </div>
+            <p id="voice-listen-hint" class="voice-listen-hint" hidden>Say Over or tap Send. Tap the mic to stop and edit.</p>
             <div class="chat-input-area">
                 <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
                 <div id="voice-partial" class="voice-partial" style="display:none;"></div>
