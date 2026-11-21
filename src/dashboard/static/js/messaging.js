@@ -556,8 +556,11 @@ async function sendMessage() {
         && typeof voiceActive !== 'undefined' && voiceActive
         && typeof micPause === 'function') {
         micPause();
-        if (typeof voicePartial === 'string') voicePartial = '';
-        if (typeof updatePartialDisplay === 'function') updatePartialDisplay('');
+        if (typeof voiceBeginSentTurn === 'function') voiceBeginSentTurn();
+        else {
+            if (typeof voicePartial === 'string') voicePartial = '';
+            if (typeof updatePartialDisplay === 'function') updatePartialDisplay('');
+        }
         if (typeof updateMicState === 'function') updateMicState('thinking');
     }
 
@@ -726,57 +729,63 @@ async function sendMessage() {
         addMessage('assistant', `Connection error: ${e.message}`, new Date());
     }
 
-    // Release the chat Stop control as soon as generation ends — before TTS.
-    // Speaking is a mic-state concern; holding Stop through playTTS is what made
-    // a hung voice host look like the whole reply was stuck.
     sending = false;
-    stopBtn.style.display = 'none';
-    stopBtn.disabled = false;
-    stopBtn.classList.remove('btn-busy');
-    stopBtn.title = '';
 
-    // Voice mode: speak after Stop is cleared, then auto-resume listening.
-    // playTTS hard-times out per chunk and fail-opens (text stays on screen).
-    if (finalData && !finalData.cancelled && !finalData.error
-        && chatMode === 'voice' && voiceActive && finalData.response) {
-        const micBtnSpeak = (typeof getMicBtn === 'function') ? getMicBtn() : document.getElementById('chat-mic');
-        if (micBtnSpeak) micBtnSpeak.style.display = '';
+    const voiceSpeak = !!(finalData && !finalData.cancelled && !finalData.error
+        && chatMode === 'voice' && voiceActive && finalData.response);
+
+    if (voiceSpeak) {
+        // Keep one Stop for the whole Voice turn. Send stays hidden until listening.
+        if (sendBtn) sendBtn.style.display = 'none';
+        if (stopBtn) {
+            stopBtn.style.display = '';
+            stopBtn.disabled = false;
+            stopBtn.classList.remove('btn-busy');
+            stopBtn.title = 'Stop speaking';
+        }
+        const micDuringSpeak = (typeof getMicBtn === 'function') ? getMicBtn() : document.getElementById('chat-mic');
+        if (micDuringSpeak) micDuringSpeak.style.display = 'none';
         if (typeof updateMicState === 'function') updateMicState('speaking');
         try {
             if (typeof playTTS === 'function') await playTTS(finalData.response);
         } catch (ttsErr) {
             console.warn('[voice] playTTS failed open:', ttsErr);
         }
-        if (voiceActive) {
-            if (typeof micStartContinuous === 'function') micStartContinuous();
-            if (typeof updateMicState === 'function') updateMicState('listening');
+        if (typeof voiceResumeListening === 'function' && voiceActive) {
+            voiceResumeListening();
         } else if (typeof updateMicState === 'function') {
             updateMicState('idle');
         }
-    }
-
-    // Restore input area based on mode
-    if (chatMode === 'type') {
-        sendBtn.style.display = '';
-        input.focus();
-    } else if (chatMode === 'voice' && voiceActive) {
-        // Voice conversation in progress — mic is managed by auto-resume above.
-        // Send stays visible so a missed "Over" can still go out by tap.
-        const micBtn2 = getMicBtn();  // Defined in voice.js
-        if (micBtn2) micBtn2.style.display = '';
-        if (sendBtn) sendBtn.style.display = '';
-        if (input) input.style.display = '';
+    } else if (chatMode === 'voice' && voiceActive && typeof voiceResumeListening === 'function') {
+        voiceResumeListening();
     } else {
-        // Dictate or Voice (not active) — show mic button, keep send hidden
-        const micBtn2 = getMicBtn();  // Defined in voice.js
-        if (micBtn2) micBtn2.style.display = '';
-        if (chatMode === 'voice' && sendBtn) sendBtn.style.display = '';
-        if (chatMode === 'voice' && input) input.style.display = '';
+        if (stopBtn) {
+            stopBtn.style.display = 'none';
+            stopBtn.disabled = false;
+            stopBtn.classList.remove('btn-busy');
+            stopBtn.title = '';
+        }
+        if (chatMode === 'type') {
+            sendBtn.style.display = '';
+            input.focus();
+        } else {
+            const micBtn2 = getMicBtn();
+            if (micBtn2) micBtn2.style.display = '';
+            if (chatMode === 'voice' && sendBtn) sendBtn.style.display = '';
+            if (chatMode === 'voice' && input) input.style.display = '';
+        }
     }
     scrollToBottom();
 }
 
 async function cancelSend() {
+    // Voice speaking: Stop ends audio at once and returns to listening.
+    if (typeof chatMode !== 'undefined' && chatMode === 'voice'
+        && typeof ttsPlaying !== 'undefined' && ttsPlaying) {
+        if (typeof ttsStopPlayback === 'function') ttsStopPlayback();
+        if (typeof voiceResumeListening === 'function') voiceResumeListening();
+        return;
+    }
     // Immediate tap feedback — show the stop registered while the stream winds down.
     const _stopBtn = document.getElementById('chat-stop');
     if (_stopBtn) {
