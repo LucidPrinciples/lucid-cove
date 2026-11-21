@@ -59,3 +59,24 @@ def test_listen_and_reply_share_playback_session():
     )[0]
     assert "setAudioSession('play-and-record')" in mic
     assert "getUserMedia" in mic
+
+
+def test_listen_pause_flag_survives_consecutive_listens():
+    resume = VOICE_JS.split("function voiceResumeAfterListen()")[1].split(
+        "async function toggleListenReply"
+    )[0]
+    assert resume.find("ttsPlaying") < resume.find("_listenPausedMic = false")
+    assert resume.find("if (!_listenPausedMic)") < resume.find("ttsPlaying")
+    listen = VOICE_JS.split("async function toggleListenReply")[1]
+    assert "micRecording || _listenPausedMic" in listen
+    assert "_listenPausedMic = true" in listen
+    assert "_listenPausedMic = !!(voiceActive && micRecording)" not in listen
+
+
+def test_listen_flushes_open_chunk_before_mic_pause():
+    listen = VOICE_JS.split("async function toggleListenReply")[1]
+    assert "speechSeen || silenceStart || voiceChunkPending" in listen
+    assert "voiceFlushOpenChunk" in listen
+    assert "absorbVoiceTail" in listen
+    assert listen.find("voiceFlushOpenChunk") < listen.find("micPause()")
+    assert listen.find("absorbVoiceTail") < listen.find("micPause()")

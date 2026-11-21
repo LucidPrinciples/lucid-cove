@@ -1193,14 +1193,14 @@ let _listenPausedMic = false;
 
 function voiceResumeAfterListen() {
     if (!_listenPausedMic) return;
-    _listenPausedMic = false;
     if (!voiceActive || chatMode !== 'voice' || ttsPlaying) return;
+    _listenPausedMic = false;
     setAudioSession('play-and-record');
     if (typeof micStartContinuous === 'function') micStartContinuous();
     updateMicState('listening');
 }
 
-function toggleListenReply(btn, text) {
+async function toggleListenReply(btn, text) {
     if (!btn) return;
     ensureTTSAudioCtx();
     const already = btn.classList.contains('playing') && ttsPlaying;
@@ -1218,8 +1218,17 @@ function toggleListenReply(btn, text) {
     btn.setAttribute('aria-pressed', 'true');
     // Pause the mic while Listen plays so iOS uses the same playback route
     // (and loudness) as a Voice-turn reply. Resume listening afterward.
-    _listenPausedMic = !!(voiceActive && micRecording);
-    if (_listenPausedMic) micPause();
+    // Keep the pause flag across consecutive Listens; clear it only on resume.
+    if (voiceActive && (micRecording || _listenPausedMic)) {
+        _listenPausedMic = true;
+    }
+    if (voiceActive && micRecording) {
+        if (speechSeen || silenceStart || voiceChunkPending) {
+            const tail = await voiceFlushOpenChunk();
+            absorbVoiceTail(tail);
+        }
+        micPause();
+    }
     setAudioSession('playback');
     playTTS(text, { force: true }).then(() => {
         btn.classList.remove('playing');
