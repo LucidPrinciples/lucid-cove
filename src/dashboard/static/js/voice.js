@@ -50,8 +50,15 @@ function switchChatMode(mode) {
         if (micBtn) micBtn.style.display = 'none';
         if (sendBtn) sendBtn.style.display = '';
         if (input) input.placeholder = `Ask ${_getActiveAIName()} anything...`;
+    } else if (mode === 'voice') {
+        // Hands-free: keep the message box and Send so send does not depend on
+        // hearing "Over". Dictate (below) still hides both.
+        if (input) input.style.display = '';
+        if (micBtn) micBtn.style.display = '';
+        if (sendBtn) sendBtn.style.display = '';
+        if (micLabel) micLabel.textContent = 'Tap to Talk';
     } else {
-        // Dictate or Voice — big mic button, hide textarea + send
+        // Dictate — big mic button, hide textarea + send
         if (input) input.style.display = 'none';
         if (micBtn) micBtn.style.display = '';
         if (sendBtn) sendBtn.style.display = 'none';
@@ -73,6 +80,13 @@ let speechSeen = false;             // whether speech detected in current chunk
 const SILENCE_THRESHOLD = 0.015;    // RMS below this = silence
 const SILENCE_DURATION = 2500;      // ms of silence before auto-chunk (was 1800 — too aggressive for mobile)
 const TRIGGER_PHRASES = ['send it', 'sendit', 'over'];
+const VOICE_END_FILLERS = ['um', 'uh', 'er', 'ah', 'please', 'yeah', 'okay', 'ok'];
+let voiceIgnoringMicLoss = false;   // true while we tear down the mic ourselves
+let _voiceVisHandler = null;
+let _voicePageHideHandler = null;
+let _voiceTrackEnded = [];          // [{track, fn}, ...]
+let _voiceCtxHandler = null;
+let _voiceBoundCtx = null;
 
 // AudioContext for TTS — created on user gesture for mobile compatibility
 let ttsAudioCtx = null;
@@ -372,6 +386,81 @@ function playTTS(text) {
 
 // ── Voice conversation lifecycle ─────────────────────────────────────────────
 
+function parkVoiceDraft() {
+    // Never drop heard words. Stop, a failed send, or a mic interrupt leaves
+    // the transcript in the message box so it can be sent or edited.
+    const draft = (typeof voicePartial === 'string') ? voicePartial.trim() : '';
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send');
+    if (input) {
+        if (draft && !String(input.value || '').trim()) {
+            input.value = draft;
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 150) + 'px';
+        }
+        input.style.display = '';
+    }
+    if (sendBtn) sendBtn.style.display = '';
+    voicePartial = '';
+    updatePartialDisplay('');
+}
+
+function voiceInterruptSession() {
+    // Phone call / lost mic / backgrounded PWA: end the session and wait for a
+    // tap. Do not auto-resume — iOS will not hand the mic back without a gesture.
+    if (!voiceActive || voiceIgnoringMicLoss) return;
+    if (typeof addSystemMessage === 'function') {
+        addSystemMessage('Voice paused — send or edit what’s in the box, then tap to talk.');
+    }
+    voiceStop();
+}
+
+function unbindVoiceInterruptWatchers() {
+    if (_voiceVisHandler) {
+        document.removeEventListener('visibilitychange', _voiceVisHandler);
+        _voiceVisHandler = null;
+    }
+    if (_voicePageHideHandler) {
+        window.removeEventListener('pagehide', _voicePageHideHandler);
+        _voicePageHideHandler = null;
+    }
+    _voiceTrackEnded.forEach(({ track, fn }) => {
+        try { track.removeEventListener('ended', fn); } catch (e) {}
+    });
+    _voiceTrackEnded = [];
+    if (_voiceBoundCtx && _voiceCtxHandler) {
+        try { _voiceBoundCtx.removeEventListener('statechange', _voiceCtxHandler); } catch (e) {}
+    }
+    _voiceBoundCtx = null;
+    _voiceCtxHandler = null;
+}
+
+function bindVoiceInterruptWatchers(stream) {
+    unbindVoiceInterruptWatchers();
+    _voiceVisHandler = () => {
+        if (document.hidden) voiceInterruptSession();
+    };
+    document.addEventListener('visibilitychange', _voiceVisHandler);
+    _voicePageHideHandler = () => { voiceInterruptSession(); };
+    window.addEventListener('pagehide', _voicePageHideHandler);
+    const tracks = (stream && stream.getAudioTracks) ? stream.getAudioTracks() : [];
+    tracks.forEach((track) => {
+        const fn = () => { voiceInterruptSession(); };
+        track.addEventListener('ended', fn);
+        _voiceTrackEnded.push({ track, fn });
+    });
+    const ctx = micAudioCtx;
+    if (ctx && typeof ctx.addEventListener === 'function') {
+        _voiceCtxHandler = () => {
+            if (ctx.state === 'interrupted' || ctx.state === 'suspended') {
+                voiceInterruptSession();
+            }
+        };
+        ctx.addEventListener('statechange', _voiceCtxHandler);
+        _voiceBoundCtx = ctx;
+    }
+}
+
 function voiceStart() {
     if (voiceActive || sending) return;
 
@@ -383,12 +472,15 @@ function voiceStart() {
 
     updateMicState('listening');
     updatePartialDisplay('');
+    bindVoiceInterruptWatchers(null);
     micStartContinuous();
 }
 
 function voiceStop() {
+    voiceIgnoringMicLoss = true;
+    unbindVoiceInterruptWatchers();
+    parkVoiceDraft();
     voiceActive = false;
-    voicePartial = '';
     speechSeen = false;
     silenceStart = 0;
     ttsStopPlayback();
@@ -402,15 +494,19 @@ function voiceStop() {
     micProcessing = false;
 
     updateMicState('idle');
-    updatePartialDisplay('');
+    voiceIgnoringMicLoss = false;
 }
 
 function micPause() {
-    // Stop mic input but keep state for auto-resume
+    // Stop mic input but keep state for auto-resume after a sent turn.
+    // Unbind first so track-ended / AudioContext close is not treated as a call.
+    voiceIgnoringMicLoss = true;
+    unbindVoiceInterruptWatchers();
     micRecording = false;
     if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
     if (micAudioCtx) { micAudioCtx.close(); micAudioCtx = null; }
     if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    voiceIgnoringMicLoss = false;
 }
 
 function updateMicState(state) {
@@ -498,6 +594,7 @@ async function micStartContinuous() {
         // Request 16kHz — desktop Chrome honors it (no resampling needed).
         // Mobile may ignore it — AudioWorklet resamples as fallback.
         micAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        bindVoiceInterruptWatchers(micStream);
         const src = micAudioCtx.createMediaStreamSource(micStream);
 
         // ScriptProcessor with silence detection for voice mode
@@ -667,35 +764,53 @@ function isHallucinatedTranscript(text) {
     return maxRun >= 6;
 }
 
+function voiceHeardWords(text) {
+    return String(text || '').toLowerCase().match(/[a-z']+/g) || [];
+}
+
+function stripVoiceEndTrigger(text) {
+    // Hands-free send: "Over" / "send it" only at the END of what was heard.
+    // Mid-sentence must not fire — "come over here", "it's over there".
+    // Tolerate trailing punctuation and one filler after the trigger
+    // (um, uh, er, ah, please, yeah, okay, ok). Misses use visible Send.
+    const words = voiceHeardWords(text);
+    if (!words.length) return null;
+    function matchAt(endIdx) {
+        if (endIdx < 0) return null;
+        const w = words[endIdx];
+        if (w === 'over' || w === 'sendit') return { start: endIdx };
+        if (w === 'it' && endIdx > 0 && words[endIdx - 1] === 'send') {
+            return { start: endIdx - 1 };
+        }
+        return null;
+    }
+    let m = matchAt(words.length - 1);
+    if (!m && words.length >= 2 && VOICE_END_FILLERS.indexOf(words[words.length - 1]) !== -1) {
+        m = matchAt(words.length - 2);
+    }
+    if (!m) return null;
+    const tail = words.slice(m.start);
+    const tailRe = new RegExp(
+        tail.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s.,!?;:]+') + '[\\s.,!?;:]*$',
+        'i'
+    );
+    return String(text).replace(tailRe, '').replace(/[\s.,!?]+$/g, '').trim();
+}
+
 function handleVoiceTranscript(text) {
     if (isHallucinatedTranscript(text)) {
         updateMicState('listening');
         return;
     }
-    const lower = text.toLowerCase().replace(/[.,!?;:]/g, '').trim();
+    const combined = (voicePartial + ' ' + text).trim();
+    const stripped = stripVoiceEndTrigger(combined);
 
-    // Check for trigger phrase at end of transcript
-    let triggered = false;
-    let cleanText = text;
-    for (const trigger of TRIGGER_PHRASES) {
-        if (lower.endsWith(trigger) || lower === trigger) {
-            // Remove trigger phrase from end
-            const idx = lower.lastIndexOf(trigger);
-            cleanText = text.substring(0, idx).replace(/[.,!?\s]+$/, '').trim();
-            triggered = true;
-            break;
-        }
-    }
-
-    if (triggered) {
-        // Combine partial + this chunk, send to agent
-        const fullText = (voicePartial + ' ' + cleanText).trim();
+    if (stripped !== null) {
         voicePartial = '';
         updatePartialDisplay('');
-
-        if (fullText) {
+        if (stripped) {
             const input = document.getElementById('chat-input');
-            if (input) input.value = fullText;
+            if (input) input.value = stripped;
             micPause();
             updateMicState('thinking');
             sendMessage();
@@ -703,9 +818,16 @@ function handleVoiceTranscript(text) {
             updateMicState('listening');
         }
     } else {
-        // No trigger — accumulate and keep listening
-        voicePartial = (voicePartial + ' ' + text).trim();
+        // No end trigger — accumulate, keep the box in sync so Send has the words
+        voicePartial = combined;
         updatePartialDisplay(voicePartial);
+        const input = document.getElementById('chat-input');
+        if (input) {
+            input.value = voicePartial;
+            input.style.display = '';
+        }
+        const sendBtn = document.getElementById('chat-send');
+        if (sendBtn) sendBtn.style.display = '';
         updateMicState('listening');
     }
 }

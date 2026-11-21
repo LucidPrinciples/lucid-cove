@@ -525,8 +525,22 @@ function _renderPersistedActivity(record) {
 async function sendMessage() {
     if (sending) return;
     const input = document.getElementById('chat-input');
+    if (typeof chatMode !== 'undefined' && chatMode === 'voice'
+        && typeof voiceActive !== 'undefined' && voiceActive
+        && typeof voicePartial === 'string' && voicePartial.trim()
+        && input && !input.value.trim()) {
+        input.value = voicePartial.trim();
+    }
     const msg = input.value.trim();
     if (!msg) return;
+    if (typeof chatMode !== 'undefined' && chatMode === 'voice'
+        && typeof voiceActive !== 'undefined' && voiceActive
+        && typeof micPause === 'function') {
+        micPause();
+        if (typeof voicePartial === 'string') voicePartial = '';
+        if (typeof updatePartialDisplay === 'function') updatePartialDisplay('');
+        if (typeof updateMicState === 'function') updateMicState('thinking');
+    }
 
     const sendBtn = document.getElementById('chat-send');
     const stopBtn = document.getElementById('chat-stop');
@@ -727,13 +741,18 @@ async function sendMessage() {
         sendBtn.style.display = '';
         input.focus();
     } else if (chatMode === 'voice' && voiceActive) {
-        // Voice conversation in progress — mic is managed by auto-resume above
+        // Voice conversation in progress — mic is managed by auto-resume above.
+        // Send stays visible so a missed "Over" can still go out by tap.
         const micBtn2 = getMicBtn();  // Defined in voice.js
         if (micBtn2) micBtn2.style.display = '';
+        if (sendBtn) sendBtn.style.display = '';
+        if (input) input.style.display = '';
     } else {
         // Dictate or Voice (not active) — show mic button, keep send hidden
         const micBtn2 = getMicBtn();  // Defined in voice.js
         if (micBtn2) micBtn2.style.display = '';
+        if (chatMode === 'voice' && sendBtn) sendBtn.style.display = '';
+        if (chatMode === 'voice' && input) input.style.display = '';
     }
     scrollToBottom();
 }
@@ -878,6 +897,10 @@ function _restoreChatChromeAfterTurn() {
     } else {
         const micBtn2 = (typeof getMicBtn === 'function') ? getMicBtn() : document.getElementById('chat-mic');
         if (micBtn2) micBtn2.style.display = '';
+        if (chatMode === 'voice') {
+            if (sendBtn) sendBtn.style.display = '';
+            if (input) input.style.display = '';
+        }
     }
 }
 
