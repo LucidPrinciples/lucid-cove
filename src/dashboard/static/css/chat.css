@@ -331,6 +331,29 @@
     50% { box-shadow: 0 0 8px 3px var(--daily-signal-glow); }
 }
 
+.chat-voice-log-help {
+    margin-left: 6px;
+    min-width: 28px;
+    min-height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--dim);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.voice-copy-log {
+    display: block;
+    margin: 4px 0 10px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dim);
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
 .voice-listen-hint {
     margin: 0;
     padding: 0 14px 6px;

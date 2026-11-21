@@ -224,6 +224,7 @@ function _defaultPanelHTML(tabId) {
             <div class="chat-mode-bar">
                 <button class="chat-mode-btn active" data-mode="type" id="mode-type">Text</button>
                 <button class="chat-mode-btn" data-mode="voice" id="mode-voice">Voice</button>
+                <button type="button" class="chat-voice-log-help" id="voice-log-help" title="Copy voice log" onclick="copyVoiceLog()">?</button>
             </div>
             <p id="voice-listen-hint" class="voice-listen-hint" hidden>Say Over or tap Send. Tap the mic to stop and edit.</p>
             <div class="chat-input-area">

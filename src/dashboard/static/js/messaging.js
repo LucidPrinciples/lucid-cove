@@ -539,6 +539,7 @@ function _renderPersistedActivity(record) {
 async function sendMessage() {
     if (sending) return;
     if (typeof voiceFlushInFlight !== 'undefined' && voiceFlushInFlight) return;
+    if (typeof voiceTransition !== 'undefined' && voiceTransition && typeof voicePhase !== 'undefined' && voicePhase !== 'flushing') return;
     if (typeof chatMode !== 'undefined' && chatMode === 'voice'
         && typeof ensureTTSAudioCtx === 'function') {
         ensureTTSAudioCtx();
@@ -549,7 +550,7 @@ async function sendMessage() {
     if (sending) return;
     const input = document.getElementById('chat-input');
     if (typeof chatMode !== 'undefined' && chatMode === 'voice'
-        && typeof voiceActive !== 'undefined' && voiceActive
+        && typeof voicePhase !== 'undefined' && voicePhase !== 'idle'
         && typeof voicePartial === 'string' && voicePartial.trim()
         && input && !input.value.trim()) {
         input.value = voicePartial.trim();
@@ -557,7 +558,7 @@ async function sendMessage() {
     const msg = input.value.trim();
     if (!msg) {
         if (typeof chatMode !== 'undefined' && chatMode === 'voice'
-            && typeof voiceActive !== 'undefined' && voiceActive
+            && typeof voicePhase !== 'undefined' && voicePhase !== 'idle'
             && typeof micRecording !== 'undefined' && !micRecording
             && typeof micStartContinuous === 'function') {
             if (typeof bindVoiceInterruptWatchers === 'function') bindVoiceInterruptWatchers(null);
@@ -567,7 +568,7 @@ async function sendMessage() {
         return;
     }
     if (typeof chatMode !== 'undefined' && chatMode === 'voice'
-        && typeof voiceActive !== 'undefined' && voiceActive
+        && typeof voicePhase !== 'undefined' && voicePhase !== 'idle'
         && typeof micPause === 'function') {
         micPause();
         if (typeof voiceBeginSentTurn === 'function') voiceBeginSentTurn();
@@ -746,7 +747,7 @@ async function sendMessage() {
     sending = false;
 
     const voiceSpeak = !!(finalData && !finalData.cancelled && !finalData.error
-        && chatMode === 'voice' && voiceActive && finalData.response);
+        && chatMode === 'voice' && typeof voicePhase !== 'undefined' && voicePhase !== 'idle' && finalData.response);
 
     if (voiceSpeak) {
         // Keep one Stop for the whole Voice turn. Send stays hidden until listening.
@@ -761,16 +762,18 @@ async function sendMessage() {
         if (micDuringSpeak) micDuringSpeak.style.display = 'none';
         if (typeof updateMicState === 'function') updateMicState('speaking');
         try {
+            if (typeof voicePreparePlayback === 'function') await voicePreparePlayback();
+            if (typeof setVoicePhase === 'function') setVoicePhase('speaking', 'reply');
             if (typeof playTTS === 'function') await playTTS(finalData.response);
         } catch (ttsErr) {
             console.warn('[voice] playTTS failed open:', ttsErr);
         }
-        if (typeof voiceResumeListening === 'function' && voiceActive) {
+        if (typeof voiceResumeListening === 'function' && typeof voicePhase !== 'undefined' && voicePhase !== 'idle') {
             voiceResumeListening();
         } else if (typeof updateMicState === 'function') {
             updateMicState('idle');
         }
-    } else if (chatMode === 'voice' && voiceActive && typeof voiceResumeListening === 'function') {
+    } else if (chatMode === 'voice' && typeof voicePhase !== 'undefined' && voicePhase !== 'idle' && typeof voiceResumeListening === 'function') {
         voiceResumeListening();
     } else {
         if (stopBtn) {
@@ -1095,6 +1098,9 @@ function showThreadModal() {
     html += `
             <button class="btn-small" onclick="this.closest('.thread-history-overlay').remove(); showThreadHistory()">
                 Thread History
+            </button>
+            <button class="btn-small" onclick="copyVoiceLog()">
+                Copy voice log
             </button>
         </div>
     </div>`;

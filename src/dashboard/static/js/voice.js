@@ -9,6 +9,17 @@
 let chatMode = 'type';     // 'type' | 'voice'  (legacy 'dictate' falls back to type)
 let ttsAudio = null;       // currently playing Audio element
 const CHAT_MODE_KEY = 'lp_chat_mode';
+// voicePhase is the only source of truth for the Voice session.
+let voicePhase = 'idle';   // idle | listening | flushing | thinking | speaking | listen-playback
+let voiceTransition = false;
+let voiceListenResume = false;
+let ttsRunId = 0;
+let voiceListenGen = 0;
+const VOICE_LOG_MAX = 30;
+const voiceLog = [];
+const VOICE_SESSION_SETTLE_MS = 50;
+const VOICE_GUM_RETRY_MS = 300;
+const VOICE_TRACK_END_WAIT_MS = 500;
 
 function normalizeChatMode(mode) {
     return mode === 'voice' ? 'voice' : 'type';
@@ -22,6 +33,181 @@ function micSecureContextIssue() {
     return 'Voice needs a secure connection. Set your Cove’s address in the setup checklist to turn on HTTPS, or open this Cove over https:// (or localhost). Then the mic will work.';
 }
 
+function voiceLogPush(msg) {
+    voiceLog.push({ t: Date.now(), phase: voicePhase, msg: String(msg || '') });
+    if (voiceLog.length > VOICE_LOG_MAX) voiceLog.shift();
+}
+
+function voiceLogText() {
+    return voiceLog.map((row) => {
+        const d = new Date(row.t);
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        return hh + ':' + mm + ':' + ss + ' [' + row.phase + '] ' + row.msg;
+    }).join('\n');
+}
+
+function copyVoiceLog() {
+    const text = voiceLogText() || '(empty)';
+    const done = () => {
+        if (typeof addSystemMessage === 'function') addSystemMessage('Voice log copied.');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => {
+            try { window.prompt('Voice log', text); } catch (e) {}
+        });
+        return;
+    }
+    try { window.prompt('Voice log', text); } catch (e) {}
+}
+
+function voiceAttachCopyLog(afterEl) {
+    if (!afterEl || !afterEl.parentNode) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'voice-copy-log';
+    btn.textContent = 'Copy voice log';
+    btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        copyVoiceLog();
+    });
+    afterEl.parentNode.insertBefore(btn, afterEl.nextSibling);
+}
+
+function voiceFailLine(reason) {
+    voiceLogPush('fail ' + reason);
+    if (typeof addSystemMessage === 'function') addSystemMessage(reason);
+    const box = document.getElementById('chat-messages');
+    const last = box ? box.lastElementChild : null;
+    voiceAttachCopyLog(last);
+}
+
+function setVoicePhase(next, why) {
+    const prev = voicePhase;
+    voicePhase = next;
+    // Derived — assigned only here so they cannot disagree with the phase.
+    voiceActive = next !== 'idle';
+    ttsPlaying = (next === 'speaking' || next === 'listen-playback');
+    voiceHoldTranscripts = (next === 'thinking' || next === 'speaking' || next === 'flushing');
+    voiceIgnoringMicLoss = (next !== 'listening');
+    voiceFlushInFlight = (next === 'flushing' || voiceTransition);
+    voiceLogPush(prev + ' -> ' + next + (why ? ' ' + why : ''));
+    if (next === 'flushing') updateMicState('transcribing');
+    else if (next === 'listen-playback') updateMicState(chatMode === 'voice' ? 'speaking' : 'idle');
+    else updateMicState(next);
+}
+
+function voiceCanAcceptTap() {
+    return !voiceTransition;
+}
+
+async function setVoiceAudioSession(type) {
+    try {
+        if (!navigator.audioSession) return;
+        navigator.audioSession.type = type;
+    } catch (e) {}
+}
+
+function voiceWait(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+}
+
+const voiceMic = {
+    async open() {
+        await setVoiceAudioSession('play-and-record');
+        await voiceWait(VOICE_SESSION_SETTLE_MS);
+        const _secIssue = micSecureContextIssue();
+        if (_secIssue) throw new Error(_secIssue);
+        let stream = null;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+            });
+        } catch (e1) {
+            await voiceWait(VOICE_GUM_RETRY_MS);
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
+            });
+        }
+        micStream = stream;
+        micAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        bindVoiceInterruptWatchers(micStream);
+        const src = micAudioCtx.createMediaStreamSource(micStream);
+        micProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1);
+        micProcessor.onaudioprocess = (e) => {
+            if (!micRecording || !micWs || micWs.readyState !== WebSocket.OPEN) return;
+            const f32 = e.inputBuffer.getChannelData(0);
+            const i16 = new Int16Array(f32.length);
+            for (let i = 0; i < f32.length; i++) {
+                let s = Math.max(-1, Math.min(1, f32[i]));
+                i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            micWs.send(i16.buffer);
+            if (voicePhase !== 'listening') return;
+            const rms = Math.sqrt(f32.reduce((sum, v) => sum + v * v, 0) / f32.length);
+            if (rms > SILENCE_THRESHOLD) {
+                speechSeen = true;
+                silenceStart = 0;
+            } else if (speechSeen) {
+                if (!silenceStart) {
+                    silenceStart = Date.now();
+                } else if (Date.now() - silenceStart > SILENCE_DURATION) {
+                    silenceStart = 0;
+                    speechSeen = false;
+                    micWs.send(JSON.stringify({ type: 'end_audio', mode: 'transcribe' }));
+                    voiceChunkPending = true;
+                    updateMicState('transcribing');
+                }
+            }
+        };
+        src.connect(micProcessor);
+        micProcessor.connect(micAudioCtx.destination);
+        micRecording = true;
+        speechSeen = false;
+        silenceStart = 0;
+    },
+    async pause() {
+        return this._teardown();
+    },
+    async close() {
+        return this._teardown();
+    },
+    async _teardown() {
+        unbindVoiceInterruptWatchers();
+        micRecording = false;
+        if (micProcessor) { try { micProcessor.disconnect(); } catch (e) {} micProcessor = null; }
+        if (micAudioCtx) { try { micAudioCtx.close(); } catch (e) {} micAudioCtx = null; }
+        const stream = micStream;
+        micStream = null;
+        const tracks = (stream && stream.getTracks) ? stream.getTracks() : [];
+        await Promise.all(tracks.map((t) => new Promise((res) => {
+            let done = false;
+            const finish = () => { if (done) return; done = true; res(); };
+            if (!t || t.readyState === 'ended') { finish(); return; }
+            try { t.addEventListener('ended', finish); } catch (e) {}
+            try { t.stop(); } catch (e) { finish(); return; }
+            setTimeout(finish, VOICE_TRACK_END_WAIT_MS);
+        })));
+    },
+};
+
+async function voiceFailToIdle(reason) {
+    voiceTransition = true;
+    try {
+        ttsStopPlayback();
+        await voiceMic.close();
+        parkVoiceDraft();
+        if (micWs) { try { micWs.close(); } catch (e) {} micWs = null; }
+        setVoicePhase('idle', reason);
+        voiceFailLine(reason);
+    } finally {
+        voiceTransition = false;
+        voiceFlushInFlight = false;
+        voiceListenResume = false;
+    }
+}
+
 function switchChatMode(mode) {
     mode = normalizeChatMode(mode);
     if (mode === chatMode) {
@@ -30,8 +216,8 @@ function switchChatMode(mode) {
     }
 
     // Stop any active recording, voice conversation, or TTS
-    if (voiceActive) voiceStop();
-    else if (micRecording) micStop();
+    if (voicePhase !== 'idle') voiceStop();
+    else if (micRecording) voiceMic.close();
     ttsStopPlayback();
 
     chatMode = mode;
@@ -135,11 +321,12 @@ function ensureTTSAudioCtx() {
     return ttsAudioCtx;
 }
 
-async function resumeTTSAudioCtx(timeoutMs) {
+async function resumeTTSAudioCtx(timeoutMs, runId) {
     const ctx = ensureTTSAudioCtx();
     if (!ctx || ctx.state === 'running') return ctx;
     const deadline = Date.now() + (timeoutMs || TTS_CTX_RESUME_MS);
-    while (Date.now() < deadline && ctx.state !== 'running' && !ttsCancelled) {
+    while (Date.now() < deadline && ctx.state !== 'running') {
+        if (runId != null && runId !== ttsRunId) return ctx;
         if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
             try { await ctx.resume(); } catch (e) {}
         }
@@ -181,6 +368,7 @@ function decodeTTSAudioData(ctx, arrayBuffer) {
 }
 
 function ttsStopPlayback() {
+    ttsRunId += 1;
     ttsCancelled = true;
     // Abort any in-flight TTS fetch requests immediately
     if (ttsAbort) { ttsAbort.abort(); ttsAbort = null; }
@@ -189,7 +377,6 @@ function ttsStopPlayback() {
         ttsSource = null;
     }
     ttsQueue = [];
-    ttsPlaying = false;
     ttsAudio = null;
     if (ttsResolve) { ttsResolve(); ttsResolve = null; }
     const voiceBtn = document.getElementById('mode-voice');
@@ -356,34 +543,35 @@ function fetchTTSChunk(text) {
 }
 
 function playTTS(text, opts) {
+    return startVoicePlayback(text, opts);
+}
+
+function startVoicePlayback(text, opts) {
     return new Promise(async (resolve) => {
         opts = opts || {};
         // Auto-speak only in Voice. Listen on a text reply passes {force:true}.
         if (!text || (chatMode !== 'voice' && !opts.force)) { resolve(); return; }
 
+        // Always end the previous run first. A superseded loop checks ttsRunId after every await.
+        ttsStopPlayback();
+        const myId = ttsRunId;
         ttsResolve = resolve;
         ttsCancelled = false;
-        ttsPlaying = true;
         ttsLastError = '';
         ttsAbort = new AbortController();
 
         const voiceBtn = document.getElementById('mode-voice');
         if (voiceBtn) voiceBtn.classList.add('playing');
 
-        const ctxReady = await resumeTTSAudioCtx(TTS_CTX_RESUME_MS);
-        if (ttsCancelled) {
-            ttsStopPlayback();
-            resolve();
-            return;
-        }
+        const ctxReady = await resumeTTSAudioCtx(TTS_CTX_RESUME_MS, myId);
+        if (myId !== ttsRunId) { resolve(); return; }
         if (!ctxReady || ctxReady.state !== 'running') {
             const st = ctxReady ? ctxReady.state : 'missing';
             ttsLastError = 'context ' + st;
-            ttsPlaying = false;
             if (typeof addSystemMessage === 'function') {
                 addSystemMessage('Could not speak that reply. Text is on screen. (context ' + st + ')');
             }
-            ttsStopPlayback();
+            if (myId === ttsRunId) ttsStopPlayback();
             resolve();
             return;
         }
@@ -392,12 +580,10 @@ function playTTS(text, opts) {
         let playedAny = false;
         let skippedMiddle = 0;
 
-        // Bounded pipeline: start only the first chunk + TTS_PREFETCH ahead.
-        // Kick further chunks as play advances so Piper is never stampeded.
         ttsQueue = new Array(sentences.length);
         function ensureFetch(idx) {
             if (idx < 0 || idx >= sentences.length) return;
-            if (ttsCancelled) return;
+            if (myId !== ttsRunId) return;
             if (!ttsQueue[idx]) {
                 ttsQueue[idx] = fetchTTSChunk(sentences[idx]);
             }
@@ -406,23 +592,21 @@ function playTTS(text, opts) {
             ensureFetch(j);
         }
 
-        // Play sequentially as each resolves in order
         for (let i = 0; i < sentences.length; i++) {
-            if (ttsCancelled) break;
+            if (myId !== ttsRunId) break;
 
-            // Prefetch upcoming sentence(s) while this one is awaited/played
             ensureFetch(i);
             ensureFetch(i + 1);
             for (let k = 2; k <= TTS_PREFETCH + 1; k++) ensureFetch(i + k);
 
             const audioBuffer = await ttsQueue[i];
-            if (!audioBuffer || ttsCancelled) {
-                if (!audioBuffer && !ttsCancelled) skippedMiddle += 1;
+            if (myId !== ttsRunId) break;
+            if (!audioBuffer) {
+                skippedMiddle += 1;
                 continue;
             }
 
             playedAny = true;
-            // Play this chunk; hard-cap playback so a stuck AudioContext can't pin UI
             await new Promise((chunkDone) => {
                 let finished = false;
                 const done = () => {
@@ -437,6 +621,7 @@ function playTTS(text, opts) {
                     ttsLastError = ttsLastError || 'timeout';
                     done();
                 }, playMs);
+                if (myId !== ttsRunId) { done(); return; }
                 try {
                     const ctx = ensureTTSAudioCtx();
                     if (ctx.state !== 'running') {
@@ -456,16 +641,14 @@ function playTTS(text, opts) {
             });
         }
 
+        if (myId !== ttsRunId) { resolve(); return; }
         ttsQueue = [];
-        ttsPlaying = false;
         const err = ttsLastError;
-        const wasCancelled = ttsCancelled;
-        // Capture before stop — ttsStopPlayback sets ttsCancelled and resolves waiters.
-        ttsStopPlayback();
-
-        // Fail open: text already on screen. One quiet system line if nothing played
-        // or if middle chunks dropped (partial speak is still useful — note once).
-        if (!wasCancelled && typeof addSystemMessage === 'function') {
+        const voiceBtn2 = document.getElementById('mode-voice');
+        if (voiceBtn2) voiceBtn2.classList.remove('playing');
+        ttsAbort = null;
+        ttsResolve = null;
+        if (typeof addSystemMessage === 'function') {
             if (!playedAny && err) {
                 addSystemMessage('Could not speak that reply. Text is on screen. (' + err + ')');
             } else if (playedAny && skippedMiddle > 0) {
@@ -474,6 +657,14 @@ function playTTS(text, opts) {
         }
         resolve();
     });
+}
+
+async function voicePreparePlayback() {
+    // Capture must be fully ended before playback is set. Never same tick as stopping tracks.
+    if (micStream || micRecording) {
+        await voiceMic.pause();
+    }
+    await setVoiceAudioSession('playback');
 }
 
 // ── Voice conversation lifecycle ─────────────────────────────────────────────
@@ -512,10 +703,8 @@ function voiceBoxHasWords() {
 }
 
 function voiceStopCaptureKeepSocket() {
-    micRecording = false;
-    if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
-    if (micAudioCtx) { try { micAudioCtx.close(); } catch (e) {} micAudioCtx = null; }
-    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    // Capture teardown is owned by voiceMic (getUserMedia + track.stop).
+    return voiceMic.close();
 }
 
 function voiceWaitForFlushTranscript() {
@@ -564,12 +753,13 @@ async function voiceFlushOpenChunk() {
 let voiceHoldTranscripts = false;  // true from send until listening resumes
 
 function voiceDropIncomingTranscript() {
-    return !!(voiceHoldTranscripts || ttsPlaying);
+    return voicePhase === 'thinking' || voicePhase === 'speaking' || voicePhase === 'flushing';
 }
 
 function voiceBeginSentTurn() {
     // Over or Send: ignore leftover audio until we are listening again.
     voiceHoldTranscripts = true;
+    setVoicePhase('thinking', 'sent');
     voicePartial = '';
     speechSeen = false;
     silenceStart = 0;
@@ -579,7 +769,7 @@ function voiceBeginSentTurn() {
 }
 
 function voiceResumeListening() {
-    voiceHoldTranscripts = false;
+    voiceListenResume = false;
     voicePartial = '';
     speechSeen = false;
     silenceStart = 0;
@@ -599,9 +789,9 @@ function voiceResumeListening() {
         sendBtn.disabled = false;
     }
     if (micBtn) micBtn.style.display = '';
-    if (typeof chatMode !== 'undefined' && chatMode === 'voice' && voiceActive) {
+    if (typeof chatMode !== 'undefined' && chatMode === 'voice' && voicePhase !== 'idle') {
+        setVoicePhase('listening', 'resume');
         if (!micRecording && typeof micStartContinuous === 'function') micStartContinuous();
-        updateMicState('listening');
     }
 }
 
@@ -622,8 +812,8 @@ function absorbVoiceTail(text) {
 async function voiceInterruptSession(reason) {
     // Phone call / lost mic / backgrounded PWA: end the session and wait for a
     // tap. Do not auto-resume — iOS will not hand the mic back without a gesture.
-    // reason is temporary diagnostics so one phone test shows what fired.
-    if (!voiceActive || voiceIgnoringMicLoss || voiceFlushInFlight) return;
+    // Interrupt events are honored only in listening; other phases already closed capture.
+    if (voicePhase !== 'listening') return;
     const tag = reason ? ` (${reason})` : '';
     await voiceStop();
     if (typeof addSystemMessage !== 'function') return;
@@ -671,7 +861,7 @@ function bindVoiceInterruptWatchers(stream) {
     const ctx = micAudioCtx;
     if (ctx && typeof ctx.addEventListener === 'function') {
         _voiceCtxHandler = () => {
-            if (!voiceActive || voiceIgnoringMicLoss || voiceFlushInFlight) return;
+            if (voicePhase !== 'listening') return;
             if (ctx.state === 'interrupted') {
                 voiceInterruptSession('audio interrupted');
                 return;
@@ -680,7 +870,7 @@ function bindVoiceInterruptWatchers(stream) {
                 // iOS parks the context on a speech pause; resume and stay in session.
                 const p = (typeof ctx.resume === 'function') ? ctx.resume() : Promise.resolve();
                 Promise.resolve(p).catch(() => {}).then(() => {
-                    if (ctx.state === 'suspended' && voiceActive && !voiceIgnoringMicLoss && !voiceFlushInFlight) {
+                    if (ctx.state === 'suspended' && voicePhase === 'listening') {
                         voiceInterruptSession('audio interrupted');
                     }
                 });
@@ -695,40 +885,46 @@ function bindVoiceInterruptWatchers(stream) {
 }
 
 function voiceStart() {
-    if (voiceActive || sending || voiceFlushInFlight) return;
+    if (voicePhase !== 'idle' || sending || voiceTransition) return;
+    if (!voiceCanAcceptTap()) return;
 
     ensureTTSAudioCtx();   // unlock audio on user gesture
-    voiceActive = true;
     voicePartial = '';
     speechSeen = false;
     silenceStart = 0;
     voiceChunkPending = false;
-
-    updateMicState('listening');
+    voiceListenResume = false;
+    setVoicePhase('listening', 'tap');
     updatePartialDisplay('');
     bindVoiceInterruptWatchers(null);
     micStartContinuous();
 }
 
 async function voiceStop() {
-    if (voiceFlushInFlight) return;
-    voiceIgnoringMicLoss = true;
+    // Stop always wins and ends in idle, even during a transition.
+    voiceTransition = true;
     voiceFlushInFlight = true;
     unbindVoiceInterruptWatchers();
     ttsStopPlayback();
-    voiceStopCaptureKeepSocket();
-    const tail = await voiceFlushOpenChunk();
-    absorbVoiceTail(tail);
-    parkVoiceDraft();
-    voiceActive = false;
+    setVoicePhase('flushing', 'stop');
+    try {
+        const tail = await voiceFlushOpenChunk();
+        await voiceStopCaptureKeepSocket();
+        absorbVoiceTail(tail);
+        parkVoiceDraft();
+    } catch (e) {
+        parkVoiceDraft();
+        voiceFailLine('Voice stopped. (' + (e && e.message ? e.message : 'error') + ')');
+    }
     speechSeen = false;
     silenceStart = 0;
     voiceChunkPending = false;
+    voiceListenResume = false;
     if (micWs) { try { micWs.close(); } catch (e) {} micWs = null; }
     micProcessing = false;
-    updateMicState('idle');
+    setVoicePhase('idle', 'stop');
+    voiceTransition = false;
     voiceFlushInFlight = false;
-    voiceIgnoringMicLoss = false;
 }
 
 function micPause() {
@@ -736,37 +932,41 @@ function micPause() {
     // Unbind first so track-ended / AudioContext close is not treated as a call.
     voiceIgnoringMicLoss = true;
     unbindVoiceInterruptWatchers();
-    voiceStopCaptureKeepSocket();
-    voiceIgnoringMicLoss = false;
+    return voiceStopCaptureKeepSocket();
 }
 
 async function voiceBeforeSend() {
     // Send-by-tap while listening: flush the open chunk into the box first.
     // Unlock TTS in this same tap — iOS will not resume audio later without it.
     if (typeof chatMode !== 'undefined' && chatMode === 'voice') ensureTTSAudioCtx();
-    if (typeof chatMode === 'undefined' || chatMode !== 'voice' || !voiceActive) return;
-    if (voiceFlushInFlight) return;
+    if (typeof chatMode === 'undefined' || chatMode !== 'voice' || voicePhase === 'idle') return;
+    if (voicePhase === 'flushing' || voiceTransition) return;
     if (!speechSeen && !silenceStart && !voiceChunkPending) return;
-    voiceIgnoringMicLoss = true;
+    voiceTransition = true;
     voiceFlushInFlight = true;
+    setVoicePhase('flushing', 'send');
     const sendBtn = document.getElementById('chat-send');
     if (sendBtn) sendBtn.disabled = true;
     unbindVoiceInterruptWatchers();
-    voiceStopCaptureKeepSocket();
-    const tail = await voiceFlushOpenChunk();
-    absorbVoiceTail(tail);
-    const stripped = stripVoiceEndTrigger(voicePartial);
-    if (stripped !== null) {
-        voicePartial = stripped;
-        syncVoiceBox(stripped);
+    try {
+        const tailP = voiceFlushOpenChunk();
+        await voiceStopCaptureKeepSocket();
+        const tail = await tailP;
+        absorbVoiceTail(tail);
+        const stripped = stripVoiceEndTrigger(voicePartial);
+        if (stripped !== null) {
+            voicePartial = stripped;
+            syncVoiceBox(stripped);
+        }
+        const input = document.getElementById('chat-input');
+        if (input && voicePartial && !String(input.value || '').trim()) {
+            syncVoiceBox(voicePartial);
+        }
+    } finally {
+        voiceTransition = false;
+        voiceFlushInFlight = false;
+        if (sendBtn && !sending) sendBtn.disabled = false;
     }
-    const input = document.getElementById('chat-input');
-    if (input && voicePartial && !String(input.value || '').trim()) {
-        syncVoiceBox(voicePartial);
-    }
-    voiceFlushInFlight = false;
-    voiceIgnoringMicLoss = false;
-    if (sendBtn && !sending) sendBtn.disabled = false;
 }
 
 function updateMicState(state) {
@@ -831,7 +1031,7 @@ function updatePartialDisplay(text) {
 // ── Continuous mic with silence detection ────────────────────────────────────
 
 async function micStartContinuous() {
-    if (!voiceActive) return;
+    if (voicePhase === 'idle') return;
 
     // Connect WebSocket if needed
     if (!micWs || micWs.readyState !== WebSocket.OPEN) {
@@ -846,8 +1046,7 @@ async function micStartContinuous() {
                 setTimeout(() => { clearInterval(check); reject(new Error('timeout')); }, 5000);
             });
         } catch (err) {
-            addSystemMessage('Voice: connection failed');
-            voiceStop();
+            await voiceFailToIdle('Voice: connection failed');
             return;
         }
     }
@@ -857,65 +1056,15 @@ async function micStartContinuous() {
         micWs.send(JSON.stringify({ type: 'start_recording', mode: 'full' }));
     }
 
-    const _secIssue = micSecureContextIssue();
-    if (_secIssue) { addSystemMessage(_secIssue); return; }
-
-    micRecording = true;
-    speechSeen = false;
-    silenceStart = 0;
-
     try {
-        micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
-        });
-        // Request 16kHz — desktop Chrome honors it (no resampling needed).
-        // Mobile may ignore it — AudioWorklet resamples as fallback.
-        micAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        bindVoiceInterruptWatchers(micStream);
-        const src = micAudioCtx.createMediaStreamSource(micStream);
-
-        // ScriptProcessor with silence detection for voice mode
-        micProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1);
-        micProcessor.onaudioprocess = (e) => {
-            if (!micRecording || !micWs || micWs.readyState !== WebSocket.OPEN) return;
-            const f32 = e.inputBuffer.getChannelData(0);
-
-            // Send audio to server
-            const i16 = new Int16Array(f32.length);
-            for (let i = 0; i < f32.length; i++) {
-                let s = Math.max(-1, Math.min(1, f32[i]));
-                i16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-            }
-            micWs.send(i16.buffer);
-
-            // Silence detection — auto-chunk when speech pauses
-            if (voiceActive) {
-                const rms = Math.sqrt(f32.reduce((sum, v) => sum + v * v, 0) / f32.length);
-                if (rms > SILENCE_THRESHOLD) {
-                    speechSeen = true;
-                    silenceStart = 0;
-                } else if (speechSeen) {
-                    if (!silenceStart) {
-                        silenceStart = Date.now();
-                    } else if (Date.now() - silenceStart > SILENCE_DURATION) {
-                        silenceStart = 0;
-                        speechSeen = false;
-                        micWs.send(JSON.stringify({ type: 'end_audio', mode: 'transcribe' }));
-                        voiceChunkPending = true;
-                        updateMicState('transcribing');
-                    }
-                }
-            }
-        };
-        src.connect(micProcessor);
-        micProcessor.connect(micAudioCtx.destination);
+        await voiceMic.open();
     } catch (err) {
-        addSystemMessage('Voice: mic access failed — check browser permissions');
-        voiceStop();
+        const msg = (err && err.message) ? err.message : 'Voice: mic access failed — check browser permissions';
+        if (msg.indexOf('Voice needs a secure') === 0) await voiceFailToIdle(msg);
+        else await voiceFailToIdle('Voice: mic access failed — check browser permissions');
     }
 }
 
-// ScriptProcessor fallback for browsers without AudioWorklet (voice mode)
 function _setupScriptProcessorContinuous(src, handler) {
     micProcessor = micAudioCtx.createScriptProcessor(4096, 1, 1);
     micProcessor.onaudioprocess = (e) => {
@@ -948,6 +1097,8 @@ function _setupScriptProcessorContinuous(src, handler) {
 }
 
 function micConnectVoice() {
+    // listening only: voiceActive && !voiceFlushInFlight  (derived as voicePhase === 'listening')
+
     const voiceBase = MC.voiceUrl('ws');
     if (!voiceBase) { console.warn('[voice] no voice backend configured'); return; }
     micWs = new WebSocket(`${voiceBase}/ws`);
@@ -975,7 +1126,7 @@ function micConnectVoice() {
                 voiceChunkPending = false;
                 if (_voiceFlushWaiter) {
                     _voiceFlushWaiter.onDone();
-                } else if (voiceActive && !voiceFlushInFlight) {
+                } else if (voicePhase === 'listening') {
                     speechSeen = false;
                     silenceStart = 0;
                     updateMicState('listening');
@@ -1096,11 +1247,8 @@ let micWs = null;
 function getMicBtn() { return document.getElementById('chat-mic'); }
 
 function micStop() {
-    micRecording = false;
     micProcessing = false;
-    if (micProcessor) { try { micProcessor.disconnect(); } catch (e) {} micProcessor = null; }
-    if (micAudioCtx) { try { micAudioCtx.close(); } catch (e) {} micAudioCtx = null; }
-    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    voiceMic.close();
 }
 
 let _micToggleLock = false;
@@ -1112,17 +1260,29 @@ function micToggle() {
     if (chatMode !== 'voice') return;
     const btn = getMicBtn();
     const speaking = ttsPlaying || (btn && btn.classList.contains('speaking'));
+    if (voiceTransition && voicePhase !== 'speaking' && voicePhase !== 'listen-playback' && voicePhase !== 'listening') {
+        voiceLogPush('ignored tap during transition');
+        return;
+    }
     if (speaking) {
         ttsStopPlayback();
         return;
     }
-    if (voiceActive) { voiceStop(); } else { voiceStart(); }
+    if (voicePhase !== 'idle') { voiceStop(); } else { voiceStart(); }
 }
 
 function toggleListenReply(btn, text) {
     if (!btn) return;
+    if (voicePhase === 'thinking' || voicePhase === 'speaking') {
+        voiceLogPush('ignored Listen during ' + voicePhase);
+        return;
+    }
+    if (voiceTransition && voicePhase !== 'listen-playback' && voicePhase !== 'listening') {
+        voiceLogPush('ignored tap during transition');
+        return;
+    }
     ensureTTSAudioCtx();
-    const already = btn.classList.contains('playing') && ttsPlaying;
+    const already = btn.classList.contains('playing') && (voicePhase === 'listen-playback');
     document.querySelectorAll('.msg-listen.playing').forEach((el) => {
         el.classList.remove('playing');
         el.setAttribute('aria-pressed', 'false');
@@ -1131,13 +1291,39 @@ function toggleListenReply(btn, text) {
         ttsStopPlayback();
         return;
     }
-    ttsStopPlayback();
-    btn.classList.add('playing');
-    btn.setAttribute('aria-pressed', 'true');
-    playTTS(text, { force: true }).then(() => {
+    const fromListening = voicePhase === 'listening';
+    if (fromListening) voiceListenResume = true;
+    const myListen = ++voiceListenGen;
+    (async () => {
+        if (fromListening) {
+            voiceTransition = true;
+            try {
+                if (speechSeen || silenceStart || voiceChunkPending) {
+                    setVoicePhase('flushing', 'listen');
+                    const tail = await voiceFlushOpenChunk();
+                    absorbVoiceTail(tail);
+                }
+                await voiceMic.pause();
+            } finally {
+                voiceTransition = false;
+            }
+        }
+        if (myListen !== voiceListenGen) return;
+        await voicePreparePlayback();
+        if (fromListening || voiceListenResume) setVoicePhase('listen-playback', 'listen');
+        btn.classList.add('playing');
+        btn.setAttribute('aria-pressed', 'true');
+        await playTTS(text, { force: true });
+        if (myListen !== voiceListenGen) return;
         btn.classList.remove('playing');
         btn.setAttribute('aria-pressed', 'false');
-    });
+        if (voiceListenResume && chatMode === 'voice' && voicePhase !== 'idle') {
+            await setVoiceAudioSession('play-and-record');
+            await voiceWait(VOICE_SESSION_SETTLE_MS);
+            if (myListen !== voiceListenGen) return;
+            voiceResumeListening();
+        }
+    })();
 }
 
 if (document.getElementById('mode-type') || document.getElementById('mode-voice')) {
