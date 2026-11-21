@@ -56,7 +56,6 @@ function switchChatMode(mode) {
         if (sendBtn) sendBtn.style.display = '';
         if (input) input.placeholder = `Ask ${_getActiveAIName()} anything...`;
         setVoiceListenHint(false);
-        releaseWake();
     } else {
         if (input) input.style.display = '';
         if (micBtn) micBtn.style.display = '';
@@ -82,64 +81,6 @@ function setVoiceListenHint(on) {
     if (on) hint.removeAttribute('hidden');
     else hint.setAttribute('hidden', '');
 }
-
-// iOS audio session + screen wake lock (Voice session only).
-// Brand page: play-and-record while the mic is open, playback while it is closed.
-// Listen-during-listening was 3–4× louder because TTS ran with the mic still open.
-let wakeLock = null;
-let htmlAudio = false;
-
-function setAudioSession(type) {
-    try {
-        if (!navigator.audioSession) { htmlAudio = true; return; }
-        navigator.audioSession.type = type;
-        htmlAudio = false;
-    } catch (e) { htmlAudio = true; }
-}
-
-async function holdWakeLock() {
-    if (chatMode !== 'voice') return;
-    if (wakeLock) {
-        try { if (!wakeLock.released) return; } catch (e) {}
-        wakeLock = null;
-    }
-    if (navigator.wakeLock) {
-        try {
-            wakeLock = await navigator.wakeLock.request('screen');
-            wakeLock.addEventListener('release', () => { wakeLock = null; });
-            stopWakeVideo();
-            return;
-        } catch (e) { wakeLock = null; }
-    }
-    startWakeVideo();
-}
-
-function startWakeVideo() {
-    const v = document.getElementById('voice-wake');
-    if (!v) return;
-    v.muted = true;
-    v.loop = true;
-    v.playsInline = true;
-    if (!v.paused) return;
-    const p = v.play();
-    if (p && p.catch) p.catch(() => {});
-}
-
-function stopWakeVideo() {
-    const v = document.getElementById('voice-wake');
-    if (v) { try { v.pause(); } catch (e) {} }
-}
-
-async function releaseWake() {
-    if (wakeLock) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; }
-    stopWakeVideo();
-}
-
-document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && chatMode === 'voice' && voiceActive) {
-        holdWakeLock();
-    }
-});
 
 // =============================================================================
 // Voice conversation mode — hands-free with trigger word
@@ -425,7 +366,6 @@ function playTTS(text, opts) {
         ttsPlaying = true;
         ttsLastError = '';
         ttsAbort = new AbortController();
-        setAudioSession('playback');
 
         const voiceBtn = document.getElementById('mode-voice');
         if (voiceBtn) voiceBtn.classList.add('playing');
@@ -758,8 +698,6 @@ function voiceStart() {
     if (voiceActive || sending || voiceFlushInFlight) return;
 
     ensureTTSAudioCtx();   // unlock audio on user gesture
-    setAudioSession('play-and-record');
-    holdWakeLock();
     voiceActive = true;
     voicePartial = '';
     speechSeen = false;
@@ -789,7 +727,6 @@ async function voiceStop() {
     if (micWs) { try { micWs.close(); } catch (e) {} micWs = null; }
     micProcessing = false;
     updateMicState('idle');
-    releaseWake();
     voiceFlushInFlight = false;
     voiceIgnoringMicLoss = false;
 }
@@ -801,7 +738,6 @@ function micPause() {
     unbindVoiceInterruptWatchers();
     voiceStopCaptureKeepSocket();
     voiceIgnoringMicLoss = false;
-    setAudioSession('playback');
 }
 
 async function voiceBeforeSend() {
@@ -845,35 +781,30 @@ function updateMicState(state) {
             label.textContent = 'Tap to Talk';
             btn.title = 'Tap to talk';
             setVoiceListenHint(false);
-            if (!voiceActive) releaseWake();
             break;
         case 'listening':
             btn.classList.add('recording');
             label.textContent = 'Listening...';
             btn.title = 'Listening';
             setVoiceListenHint(true);
-            holdWakeLock();
             break;
         case 'transcribing':
             btn.classList.add('processing');
             label.textContent = 'Transcribing...';
             btn.title = 'Transcribing';
             setVoiceListenHint(false);
-            holdWakeLock();
             break;
         case 'thinking':
             btn.classList.add('processing');
             label.textContent = _getActiveAIName() + ' thinking...';
             btn.title = 'Thinking';
             setVoiceListenHint(false);
-            holdWakeLock();
             break;
         case 'speaking':
             btn.classList.add('speaking');
             label.textContent = _getActiveAIName() + ' speaking...';
             btn.title = 'Speaking — tap Stop';
             setVoiceListenHint(false);
-            holdWakeLock();
             break;
         case 'unavailable':
             btn.classList.add('processing');
@@ -937,7 +868,6 @@ async function micStartContinuous() {
         micStream = await navigator.mediaDevices.getUserMedia({
             audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
         });
-        setAudioSession('play-and-record');
         // Request 16kHz — desktop Chrome honors it (no resampling needed).
         // Mobile may ignore it — AudioWorklet resamples as fallback.
         micAudioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
@@ -1189,18 +1119,7 @@ function micToggle() {
     if (voiceActive) { voiceStop(); } else { voiceStart(); }
 }
 
-let _listenPausedMic = false;
-
-function voiceResumeAfterListen() {
-    if (!_listenPausedMic) return;
-    if (!voiceActive || chatMode !== 'voice' || ttsPlaying) return;
-    _listenPausedMic = false;
-    setAudioSession('play-and-record');
-    if (typeof micStartContinuous === 'function') micStartContinuous();
-    updateMicState('listening');
-}
-
-async function toggleListenReply(btn, text) {
+function toggleListenReply(btn, text) {
     if (!btn) return;
     ensureTTSAudioCtx();
     const already = btn.classList.contains('playing') && ttsPlaying;
@@ -1210,30 +1129,14 @@ async function toggleListenReply(btn, text) {
     });
     if (already) {
         ttsStopPlayback();
-        voiceResumeAfterListen();
         return;
     }
     ttsStopPlayback();
     btn.classList.add('playing');
     btn.setAttribute('aria-pressed', 'true');
-    // Pause the mic while Listen plays so iOS uses the same playback route
-    // (and loudness) as a Voice-turn reply. Resume listening afterward.
-    // Keep the pause flag across consecutive Listens; clear it only on resume.
-    if (voiceActive && (micRecording || _listenPausedMic)) {
-        _listenPausedMic = true;
-    }
-    if (voiceActive && micRecording) {
-        if (speechSeen || silenceStart || voiceChunkPending) {
-            const tail = await voiceFlushOpenChunk();
-            absorbVoiceTail(tail);
-        }
-        micPause();
-    }
-    setAudioSession('playback');
     playTTS(text, { force: true }).then(() => {
         btn.classList.remove('playing');
         btn.setAttribute('aria-pressed', 'false');
-        voiceResumeAfterListen();
     });
 }
 
