@@ -524,9 +524,11 @@ function _renderPersistedActivity(record) {
 // =============================================================================
 async function sendMessage() {
     if (sending) return;
+    if (typeof voiceFlushInFlight !== 'undefined' && voiceFlushInFlight) return;
     if (typeof voiceBeforeSend === 'function') {
         await voiceBeforeSend();
     }
+    if (sending) return;
     const input = document.getElementById('chat-input');
     if (typeof chatMode !== 'undefined' && chatMode === 'voice'
         && typeof voiceActive !== 'undefined' && voiceActive

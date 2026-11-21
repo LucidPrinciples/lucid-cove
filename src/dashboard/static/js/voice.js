@@ -601,6 +601,8 @@ async function voiceBeforeSend() {
     if (!speechSeen && !silenceStart && !voiceChunkPending) return;
     voiceIgnoringMicLoss = true;
     voiceFlushInFlight = true;
+    const sendBtn = document.getElementById('chat-send');
+    if (sendBtn) sendBtn.disabled = true;
     unbindVoiceInterruptWatchers();
     voiceStopCaptureKeepSocket();
     const tail = await voiceFlushOpenChunk();
@@ -616,6 +618,7 @@ async function voiceBeforeSend() {
     }
     voiceFlushInFlight = false;
     voiceIgnoringMicLoss = false;
+    if (sendBtn && !sending) sendBtn.disabled = false;
 }
 
 function updateMicState(state) {

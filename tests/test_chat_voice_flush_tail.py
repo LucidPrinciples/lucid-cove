@@ -52,3 +52,16 @@ def test_over_rule_unchanged_in_flush_branch():
     assert "come over here" in VOICE_JS
     assert "it's over there" in VOICE_JS
     assert "function stripVoiceEndTrigger" in VOICE_JS
+
+
+def test_second_send_during_flush_is_ignored():
+    send = MESSAGING_JS.split("async function sendMessage()")[1]
+    head = send.split("const sendBtn = document.getElementById('chat-send');")[0]
+    assert "voiceFlushInFlight" in head
+    assert head.find("voiceFlushInFlight") < head.find("voiceBeforeSend")
+    after = head.split("await voiceBeforeSend();")[1]
+    assert "if (sending) return;" in after.split("const input")[0]
+    before_send = VOICE_JS.split("async function voiceBeforeSend()")[1].split(
+        "function updateMicState"
+    )[0]
+    assert "sendBtn.disabled = true" in before_send
