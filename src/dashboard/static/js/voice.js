@@ -547,7 +547,52 @@ async function voiceFlushOpenChunk() {
     return await voiceWaitForFlushTranscript();
 }
 
+let voiceHoldTranscripts = false;  // true from send until listening resumes
+
+function voiceDropIncomingTranscript() {
+    return !!(voiceHoldTranscripts || ttsPlaying);
+}
+
+function voiceBeginSentTurn() {
+    // Over or Send: ignore leftover audio until we are listening again.
+    voiceHoldTranscripts = true;
+    voicePartial = '';
+    speechSeen = false;
+    silenceStart = 0;
+    voiceChunkPending = false;
+    if (typeof updatePartialDisplay === 'function') updatePartialDisplay('');
+    syncVoiceBox('');
+}
+
+function voiceResumeListening() {
+    voiceHoldTranscripts = false;
+    voicePartial = '';
+    speechSeen = false;
+    silenceStart = 0;
+    voiceChunkPending = false;
+    syncVoiceBox('');
+    const sendBtn = document.getElementById('chat-send');
+    const stopBtn = document.getElementById('chat-stop');
+    const micBtn = getMicBtn();
+    if (stopBtn) {
+        stopBtn.style.display = 'none';
+        stopBtn.disabled = false;
+        stopBtn.classList.remove('btn-busy');
+        stopBtn.title = '';
+    }
+    if (sendBtn) {
+        sendBtn.style.display = '';
+        sendBtn.disabled = false;
+    }
+    if (micBtn) micBtn.style.display = '';
+    if (typeof chatMode !== 'undefined' && chatMode === 'voice' && voiceActive) {
+        if (!micRecording && typeof micStartContinuous === 'function') micStartContinuous();
+        updateMicState('listening');
+    }
+}
+
 function absorbVoiceTail(text) {
+    if (voiceDropIncomingTranscript()) return;
     if (!text || isHallucinatedTranscript(text)) return;
     voicePartial = (voicePartial + ' ' + text).trim();
     const input = document.getElementById('chat-input');
@@ -920,6 +965,9 @@ function micConnectVoice() {
             const msg = JSON.parse(e.data);
             if (msg.type === 'transcript' && msg.text) {
                 voiceChunkPending = false;
+                if (voiceDropIncomingTranscript() && !_voiceFlushWaiter) {
+                    return;
+                }
                 if (_voiceFlushWaiter) {
                     if (isHallucinatedTranscript(msg.text)) _voiceFlushWaiter.onDone();
                     else _voiceFlushWaiter.onTranscript(msg.text);
@@ -1016,6 +1064,7 @@ function stripVoiceEndTrigger(text) {
 }
 
 function handleVoiceTranscript(text) {
+    if (voiceDropIncomingTranscript()) return;
     if (isHallucinatedTranscript(text)) {
         updateMicState('listening');
         return;
