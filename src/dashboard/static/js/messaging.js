@@ -525,6 +525,10 @@ function _renderPersistedActivity(record) {
 async function sendMessage() {
     if (sending) return;
     if (typeof voiceFlushInFlight !== 'undefined' && voiceFlushInFlight) return;
+    if (typeof chatMode !== 'undefined' && chatMode === 'voice'
+        && typeof ensureTTSAudioCtx === 'function') {
+        ensureTTSAudioCtx();
+    }
     if (typeof voiceBeforeSend === 'function') {
         await voiceBeforeSend();
     }
