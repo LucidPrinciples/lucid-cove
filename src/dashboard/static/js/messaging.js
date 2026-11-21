@@ -524,6 +524,9 @@ function _renderPersistedActivity(record) {
 // =============================================================================
 async function sendMessage() {
     if (sending) return;
+    if (typeof voiceBeforeSend === 'function') {
+        await voiceBeforeSend();
+    }
     const input = document.getElementById('chat-input');
     if (typeof chatMode !== 'undefined' && chatMode === 'voice'
         && typeof voiceActive !== 'undefined' && voiceActive
@@ -532,7 +535,17 @@ async function sendMessage() {
         input.value = voicePartial.trim();
     }
     const msg = input.value.trim();
-    if (!msg) return;
+    if (!msg) {
+        if (typeof chatMode !== 'undefined' && chatMode === 'voice'
+            && typeof voiceActive !== 'undefined' && voiceActive
+            && typeof micRecording !== 'undefined' && !micRecording
+            && typeof micStartContinuous === 'function') {
+            if (typeof bindVoiceInterruptWatchers === 'function') bindVoiceInterruptWatchers(null);
+            micStartContinuous();
+            if (typeof updateMicState === 'function') updateMicState('listening');
+        }
+        return;
+    }
     if (typeof chatMode !== 'undefined' && chatMode === 'voice'
         && typeof voiceActive !== 'undefined' && voiceActive
         && typeof micPause === 'function') {

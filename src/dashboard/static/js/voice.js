@@ -84,7 +84,11 @@ const SILENCE_THRESHOLD = 0.015;    // RMS below this = silence
 const SILENCE_DURATION = 2500;      // ms of silence before auto-chunk (was 1800 — too aggressive for mobile)
 const TRIGGER_PHRASES = ['send it', 'sendit', 'over'];
 const VOICE_END_FILLERS = ['um', 'uh', 'er', 'ah', 'please', 'yeah', 'okay', 'ok'];
+const VOICE_FLUSH_TIMEOUT_MS = 8000;
 let voiceIgnoringMicLoss = false;   // true while we tear down the mic ourselves
+let voiceFlushInFlight = false;
+let voiceChunkPending = false;      // end_audio sent, transcript not yet back
+let _voiceFlushWaiter = null;
 let _voiceVisHandler = null;
 let _voicePageHideHandler = null;
 let _voiceTrackEnded = [];          // [{track, fn}, ...]
@@ -389,33 +393,113 @@ function playTTS(text) {
 
 // ── Voice conversation lifecycle ─────────────────────────────────────────────
 
-function parkVoiceDraft() {
-    // Never drop heard words. Stop, a failed send, or a mic interrupt leaves
-    // the transcript in the message box so it can be sent or edited.
-    const draft = (typeof voicePartial === 'string') ? voicePartial.trim() : '';
+function syncVoiceBox(text) {
     const input = document.getElementById('chat-input');
     const sendBtn = document.getElementById('chat-send');
     if (input) {
-        if (draft && !String(input.value || '').trim()) {
-            input.value = draft;
+        if (typeof text === 'string') {
+            input.value = text;
             input.style.height = 'auto';
             input.style.height = Math.min(input.scrollHeight, 150) + 'px';
         }
         input.style.display = '';
     }
     if (sendBtn) sendBtn.style.display = '';
-    voicePartial = '';
     updatePartialDisplay('');
 }
 
-function voiceInterruptSession() {
+function parkVoiceDraft() {
+    // Never drop heard words. Stop, a failed send, or a mic interrupt leaves
+    // the transcript in the message box so it can be sent or edited.
+    const draft = (typeof voicePartial === 'string') ? voicePartial.trim() : '';
+    const input = document.getElementById('chat-input');
+    if (input && draft && !String(input.value || '').trim()) {
+        syncVoiceBox(draft);
+    } else {
+        syncVoiceBox();
+    }
+    voicePartial = '';
+}
+
+function voiceBoxHasWords() {
+    const input = document.getElementById('chat-input');
+    return !!(input && String(input.value || '').trim());
+}
+
+function voiceStopCaptureKeepSocket() {
+    micRecording = false;
+    if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
+    if (micAudioCtx) { try { micAudioCtx.close(); } catch (e) {} micAudioCtx = null; }
+    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+}
+
+function voiceWaitForFlushTranscript() {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (text) => {
+            if (settled) return;
+            settled = true;
+            if (_voiceFlushWaiter && _voiceFlushWaiter.timer) {
+                clearTimeout(_voiceFlushWaiter.timer);
+            }
+            _voiceFlushWaiter = null;
+            resolve(text || '');
+        };
+        _voiceFlushWaiter = {
+            onTranscript(text) { finish(text); },
+            onDone() { finish(''); },
+            timer: setTimeout(() => finish(''), VOICE_FLUSH_TIMEOUT_MS),
+        };
+    });
+}
+
+async function voiceFlushOpenChunk() {
+    // Audio is only transcribed after end_audio. Stop / Send / interrupt must
+    // flush the open chunk and wait briefly before parking or sending.
+    const wsOpen = micWs && micWs.readyState === WebSocket.OPEN;
+    const needsEnd = !voiceChunkPending && (speechSeen || silenceStart);
+    if (needsEnd && wsOpen) {
+        updateMicState('transcribing');
+        try {
+            micWs.send(JSON.stringify({ type: 'end_audio', mode: 'transcribe' }));
+            voiceChunkPending = true;
+        } catch (e) {
+            return '';
+        }
+        speechSeen = false;
+        silenceStart = 0;
+    } else if (voiceChunkPending && wsOpen) {
+        updateMicState('transcribing');
+    } else {
+        return '';
+    }
+    return await voiceWaitForFlushTranscript();
+}
+
+function absorbVoiceTail(text) {
+    if (!text || isHallucinatedTranscript(text)) return;
+    voicePartial = (voicePartial + ' ' + text).trim();
+    const input = document.getElementById('chat-input');
+    const boxed = input ? String(input.value || '').trim() : '';
+    if (!boxed || boxed === String(voicePartial).trim().slice(0, boxed.length)) {
+        syncVoiceBox(voicePartial);
+    } else {
+        syncVoiceBox((boxed + ' ' + text).trim());
+        voicePartial = String(input.value || '').trim();
+    }
+}
+
+async function voiceInterruptSession() {
     // Phone call / lost mic / backgrounded PWA: end the session and wait for a
     // tap. Do not auto-resume — iOS will not hand the mic back without a gesture.
-    if (!voiceActive || voiceIgnoringMicLoss) return;
-    if (typeof addSystemMessage === 'function') {
+    if (!voiceActive || voiceIgnoringMicLoss || voiceFlushInFlight) return;
+    await voiceStop();
+    if (typeof addSystemMessage !== 'function') return;
+    if (voiceBoxHasWords()) {
         addSystemMessage('Voice paused — send or edit what’s in the box, then tap to talk.');
+    } else {
+        addSystemMessage('Voice paused — nothing was captured. Tap to talk.');
     }
-    voiceStop();
 }
 
 function unbindVoiceInterruptWatchers() {
@@ -465,13 +549,14 @@ function bindVoiceInterruptWatchers(stream) {
 }
 
 function voiceStart() {
-    if (voiceActive || sending) return;
+    if (voiceActive || sending || voiceFlushInFlight) return;
 
     ensureTTSAudioCtx();   // unlock audio on user gesture
     voiceActive = true;
     voicePartial = '';
     speechSeen = false;
     silenceStart = 0;
+    voiceChunkPending = false;
 
     updateMicState('listening');
     updatePartialDisplay('');
@@ -479,24 +564,24 @@ function voiceStart() {
     micStartContinuous();
 }
 
-function voiceStop() {
+async function voiceStop() {
+    if (voiceFlushInFlight) return;
     voiceIgnoringMicLoss = true;
+    voiceFlushInFlight = true;
     unbindVoiceInterruptWatchers();
+    ttsStopPlayback();
+    voiceStopCaptureKeepSocket();
+    const tail = await voiceFlushOpenChunk();
+    absorbVoiceTail(tail);
     parkVoiceDraft();
     voiceActive = false;
     speechSeen = false;
     silenceStart = 0;
-    ttsStopPlayback();
-
-    // Full mic cleanup
-    micRecording = false;
-    if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
-    if (micAudioCtx) { micAudioCtx.close(); micAudioCtx = null; }
-    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-    if (micWs) { micWs.close(); micWs = null; }
+    voiceChunkPending = false;
+    if (micWs) { try { micWs.close(); } catch (e) {} micWs = null; }
     micProcessing = false;
-
     updateMicState('idle');
+    voiceFlushInFlight = false;
     voiceIgnoringMicLoss = false;
 }
 
@@ -505,10 +590,31 @@ function micPause() {
     // Unbind first so track-ended / AudioContext close is not treated as a call.
     voiceIgnoringMicLoss = true;
     unbindVoiceInterruptWatchers();
-    micRecording = false;
-    if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
-    if (micAudioCtx) { micAudioCtx.close(); micAudioCtx = null; }
-    if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+    voiceStopCaptureKeepSocket();
+    voiceIgnoringMicLoss = false;
+}
+
+async function voiceBeforeSend() {
+    // Send-by-tap while listening: flush the open chunk into the box first.
+    if (typeof chatMode === 'undefined' || chatMode !== 'voice' || !voiceActive) return;
+    if (voiceFlushInFlight) return;
+    if (!speechSeen && !silenceStart && !voiceChunkPending) return;
+    voiceIgnoringMicLoss = true;
+    voiceFlushInFlight = true;
+    unbindVoiceInterruptWatchers();
+    voiceStopCaptureKeepSocket();
+    const tail = await voiceFlushOpenChunk();
+    absorbVoiceTail(tail);
+    const stripped = stripVoiceEndTrigger(voicePartial);
+    if (stripped !== null) {
+        voicePartial = stripped;
+        syncVoiceBox(stripped);
+    }
+    const input = document.getElementById('chat-input');
+    if (input && voicePartial && !String(input.value || '').trim()) {
+        syncVoiceBox(voicePartial);
+    }
+    voiceFlushInFlight = false;
     voiceIgnoringMicLoss = false;
 }
 
@@ -555,6 +661,12 @@ function updateMicState(state) {
 function updatePartialDisplay(text) {
     const el = document.getElementById('voice-partial');
     if (!el) return;
+    // Voice uses the message box for running text — do not also show the preview.
+    if (typeof chatMode !== 'undefined' && chatMode === 'voice') {
+        el.textContent = '';
+        el.style.display = 'none';
+        return;
+    }
     el.textContent = text;
     el.style.display = text ? '' : 'none';
 }
@@ -627,6 +739,7 @@ async function micStartContinuous() {
                         silenceStart = 0;
                         speechSeen = false;
                         micWs.send(JSON.stringify({ type: 'end_audio', mode: 'transcribe' }));
+                        voiceChunkPending = true;
                         updateMicState('transcribing');
                     }
                 }
@@ -714,11 +827,21 @@ function micConnectVoice() {
         try {
             const msg = JSON.parse(e.data);
             if (msg.type === 'transcript' && msg.text) {
-                handleVoiceTranscript(msg.text);
+                voiceChunkPending = false;
+                if (_voiceFlushWaiter) {
+                    if (isHallucinatedTranscript(msg.text)) _voiceFlushWaiter.onDone();
+                    else _voiceFlushWaiter.onTranscript(msg.text);
+                } else if (!voiceActive) {
+                    absorbVoiceTail(msg.text);
+                } else {
+                    handleVoiceTranscript(msg.text);
+                }
             }
             if (msg.type === 'silence' || msg.type === 'done') {
-                // No speech detected or processing complete — resume listening
-                if (voiceActive) {
+                voiceChunkPending = false;
+                if (_voiceFlushWaiter) {
+                    _voiceFlushWaiter.onDone();
+                } else if (voiceActive && !voiceFlushInFlight) {
                     speechSeen = false;
                     silenceStart = 0;
                     updateMicState('listening');
@@ -821,16 +944,9 @@ function handleVoiceTranscript(text) {
             updateMicState('listening');
         }
     } else {
-        // No end trigger — accumulate, keep the box in sync so Send has the words
+        // No end trigger — accumulate in the message box only (no extra preview)
         voicePartial = combined;
-        updatePartialDisplay(voicePartial);
-        const input = document.getElementById('chat-input');
-        if (input) {
-            input.value = voicePartial;
-            input.style.display = '';
-        }
-        const sendBtn = document.getElementById('chat-send');
-        if (sendBtn) sendBtn.style.display = '';
+        syncVoiceBox(voicePartial);
         updateMicState('listening');
     }
 }
