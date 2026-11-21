@@ -39,6 +39,9 @@ function switchChatMode(mode) {
         btn.classList.toggle('active', btn.dataset.mode === mode);
     });
 
+    const composer = document.querySelector('.chat-input-area');
+    if (composer) composer.classList.toggle('chat-voice-composer', mode === 'voice');
+
     // Toggle between textarea (Type) and big mic button (Dictate/Voice)
     const micBtn = getMicBtn();
     const sendBtn = document.getElementById('chat-send');

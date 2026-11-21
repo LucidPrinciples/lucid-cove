@@ -938,6 +938,48 @@
   .chat-mode-btn { padding: 10px 0; font-size: 0.85rem; }
   .btn-mic-full { min-height: 56px; font-size: 0.95rem; }
   .btn-stop { min-height: 44px; }
+
+  /* Voice on a phone: message box full width, mic + Send on the row below.
+     Desktop Voice, Type, and Dictate keep the original single row. */
+  .chat-input-area.chat-voice-composer {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .chat-input-area.chat-voice-composer textarea#chat-input {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .chat-input-area.chat-voice-composer .voice-partial {
+    flex: 1 1 100%;
+  }
+  .chat-input-area.chat-voice-composer .btn-mic-full {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 48px;
+    padding: 8px 10px;
+    font-size: 0.78rem;
+    gap: 6px;
+    overflow: hidden;
+  }
+  .chat-input-area.chat-voice-composer .btn-mic-full svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .chat-input-area.chat-voice-composer #mic-label {
+    min-width: 0;
+    line-height: 1.2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+  .chat-input-area.chat-voice-composer #chat-send,
+  .chat-input-area.chat-voice-composer .btn-stop {
+    flex: 0 0 auto;
+    align-self: stretch;
+  }
 }
 
 @media (max-width: 400px) {
