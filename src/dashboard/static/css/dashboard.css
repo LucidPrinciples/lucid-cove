@@ -1133,7 +1133,7 @@ select.settings-input { cursor: pointer; }
 /* Section on home tab */
 .ql-section { padding: 10px 1rem 8px; }
 
-/* Card container — horizontal scroll */
+/* Card container — horizontal scroll on desktop; wraps at phone width */
 .ql-cards {
   display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 4px;
   scrollbar-width: thin; scrollbar-color: var(--border) transparent;
@@ -1179,6 +1179,38 @@ select.settings-input { cursor: pointer; }
 }
 .ql-empty-hint:hover { border-color: var(--accent); color: var(--accent); }
 .ql-empty-icon { font-size: 1.1rem; font-weight: 700; }
+
+@media (max-width: 768px) {
+  .ql-cards {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    align-items: stretch;
+  }
+  .ql-card {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 0;
+    max-width: 100%;
+    min-height: 44px;
+    box-sizing: border-box;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .ql-card-icon,
+  .ql-badge {
+    flex-shrink: 0;
+  }
+  .ql-card-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ql-card-add {
+    flex: 0 0 44px;
+    min-width: 44px;
+    min-height: 44px;
+    max-width: 44px;
+  }
+}
 
 /* Modal overrides for Quick List */
 .ql-modal-content {

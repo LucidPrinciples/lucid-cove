@@ -1254,7 +1254,5 @@
   .ab-detail-scroll { padding-bottom: 68px; }
   /* Stack date pickers on mobile */
   .ab-detail-row { flex-direction: column; gap: 0; }
-  /* Quick Lists mobile */
-  .ql-cards { gap: 6px; }
-  .ql-card { min-width: 80px; padding: 8px 10px; }
+  /* Quick Lists mobile — wrap + 44px targets live in dashboard.css */
 }
