@@ -101,11 +101,15 @@ let ttsSource = null;
 let ttsResolve = null;              // promise resolver for playTTS completion
 
 function ensureTTSAudioCtx() {
+    if (ttsAudioCtx && ttsAudioCtx.state === 'closed') {
+        ttsAudioCtx = null;
+    }
     if (!ttsAudioCtx) {
         ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
-    if (ttsAudioCtx.state === 'suspended') {
-        ttsAudioCtx.resume();
+    // iOS parks this as suspended or interrupted after the mic is released.
+    if (ttsAudioCtx.state === 'suspended' || ttsAudioCtx.state === 'interrupted') {
+        try { ttsAudioCtx.resume(); } catch (e) {}
     }
     // Play silent buffer to fully unlock audio on mobile
     try {
@@ -116,6 +120,51 @@ function ensureTTSAudioCtx() {
         src.start(0);
     } catch (e) {}
     return ttsAudioCtx;
+}
+
+async function resumeTTSAudioCtx(timeoutMs) {
+    const ctx = ensureTTSAudioCtx();
+    if (!ctx || ctx.state === 'running') return ctx;
+    const deadline = Date.now() + (timeoutMs || TTS_CTX_RESUME_MS);
+    while (Date.now() < deadline && ctx.state !== 'running' && !ttsCancelled) {
+        if (ctx.state === 'suspended' || ctx.state === 'interrupted') {
+            try { await ctx.resume(); } catch (e) {}
+        }
+        if (ctx.state === 'running') return ctx;
+        await new Promise((r) => setTimeout(r, 50));
+    }
+    return ctx;
+}
+
+function decodeTTSAudioData(ctx, arrayBuffer) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (fn, val) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            fn(val);
+        };
+        const timer = setTimeout(() => {
+            ttsLastError = ttsLastError || 'timeout';
+            finish(reject, new Error('decode timeout'));
+        }, TTS_DECODE_TIMEOUT_MS);
+        let p;
+        try {
+            p = ctx.decodeAudioData(arrayBuffer.slice(0));
+        } catch (e) {
+            ttsLastError = ttsLastError || 'timeout';
+            finish(reject, e);
+            return;
+        }
+        Promise.resolve(p).then(
+            (buf) => finish(resolve, buf),
+            (err) => {
+                ttsLastError = ttsLastError || 'timeout';
+                finish(reject, err);
+            }
+        );
+    });
 }
 
 function ttsStopPlayback() {
@@ -142,7 +191,9 @@ function ttsStopPlayback() {
 // on Stop / "speaking" (parents + mesh path). Fail open: keep the text reply.
 
 const TTS_CHUNK_TIMEOUT_MS = 15000;   // hard cap per sentence fetch
-const TTS_PLAY_TIMEOUT_MS = 60000;    // safety cap for a single buffer's playback
+const TTS_DECODE_TIMEOUT_MS = 8000;   // decodeAudioData must not hang speaking
+const TTS_CTX_RESUME_MS = 1500;       // if still not running, fail open
+const TTS_PLAY_PAD_MS = 2000;         // each buffer: duration + this, not a 60s cap
 const TTS_PREFETCH = 1;               // synthesize this many sentences ahead of play
 const TTS_MAX_CHARS = 900;            // hard cap spoken text (rest stays on screen)
 const TTS_MAX_SENTENCES = 8;          // don't queue endless TTS for long replies
@@ -260,8 +311,7 @@ function fetchTTSChunk(text) {
         }
         const arrayBuffer = await res.arrayBuffer();
         const ctx = ensureTTSAudioCtx();
-        // slice(): some browsers detach the buffer during decode under load
-        return await ctx.decodeAudioData(arrayBuffer.slice(0));
+        return await decodeTTSAudioData(ctx, arrayBuffer);
     }
 
     // Try proxy first; on network/5xx fall through to direct voice host once.
@@ -284,7 +334,7 @@ function fetchTTSChunk(text) {
     })().catch((err) => {
         if (timedOut) ttsLastError = 'timeout';
         else if (err && err.name === 'AbortError') { /* user cancel — leave quiet */ }
-        else ttsLastError = ttsLastError || 'unreachable';
+        else ttsLastError = ttsLastError || 'fetch';
         return null;
     }).finally(() => {
         clearTimeout(timer);
@@ -305,6 +355,24 @@ function playTTS(text) {
 
         const voiceBtn = document.getElementById('mode-voice');
         if (voiceBtn) voiceBtn.classList.add('playing');
+
+        const ctxReady = await resumeTTSAudioCtx(TTS_CTX_RESUME_MS);
+        if (ttsCancelled) {
+            ttsStopPlayback();
+            resolve();
+            return;
+        }
+        if (!ctxReady || ctxReady.state !== 'running') {
+            const st = ctxReady ? ctxReady.state : 'missing';
+            ttsLastError = 'context ' + st;
+            ttsPlaying = false;
+            if (typeof addSystemMessage === 'function') {
+                addSystemMessage('Could not speak that reply. Text is on screen. (context ' + st + ')');
+            }
+            ttsStopPlayback();
+            resolve();
+            return;
+        }
 
         const sentences = splitSentences(text);
         let playedAny = false;
@@ -350,9 +418,18 @@ function playTTS(text) {
                     ttsSource = null;
                     chunkDone();
                 };
-                const playTimer = setTimeout(done, TTS_PLAY_TIMEOUT_MS);
+                const playMs = Math.max(500, (audioBuffer.duration * 1000) + TTS_PLAY_PAD_MS);
+                const playTimer = setTimeout(() => {
+                    ttsLastError = ttsLastError || 'timeout';
+                    done();
+                }, playMs);
                 try {
                     const ctx = ensureTTSAudioCtx();
+                    if (ctx.state !== 'running') {
+                        ttsLastError = ttsLastError || ('context ' + ctx.state);
+                        done();
+                        return;
+                    }
                     ttsSource = ctx.createBufferSource();
                     ttsSource.buffer = audioBuffer;
                     ttsSource.connect(ctx.destination);
@@ -376,15 +453,9 @@ function playTTS(text) {
         // or if middle chunks dropped (partial speak is still useful — note once).
         if (!wasCancelled && typeof addSystemMessage === 'function') {
             if (!playedAny && err) {
-                if (err === 'timeout') {
-                    addSystemMessage('Voice timed out — reply is on screen.');
-                } else if (err === 'unreachable') {
-                    addSystemMessage('Voice unavailable — reply is on screen.');
-                } else {
-                    addSystemMessage('Could not speak that reply — text is on screen.');
-                }
+                addSystemMessage('Could not speak that reply. Text is on screen. (' + err + ')');
             } else if (playedAny && skippedMiddle > 0) {
-                addSystemMessage('Some of that reply could not be spoken — full text is on screen.');
+                addSystemMessage('Some of that reply could not be spoken — full text is on screen. (' + err + ')');
             }
         }
         resolve();
@@ -612,6 +683,8 @@ function micPause() {
 
 async function voiceBeforeSend() {
     // Send-by-tap while listening: flush the open chunk into the box first.
+    // Unlock TTS in this same tap — iOS will not resume audio later without it.
+    if (typeof chatMode !== 'undefined' && chatMode === 'voice') ensureTTSAudioCtx();
     if (typeof chatMode === 'undefined' || chatMode !== 'voice' || !voiceActive) return;
     if (voiceFlushInFlight) return;
     if (!speechSeen && !silenceStart && !voiceChunkPending) return;
@@ -1150,6 +1223,12 @@ function micToggle() {
     setTimeout(() => { _micToggleLock = false; }, 300);
 
     if (chatMode === 'voice') {
+        const btn = getMicBtn();
+        const speaking = ttsPlaying || (btn && btn.classList.contains('speaking'));
+        if (speaking) {
+            ttsStopPlayback();
+            return;
+        }
         if (voiceActive) { voiceStop(); } else { voiceStart(); }
     } else {
         if (micRecording) { micStop(); } else { micStart(); }
