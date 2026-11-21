@@ -24,7 +24,7 @@ def test_flush_sends_end_audio_and_waits():
         "function updateMicState"
     )[0]
     assert "voiceFlushOpenChunk" in send
-    interrupt = VOICE_JS.split("async function voiceInterruptSession()")[1].split(
+    interrupt = VOICE_JS.split("async function voiceInterruptSession")[1].split(
         "function unbindVoiceInterruptWatchers"
     )[0]
     assert "await voiceStop()" in interrupt

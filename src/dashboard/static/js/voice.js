@@ -489,16 +489,18 @@ function absorbVoiceTail(text) {
     }
 }
 
-async function voiceInterruptSession() {
+async function voiceInterruptSession(reason) {
     // Phone call / lost mic / backgrounded PWA: end the session and wait for a
     // tap. Do not auto-resume — iOS will not hand the mic back without a gesture.
+    // reason is temporary diagnostics so one phone test shows what fired.
     if (!voiceActive || voiceIgnoringMicLoss || voiceFlushInFlight) return;
+    const tag = reason ? ` (${reason})` : '';
     await voiceStop();
     if (typeof addSystemMessage !== 'function') return;
     if (voiceBoxHasWords()) {
-        addSystemMessage('Voice paused — send or edit what’s in the box, then tap to talk.');
+        addSystemMessage('Voice paused' + tag + ' — send or edit what’s in the box, then tap to talk.');
     } else {
-        addSystemMessage('Voice paused — nothing was captured. Tap to talk.');
+        addSystemMessage('Voice paused' + tag + ' — nothing was captured. Tap to talk.');
     }
 }
 
@@ -525,26 +527,40 @@ function unbindVoiceInterruptWatchers() {
 function bindVoiceInterruptWatchers(stream) {
     unbindVoiceInterruptWatchers();
     _voiceVisHandler = () => {
-        if (document.hidden) voiceInterruptSession();
+        if (document.hidden) voiceInterruptSession('app in background');
     };
     document.addEventListener('visibilitychange', _voiceVisHandler);
-    _voicePageHideHandler = () => { voiceInterruptSession(); };
+    _voicePageHideHandler = () => { voiceInterruptSession('app in background'); };
     window.addEventListener('pagehide', _voicePageHideHandler);
     const tracks = (stream && stream.getAudioTracks) ? stream.getAudioTracks() : [];
     tracks.forEach((track) => {
-        const fn = () => { voiceInterruptSession(); };
+        const fn = () => { voiceInterruptSession('mic ended'); };
         track.addEventListener('ended', fn);
         _voiceTrackEnded.push({ track, fn });
     });
     const ctx = micAudioCtx;
     if (ctx && typeof ctx.addEventListener === 'function') {
         _voiceCtxHandler = () => {
-            if (ctx.state === 'interrupted' || ctx.state === 'suspended') {
-                voiceInterruptSession();
+            if (!voiceActive || voiceIgnoringMicLoss || voiceFlushInFlight) return;
+            if (ctx.state === 'interrupted') {
+                voiceInterruptSession('audio interrupted');
+                return;
+            }
+            if (ctx.state === 'suspended') {
+                // iOS parks the context on a speech pause; resume and stay in session.
+                const p = (typeof ctx.resume === 'function') ? ctx.resume() : Promise.resolve();
+                Promise.resolve(p).catch(() => {}).then(() => {
+                    if (ctx.state === 'suspended' && voiceActive && !voiceIgnoringMicLoss && !voiceFlushInFlight) {
+                        voiceInterruptSession('audio interrupted');
+                    }
+                });
             }
         };
         ctx.addEventListener('statechange', _voiceCtxHandler);
         _voiceBoundCtx = ctx;
+        if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
+            ctx.resume().catch(() => {});
+        }
     }
 }
 
