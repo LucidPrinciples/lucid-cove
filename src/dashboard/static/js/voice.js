@@ -693,15 +693,15 @@ function absorbVoiceTail(text) {
 async function voiceInterruptSession(reason) {
     // Phone call / lost mic / backgrounded PWA: end the session and wait for a
     // tap. Do not auto-resume — iOS will not hand the mic back without a gesture.
-    // reason is temporary diagnostics so one phone test shows what fired.
+    // reason names what fired (kept for the console, not shown to the speaker).
     if (!voiceActive || voiceIgnoringMicLoss || voiceFlushInFlight) return;
-    const tag = reason ? ` (${reason})` : '';
+    if (reason) console.log('[Voice] paused:', reason);
     await voiceStop();
     if (typeof addSystemMessage !== 'function') return;
     if (voiceBoxHasWords()) {
-        addSystemMessage('Voice paused' + tag + ' — send or edit what’s in the box, then tap to talk.');
+        addSystemMessage('Voice paused. Send or edit what’s in the box, then tap to talk.');
     } else {
-        addSystemMessage('Voice paused' + tag + ' — nothing was captured. Tap to talk.');
+        addSystemMessage('Voice paused. Nothing was captured. Tap to talk.');
     }
 }
 
