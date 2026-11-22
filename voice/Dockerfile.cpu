@@ -22,11 +22,14 @@ RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula sele
     && fc-cache -f -v
 
 # CPU-only PyTorch (much smaller than the CUDA wheel)
-RUN pip install --no-cache-dir \
-    torch --index-url https://download.pytorch.org/whl/cpu
+# Every pip step is held to constraints.txt, so a rebuild is repeatable.
+COPY constraints.txt /tmp/constraints.txt
+
+RUN pip install --no-cache-dir -c /tmp/constraints.txt \
+    torch --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Core service deps (no qwen-asr — GPU-only; cloud ASR is HTTP via httpx)
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir -c /tmp/constraints.txt \
     fastapi \
     uvicorn[standard] \
     httpx \

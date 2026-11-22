@@ -28,11 +28,14 @@ RUN echo "ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula sele
 
 # PyTorch with CUDA support (heavy layer, cached). The CUDA runtime ships in the wheel;
 # the host provides the driver via nvidia-container-toolkit. cu124 matches the legacy box.
-RUN pip install --no-cache-dir \
-    torch --index-url https://download.pytorch.org/whl/cu124
+# Every pip step is held to constraints.txt, so a rebuild is repeatable.
+COPY constraints.txt /tmp/constraints.txt
+
+RUN pip install --no-cache-dir -c /tmp/constraints.txt \
+    torch --extra-index-url https://download.pytorch.org/whl/cu124
 
 # Core service deps
-RUN pip install --no-cache-dir \
+RUN pip install --no-cache-dir -c /tmp/constraints.txt \
     fastapi \
     uvicorn[standard] \
     httpx \
@@ -43,7 +46,7 @@ RUN pip install --no-cache-dir \
     onnxruntime
 
 # Qwen3-ASR for GPU batch video transcription
-RUN pip install --no-cache-dir qwen-asr
+RUN pip install --no-cache-dir -c /tmp/constraints.txt qwen-asr
 
 # Default the batch ASR engine to GPU Qwen3-ASR on this image.
 # (cove-core still overrides per-request from compute.video_asr — cloud/external.)
