@@ -57,12 +57,20 @@ function makeWorld() {
             return s;
         }
     }
+    // Screen Wake Lock stub: counts live locks; `wake.mode` = 'ok' | 'refuse' | 'slow' | 'missing'.
+    const wake = { live: 0, asked: 0, mode: 'ok' };
+    wake.api = { request: () => { wake.asked += 1;
+        if (wake.mode === 'refuse') return Promise.reject(new Error('NotAllowedError'));
+        const lock = { released: false, _l: [], addEventListener(ev, fn) { this._l.push(fn); },
+            release() { if (this.released) return Promise.resolve(); this.released = true; wake.live -= 1; this._l.forEach((f) => f()); return Promise.resolve(); } };
+        return new Promise((res) => setTimeout(() => { wake.live += 1; res(lock); }, wake.mode === 'slow' ? 150 : 5)); } };
     const ctx = {
         console: { log() {}, warn() {}, error() {} }, setTimeout, clearTimeout, setInterval, clearInterval, Promise, Date, Math, JSON, Int16Array, Array, String, Number, Error, RegExp, Object, Buffer,
         AbortController, URL,
         document: { getElementById: el, querySelector: () => el('composer'), querySelectorAll: (sel) => (sel.indexOf('msg-listen') >= 0 ? listenBtns.filter((b) => b.classList.contains('playing')) : []),
                     addEventListener() {}, removeEventListener() {}, hidden: false, visibilityState: 'visible' },
-        navigator: { mediaDevices: { getUserMedia: () => { log.push('gum'); const t = makeTrack(); return Promise.resolve({ getTracks: () => [t], getAudioTracks: () => [t] }); } } },
+        navigator: { mediaDevices: { getUserMedia: () => { log.push('gum'); const t = makeTrack(); return Promise.resolve({ getTracks: () => [t], getAudioTracks: () => [t] }); } },
+                     wakeLock: wake.api },
         localStorage: { getItem: () => null, setItem() {} },
         WebSocket: WS, MC: { voiceUrl: () => 'ws://voice', features: {} }, location: { hostname: 'atlas.cove' },
         fetch: (url, opts) => new Promise((res, rej) => {
@@ -77,7 +85,7 @@ function makeWorld() {
     ctx.window = ctx; ctx.window.isSecureContext = true; ctx.AudioContext = AC; ctx.webkitAudioContext = AC;
     vm.createContext(ctx);
     vm.runInContext(fs.readFileSync(SRC, 'utf8') + '\n;this.__v = { get voiceActive(){return voiceActive;}, get micRecording(){return micRecording;}, get ttsPlaying(){return ttsPlaying;}, get voicePartial(){return voicePartial;}, setSpeech(){ speechSeen = true; }, setHold(v){ voiceHoldTranscripts = v; } };', ctx);
-    return { ctx, log, el, listenBtn, sockets, tracks };
+    return { ctx, log, el, listenBtn, sockets, tracks, wake };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
@@ -157,6 +165,25 @@ const starts = (log) => log.filter((x) => x.startsWith('src-start:')).map((x) =>
       const b = w.listenBtn('a'); const p = w.ctx.toggleListenReply(b, 'Alpha sentence number one. Alpha sentence number two.');
       await sleep(150); await w.ctx.voiceStop(); await p; await sleep(100);
       check('Stop during Listen: session ends, mic stays closed', !w.ctx.__v.voiceActive && !w.ctx.__v.micRecording && w.log.filter((x) => x === 'gum').length === 1, w.log.join(',')); }
+
+    // 8. Screen wake lock: held for the whole Voice session, let go when it ends.
+    { const w = makeWorld(); w.ctx.switchChatMode('voice'); w.ctx.voiceStart(); await sleep(220);
+      check('wake lock is held while a Voice session is open', w.wake.live === 1, 'live=' + w.wake.live);
+      const b = w.listenBtn('a'); await w.ctx.toggleListenReply(b, 'Reply sentence number one here.'); await sleep(80);
+      check('wake lock is still held after a Listen inside the session', w.wake.live === 1 && w.wake.asked === 1, 'live=' + w.wake.live + ' asked=' + w.wake.asked);
+      await w.ctx.voiceStop(); await sleep(20);
+      check('wake lock is released when the session ends', w.wake.live === 0, 'live=' + w.wake.live); }
+    { const w = makeWorld(); w.wake.mode = 'slow'; w.ctx.switchChatMode('voice'); w.ctx.voiceStart(); await sleep(40);
+      await w.ctx.voiceStop(); await sleep(250);
+      check('a lock granted after the session ended is released at once', w.wake.live === 0, 'live=' + w.wake.live); }
+    { const w = makeWorld(); w.wake.mode = 'refuse'; w.ctx.switchChatMode('voice'); w.ctx.voiceStart(); await sleep(220);
+      check('a refused wake lock does not stop Voice', w.ctx.__v.voiceActive && w.ctx.__v.micRecording, 'active=' + w.ctx.__v.voiceActive);
+      await w.ctx.voiceStop(); }
+    { const w = makeWorld(); delete w.ctx.navigator.wakeLock; w.ctx.switchChatMode('voice'); w.ctx.voiceStart(); await sleep(220);
+      check('no Wake Lock API: Voice still starts', w.ctx.__v.voiceActive && w.ctx.__v.micRecording, 'active=' + w.ctx.__v.voiceActive);
+      await w.ctx.voiceStop(); }
+    { const w = makeWorld(); const b = w.listenBtn('a'); await w.ctx.toggleListenReply(b, 'Reply sentence number one here.'); await sleep(60);
+      check('Listen in Text mode takes no wake lock', w.wake.asked === 0, 'asked=' + w.wake.asked); }
 
     const ok = results.every(Boolean);
     console.log((ok ? 'HARNESS_OK ' : 'HARNESS_FAIL ') + results.filter(Boolean).length + '/' + results.length);

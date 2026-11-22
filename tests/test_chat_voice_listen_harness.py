@@ -33,3 +33,13 @@ def test_playback_has_a_run_id():
     assert "const myRun = ++ttsRunId;" in play
     assert "if (!live())" in play
     assert "const queue = new Array(sentences.length);" in play
+
+
+def test_wake_lock_is_the_api_only_and_tied_to_the_session():
+    assert "navigator.wakeLock.request('screen')" in VOICE_JS
+    start = VOICE_JS.split("function voiceStart()")[1].split("async function voiceStop()")[0]
+    assert "voiceHoldWake();" in start
+    stop = VOICE_JS.split("async function voiceStop()")[1].split("function micPause()")[0]
+    assert "voiceReleaseWake();" in stop
+    # No muted-video fallback: a <video> starting during capture is a suspect for the iOS recording prompt.
+    assert "voice-wake" not in VOICE_JS
