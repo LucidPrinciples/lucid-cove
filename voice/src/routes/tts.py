@@ -8,19 +8,34 @@ from fastapi.responses import JSONResponse, Response
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+SPEED_MIN, SPEED_MAX = 0.8, 1.3
+
+
+def clamp_speed(value) -> float:
+    """Speaking speed from a request: a number in [0.8, 1.3]; anything else is 1.0."""
+    try:
+        s = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if s != s or s <= 0:  # NaN or nonsense
+        return 1.0
+    return max(SPEED_MIN, min(SPEED_MAX, s))
+
 
 @router.post("/api/tts")
 async def text_to_speech(request: Request):
     """Convert text to speech audio via Piper TTS. Returns WAV.
 
-    Body: { "text": "...", "agent": "stuart" }
+    Body: { "text": "...", "agent": "stuart", "voice": "", "speed": 1.0 }
     Agent param selects per-agent voice from /voices/config.json.
+    speed (optional, 0.8 to 1.3) is the speaking pace; pitch does not change.
     """
     try:
         body = await request.json()
         text = body.get("text", "").strip()
         agent = body.get("agent", "").strip() or None
         voice_override = body.get("voice", "").strip() or None
+        speed = clamp_speed(body.get("speed", 1.0))
         if not text:
             return JSONResponse({"error": "No text provided"}, status_code=400)
 
@@ -42,13 +57,16 @@ async def text_to_speech(request: Request):
 
         # Synthesize in thread pool (CPU-bound)
         loop = asyncio.get_event_loop()
-        wav_bytes = await loop.run_in_executor(None, tts.synthesize, text)
+        if speed == 1.0:
+            wav_bytes = await loop.run_in_executor(None, tts.synthesize, text)
+        else:
+            wav_bytes = await loop.run_in_executor(None, lambda: tts.synthesize(text, speed=speed))
 
         if not wav_bytes:
             return JSONResponse({"error": "Synthesis produced no audio"}, status_code=500)
 
         voice_name = mgr.get_voice_name(agent)
-        logger.info(f"TTS [{voice_name}]: {len(text)} chars -> {len(wav_bytes)} bytes WAV")
+        logger.info(f"TTS [{voice_name}] speed={speed}: {len(text)} chars -> {len(wav_bytes)} bytes WAV")
         return Response(content=wav_bytes, media_type="audio/wav")
 
     except Exception as e:

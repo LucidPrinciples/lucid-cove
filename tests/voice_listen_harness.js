@@ -26,6 +26,7 @@ function makeWorld() {
     const listenBtns = [];
     function listenBtn(name) { const b = el('listen-' + name); listenBtns.push(b); return b; }
     const sockets = [];
+    const bodies = [];                    // every speak request the page made
     class WS {
         constructor() { this.readyState = 0; this.sent = []; sockets.push(this); setTimeout(() => { this.readyState = 1; }, 5); }
         send(d) { this.sent.push(typeof d === 'string' ? JSON.parse(d) : 'audio'); if (typeof d === 'string') log.push('ws:' + JSON.parse(d).type); }
@@ -74,6 +75,7 @@ function makeWorld() {
         localStorage: { getItem: () => null, setItem() {} },
         WebSocket: WS, MC: { voiceUrl: () => 'ws://voice', features: {} }, location: { hostname: 'atlas.cove' },
         fetch: (url, opts) => new Promise((res, rej) => {
+            bodies.push(JSON.parse(opts.body));
             const text = JSON.parse(opts.body).text;
             const timer = setTimeout(() => res({ ok: true, arrayBuffer: () => Promise.resolve(Buffer.from(text)) }), 40);
             if (opts.signal) opts.signal.addEventListener('abort', () => { clearTimeout(timer); const e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
@@ -85,7 +87,7 @@ function makeWorld() {
     ctx.window = ctx; ctx.window.isSecureContext = true; ctx.AudioContext = AC; ctx.webkitAudioContext = AC;
     vm.createContext(ctx);
     vm.runInContext(fs.readFileSync(SRC, 'utf8') + '\n;this.__v = { get voiceActive(){return voiceActive;}, get micRecording(){return micRecording;}, get ttsPlaying(){return ttsPlaying;}, get voicePartial(){return voicePartial;}, setSpeech(){ speechSeen = true; }, setHold(v){ voiceHoldTranscripts = v; } };', ctx);
-    return { ctx, log, el, listenBtn, sockets, tracks, wake };
+    return { ctx, log, el, listenBtn, sockets, tracks, wake, bodies };
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
@@ -184,6 +186,17 @@ const starts = (log) => log.filter((x) => x.startsWith('src-start:')).map((x) =>
       await w.ctx.voiceStop(); }
     { const w = makeWorld(); const b = w.listenBtn('a'); await w.ctx.toggleListenReply(b, 'Reply sentence number one here.'); await sleep(60);
       check('Listen in Text mode takes no wake lock', w.wake.asked === 0, 'asked=' + w.wake.asked); }
+
+    // 9. Speaking speed: the Presence's saved setting rides on every speak request.
+    { const w = makeWorld(); const b = w.listenBtn('a'); await w.ctx.toggleListenReply(b, 'Reply sentence number one here.'); await sleep(60);
+      check('no speed saved: the request carries no speed', w.bodies.length === 1 && !('speed' in w.bodies[0]), JSON.stringify(w.bodies)); }
+    { const w = makeWorld(); w.ctx.MC.features.voice_speed = '1.2'; const b = w.listenBtn('a'); await w.ctx.toggleListenReply(b, 'Reply sentence number one here.'); await sleep(60);
+      check('speed 1.2 saved: Listen sends speed 1.2', w.bodies.length === 1 && w.bodies[0].speed === 1.2, JSON.stringify(w.bodies)); }
+    { const w = makeWorld(); w.ctx.MC.features.voice_speed = '1.1'; w.ctx.switchChatMode('voice'); await w.ctx.playTTS('A spoken Voice reply goes here.'); await sleep(40);
+      check('speed 1.1 saved: a spoken Voice reply sends speed 1.1', w.bodies.length === 1 && w.bodies[0].speed === 1.1, JSON.stringify(w.bodies)); }
+    { const w = makeWorld(); w.ctx.MC.features.voice_speed = '9'; const hi = w.ctx.voiceSpeedSetting(); w.ctx.MC.features.voice_speed = '0.1'; const lo = w.ctx.voiceSpeedSetting();
+      w.ctx.MC.features.voice_speed = 'fast'; const bad = w.ctx.voiceSpeedSetting(); w.ctx.MC.features.voice_speed = '1.0'; const one = w.ctx.voiceSpeedSetting();
+      check('speed is kept inside 0.8 to 1.3, and nonsense means normal', hi === 1.3 && lo === 0.8 && bad === 1.0 && one === 1.0, [hi, lo, bad, one].join(',')); }
 
     const ok = results.every(Boolean);
     console.log((ok ? 'HARNESS_OK ' : 'HARNESS_FAIL ') + results.filter(Boolean).length + '/' + results.length);
