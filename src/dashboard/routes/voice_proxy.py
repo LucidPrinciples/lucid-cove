@@ -38,7 +38,7 @@ def _voice_internal() -> str:
 async def proxy_tts(request: Request):
     """Proxy text-to-speech to the Cove voice container. Returns audio/wav.
 
-    Body: { "text": "...", "agent": "cyrus", "voice": "" }
+    Body: { "text": "...", "agent": "cyrus", "voice": "", "speed": 1.0 }
     Same contract as pipecat /api/tts so the browser can swap URL with no payload change.
     """
     internal = _voice_internal()
@@ -63,6 +63,13 @@ async def proxy_tts(request: Request):
         payload["agent"] = agent
     if voice:
         payload["voice"] = voice
+    # Speaking speed (optional). Only a sane number is forwarded; the voice server clamps it.
+    try:
+        speed = float(body.get("speed"))
+        if 0.5 <= speed <= 2.0 and abs(speed - 1.0) >= 0.01:
+            payload["speed"] = speed
+    except (TypeError, ValueError):
+        pass
 
     try:
         async with httpx.AsyncClient(timeout=_TTS_UPSTREAM_TIMEOUT) as client:

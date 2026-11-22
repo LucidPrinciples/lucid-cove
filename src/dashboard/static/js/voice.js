@@ -273,6 +273,17 @@ function splitSentences(text) {
     return merged;
 }
 
+// Speaking speed for this Presence, set in Settings (one slider for every voice).
+// Saved as a string in the Presence's feature settings; 1.0 when unset or not a number.
+const VOICE_SPEED_MIN = 0.8;
+const VOICE_SPEED_MAX = 1.3;
+function voiceSpeedSetting() {
+    const raw = (typeof MC !== 'undefined' && MC.features) ? MC.features.voice_speed : null;
+    const v = parseFloat(raw);
+    if (!isFinite(v) || v <= 0) return 1.0;
+    return Math.min(VOICE_SPEED_MAX, Math.max(VOICE_SPEED_MIN, v));
+}
+
 function fetchTTSChunk(text) {
     // Prefer same-origin proxy so speak works whenever the Cove page loads —
     // browser never has to reach voice.{domain} on its own (mesh/laptop hang).
@@ -292,7 +303,10 @@ function fetchTTSChunk(text) {
         || MC.features?.[`voice_${rawAgentName}`]
         || '';
 
-    const body = JSON.stringify({ text: text, agent: agentName, voice: voiceOverride });
+    const payload = { text: text, agent: agentName, voice: voiceOverride };
+    const speed = voiceSpeedSetting();
+    if (speed !== 1.0) payload.speed = speed;
+    const body = JSON.stringify(payload);
 
     // Per-chunk controller so a timeout aborts this fetch without killing siblings.
     // Also aborts if the conversation-level ttsAbort fires (user stop / mode switch).

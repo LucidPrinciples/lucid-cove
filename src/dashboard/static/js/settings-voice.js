@@ -121,8 +121,16 @@ async function loadSettingsVoice() {
     const serverAgentMap = voiceData.config?.agents || {};
     const serverDefault = voiceData.config?.default || '';
 
-    let html = `<div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">
-        Choose a voice for each agent. Changes take effect on the next TTS request.
+    const speedNow = _voiceSpeedValue();
+    let html = `<div class="settings-edit-row" style="display:flex;align-items:center;gap:10px;padding:6px 0 10px;">
+            <span style="font-size:0.82rem;flex:0 0 auto;">Speaking speed</span>
+            <input type="range" id="voice-speed" min="0.8" max="1.3" step="0.1" value="${speedNow.toFixed(1)}"
+                   oninput="_previewVoiceSpeed(this.value)" onchange="_saveVoiceSpeed(this.value)"
+                   style="flex:1;min-width:0;min-height:32px;">
+            <span id="voice-speed-val" style="font-size:0.82rem;flex:0 0 auto;min-width:2.6em;text-align:right;">${speedNow.toFixed(1)}x</span>
+        </div>
+        <div style="font-size:0.72rem;color:var(--dim);margin-bottom:8px;">
+        One speed for every voice. Choose a voice for each agent. Changes take effect on the next spoken reply.
     </div>`;
 
     for (const agent of agentList) {
@@ -165,6 +173,50 @@ async function loadSettingsVoice() {
     el.innerHTML = html;
 }
 
+// Speaking speed: one value per Presence, saved with the feature settings as a string.
+function _voiceSpeedValue() {
+    const v = parseFloat(MC.features?.voice_speed);
+    if (!isFinite(v) || v <= 0) return 1.0;
+    return Math.min(1.3, Math.max(0.8, v));
+}
+
+function _previewVoiceSpeed(value) {
+    const el = document.getElementById('voice-speed-val');
+    const v = parseFloat(value);
+    if (el && isFinite(v)) el.textContent = v.toFixed(1) + 'x';
+}
+
+async function _saveVoiceSpeed(value) {
+    const result = document.getElementById('voice-save-result');
+    const v = Math.min(1.3, Math.max(0.8, parseFloat(value) || 1.0));
+    const text = v.toFixed(1);
+    if (!MC.features) MC.features = {};
+    try {
+        const res = await fetch('/api/settings/features', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ voice_speed: text }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            MC.features.voice_speed = text;
+            if (result) {
+                result.textContent = 'Saved';
+                result.style.color = 'var(--green, #4caf50)';
+                setTimeout(() => { result.textContent = ''; }, 2000);
+            }
+        } else if (result) {
+            result.textContent = 'Error: ' + (data.error || 'Unknown');
+            result.style.color = 'var(--red, #f44336)';
+        }
+    } catch (e) {
+        if (result) {
+            result.textContent = 'Error: ' + e.message;
+            result.style.color = 'var(--red, #f44336)';
+        }
+    }
+}
+
 let _testAudioCtx = null;
 let _testAudioSource = null;
 
@@ -190,7 +242,10 @@ async function _testVoice(agentId) {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
-                    body: JSON.stringify({ text: testPhrase, agent: agentId, voice: voiceName }),
+                    body: JSON.stringify(Object.assign(
+                        { text: testPhrase, agent: agentId, voice: voiceName },
+                        (() => { const sl = document.getElementById('voice-speed'); const s = parseFloat(sl ? sl.value : MC.features?.voice_speed); return (isFinite(s) && Math.abs(s - 1.0) >= 0.01) ? { speed: Math.min(1.3, Math.max(0.8, s)) } : {}; })()
+                    )),
                 });
                 if (res.ok) break;
                 lastErr = new Error('TTS request failed');

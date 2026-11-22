@@ -164,7 +164,8 @@ class PiperTTSTransport:
     def synthesize(
         self,
         text: str,
-        return_wav: bool = True
+        return_wav: bool = True,
+        speed: float = 1.0
     ) -> Optional[bytes]:
         """
         Synthesize text to audio.
@@ -172,6 +173,9 @@ class PiperTTSTransport:
         Args:
             text: Text to synthesize
             return_wav: If True, return WAV container; if False, raw PCM
+            speed: Speaking speed, 1.0 = this voice's normal pace. Applied as Piper's
+                length_scale, so the pitch does not change. 1.0 takes the exact
+                path used before this argument existed.
             
         Returns:
             Audio bytes (WAV format by default) or None on error
@@ -188,11 +192,24 @@ class PiperTTSTransport:
             
             logger.debug(f"Synthesizing: '{text[:50]}...'")
 
+            syn_config = self._speed_config(speed)
+
             with _PIPER_SYNTH_LOCK:
                 # Synthesize via piper's chunk-based API
                 raw_chunks = []
-                for chunk in self.model.synthesize(text):
-                    raw_chunks.append(chunk.audio_int16_bytes)
+                if syn_config is not None:
+                    try:
+                        for chunk in self.model.synthesize(text, syn_config=syn_config):
+                            raw_chunks.append(chunk.audio_int16_bytes)
+                    except TypeError:
+                        # Older piper without syn_config: speak at the normal pace.
+                        logger.warning("piper synthesize rejected syn_config; normal speed")
+                        raw_chunks = []
+                        for chunk in self.model.synthesize(text):
+                            raw_chunks.append(chunk.audio_int16_bytes)
+                else:
+                    for chunk in self.model.synthesize(text):
+                        raw_chunks.append(chunk.audio_int16_bytes)
 
                 raw_audio = b''.join(raw_chunks)
 
@@ -216,6 +233,28 @@ class PiperTTSTransport:
             logger.error(f"Synthesis error: {e}")
             return None
     
+    def _speed_config(self, speed):
+        """Piper SynthesisConfig for a non-default speed, or None for the normal path."""
+        try:
+            s = float(speed)
+        except (TypeError, ValueError):
+            return None
+        if abs(s - 1.0) < 0.01 or s <= 0:
+            return None
+        try:
+            from piper import SynthesisConfig
+            cfg = {
+                "length_scale": float(self.length_scale) / s,
+                "noise_scale": self.noise_scale,
+                "noise_w_scale": self.noise_w,
+            }
+            if self.speaker_id is not None:
+                cfg["speaker_id"] = self.speaker_id
+            return SynthesisConfig(**cfg)
+        except Exception as exc:
+            logger.warning("SynthesisConfig unavailable, normal speed: %s", exc)
+            return None
+
     def _pcm_to_wav(self, pcm_data: bytes) -> bytes:
         """Convert raw PCM to WAV format."""
         wav_buffer = io.BytesIO()
