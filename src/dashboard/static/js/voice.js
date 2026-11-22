@@ -751,11 +751,49 @@ function bindVoiceInterruptWatchers(stream) {
     }
 }
 
+// Screen stays on for the whole Voice session: from Tap to Talk until the session ends
+// (Stop, a call, leaving Voice). Screen Wake Lock API only; no video, no audio session.
+// The system drops the lock whenever the page is hidden, so it is taken again when the
+// page comes back and a session is still open.
+let _voiceWakeLock = null;
+let _voiceWakePending = false;
+
+async function voiceHoldWake() {
+    if (!voiceActive || _voiceWakePending) return;
+    if (_voiceWakeLock && !_voiceWakeLock.released) return;
+    if (typeof navigator === 'undefined' || !navigator.wakeLock || !navigator.wakeLock.request) return;
+    _voiceWakePending = true;
+    try {
+        const lock = await navigator.wakeLock.request('screen');
+        if (!voiceActive) {                       // the session ended while we were asking
+            try { await lock.release(); } catch (e) {}
+            return;
+        }
+        _voiceWakeLock = lock;
+        lock.addEventListener('release', () => { if (_voiceWakeLock === lock) _voiceWakeLock = null; });
+    } catch (e) {
+        _voiceWakeLock = null;                    // refused: the screen may dim, Voice still works
+    } finally {
+        _voiceWakePending = false;
+    }
+}
+
+function voiceReleaseWake() {
+    const lock = _voiceWakeLock;
+    _voiceWakeLock = null;
+    if (lock) { try { lock.release(); } catch (e) {} }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && voiceActive) voiceHoldWake();
+});
+
 function voiceStart() {
     if (voiceActive || sending || voiceFlushInFlight) return;
 
     ensureTTSAudioCtx();   // unlock audio on user gesture
     voiceActive = true;
+    voiceHoldWake();
     voicePartial = '';
     speechSeen = false;
     silenceStart = 0;
@@ -785,6 +823,7 @@ async function voiceStop() {
     if (micWs) { try { micWs.close(); } catch (e) {} micWs = null; }
     micProcessing = false;
     updateMicState('idle');
+    voiceReleaseWake();
     voiceFlushInFlight = false;
     voiceIgnoringMicLoss = false;
 }
