@@ -1037,6 +1037,10 @@ def build_compose(cove: dict, deploy: dict, matrix_on: bool = False, bind: str =
       # voice_common.publish_video_output / NC_HTML_ROOT.
       NC_HTML_ROOT: /var/www/html
     volumes:
+      # Voice runs its code from the repo, like the app does from /cove-core: a voice change is a
+      # pull and a restart of this container, not an image rebuild. The image keeps its own baked
+      # copy of src as the fallback when this mount is removed.
+      - {core}/voice/src:/app/src:ro
       - {_stg_src.get("voice_cache", "voice_cache")}:/root/.cache
       - {_stg_src["nextcloud_data"]}:/var/www/html
     ports:
