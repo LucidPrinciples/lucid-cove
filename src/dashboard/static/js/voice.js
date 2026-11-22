@@ -112,6 +112,7 @@ let _voiceBoundCtx = null;
 let ttsAudioCtx = null;
 let ttsSource = null;
 let ttsResolve = null;              // promise resolver for playTTS completion
+let ttsRunId = 0;                   // one live playback run; a superseded run stops itself
 
 function ensureTTSAudioCtx() {
     if (ttsAudioCtx && ttsAudioCtx.state === 'closed') {
@@ -181,6 +182,7 @@ function decodeTTSAudioData(ctx, arrayBuffer) {
 }
 
 function ttsStopPlayback() {
+    ttsRunId += 1;            // whatever run is live is now superseded
     ttsCancelled = true;
     // Abort any in-flight TTS fetch requests immediately
     if (ttsAbort) { ttsAbort.abort(); ttsAbort = null; }
@@ -361,6 +363,12 @@ function playTTS(text, opts) {
         // Auto-speak only in Voice. Listen on a text reply passes {force:true}.
         if (!text || (chatMode !== 'voice' && !opts.force)) { resolve(); return; }
 
+        // One live run. End whatever was playing first (this resolves its promise),
+        // then take a fresh id. After every await this run checks it is still the
+        // live one; a superseded run returns without touching the new run's state.
+        ttsStopPlayback();
+        const myRun = ++ttsRunId;
+        const live = () => myRun === ttsRunId;
         ttsResolve = resolve;
         ttsCancelled = false;
         ttsPlaying = true;
@@ -371,11 +379,7 @@ function playTTS(text, opts) {
         if (voiceBtn) voiceBtn.classList.add('playing');
 
         const ctxReady = await resumeTTSAudioCtx(TTS_CTX_RESUME_MS);
-        if (ttsCancelled) {
-            ttsStopPlayback();
-            resolve();
-            return;
-        }
+        if (!live()) { resolve(); return; }
         if (!ctxReady || ctxReady.state !== 'running') {
             const st = ctxReady ? ctxReady.state : 'missing';
             ttsLastError = 'context ' + st;
@@ -394,12 +398,14 @@ function playTTS(text, opts) {
 
         // Bounded pipeline: start only the first chunk + TTS_PREFETCH ahead.
         // Kick further chunks as play advances so Piper is never stampeded.
-        ttsQueue = new Array(sentences.length);
+        // The queue belongs to this run only, so two runs can never read each other's chunks.
+        const queue = new Array(sentences.length);
+        ttsQueue = queue;
         function ensureFetch(idx) {
             if (idx < 0 || idx >= sentences.length) return;
-            if (ttsCancelled) return;
-            if (!ttsQueue[idx]) {
-                ttsQueue[idx] = fetchTTSChunk(sentences[idx]);
+            if (!live()) return;
+            if (!queue[idx]) {
+                queue[idx] = fetchTTSChunk(sentences[idx]);
             }
         }
         for (let j = 0; j <= TTS_PREFETCH && j < sentences.length; j++) {
@@ -408,16 +414,17 @@ function playTTS(text, opts) {
 
         // Play sequentially as each resolves in order
         for (let i = 0; i < sentences.length; i++) {
-            if (ttsCancelled) break;
+            if (!live()) break;
 
             // Prefetch upcoming sentence(s) while this one is awaited/played
             ensureFetch(i);
             ensureFetch(i + 1);
             for (let k = 2; k <= TTS_PREFETCH + 1; k++) ensureFetch(i + k);
 
-            const audioBuffer = await ttsQueue[i];
-            if (!audioBuffer || ttsCancelled) {
-                if (!audioBuffer && !ttsCancelled) skippedMiddle += 1;
+            const audioBuffer = await queue[i];
+            if (!live()) break;
+            if (!audioBuffer) {
+                skippedMiddle += 1;
                 continue;
             }
 
@@ -425,11 +432,12 @@ function playTTS(text, opts) {
             // Play this chunk; hard-cap playback so a stuck AudioContext can't pin UI
             await new Promise((chunkDone) => {
                 let finished = false;
+                let mySrc = null;
                 const done = () => {
                     if (finished) return;
                     finished = true;
                     clearTimeout(playTimer);
-                    ttsSource = null;
+                    if (ttsSource === mySrc) ttsSource = null;
                     chunkDone();
                 };
                 const playMs = Math.max(500, (audioBuffer.duration * 1000) + TTS_PLAY_PAD_MS);
@@ -444,11 +452,12 @@ function playTTS(text, opts) {
                         done();
                         return;
                     }
-                    ttsSource = ctx.createBufferSource();
-                    ttsSource.buffer = audioBuffer;
-                    ttsSource.connect(ctx.destination);
-                    ttsSource.onended = done;
-                    ttsSource.start(0);
+                    mySrc = ctx.createBufferSource();
+                    ttsSource = mySrc;
+                    mySrc.buffer = audioBuffer;
+                    mySrc.connect(ctx.destination);
+                    mySrc.onended = done;
+                    mySrc.start(0);
                 } catch (e) {
                     ttsLastError = ttsLastError || 'empty';
                     done();
@@ -456,11 +465,12 @@ function playTTS(text, opts) {
             });
         }
 
-        ttsQueue = [];
-        ttsPlaying = false;
+        // Superseded or stopped: the stop that ended this run already cleaned up and
+        // resolved it. Do not touch the state now; it may belong to a newer run.
+        if (!live()) { resolve(); return; }
         const err = ttsLastError;
         const wasCancelled = ttsCancelled;
-        // Capture before stop — ttsStopPlayback sets ttsCancelled and resolves waiters.
+        // This run finished by itself and is still the live one: clean up its own state.
         ttsStopPlayback();
 
         // Fail open: text already on screen. One quiet system line if nothing played
@@ -516,6 +526,52 @@ function voiceStopCaptureKeepSocket() {
     if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
     if (micAudioCtx) { try { micAudioCtx.close(); } catch (e) {} micAudioCtx = null; }
     if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+}
+
+// Listen pressed while a Voice session is listening. The reply must play the way a
+// Voice-turn reply plays: with the mic fully closed. So: keep what was said (flush the
+// open chunk into the box), close capture and wait until the tracks have really ended,
+// play, then open the mic again. Nothing here changes the phone's audio session type.
+const VOICE_TRACK_END_WAIT_MS = 400;
+let _listenResumeMic = false;   // set when Listen closed the mic; cleared only when it is reopened or the session ends
+let _listenGen = 0;             // the newest Listen tap; older taps stand down
+
+function voiceCloseCaptureAndWait() {
+    const tracks = (micStream && micStream.getTracks) ? micStream.getTracks() : [];
+    unbindVoiceInterruptWatchers();   // our own close is not a hang-up
+    voiceStopCaptureKeepSocket();
+    return Promise.all(tracks.map((t) => new Promise((res) => {
+        if (!t || t.readyState === 'ended') { res(); return; }
+        let done = false;
+        const fin = () => { if (done) return; done = true; res(); };
+        try { t.addEventListener('ended', fin); } catch (e) {}
+        setTimeout(fin, VOICE_TRACK_END_WAIT_MS);
+    })));
+}
+
+async function voicePauseForListen() {
+    if (!(voiceActive && micRecording)) return;
+    _listenResumeMic = true;
+    voiceIgnoringMicLoss = true;
+    voiceFlushInFlight = true;
+    try {
+        const closed = voiceCloseCaptureAndWait();
+        const tail = await voiceFlushOpenChunk();   // '' at once when no chunk is open
+        absorbVoiceTail(tail);
+        await closed;
+    } finally {
+        voiceFlushInFlight = false;
+        voiceIgnoringMicLoss = false;
+    }
+}
+
+function voiceResumeAfterListen() {
+    if (!_listenResumeMic) return;
+    if (ttsPlaying) return;                                   // another reply is playing; it resumes when it ends
+    if (!voiceActive || chatMode !== 'voice') { _listenResumeMic = false; return; }
+    _listenResumeMic = false;
+    if (!micRecording) micStartContinuous();                  // the words already in the box stay there
+    updateMicState('listening');
 }
 
 function voiceWaitForFlushTranscript() {
@@ -580,6 +636,7 @@ function voiceBeginSentTurn() {
 
 function voiceResumeListening() {
     voiceHoldTranscripts = false;
+    _listenResumeMic = false;   // a Voice turn reopens the mic itself
     voicePartial = '';
     speechSeen = false;
     silenceStart = 0;
@@ -721,6 +778,7 @@ async function voiceStop() {
     absorbVoiceTail(tail);
     parkVoiceDraft();
     voiceActive = false;
+    _listenResumeMic = false;
     speechSeen = false;
     silenceStart = 0;
     voiceChunkPending = false;
@@ -830,7 +888,15 @@ function updatePartialDisplay(text) {
 
 // ── Continuous mic with silence detection ────────────────────────────────────
 
+// True from the moment the mic starts opening until it is open (or has failed). A Listen
+// tap in that window is ignored, so a reply never starts playing over a mic that is opening.
+let _micOpening = false;
 async function micStartContinuous() {
+    _micOpening = true;
+    try { await _micOpenContinuous(); } finally { _micOpening = false; }
+}
+
+async function _micOpenContinuous() {
     if (!voiceActive) return;
 
     // Connect WebSocket if needed
@@ -1119,25 +1185,34 @@ function micToggle() {
     if (voiceActive) { voiceStop(); } else { voiceStart(); }
 }
 
-function toggleListenReply(btn, text) {
+async function toggleListenReply(btn, text) {
     if (!btn) return;
-    ensureTTSAudioCtx();
+    // A Voice turn that is being sent, thought about or spoken owns the audio: ignore Listen.
+    if (voiceActive && (voiceHoldTranscripts || voiceFlushInFlight || _micOpening)) return;
+    ensureTTSAudioCtx();   // unlock audio inside this tap
     const already = btn.classList.contains('playing') && ttsPlaying;
     document.querySelectorAll('.msg-listen.playing').forEach((el) => {
         el.classList.remove('playing');
         el.setAttribute('aria-pressed', 'false');
     });
+    const gen = ++_listenGen;   // this tap is now the newest; any earlier one stands down
     if (already) {
+        // Second tap on the reply that is playing: stop it, and give the mic back if we took it.
         ttsStopPlayback();
+        voiceResumeAfterListen();
         return;
     }
     ttsStopPlayback();
     btn.classList.add('playing');
     btn.setAttribute('aria-pressed', 'true');
-    playTTS(text, { force: true }).then(() => {
-        btn.classList.remove('playing');
-        btn.setAttribute('aria-pressed', 'false');
-    });
+    await voicePauseForListen();
+    if (gen !== _listenGen) return;   // a newer tap took over while the mic was closing
+    if (_listenResumeMic) updateMicState('speaking');
+    await playTTS(text, { force: true });
+    if (gen !== _listenGen) return;   // superseded: the newer tap owns the button and the resume
+    btn.classList.remove('playing');
+    btn.setAttribute('aria-pressed', 'false');
+    voiceResumeAfterListen();
 }
 
 if (document.getElementById('mode-type') || document.getElementById('mode-voice')) {
