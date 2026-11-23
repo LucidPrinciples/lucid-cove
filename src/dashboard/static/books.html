@@ -240,6 +240,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
   <div class="chrome-main">
     <button type="button" class="primary" id="btnAddStatements">Add statements</button>
+    <input type="file" id="stmtFile" class="hide" accept=".pdf,.csv,.txt,.tsv,image/png,image/jpeg,image/webp,image/heic" multiple>
     <button type="button" id="btnReview" class="hide">Review</button>
     <button type="button" id="btnAdd">Add a line</button>
   </div>
@@ -403,6 +404,18 @@ function booksHeaders() {
   const h = {'Content-Type':'application/json'};
   if (state.presence) h['X-Books-Presence'] = state.presence;
   return h;
+}
+function booksPresenceHeaders() {
+  const h = {};
+  if (state.presence) h['X-Books-Presence'] = state.presence;
+  return h;
+}
+function statementAccounts() {
+  return (state.ledgers || []).filter(item => {
+    const path = item && item.path ? item.path : '';
+    if (!path || path === 'all') return false;
+    return path.indexOf('manual.mapped.json') === -1;
+  });
 }
 function fillSpaces() {
   const wrap = $('presenceWrap');
@@ -1115,10 +1128,70 @@ $('btnAdd').onclick = () => {
   showAddBar(true);
   if ($('newPayee')) $('newPayee').focus();
 };
-if ($('btnAddStatements')) $('btnAddStatements').onclick = () => {
+async function ensureStatementAccount() {
+  if (state.path && state.path !== 'all' && state.path.indexOf('manual.mapped.json') === -1) {
+    return state.path;
+  }
+  const list = statementAccounts();
+  if (!list.length) {
+    await createAccount();
+    return (state.path && state.path !== 'all') ? state.path : '';
+  }
+  const names = list.map(item => item.label || item.path).join(', ');
+  const picked = (window.prompt('Which account should these statements go into? ' + names, list[0].label || '') || '').trim();
+  if (!picked) return '';
+  const hit = list.find(item => {
+    const label = (item.label || '').toLowerCase();
+    return label === picked.toLowerCase() || item.path === picked;
+  });
+  if (!hit) {
+    showErr('Pick an existing account, or use New account');
+    return '';
+  }
+  state.path = hit.path;
+  fillLedgers();
+  fillPlainLine();
+  return hit.path;
+}
+async function uploadStatementFiles(fileList) {
+  const files = Array.from(fileList || []).filter(Boolean);
+  if (!files.length) return;
+  const path = await ensureStatementAccount();
+  if (!path) return;
+  showErr('');
+  $('status').textContent = files.length === 1 ? 'Uploading statement…' : 'Uploading statements…';
+  for (const file of files) {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    body.append('path', path);
+    if (state.presence) body.append('presence', state.presence);
+    const r = await fetch('/api/books/drop', { method: 'POST', headers: booksPresenceHeaders(), body });
+    const data = await r.json();
+    if (!data.ok) {
+      $('status').textContent = '';
+      showErr(data.error || 'Upload failed');
+      return;
+    }
+    if (data.path) state.path = data.path;
+    if (data.ledgers) state.ledgers = data.ledgers;
+  }
+  fillLedgers();
+  await processDrop();
+}
+if ($('btnAddStatements')) $('btnAddStatements').onclick = async () => {
   showPasteBar(false);
   showAddBar(false);
-  showDropHint(true);
+  showDropHint(false);
+  const path = await ensureStatementAccount();
+  if (!path) return;
+  const picker = $('stmtFile');
+  if (!picker) return;
+  picker.value = '';
+  picker.click();
+};
+if ($('stmtFile')) $('stmtFile').onchange = () => {
+  const picker = $('stmtFile');
+  uploadStatementFiles(picker && picker.files);
 };
 if ($('btnDropHintRead')) $('btnDropHintRead').onclick = () => { showDropHint(false); processDrop(); };
 if ($('btnDropHintClose')) $('btnDropHintClose').onclick = () => showDropHint(false);
@@ -1179,12 +1252,12 @@ $('ledgerSel').onchange = () => {
   loadSummary();
 };
 async function createAccount() {
-  const name = (window.prompt('New ledger name (creates an empty account and a Drop folder)', '') || '').trim();
-  if (!name) return;
+  const name = (window.prompt('New account name (creates an empty account and a Drop folder)', '') || '').trim();
+  if (!name) return '';
   showErr('');
   $('status').textContent = 'Creating account…';
   const book = state.book === 'all-books' ? '' : (state.book || 'chords');
-  if (!book) { showErr('Pick a filing book before creating an account'); return; }
+  if (!book) { showErr('Pick a filing book before creating an account'); return ''; }
   const r = await fetch('/api/books/account', {
     method: 'POST',
     headers: booksHeaders(),
@@ -1194,13 +1267,15 @@ async function createAccount() {
   if (!data.ok) {
     $('status').textContent = '';
     showErr(data.error || 'Could not create account');
-    return;
+    return '';
   }
   state.path = data.path || state.path;
   if (data.ledgers) state.ledgers = data.ledgers;
   fillLedgers();
-  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.account || name)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}</span>`;
+  fillPlainLine();
+  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.account || name)}</span>`;
   await loadSummary();
+  return state.path || '';
 }
 function processStatusBits(data, book, totals) {
   const bits = [];
