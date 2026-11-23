@@ -1229,3 +1229,25 @@ def test_process_job_registry_counts_only():
     assert fake in bjobs._TASKS
     fake.cb(fake)
     assert fake not in bjobs._TASKS
+
+
+def test_review_count_matches_review_lines_every_period_and_book():
+    rows = [
+        {**_row("2025-03-01", "-5.00", name="Old month"), "needs_review": True, "filing_book": "pickleball"},
+        {**_row("2026-11-02", "-6.00", name="This month"), "needs_review": True, "filing_book": "chords"},
+        {**_row("2026-11-03", "-7.00", name="Off"), "needs_review": True, "disabled": True, "filing_book": "chords"},
+        {**_row("2026-11-04", "-8.00", "Office", name="Placed"), "needs_review": False, "filing_book": "chords"},
+    ]
+    src = "Bookkeeping/Organize/a.mapped.json"
+    assert bk.review_count(rows) == 2
+    assert bk.review_count(rows, "chords") == 1
+    assert bk.review_count(rows, "pickleball") == 1
+    for book in (bk.ALL_BOOKS, "chords", "pickleball"):
+        lines = bk.collect_lines(rows, src, category="*", filing_book=book, review_only=True)
+        assert len(lines) == bk.review_count(rows, book)
+        assert all(line["needs_review"] and not line["disabled"] for line in lines)
+    # a stale stored count does not matter: the count is read from the rows
+    assert bk.review_count(rows, bk.ALL_BOOKS, {"needs_review_count": 20}) == 2
+    # without review_only the month filter still applies as before
+    month = bk.collect_lines(rows, src, year=2026, month=11, category="*", filing_book=bk.ALL_BOOKS)
+    assert {line["payee"] for line in month} == {"This month", "Off", "Placed"}

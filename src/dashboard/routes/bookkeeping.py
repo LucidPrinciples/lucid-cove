@@ -984,7 +984,7 @@ async def books_summary(request: Request, path: str = ""):
             payloads.append(payload)
             rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
             all_rows.extend(r for r in rows if isinstance(r, dict))
-            review += int(payload.get("needs_review_count") or 0)
+            review += bk.review_count(rows, book, payload)
             if not entity:
                 entity = str(payload.get("entity") or "")
         return JSONResponse({
@@ -1028,7 +1028,7 @@ async def books_summary(request: Request, path: str = ""):
         "books": bk.filing_book_choices([p for _, p in loaded]),
         "needs_setup": False,
         "row_count": len(rows),
-        "needs_review_count": payload.get("needs_review_count"),
+        "needs_review_count": bk.review_count(rows, book, payload),
         "year": year,
         "month": month,
         "periods": bk.available_periods(rows),
@@ -1048,10 +1048,14 @@ async def books_summary(request: Request, path: str = ""):
 
 
 @router.get("/api/books/lines")
-async def books_lines(request: Request, path: str = "", category: str = ""):
+async def books_lines(request: Request, path: str = "", category: str = "", review: str = ""):
     year, month, perr = _parse_period(request)
     if perr:
         return JSONResponse({"ok": False, "error": perr}, status_code=400)
+    review_only = (review or "").strip().lower() in ("1", "true", "yes")
+    if review_only:
+        # Review is a to-do list: every period, this book and account, same rule as the summary count.
+        year, month = None, None
     book = _parse_book(request)
     raw_label = (category or "").strip()
     label = raw_label or bk.ALL_LINES
@@ -1072,7 +1076,7 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
                 break
             lines.extend(bk.collect_lines(
                 rows, clean, year=year, month=month, category=label, account=acct, limit=remain,
-                filing_book=book, payload=payload,
+                filing_book=book, payload=payload, review_only=review_only,
             ))
         lines.sort(key=lambda x: (x.get("date") or "", x.get("source_path") or "", x.get("index") or 0), reverse=True)
         return JSONResponse({
@@ -1091,7 +1095,10 @@ async def books_lines(request: Request, path: str = "", category: str = ""):
     clean, payload = wanted
     rows = payload.get("rows") if isinstance(payload.get("rows"), list) else []
     acct = bk.account_label(payload, clean)
-    lines = bk.collect_lines(rows, clean, year=year, month=month, category=label, account=acct, filing_book=book, payload=payload)
+    lines = bk.collect_lines(
+        rows, clean, year=year, month=month, category=label, account=acct, filing_book=book, payload=payload,
+        review_only=review_only,
+    )
     lines.sort(key=lambda x: (x.get("date") or "", x.get("index") or 0), reverse=True)
     return JSONResponse({
         "ok": True,

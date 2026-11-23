@@ -133,10 +133,17 @@ function check(name, cond) { n++; if (cond) console.log('PASS ' + name); else { 
   check('Add statements opens the Drop hint', !r.els.dropHint.classList.contains('hide'));
   check('Drop hint names Files Drop and this account', /Files > Bookkeeping > Drop > All accounts/.test(r.els.dropHintText.textContent) && /Read new statements/.test(r.els.dropHintText.textContent));
   check('Drop hint has Read new statements', !!r.els.btnDropHintRead);
+  r.state.year = 2026; r.state.month = 11;
   if (r.els.btnReview && r.els.btnReview.onclick) r.els.btnReview.onclick();
   for (let i = 0; i < 20; i++) await new Promise(res => setTimeout(res, 5));
   check('Review is titled To review', r.els.detailTitle.textContent === 'To review');
   check('Review lists only needs_review lines', /Need review/.test(r.els.lineBody.innerHTML) && !/Placed/.test(r.els.lineBody.innerHTML));
+  const revCall = new URL(r.calls.filter(c => String(c).indexOf('/api/books/lines') === 0).pop(), 'https://cove.test').searchParams;
+  check('Review asks the server for review lines, every period', revCall.get('review') === '1' && !revCall.get('year') && !revCall.get('month'));
+  if (r.els.btnTx && r.els.btnTx.onclick) r.els.btnTx.onclick();
+  for (let i = 0; i < 20; i++) await new Promise(res => setTimeout(res, 5));
+  const txCall = new URL(r.calls.filter(c => String(c).indexOf('/api/books/lines') === 0).pop(), 'https://cove.test').searchParams;
+  check('All transactions keeps the period, no review flag', !txCall.get('review') && txCall.get('year') === '2026' && txCall.get('month') === '11');
 
   console.log((fails ? 'HARNESS_FAIL ' : 'HARNESS_OK ') + (n - fails) + '/' + n);
   process.exit(fails ? 1 : 0);
