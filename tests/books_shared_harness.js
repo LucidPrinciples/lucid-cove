@@ -9,7 +9,11 @@ const src = fs.readFileSync(HTML, 'utf8');
 const script = src.slice(src.lastIndexOf('<script>') + 8, src.lastIndexOf('</script>'));
 
 function makeEl(id) {
-  const classes = new Set(id === 'setupView' || id === 'setupShared' || id === 'presenceWrap' || id === 'ownBooksLink' || id === 'btnShare' ? ['hide'] : []);
+  const classes = new Set(
+    id === 'setupView' || id === 'setupShared' || id === 'presenceWrap' || id === 'ownBooksLink'
+    || id === 'btnShare' || id === 'addLineBar' || id === 'btnReview' || id === 'moreMenu'
+    || id === 'helpPanel' || id === 'dropHint' ? ['hide'] : []
+  );
   const listeners = {};
   return {
     id, innerHTML: '', textContent: '', value: '', style: {}, dataset: {}, disabled: false, checked: false, files: [],
@@ -26,6 +30,7 @@ function makeEl(id) {
 async function run(caseName, opts) {
   const els = {};
   const $el = (id) => (els[id] = els[id] || makeEl(id));
+  ['btnAddStatements','btnAdd','btnReview','btnMore','moreMenu','btnNewBook','btnNewAcct','btnShare','btnPaste','btnMap','btnTx','btnProcess','addLineBar','ownBooksLink','plainLine','helpPanel','btnHelp','presenceWrap','setupView','setupShared','hdrMeta','dropHint','dropHintText','btnDropHintRead','btnDropHintClose','detailTitle','detailCount','batchCat','lineBody','newCat','newDate','chkAll','pnlView','detailView','mapView','txView','status','err'].forEach($el);
   const calls = [];
   const fetchStub = async (url, init) => {
     calls.push(url);
@@ -37,7 +42,12 @@ async function run(caseName, opts) {
       body = allowed ? { ok: true, presence: who, presence_label: opts.labels[who], mine: who === opts.self, spaces: opts.spaces } : { ok: false, error: 'No manage grant' };
     } else if (u.pathname === '/api/books/summary') {
       body = opts.emptyTrees.includes(who) ? { ok: true, needs_setup: true, ledgers: [] }
-        : { ok: true, needs_setup: false, path: 'all', chart: [], periods: { years: [], months: [] }, books: [], ledgers: [], row_count: 3, entity: 'Books' };
+        : { ok: true, needs_setup: false, path: 'all', chart: [], periods: { years: [], months: [] }, books: [{ id: 'chords', label: 'Chords of Truth, LLC' }], ledgers: [], row_count: 3, entity: 'Books', account: '', needs_review_count: opts.review || 0 };
+    } else if (u.pathname === '/api/books/lines') {
+      body = { ok: true, count: 2, chart: [], lines: [
+        { index: 0, date: '2026-01-02', payee: 'Need review', amount: -12, category: 'Uncategorized', needs_review: true, account: 'Checking', disabled: false, source_path: 'a' },
+        { index: 1, date: '2026-01-03', payee: 'Placed', amount: -8, category: 'Office', needs_review: false, account: 'Checking', disabled: false, source_path: 'a' },
+      ] };
     } else {
       body = { ok: true, files: [], items: [], rules: [] };
     }
@@ -101,6 +111,32 @@ function check(name, cond) { n++; if (cond) console.log('PASS ' + name); else { 
   for (let i = 0; i < 20; i++) await new Promise(res => setTimeout(res, 5));
   check('Your own books shows the setup card on the empty own space', r.state.presence === SELF && !r.els.setupView.classList.contains('hide'));
   check('setup card lists the shared books', !!r.els.setupShared && !r.els.setupShared.classList.contains('hide') && /Owner/.test(r.els.setupShared.innerHTML));
+
+  // Piece 1: one screen that explains itself
+  r = await run('simple-chrome', { self: SELF, grants: [OWNER], labels: LABELS, emptyTrees: [],
+    spaces: [{ id: SELF, label: 'Member', mine: true }, { id: OWNER, label: 'Owner', granted: true }] });
+  check('main Add statements button present', !!r.els.btnAddStatements);
+  check('main Add a line button present', !!r.els.btnAdd);
+  check('More menu holds moved controls', !!r.els.moreMenu && !!r.els.btnNewBook && !!r.els.btnNewAcct && !!r.els.btnShare && !!r.els.btnPaste && !!r.els.btnMap && !!r.els.btnTx && !!r.els.btnProcess);
+  check('add bar hidden until tapped', r.els.addLineBar.classList.contains('hide') && r.els.addLineBar.style.display !== 'flex');
+  if (r.els.btnAdd && r.els.btnAdd.onclick) r.els.btnAdd.onclick();
+  check('add bar opens after Add a line', !r.els.addLineBar.classList.contains('hide') && r.els.addLineBar.style.display === 'flex');
+  check('own-books link hidden on your own books', r.state.mine && r.els.ownBooksLink.classList.contains('hide'));
+  check('Review hidden at 0', r.els.btnReview.classList.contains('hide'));
+
+  r = await run('review-count', { self: SELF, grants: [], labels: LABELS, emptyTrees: [], review: 20,
+    spaces: [{ id: SELF, label: 'Member', mine: true }] });
+  check('Review shows the count', !r.els.btnReview.classList.contains('hide') && r.els.btnReview.textContent === 'Review (20)');
+  check('own books header does not repeat the plain line', r.els.hdrMeta.textContent === '');
+  check('plain line holds book account and period', /Chords of Truth, LLC/.test(r.els.plainLine.textContent) && /All accounts/.test(r.els.plainLine.textContent));
+  if (r.els.btnAddStatements && r.els.btnAddStatements.onclick) r.els.btnAddStatements.onclick();
+  check('Add statements opens the Drop hint', !r.els.dropHint.classList.contains('hide'));
+  check('Drop hint names Files Drop and this account', /Files > Bookkeeping > Drop > All accounts/.test(r.els.dropHintText.textContent) && /Read new statements/.test(r.els.dropHintText.textContent));
+  check('Drop hint has Read new statements', !!r.els.btnDropHintRead);
+  if (r.els.btnReview && r.els.btnReview.onclick) r.els.btnReview.onclick();
+  for (let i = 0; i < 20; i++) await new Promise(res => setTimeout(res, 5));
+  check('Review is titled To review', r.els.detailTitle.textContent === 'To review');
+  check('Review lists only needs_review lines', /Need review/.test(r.els.lineBody.innerHTML) && !/Placed/.test(r.els.lineBody.innerHTML));
 
   console.log((fails ? 'HARNESS_FAIL ' : 'HARNESS_OK ') + (n - fails) + '/' + n);
   process.exit(fails ? 1 : 0);
