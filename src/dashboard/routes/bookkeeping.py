@@ -17,6 +17,7 @@ GET   /api/books/map            vendor/phrase rules
 PUT   /api/books/map            replace rules; apply to uncategorized
 POST  /api/books/seed-map       fill map from already-placed payees
 POST  /api/books/account        create a blank ledger + Drop folder
+POST  /api/books/drop           upload a statement into that account's Drop folder
 POST  /api/books/process        start Drop ingest; returns a job_id immediately
 GET   /api/books/process/{job_id}  poll listed/added/unread and file N of M
 POST  /api/books/line           add a typed line on the Manual book
@@ -43,7 +44,7 @@ from urllib.parse import quote, unquote
 from xml.etree import ElementTree as ET
 
 import httpx
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.env import env
@@ -705,6 +706,29 @@ async def _read_return_bytes(request: Request, name: str) -> tuple[bytes | None,
     if len(resp.content) > bk.MAX_RETURN_FILE_BYTES:
         return None, "Return file is too large", 413
     return resp.content, None, 200
+
+
+async def _write_drop_bytes(
+    request: Request, folder: str, name: str, data: bytes
+) -> tuple[str | None, int]:
+    rel, rerr = bk.drop_write_rel(folder, name)
+    if rerr or not rel:
+        return rerr or "Not a statement file", 400
+    if len(data) > bk.MAX_DROP_FILE_BYTES:
+        return "Statement file is too large", 413
+    webdav_base, _user, auth, werr = await _webdav(request, rel)
+    if werr or not webdav_base or not auth:
+        return werr or "Nextcloud not configured", 503
+    url = f"{webdav_base}/{_quote_path(rel)}"
+    try:
+        async with httpx.AsyncClient(auth=auth, timeout=60.0) as client:
+            resp = await client.put(url, content=data)
+    except Exception as e:
+        logger.warning("books drop write failed")
+        return f"Upload failed: {e}", 502
+    if resp.status_code not in (200, 201, 204):
+        return f"Upload failed: HTTP {resp.status_code}", 502
+    return None, 200
 
 
 async def _write_return_bytes(request: Request, name: str, data: bytes) -> tuple[str | None, int]:
@@ -1923,6 +1947,56 @@ async def books_create_account(request: Request):
         "ledgers": bk.ledger_choices(names),
     })
 
+
+@router.post("/api/books/drop")
+async def books_upload_drop(
+    request: Request,
+    file: UploadFile = File(...),
+    path: str = Form(""),
+    presence: str = Form(""),
+):
+    body = {"presence": presence} if str(presence or "").strip() else None
+    owner, _act, err = await _books_target(request, body)
+    if err or owner is None:
+        return _access_error(err or "No manage grant for those books")
+    target = (path or "").strip()
+    if bk.is_all_transactions(target) or bk.is_manual_ledger(target):
+        return JSONResponse({"ok": False, "error": "Pick an account first"}, status_code=400)
+    ledger_path, _ledgers, rerr, rstatus = await _resolve_ledger_path(request, target)
+    if rerr or not ledger_path or bk.is_all_transactions(ledger_path):
+        return JSONResponse({"ok": False, "error": rerr or "Account not found"}, status_code=rstatus if rerr else 400)
+    if bk.is_manual_ledger(ledger_path):
+        return JSONResponse({"ok": False, "error": "Paste rows on Manual instead"}, status_code=400)
+    payload, clean, lerr, lstatus = await _read_ledger(request, ledger_path)
+    if lerr or payload is None:
+        return JSONResponse({"ok": False, "error": lerr, "path": clean}, status_code=lstatus)
+    label = bk.account_label(payload, clean)
+    folder = bk.drop_folder_for_stem(label)
+    if not folder:
+        return JSONResponse({"ok": False, "error": "Could not resolve Drop folder"}, status_code=400)
+    ferr, fstatus = await _ensure_drop_folder(request, folder)
+    if ferr:
+        return JSONResponse({"ok": False, "error": ferr}, status_code=fstatus)
+    data = await file.read()
+    if not data:
+        return JSONResponse({"ok": False, "error": "That file is empty"}, status_code=400)
+    werr, wstatus = await _write_drop_bytes(request, folder, file.filename or "", data)
+    if werr:
+        return JSONResponse({"ok": False, "error": werr}, status_code=wstatus)
+    names, list_err = await _list_drop_files(request, folder)
+    if list_err:
+        names = []
+    rel, _ = bk.drop_write_rel(folder, file.filename or "")
+    saved = (rel or "").rsplit("/", 1)[-1]
+    return JSONResponse({
+        "ok": True,
+        "path": clean,
+        "account": label,
+        "drop_folder": folder,
+        "name": saved,
+        "files": names,
+        "listed": len(names),
+    })
 
 
 def _ingest_drop_file(fresh: dict, parsed: list, name: str, book: str):

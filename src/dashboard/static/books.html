@@ -35,6 +35,7 @@ header .meta{font-size:.78rem;color:var(--dim);margin-top:4px}
 .more-menu:not(.hide){display:flex}
 @media (max-width: 640px){
   .chrome-main button{flex:1 1 100%}
+  .drop-hint .batch button{flex:1 1 100%}
 }
 .bk-close{position:fixed;top:10px;left:12px;z-index:50;width:36px;height:36px;border-radius:18px;
   border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:18px;line-height:1;
@@ -238,8 +239,13 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
       <button type="button" id="btnDropHintClose">Close</button>
     </div>
   </div>
+  <div id="accountPick" class="drop-hint hide">
+    <p id="accountPickText">Which account should these statements go into?</p>
+    <div class="batch" id="accountPickBtns"></div>
+  </div>
   <div class="chrome-main">
     <button type="button" class="primary" id="btnAddStatements">Add statements</button>
+    <input type="file" id="stmtFile" class="hide" accept=".pdf,.csv,.txt,.tsv,image/png,image/jpeg,image/webp,image/heic" multiple>
     <button type="button" id="btnReview" class="hide">Review</button>
     <button type="button" id="btnAdd">Add a line</button>
   </div>
@@ -404,6 +410,18 @@ function booksHeaders() {
   if (state.presence) h['X-Books-Presence'] = state.presence;
   return h;
 }
+function booksPresenceHeaders() {
+  const h = {};
+  if (state.presence) h['X-Books-Presence'] = state.presence;
+  return h;
+}
+function statementAccounts() {
+  return (state.ledgers || []).filter(item => {
+    const path = item && item.path ? item.path : '';
+    if (!path || path === 'all') return false;
+    return path.indexOf('manual.mapped.json') === -1;
+  });
+}
 function fillSpaces() {
   const wrap = $('presenceWrap');
   const sel = $('presenceSel');
@@ -545,14 +563,62 @@ function hideViews() {
   if ($('newBookView')) $('newBookView').classList.add('hide');
   if ($('newCatView')) $('newCatView').classList.add('hide');
   showDropHint(false);
+  showAccountPick(false);
 }
 function showDropHint(on) {
   const panel = $('dropHint');
   if (!panel) return;
   if (!on) { panel.classList.add('hide'); return; }
+  showAccountPick(false);
   const name = accountPlain();
   if ($('dropHintText')) {
     $('dropHintText').textContent = 'Statements go in Files > Bookkeeping > Drop > ' + name + '. Then tap Read new statements.';
+  }
+  panel.classList.remove('hide');
+}
+function showAccountPick(list, onPick) {
+  const panel = $('accountPick');
+  const row = $('accountPickBtns');
+  if (!panel) {
+    if (typeof onPick === 'function') onPick(null);
+    return;
+  }
+  if (!list) {
+    panel.classList.add('hide');
+    return;
+  }
+  showDropHint(false);
+  const text = $('accountPickText');
+  if (text) text.textContent = 'Which account should these statements go into?';
+  if (row) {
+    row.innerHTML = '';
+    if (Array.isArray(row.children)) row.children = [];
+    (list || []).forEach((item) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = item.label || item.path;
+      b.onclick = () => {
+        panel.classList.add('hide');
+        if (typeof onPick === 'function') onPick(item);
+      };
+      row.appendChild(b);
+    });
+    const neu = document.createElement('button');
+    neu.type = 'button';
+    neu.textContent = 'New account';
+    neu.onclick = () => {
+      panel.classList.add('hide');
+      if (typeof onPick === 'function') onPick({ newAccount: true });
+    };
+    row.appendChild(neu);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'Close';
+    close.onclick = () => {
+      panel.classList.add('hide');
+      if (typeof onPick === 'function') onPick(null);
+    };
+    row.appendChild(close);
   }
   panel.classList.remove('hide');
 }
@@ -1115,10 +1181,70 @@ $('btnAdd').onclick = () => {
   showAddBar(true);
   if ($('newPayee')) $('newPayee').focus();
 };
-if ($('btnAddStatements')) $('btnAddStatements').onclick = () => {
+async function ensureStatementAccount() {
+  if (state.path && state.path !== 'all' && state.path.indexOf('manual.mapped.json') === -1) {
+    return state.path;
+  }
+  const list = statementAccounts();
+  if (!list.length) {
+    await createAccount();
+    return (state.path && state.path !== 'all') ? state.path : '';
+  }
+  return await new Promise((resolve) => {
+    showAccountPick(list, async (choice) => {
+      if (!choice) { resolve(''); return; }
+      if (choice.newAccount) {
+        await createAccount();
+        resolve((state.path && state.path !== 'all') ? state.path : '');
+        return;
+      }
+      state.path = choice.path;
+      fillLedgers();
+      fillPlainLine();
+      resolve(choice.path);
+    });
+  });
+}
+async function uploadStatementFiles(fileList) {
+  const files = Array.from(fileList || []).filter(Boolean);
+  if (!files.length) return;
+  const path = await ensureStatementAccount();
+  if (!path) return;
+  showErr('');
+  $('status').textContent = files.length === 1 ? 'Uploading statement…' : 'Uploading statements…';
+  for (const file of files) {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    body.append('path', path);
+    if (state.presence) body.append('presence', state.presence);
+    const r = await fetch('/api/books/drop', { method: 'POST', headers: booksPresenceHeaders(), body });
+    const data = await r.json();
+    if (!data.ok) {
+      $('status').textContent = '';
+      showErr(data.error || 'Upload failed');
+      return;
+    }
+    if (data.path) state.path = data.path;
+    if (data.ledgers) state.ledgers = data.ledgers;
+  }
+  fillLedgers();
+  await processDrop();
+}
+if ($('btnAddStatements')) $('btnAddStatements').onclick = async () => {
   showPasteBar(false);
   showAddBar(false);
-  showDropHint(true);
+  showDropHint(false);
+  showAccountPick(false);
+  const path = await ensureStatementAccount();
+  if (!path) return;
+  const picker = $('stmtFile');
+  if (!picker) return;
+  picker.value = '';
+  picker.click();
+};
+if ($('stmtFile')) $('stmtFile').onchange = () => {
+  const picker = $('stmtFile');
+  uploadStatementFiles(picker && picker.files);
 };
 if ($('btnDropHintRead')) $('btnDropHintRead').onclick = () => { showDropHint(false); processDrop(); };
 if ($('btnDropHintClose')) $('btnDropHintClose').onclick = () => showDropHint(false);
@@ -1179,12 +1305,12 @@ $('ledgerSel').onchange = () => {
   loadSummary();
 };
 async function createAccount() {
-  const name = (window.prompt('New ledger name (creates an empty account and a Drop folder)', '') || '').trim();
-  if (!name) return;
+  const name = (window.prompt('New account name (creates an empty account and a Drop folder)', '') || '').trim();
+  if (!name) return '';
   showErr('');
   $('status').textContent = 'Creating account…';
   const book = state.book === 'all-books' ? '' : (state.book || 'chords');
-  if (!book) { showErr('Pick a filing book before creating an account'); return; }
+  if (!book) { showErr('Pick a filing book before creating an account'); return ''; }
   const r = await fetch('/api/books/account', {
     method: 'POST',
     headers: booksHeaders(),
@@ -1194,13 +1320,15 @@ async function createAccount() {
   if (!data.ok) {
     $('status').textContent = '';
     showErr(data.error || 'Could not create account');
-    return;
+    return '';
   }
   state.path = data.path || state.path;
   if (data.ledgers) state.ledgers = data.ledgers;
   fillLedgers();
-  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.account || name)}. Drop statements in Files → ${escapeHtml(data.drop_folder || '')}</span>`;
+  fillPlainLine();
+  $('status').innerHTML = `<span class="okmsg">Created ${escapeHtml(data.account || name)}</span>`;
   await loadSummary();
+  return state.path || '';
 }
 function processStatusBits(data, book, totals) {
   const bits = [];

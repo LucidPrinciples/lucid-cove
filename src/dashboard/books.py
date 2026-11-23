@@ -207,6 +207,23 @@ def drop_folder_for_stem(stem: str) -> str | None:
     return f"{DROP_PREFIX}/{s}"
 
 
+def drop_write_rel(folder: str, filename: str) -> tuple[str | None, str | None]:
+    """Relative Drop path for an uploaded statement. Does not log the name."""
+    folder_rel = (folder or "").replace("\\", "/").strip().strip("/")
+    if not folder_rel.startswith(f"{DROP_PREFIX}/") or ".." in folder_rel.split("/"):
+        return None, "Invalid path"
+    if folder_rel.count("/") != 2:
+        return None, "Invalid path"
+    raw = (filename or "").replace("\\", "/").split("/")[-1].strip()
+    if not raw or raw.startswith(".") or not drop_file_kind(raw):
+        return None, "Not a statement file"
+    cleaned = "".join(ch if ch.isalnum() or ch in " .-_()" else "-" for ch in raw).strip(" .")
+    cleaned = cleaned[:120]
+    if not cleaned or not drop_file_kind(cleaned):
+        return None, "Not a statement file"
+    return f"{folder_rel}/{cleaned}", None
+
+
 def account_stem(label: str) -> str:
     raw = (label or "").strip()
     raw = raw.replace("\\", "/").split("/")[-1]

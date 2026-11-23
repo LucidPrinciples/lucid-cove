@@ -32,6 +32,10 @@ def test_page_has_the_shared_first_open():
     assert "Statements go in Files > Bookkeeping > Drop >" in text
     assert "To review" in text
     assert "line.needs_review" in text
+    assert 'id="stmtFile"' in text
+    assert "/api/books/drop" in text
+    assert "function ensureStatementAccount(" in text
+    assert "function uploadStatementFiles(" in text
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")

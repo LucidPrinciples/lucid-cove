@@ -535,6 +535,20 @@ def test_new_account_spec_and_drop_folder():
     assert bk.drop_file_kind("notes.md") == ""
 
 
+def test_drop_write_rel_stays_in_account_folder():
+    rel, err = bk.drop_write_rel("Bookkeeping/Drop/Checking", "June statement.pdf")
+    assert err is None
+    assert rel == "Bookkeeping/Drop/Checking/June statement.pdf"
+    bad, err = bk.drop_write_rel("Bookkeeping/Drop", "June.pdf")
+    assert bad is None and err
+    nested, err = bk.drop_write_rel("Bookkeeping/Drop/Checking/extra", "June.pdf")
+    assert nested is None and err
+    skip, err = bk.drop_write_rel("Bookkeeping/Drop/Checking", "../June.pdf")
+    assert err is None and skip == "Bookkeeping/Drop/Checking/June.pdf"
+    empty, err = bk.drop_write_rel("Bookkeeping/Drop/Checking", "notes.md")
+    assert empty is None and err
+
+
 def test_extract_pdf_text_from_digital_statement():
     from io import BytesIO
     from pypdf import PdfWriter, PdfReader
@@ -885,7 +899,12 @@ def test_books_page_keeps_process_status():
     assert "placed ${totals.mapped} by map" in page
     assert "withPresence({ path, year: state.year || 2025, filing_book: book })" in page
     assert "/api/books/process/" in page
+    assert "/api/books/drop" in page
+    assert "uploadStatementFiles" in page
+    assert "ensureStatementAccount" in page
     routes = Path("src/dashboard/routes/bookkeeping.py").read_text()
+    assert "/api/books/drop" in routes
+    assert "books drop write failed" in routes
     assert "Drop folder is not in Files yet" in routes
     assert "books process listed=" in routes
     assert "apply_vendor_map" in routes
