@@ -2228,6 +2228,24 @@ def merge_vendor_maps(payloads: list[dict]) -> list[dict]:
     return sorted(by_phrase.values(), key=lambda x: x["phrase"])
 
 
+def row_needs_review(row: dict) -> bool:
+    """A line still waiting for a person: flagged needs_review and not disabled."""
+    return isinstance(row, dict) and bool(row.get("needs_review")) and not row_is_disabled(row)
+
+
+def review_count(rows: list, filing_book: str = ALL_BOOKS, payload: dict | None = None) -> int:
+    """Lines to review in this book, every period. Same rule as collect_lines(review_only=True)."""
+    book = normalize_filing_book(filing_book, default=ALL_BOOKS)
+    n = 0
+    for row in rows or []:
+        if not row_needs_review(row):
+            continue
+        if book != ALL_BOOKS and row_filing_book(row, payload) != book:
+            continue
+        n += 1
+    return n
+
+
 def collect_lines(
     rows: list,
     source_path: str,
@@ -2238,6 +2256,7 @@ def collect_lines(
     limit: int = MAX_COMBINED_LINES,
     filing_book: str = ALL_BOOKS,
     payload: dict | None = None,
+    review_only: bool = False,
 ) -> list[dict]:
     want = (category or "").strip()
     all_cats = not want or want == ALL_LINES
@@ -2248,6 +2267,8 @@ def collect_lines(
         if not isinstance(row, dict):
             continue
         if book != ALL_BOOKS and row_filing_book(row, payload) != book:
+            continue
+        if review_only and not row_needs_review(row):
             continue
         if not in_period(row, year, month):
             continue

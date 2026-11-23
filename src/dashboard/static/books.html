@@ -964,8 +964,11 @@ async function openCategory(label, opts) {
   const p = new URLSearchParams();
   if (state.path) p.set('path', state.path);
   if (state.book) p.set('book', state.book);
-  if (state.year) p.set('year', String(state.year));
-  if (state.month) p.set('month', String(state.month));
+  if (state.reviewOnly) p.set('review', '1');
+  else {
+    if (state.year) p.set('year', String(state.year));
+    if (state.month) p.set('month', String(state.month));
+  }
   p.set('category', label);
   if (state.presence) p.set('presence', state.presence);
   const r = await fetch('/api/books/lines?' + p.toString());
