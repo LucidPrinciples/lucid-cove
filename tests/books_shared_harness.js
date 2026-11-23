@@ -12,26 +12,30 @@ function makeEl(id) {
   const classes = new Set(
     id === 'setupView' || id === 'setupShared' || id === 'presenceWrap' || id === 'ownBooksLink'
     || id === 'btnShare' || id === 'addLineBar' || id === 'btnReview' || id === 'moreMenu'
-    || id === 'helpPanel' || id === 'dropHint' ? ['hide'] : []
+    || id === 'helpPanel' || id === 'dropHint' || id === 'accountPick' ? ['hide'] : []
   );
   const listeners = {};
-  return {
+  const el = {
     id, innerHTML: '', textContent: '', value: '', style: {}, dataset: {}, disabled: false, checked: false, files: [],
+    children: [],
     classList: {
       add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c),
       toggle: (c, on) => { const want = on === undefined ? !classes.has(c) : !!on; if (want) classes.add(c); else classes.delete(c); return want; },
     },
     addEventListener: (t, fn) => { listeners[t] = fn; }, _listeners: listeners,
-    setAttribute() {}, getAttribute() { return null; }, appendChild() {}, querySelector() { return null; },
-    querySelectorAll() { return []; }, closest() { return null; }, focus() {}, scrollIntoView() {},
+    setAttribute() {}, getAttribute() { return null; },
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector() { return null; },
+    querySelectorAll() { return this.children; }, closest() { return null; }, focus() {}, scrollIntoView() {},
     click() { this._clicks = (this._clicks || 0) + 1; }, _clicks: 0,
   };
+  return el;
 }
 
 async function run(caseName, opts) {
   const els = {};
   const $el = (id) => (els[id] = els[id] || makeEl(id));
-  ['btnAddStatements','btnAdd','btnReview','btnMore','moreMenu','btnNewBook','btnNewAcct','btnShare','btnPaste','btnMap','btnTx','btnProcess','addLineBar','ownBooksLink','plainLine','helpPanel','btnHelp','presenceWrap','setupView','setupShared','hdrMeta','dropHint','dropHintText','btnDropHintRead','btnDropHintClose','detailTitle','detailCount','batchCat','lineBody','newCat','newDate','chkAll','pnlView','detailView','mapView','txView','status','err','stmtFile','ledgerSel'].forEach($el);
+  ['btnAddStatements','btnAdd','btnReview','btnMore','moreMenu','btnNewBook','btnNewAcct','btnShare','btnPaste','btnMap','btnTx','btnProcess','addLineBar','ownBooksLink','plainLine','helpPanel','btnHelp','presenceWrap','setupView','setupShared','hdrMeta','dropHint','dropHintText','btnDropHintRead','btnDropHintClose','accountPick','accountPickText','accountPickBtns','detailTitle','detailCount','batchCat','lineBody','newCat','newDate','chkAll','pnlView','detailView','mapView','txView','status','err','stmtFile','ledgerSel'].forEach($el);
   const calls = [];
   const fetchStub = async (url, init) => {
     calls.push(url);
@@ -150,10 +154,18 @@ function check(name, cond) { n++; if (cond) console.log('PASS ' + name); else { 
 
   const checking = [{ path: 'Bookkeeping/Organize/Checking.mapped.json', label: 'Checking' }];
   r = await run('drop-all-accounts', { self: SELF, grants: [], labels: LABELS, emptyTrees: [],
-    ledgers: checking, path: 'all', prompt: 'Checking',
+    ledgers: checking, path: 'all',
     spaces: [{ id: SELF, label: 'Member', mine: true }] });
-  if (r.els.btnAddStatements && r.els.btnAddStatements.onclick) await r.els.btnAddStatements.onclick();
-  check('All accounts asks which account then opens the picker', r.state.path === checking[0].path && r.els.stmtFile._clicks === 1);
+  if (r.els.btnAddStatements && r.els.btnAddStatements.onclick) {
+    r.els.btnAddStatements.onclick();
+    for (let i = 0; i < 10; i++) await new Promise(res => setTimeout(res, 5));
+  }
+  const pickBtns = (r.els.accountPickBtns && r.els.accountPickBtns.children) || [];
+  check('All accounts shows tap choices, not a typed prompt', !r.els.accountPick.classList.contains('hide') && r.els.stmtFile._clicks !== 1 && pickBtns.some(b => b.textContent === 'Checking') && pickBtns.some(b => b.textContent === 'New account'));
+  const checkingBtn = pickBtns.find(b => b.textContent === 'Checking');
+  if (checkingBtn && checkingBtn.onclick) await checkingBtn.onclick();
+  for (let i = 0; i < 20; i++) await new Promise(res => setTimeout(res, 5));
+  check('tapping an account opens the picker', r.state.path === checking[0].path && r.els.stmtFile._clicks === 1 && r.els.accountPick.classList.contains('hide'));
 
   r = await run('drop-upload', { self: SELF, grants: [], labels: LABELS, emptyTrees: [],
     ledgers: checking, path: checking[0].path,

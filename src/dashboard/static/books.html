@@ -35,6 +35,7 @@ header .meta{font-size:.78rem;color:var(--dim);margin-top:4px}
 .more-menu:not(.hide){display:flex}
 @media (max-width: 640px){
   .chrome-main button{flex:1 1 100%}
+  .drop-hint .batch button{flex:1 1 100%}
 }
 .bk-close{position:fixed;top:10px;left:12px;z-index:50;width:36px;height:36px;border-radius:18px;
   border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:18px;line-height:1;
@@ -237,6 +238,10 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
       <button type="button" class="primary" id="btnDropHintRead">Read new statements</button>
       <button type="button" id="btnDropHintClose">Close</button>
     </div>
+  </div>
+  <div id="accountPick" class="drop-hint hide">
+    <p id="accountPickText">Which account should these statements go into?</p>
+    <div class="batch" id="accountPickBtns"></div>
   </div>
   <div class="chrome-main">
     <button type="button" class="primary" id="btnAddStatements">Add statements</button>
@@ -558,14 +563,62 @@ function hideViews() {
   if ($('newBookView')) $('newBookView').classList.add('hide');
   if ($('newCatView')) $('newCatView').classList.add('hide');
   showDropHint(false);
+  showAccountPick(false);
 }
 function showDropHint(on) {
   const panel = $('dropHint');
   if (!panel) return;
   if (!on) { panel.classList.add('hide'); return; }
+  showAccountPick(false);
   const name = accountPlain();
   if ($('dropHintText')) {
     $('dropHintText').textContent = 'Statements go in Files > Bookkeeping > Drop > ' + name + '. Then tap Read new statements.';
+  }
+  panel.classList.remove('hide');
+}
+function showAccountPick(list, onPick) {
+  const panel = $('accountPick');
+  const row = $('accountPickBtns');
+  if (!panel) {
+    if (typeof onPick === 'function') onPick(null);
+    return;
+  }
+  if (!list) {
+    panel.classList.add('hide');
+    return;
+  }
+  showDropHint(false);
+  const text = $('accountPickText');
+  if (text) text.textContent = 'Which account should these statements go into?';
+  if (row) {
+    row.innerHTML = '';
+    if (Array.isArray(row.children)) row.children = [];
+    (list || []).forEach((item) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = item.label || item.path;
+      b.onclick = () => {
+        panel.classList.add('hide');
+        if (typeof onPick === 'function') onPick(item);
+      };
+      row.appendChild(b);
+    });
+    const neu = document.createElement('button');
+    neu.type = 'button';
+    neu.textContent = 'New account';
+    neu.onclick = () => {
+      panel.classList.add('hide');
+      if (typeof onPick === 'function') onPick({ newAccount: true });
+    };
+    row.appendChild(neu);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'Close';
+    close.onclick = () => {
+      panel.classList.add('hide');
+      if (typeof onPick === 'function') onPick(null);
+    };
+    row.appendChild(close);
   }
   panel.classList.remove('hide');
 }
@@ -1137,21 +1190,20 @@ async function ensureStatementAccount() {
     await createAccount();
     return (state.path && state.path !== 'all') ? state.path : '';
   }
-  const names = list.map(item => item.label || item.path).join(', ');
-  const picked = (window.prompt('Which account should these statements go into? ' + names, list[0].label || '') || '').trim();
-  if (!picked) return '';
-  const hit = list.find(item => {
-    const label = (item.label || '').toLowerCase();
-    return label === picked.toLowerCase() || item.path === picked;
+  return await new Promise((resolve) => {
+    showAccountPick(list, async (choice) => {
+      if (!choice) { resolve(''); return; }
+      if (choice.newAccount) {
+        await createAccount();
+        resolve((state.path && state.path !== 'all') ? state.path : '');
+        return;
+      }
+      state.path = choice.path;
+      fillLedgers();
+      fillPlainLine();
+      resolve(choice.path);
+    });
   });
-  if (!hit) {
-    showErr('Pick an existing account, or use New account');
-    return '';
-  }
-  state.path = hit.path;
-  fillLedgers();
-  fillPlainLine();
-  return hit.path;
 }
 async function uploadStatementFiles(fileList) {
   const files = Array.from(fileList || []).filter(Boolean);
@@ -1182,6 +1234,7 @@ if ($('btnAddStatements')) $('btnAddStatements').onclick = async () => {
   showPasteBar(false);
   showAddBar(false);
   showDropHint(false);
+  showAccountPick(false);
   const path = await ensureStatementAccount();
   if (!path) return;
   const picker = $('stmtFile');
