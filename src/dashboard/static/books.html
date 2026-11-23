@@ -19,8 +19,23 @@ html,body{height:100%;height:100dvh}
 body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);
   height:100%;max-height:100dvh;display:flex;flex-direction:column;overflow:hidden}
 header{padding:16px 18px 12px;border-bottom:1px solid var(--border);flex-shrink:0;position:relative}
-header h1{font-size:1.05rem;font-weight:600;letter-spacing:.02em}
+header h1{font-size:1.05rem;font-weight:600;letter-spacing:.02em;flex:1}
+header .head-row{display:flex;align-items:center;gap:8px}
 header .meta{font-size:.78rem;color:var(--dim);margin-top:4px}
+#btnHelp{width:32px;height:32px;border-radius:16px;padding:0;flex-shrink:0}
+.help-panel{font-size:.88rem;color:var(--dim);line-height:1.45;margin-top:8px}
+.help-panel ol{padding-left:1.2em;margin:0}
+.drop-hint{width:100%;font-size:.88rem;color:var(--dim);line-height:1.45;padding:8px 0 2px}
+.drop-hint p{margin-bottom:8px}
+.chrome-plain{font-size:.82rem;color:var(--dim);width:100%}
+.chrome-whose,.chrome-main{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%}
+.chrome-more{width:100%}
+.more-wrap{position:relative;display:inline-block}
+.more-menu{position:absolute;left:0;top:calc(100% + 4px);z-index:20;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px;flex-direction:column;gap:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.more-menu:not(.hide){display:flex}
+@media (max-width: 640px){
+  .chrome-main button{flex:1 1 100%}
+}
 .bk-close{position:fixed;top:10px;left:12px;z-index:50;width:36px;height:36px;border-radius:18px;
   border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:18px;line-height:1;
   display:none;align-items:center;justify-content:center;cursor:pointer;padding:0}
@@ -48,7 +63,8 @@ tr.clickable{cursor:pointer}
 tr.clickable:hover{background:#16161f}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .muted{color:var(--dim)} .faint{color:var(--faint)}
-#ownBooksLink{font-size:.85rem;display:inline-block;margin-top:4px}
+#ownBooksLink{font-size:.85rem;margin-top:4px}
+#ownBooksLink:not(.hide){display:inline-block}
 #setupShared{margin-bottom:14px}
 #setupShared button{margin:4px 6px 0 0}
 .pill{display:inline-block;font-size:.7rem;padding:2px 7px;border-radius:999px;border:1px solid var(--border);color:var(--dim)}
@@ -103,9 +119,19 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <body>
 <button class="bk-close" type="button" aria-label="Close">×</button>
 <header>
-  <h1>Bookkeeping</h1>
+  <div class="head-row">
+    <h1>Bookkeeping</h1>
+    <button type="button" id="btnHelp" aria-label="How books work">?</button>
+  </div>
   <div class="meta" id="hdrMeta">Loading…</div>
   <a href="#" id="ownBooksLink" class="faint hide">Your own books</a>
+  <div id="helpPanel" class="help-panel hide">
+    <ol>
+      <li>Add your bank or card statements.</li>
+      <li>Review anything the books could not sort.</li>
+      <li>Read your totals.</li>
+    </ol>
+  </div>
 </header>
 <div id="setupView" class="setup-view hide">
   <div class="setup-card">
@@ -190,27 +216,47 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
 </div>
 <div class="toolbar" id="toolbar">
-  <label class="faint hide" id="presenceWrap">Books for
-    <select id="presenceSel"></select>
-  </label>
-  <button type="button" id="btnShare" class="hide">Share books</button>
-  <label class="faint">Book
-    <select id="bookSel"></select>
-  </label>
-  <label class="faint">Ledger
-    <select id="ledgerSel"></select>
-  </label>
-  <button type="button" id="btnNewBook">New book</button>
-  <button type="button" id="btnNewAcct">New account</button>
-  <button type="button" id="btnProcess">Process</button>
-  <label class="faint">Period
-    <select id="periodSel"></select>
-  </label>
-  <button type="button" id="btnAll">All time</button>
-  <button type="button" id="btnTx">Transactions</button>
-  <button type="button" id="btnMap">Import map</button>
-  <button type="button" class="primary" id="btnAdd">Add line</button>
-  <button type="button" id="btnPaste">Paste rows</button>
+  <div class="chrome-whose">
+    <label class="faint hide" id="presenceWrap">Books for
+      <select id="presenceSel"></select>
+    </label>
+    <label class="faint">Book
+      <select id="bookSel"></select>
+    </label>
+    <label class="faint">Account
+      <select id="ledgerSel"></select>
+    </label>
+    <label class="faint">Period
+      <select id="periodSel"></select>
+    </label>
+  </div>
+  <p class="chrome-plain" id="plainLine"></p>
+  <div id="dropHint" class="drop-hint hide">
+    <p id="dropHintText"></p>
+    <div class="batch">
+      <button type="button" class="primary" id="btnDropHintRead">Read new statements</button>
+      <button type="button" id="btnDropHintClose">Close</button>
+    </div>
+  </div>
+  <div class="chrome-main">
+    <button type="button" class="primary" id="btnAddStatements">Add statements</button>
+    <button type="button" id="btnReview" class="hide">Review</button>
+    <button type="button" id="btnAdd">Add a line</button>
+  </div>
+  <div class="chrome-more">
+    <div class="more-wrap">
+      <button type="button" id="btnMore">More ▾</button>
+      <div id="moreMenu" class="more-menu hide">
+        <button type="button" id="btnNewBook">New book</button>
+        <button type="button" id="btnNewAcct">New account</button>
+        <button type="button" id="btnShare" class="hide">Share books</button>
+        <button type="button" id="btnPaste">Paste rows</button>
+        <button type="button" id="btnMap">Import category rules</button>
+        <button type="button" id="btnTx">All transactions</button>
+        <button type="button" id="btnProcess">Read new statements</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div id="shareView" class="setup-view hide">
   <div class="setup-card">
@@ -223,7 +269,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
 </div>
 <div id="err" class="err hide"></div>
-<div class="add-line" id="addLineBar">
+<div class="add-line hide" id="addLineBar" style="display:none">
   <input id="newDate" type="date">
   <input id="newPayee" class="payee" type="text" placeholder="Payee" autocomplete="off">
   <input id="newAmt" class="amt" type="text" inputmode="decimal" placeholder="Amount">
@@ -295,7 +341,7 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <div id="mapView" class="hide" style="display:none;flex-direction:column;flex:1;min-height:0">
   <div class="map-bar">
     <button type="button" id="btnMapBack">← P&amp;L</button>
-    <h2>Import map</h2>
+    <h2>Category rules</h2>
     <span class="pill" id="mapCount"></span>
   </div>
   <div class="map-add">
@@ -398,7 +444,7 @@ function fillLedgers() {
   const sel = $('ledgerSel');
   const list = state.ledgers || [];
   if (!list.length) {
-    sel.innerHTML = '<option value="all">All Transactions</option>';
+    sel.innerHTML = '<option value="all">All accounts</option>';
     sel.value = 'all';
     return;
   }
@@ -498,6 +544,17 @@ function hideViews() {
   if ($('setupView')) $('setupView').classList.add('hide');
   if ($('newBookView')) $('newBookView').classList.add('hide');
   if ($('newCatView')) $('newCatView').classList.add('hide');
+  showDropHint(false);
+}
+function showDropHint(on) {
+  const panel = $('dropHint');
+  if (!panel) return;
+  if (!on) { panel.classList.add('hide'); return; }
+  const name = accountPlain();
+  if ($('dropHintText')) {
+    $('dropHintText').textContent = 'Statements go in Files > Bookkeeping > Drop > ' + name + '. Then tap Read new statements.';
+  }
+  panel.classList.remove('hide');
 }
 function showNewBook(on) {
   const panel = $('newBookView');
@@ -516,16 +573,15 @@ function showNewBook(on) {
   } else {
     panel.classList.add('hide');
     if (bar) bar.classList.remove('hide');
-    if (add) add.classList.remove('hide');
+    showAddBar(false);
   }
 }
 function showSetup(on) {
   const setup = $('setupView');
   const bar = $('toolbar');
-  const add = $('addLineBar');
   if (setup) setup.classList.toggle('hide', !on);
   if (bar) bar.classList.toggle('hide', !!on);
-  if (add) add.classList.toggle('hide', !!on);
+  showAddBar(false);
   if (on) {
     hideViews();
     if (setup) setup.classList.remove('hide');
@@ -614,17 +670,21 @@ function showAddBar(on) {
   const bar = $('addLineBar');
   if (!bar) return;
   bar.style.display = on ? 'flex' : 'none';
-  if (on) showPasteBar(false);
+  bar.classList.toggle('hide', !on);
+  if (on) {
+    showPasteBar(false);
+    showDropHint(false);
+  }
 }
 function showPnl() {
   state.category = null;
   hideViews();
-  showAddBar(true);
+  showAddBar(false);
   $('pnlView').classList.remove('hide');
 }
 function showDetail() {
   hideViews();
-  showAddBar(true);
+  showAddBar(false);
   $('detailView').style.display = 'flex';
 }
 function showMap() {
@@ -731,6 +791,47 @@ function fillOwnLink() {
   const own = ownSpaceId(state.spaces);
   link.classList.toggle('hide', !(own && !state.mine));
 }
+function periodPlain() {
+  if (state.year && state.month) {
+    return new Date(state.year, state.month - 1, 1).toLocaleString(undefined, {month:'short', year:'numeric'});
+  }
+  if (state.year) {
+    const now = new Date();
+    if (state.year === now.getFullYear()) return 'This year';
+    return String(state.year);
+  }
+  return 'All time';
+}
+function accountPlain() {
+  if (!state.path || state.path === 'all') return 'All accounts';
+  const list = state.ledgers || [];
+  const hit = list.find(item => item && ((item.path || '') === state.path || String(item) === state.path));
+  if (hit && hit.label) return hit.label;
+  const parts = String(state.path).split('/');
+  return parts[parts.length - 1] || 'All accounts';
+}
+function fillPlainLine() {
+  const book = (state.books || []).find(item => (item.id || item) === state.book);
+  const bookLabel = (book && book.label) || state.book || 'Books';
+  const line = [bookLabel, accountPlain(), periodPlain()].join(' · ');
+  if ($('plainLine')) $('plainLine').textContent = line;
+  const setupOn = $('setupView') && !$('setupView').classList.contains('hide');
+  if ($('hdrMeta') && !setupOn) {
+    $('hdrMeta').textContent = (!state.mine && state.presenceLabel) ? state.presenceLabel : '';
+  }
+}
+function fillReview(count) {
+  const btn = $('btnReview');
+  if (!btn) return;
+  const n = Number(count) || 0;
+  if (n > 0) {
+    btn.textContent = 'Review (' + n + ')';
+    btn.classList.remove('hide');
+  } else {
+    btn.textContent = 'Review';
+    btn.classList.add('hide');
+  }
+}
 async function openSpace(id, opts) {
   state.presence = id || '';
   state.path = 'all';
@@ -780,14 +881,10 @@ async function loadSummary(opts) {
   fillBooks();
   fillLedgers();
   fillPeriod();
-  const ent = data.filing_book_label || data.entity || 'Books';
-  const acct = data.account || '';
-  const review = data.needs_review_count != null ? ` · ${data.needs_review_count} need review` : '';
-  const mapN = (state.vendorMap || []).length;
-  const who = (!state.mine && state.presenceLabel) ? `${state.presenceLabel} · ` : '';
-  $('hdrMeta').textContent = `${who}${ent}${acct ? ' · ' + acct : ''} · ${data.row_count || 0} lines · ${mapN} map rules${review}`;
+  fillPlainLine();
+  fillReview(data.needs_review_count);
   if (data.seeded) {
-    $('status').innerHTML = `<span class="okmsg">Filled ${data.seeded} map rules from placed lines</span>`;
+    $('status').innerHTML = `<span class="okmsg">Filled ${data.seeded} category rules from placed lines</span>`;
   } else if (keepStatus && priorStatus) {
     $('status').innerHTML = priorStatus;
   }
@@ -855,10 +952,11 @@ function pnlRow(line, kind) {
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-async function openCategory(label) {
+async function openCategory(label, opts) {
   state.category = label;
+  state.reviewOnly = !!(opts && opts.reviewOnly);
   const titles = {'*': 'Transactions', '__disabled__': 'Disabled'};
-  $('detailTitle').textContent = titles[label] || label;
+  $('detailTitle').textContent = state.reviewOnly ? 'To review' : (titles[label] || label);
   showDetail();
   if ($('newCat')) $('newCat').innerHTML = chartOptions();
   if ($('newDate') && !$('newDate').value) $('newDate').value = new Date().toISOString().slice(0,10);
@@ -874,13 +972,15 @@ async function openCategory(label) {
   const data = await r.json();
   if (!data.ok) { $('lineBody').innerHTML = `<tr><td colspan="7">${escapeHtml(data.error || 'Error')}</td></tr>`; return; }
   state.chart = data.chart || state.chart;
-  $('detailCount').textContent = (data.count || 0) + ' lines';
   $('batchCat').innerHTML = chartOptions();
-  const opts = chartOptions();
-  state.lines = data.lines || [];
-  const body = (data.lines || []).map(line => {
+  const optsHtml = chartOptions();
+  let lines = data.lines || [];
+  if (state.reviewOnly) lines = lines.filter(line => line && line.needs_review && !line.disabled);
+  state.lines = lines;
+  $('detailCount').textContent = lines.length + ' lines';
+  const body = lines.map(line => {
     const src = escapeHtml(line.source_path || state.path || '');
-    const sel = `<select data-index="${line.index}" data-source="${src}" data-was="${escapeHtml(line.category)}"${line.disabled ? ' disabled' : ''}>${opts}</select>`;
+    const sel = `<select data-index="${line.index}" data-source="${src}" data-was="${escapeHtml(line.category)}"${line.disabled ? ' disabled' : ''}>${optsHtml}</select>`;
     const off = line.disabled ? ' off' : '';
     const pill = line.disabled ? ' <span class="pill">off</span>' : (line.manual ? ' <span class="pill">typed</span>' : '');
     const toggle = `<button type="button" data-act="toggle" data-index="${line.index}" data-source="${src}" data-off="${line.disabled ? '1' : '0'}">${line.disabled ? 'Restore' : 'Disable'}</button>`;
@@ -901,6 +1001,10 @@ async function openCategory(label) {
     sel.value = sel.getAttribute('data-was') || '';
     sel.addEventListener('change', () => saveLine(sel));
   });
+}
+function reopenCategory() {
+  if (!state.category) return Promise.resolve();
+  return openCategory(state.category, { reviewOnly: state.reviewOnly });
 }
 function checkedItems() {
   return Array.from(document.querySelectorAll('.line-check:checked')).map(el => ({
@@ -930,7 +1034,7 @@ async function saveLine(sel) {
   if (data.vendor_map) state.vendorMap = data.vendor_map;
   $('status').innerHTML = '<span class="okmsg">Saved · map updated</span>';
   await loadSummary();
-  if (state.category) await openCategory(state.category);
+  await reopenCategory();
 }
 async function applyChecked() {
   const items = checkedItems();
@@ -953,7 +1057,7 @@ async function applyChecked() {
   if (data.vendor_map) state.vendorMap = data.vendor_map;
   $('status').innerHTML = `<span class="okmsg">Placed ${data.updated || items.length} · map updated</span>`;
   await loadSummary();
-  if (state.category) await openCategory(state.category);
+  await reopenCategory();
 }
 function renderMap() {
   const rules = state.vendorMap || [];
@@ -998,7 +1102,7 @@ $('pnlBody').addEventListener('click', (e) => {
   openCategory(decodeURIComponent(tr.getAttribute('data-cat')));
 });
 $('btnBack').onclick = () => { showPnl(); loadSummary(); };
-$('btnTxBack').onclick = () => { if (state.category) openCategory(state.category); else { showPnl(); loadSummary(); } };
+$('btnTxBack').onclick = () => { if (state.category) reopenCategory(); else { showPnl(); loadSummary(); } };
 $('btnMapBack').onclick = () => { showPnl(); loadSummary(); };
 $('btnMap').onclick = () => { showMap(); };
 $('btnTx').onclick = () => { openCategory('*'); };
@@ -1006,8 +1110,32 @@ $('btnAdd').onclick = () => {
   if ($('mapView').style.display === 'flex') showPnl();
   showPasteBar(false);
   showAddBar(true);
-  $('newPayee').focus();
+  if ($('newPayee')) $('newPayee').focus();
 };
+if ($('btnAddStatements')) $('btnAddStatements').onclick = () => {
+  showPasteBar(false);
+  showAddBar(false);
+  showDropHint(true);
+};
+if ($('btnDropHintRead')) $('btnDropHintRead').onclick = () => { showDropHint(false); processDrop(); };
+if ($('btnDropHintClose')) $('btnDropHintClose').onclick = () => showDropHint(false);
+if ($('btnReview')) $('btnReview').onclick = () => { openCategory('*', { reviewOnly: true }); };
+if ($('btnMore')) $('btnMore').onclick = (e) => {
+  e.stopPropagation();
+  const menu = $('moreMenu');
+  if (!menu) return;
+  menu.classList.toggle('hide');
+};
+if ($('btnHelp')) $('btnHelp').onclick = () => {
+  const panel = $('helpPanel');
+  if (panel) panel.classList.toggle('hide');
+};
+document.addEventListener('click', (e) => {
+  const menu = $('moreMenu');
+  if (!menu || menu.classList.contains('hide')) return;
+  if (e.target && (e.target.id === 'btnMore' || (e.target.closest && e.target.closest('#moreMenu')))) return;
+  menu.classList.add('hide');
+});
 $('btnPaste').onclick = () => {
   if ($('mapView').style.display === 'flex') showPnl();
   showAddBar(false);
@@ -1038,9 +1166,10 @@ async function addPastedRows() {
   $('pasteText').value = '';
   $('status').innerHTML = `<span class="okmsg">Added ${data.added || 0} line${data.added === 1 ? '' : 's'}</span>`;
   await loadSummary();
-  await openCategory(state.category || '*');
+  if (state.category) await reopenCategory();
+  else await openCategory('*');
 }
-$('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
+if ($('btnAll')) $('btnAll').onclick = () => { state.year = null; state.month = null; fillPeriod(); loadSummary(); };
 $('ledgerSel').onchange = () => {
   state.path = $('ledgerSel').value || 'all';
   showPnl();
@@ -1094,15 +1223,15 @@ function processStatusBits(data, book, totals) {
 async function processDrop() {
   const path = state.path || '';
   if (!path || path === 'all') {
-    showErr('Open the ledger first, then Process');
+    showErr('Open an account first, then read new statements');
     return;
   }
   const book = state.book === 'all-books' ? '' : (state.book || 'chords');
-  if (!book) { showErr('Pick a filing book before Process'); return; }
+  if (!book) { showErr('Pick a book before reading statements'); return; }
   showErr('');
   const btn = $('btnProcess');
   if (btn) btn.disabled = true;
-  $('status').textContent = 'Processing Drop folder…';
+  $('status').textContent = 'Reading new statements…';
   try {
   const start = await fetch('/api/books/process', {
     method: 'POST',
@@ -1319,7 +1448,8 @@ async function addTypedLine() {
   $('newAmt').value = '';
   $('status').innerHTML = '<span class="okmsg">Line added</span>';
   await loadSummary();
-  await openCategory(state.category || '*');
+  if (state.category) await reopenCategory();
+  else await openCategory('*');
 }
 async function setLineDisabled(btn) {
   const index = Number(btn.getAttribute('data-index'));
@@ -1339,7 +1469,7 @@ async function setLineDisabled(btn) {
   }
   $('status').innerHTML = `<span class="okmsg">${disabled ? 'Disabled' : 'Restored'}</span>`;
   await loadSummary();
-  if (state.category) await openCategory(state.category);
+  await reopenCategory();
 }
 async function removeTypedLine(btn) {
   const index = Number(btn.getAttribute('data-index'));
@@ -1358,7 +1488,7 @@ async function removeTypedLine(btn) {
   }
   $('status').innerHTML = '<span class="okmsg">Removed</span>';
   await loadSummary();
-  if (state.category) await openCategory(state.category);
+  await reopenCategory();
 }
 $('btnAddLine').onclick = addTypedLine;
 $('btnPasteSave').onclick = addPastedRows;
@@ -1409,7 +1539,7 @@ async function saveTxDetails() {
   }
   $('status').innerHTML = '<span class="okmsg">Saved</span>';
   await loadSummary();
-  if (state.category) await openCategory(state.category);
+  if (state.category) await reopenCategory();
   else showPnl();
 }
 $('btnTxSave').onclick = saveTxDetails;

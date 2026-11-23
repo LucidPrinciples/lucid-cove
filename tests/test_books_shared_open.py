@@ -16,6 +16,22 @@ def test_page_has_the_shared_first_open():
     assert "function setupFallbackSpace(" in text
     assert 'id="setupShared"' in text and 'id="ownBooksLink"' in text
     assert "presenceFromUrl(location.search, state.spaces)" in text
+    assert "#ownBooksLink{display:inline-block}" not in text.replace(" ", "")
+    assert "#ownBooksLink:not(.hide){display:inline-block}" in text.replace(" ", "")
+    assert 'id="btnAddStatements"' in text
+    assert ">Add a line<" in text
+    assert 'id="btnMore"' in text
+    assert "Import category rules" in text
+    assert "All transactions" in text
+    assert "Read new statements" in text
+    assert ">Account<" in text
+    assert ">Ledger<" not in text
+    assert "chrome-main button{flex: 1 1 100%}".replace(" ", "") in text.replace(" ", "")
+    assert "Add your bank or card statements." in text
+    assert 'id="dropHint"' in text
+    assert "Statements go in Files > Bookkeeping > Drop >" in text
+    assert "To review" in text
+    assert "line.needs_review" in text
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
