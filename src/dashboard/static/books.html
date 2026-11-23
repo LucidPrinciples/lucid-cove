@@ -48,6 +48,9 @@ tr.clickable{cursor:pointer}
 tr.clickable:hover{background:#16161f}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .muted{color:var(--dim)} .faint{color:var(--faint)}
+#ownBooksLink{font-size:.85rem;display:inline-block;margin-top:4px}
+#setupShared{margin-bottom:14px}
+#setupShared button{margin:4px 6px 0 0}
 .pill{display:inline-block;font-size:.7rem;padding:2px 7px;border-radius:999px;border:1px solid var(--border);color:var(--dim)}
 .err{margin:16px;padding:14px;border-radius:10px;border:1px solid rgba(248,113,113,.35);
   background:rgba(248,113,113,.08);color:var(--bad)}
@@ -102,9 +105,11 @@ td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 <header>
   <h1>Bookkeeping</h1>
   <div class="meta" id="hdrMeta">Loading…</div>
+  <a href="#" id="ownBooksLink" class="faint hide">Your own books</a>
 </header>
 <div id="setupView" class="setup-view hide">
   <div class="setup-card">
+    <div id="setupShared" class="hide"></div>
     <h2>Create your first books</h2>
     <p class="dim">Drop a prior-year return so dropdowns match what you actually file. Then name the first book and account.</p>
     <div class="setup-fields">
@@ -691,6 +696,50 @@ function showShare(on) {
     view.classList.add('hide');
   }
 }
+// Shared-only Presences (2026-11-23): when your own books are empty but someone
+// shared theirs, open the shared books instead of the first-open card.
+function sharedSpaceToOpen(spaces) {
+  const other = (spaces || []).find(s => s && !s.mine && s.id);
+  return other ? String(other.id) : '';
+}
+function ownSpaceId(spaces) {
+  const own = (spaces || []).find(s => s && s.mine && s.id);
+  return own ? String(own.id) : '';
+}
+function presenceFromUrl(search, spaces) {
+  let want = '';
+  try { want = new URLSearchParams(search || '').get('presence') || ''; } catch (e) { want = ''; }
+  return want && (spaces || []).some(s => s && String(s.id) === want) ? want : '';
+}
+function setupFallbackSpace(st) {
+  if (!st || !st.mine || st.ownSetup) return '';
+  return sharedSpaceToOpen(st.spaces);
+}
+function fillSetupShared() {
+  const box = $('setupShared');
+  if (!box) return;
+  const others = (state.spaces || []).filter(s => s && !s.mine && s.id);
+  if (!others.length) { box.innerHTML = ''; box.classList.add('hide'); return; }
+  box.innerHTML = '<p class="dim">Books shared with you:</p>' + others.map(s =>
+    `<button type="button" data-open-space="${escapeHtml(String(s.id))}">Open ${escapeHtml(s.label || String(s.id))}</button>`
+  ).join(' ');
+  box.classList.remove('hide');
+}
+function fillOwnLink() {
+  const link = $('ownBooksLink');
+  if (!link) return;
+  const own = ownSpaceId(state.spaces);
+  link.classList.toggle('hide', !(own && !state.mine));
+}
+async function openSpace(id, opts) {
+  state.presence = id || '';
+  state.path = 'all';
+  state.ownSetup = !!(opts && opts.ownSetup);
+  showShare(false);
+  showPnl();
+  await loadAccess();
+  await loadSummary();
+}
 async function loadAccess() {
   const r = await fetch('/api/books/access' + (state.presence ? ('?presence=' + encodeURIComponent(state.presence)) : ''));
   const data = await r.json();
@@ -701,6 +750,7 @@ async function loadAccess() {
   if (data.presence) state.presence = data.presence;
   if (data.presence_label) state.presenceLabel = data.presence_label;
   fillSpaces();
+  fillOwnLink();
 }
 async function loadSummary(opts) {
   const keepStatus = !!(opts && opts.keepStatus);
@@ -711,6 +761,9 @@ async function loadSummary(opts) {
   const data = await r.json();
   if (!data.ok) { showErr(data.error || 'Could not load books'); if (!keepStatus) $('status').textContent = ''; return; }
   if (data.needs_setup) {
+    const shared = setupFallbackSpace(state);
+    if (shared) { await openSpace(shared); return; }
+    fillSetupShared();
     showSetup(true);
     return;
   }
@@ -1425,13 +1478,27 @@ $('shareList').addEventListener('click', (e) => {
   toggleGrant(btn.getAttribute('data-grant'), btn.getAttribute('data-on') === 'true');
 });
 $('presenceSel').onchange = () => {
-  state.presence = $('presenceSel').value || '';
-  state.path = 'all';
-  showShare(false);
-  showPnl();
-  loadAccess().then(loadSummary);
+  const id = $('presenceSel').value || '';
+  openSpace(id, { ownSetup: id === ownSpaceId(state.spaces) });
 };
-loadAccess().then(loadSummary);
+$('ownBooksLink').onclick = (e) => {
+  e.preventDefault();
+  openSpace(ownSpaceId(state.spaces), { ownSetup: true });
+};
+$('setupShared').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-open-space]');
+  if (!btn) return;
+  openSpace(btn.getAttribute('data-open-space'));
+});
+(async function initBooks() {
+  await loadAccess();
+  const fromUrl = presenceFromUrl(location.search, state.spaces);
+  if (fromUrl && fromUrl !== state.presence) {
+    state.presence = fromUrl;
+    await loadAccess();
+  }
+  await loadSummary();
+})();
 </script>
 </body>
 </html>
