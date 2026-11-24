@@ -36,6 +36,18 @@ header .meta{font-size:.78rem;color:var(--dim);margin-top:4px}
 @media (max-width: 640px){
   .chrome-main button{flex:1 1 100%}
   .drop-hint .batch button{flex:1 1 100%}
+  /* Phone: the whole page scrolls (the controls no longer squeeze the list into one row). */
+  html,body{height:auto;max-height:none}
+  body{display:block;overflow-x:hidden;overflow-y:auto}
+  .scroll{flex:none;min-height:0;overflow-x:auto;overflow-y:visible}
+  /* Phone: the four pickers sit two by two, label above the box. */
+  .chrome-whose{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 10px}
+  .chrome-whose label{display:flex;flex-direction:column;gap:2px;font-size:.75rem;min-width:0}
+  .chrome-whose label.hide{display:none}
+  .chrome-whose select{width:100%;min-width:0;font-size:.9rem;padding:6px 8px}
+  /* Phone: totals two by two so the amounts fit. */
+  .totals{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px 12px}
+  .card .v{font-size:1rem;overflow-wrap:anywhere}
 }
 .bk-close{position:fixed;top:10px;left:12px;z-index:50;width:36px;height:36px;border-radius:18px;
   border:1px solid #333;background:#1a1a2e;color:#e0e0e0;font-size:18px;line-height:1;
