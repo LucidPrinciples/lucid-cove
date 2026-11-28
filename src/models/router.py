@@ -252,195 +252,27 @@ def plan_hops(
     message_count: int = 0,
     approx_tokens: int = 0,
     tool_names: Iterable[str] | None = None,
-    operation_type: str = "channel",
+    operation_type: str = "background",
     routing_bias: str = "balanced",
     cloud_middle_id: str | None = None,
     allow_cloud_middle: bool = True,
 ) -> HopPlan:
-    """Build ordered hop chain from assignments + score + what's runnable."""
-    # === EMERGENCY OVERRIDE (jules 2026-07-17) ===
-    # The admin "force all chat to this model" override was checked only in
-    # plan_for_agent(), but the LIVE chat path (channels.py) and invoke_with_fallback
-    # (provider.py) call plan_hops() DIRECTLY — so the override was silently bypassed
-    # and setting it did nothing (Stuart kept local-first routing to qwen/kimi despite
-    # a Grok override). Check it HERE, the shared entry point every path uses, so a set
-    # override truly forces the model. Same shape as plan_for_agent's check.
-    try:
-        from src.config import (
-            get_model_override,
-            get_model_override_fallback,
-            load_models_registry as _lmr,
-        )
-        _override = get_model_override()
-        if _override:
-            _valid_ids = {m.get("id") for m in _lmr() if m.get("id")}
-            if _override in _valid_ids:
-                # #MDL1: Manual = forced primary + optional configured fallback.
-                # A single-hop chain meant an override outage fell straight to
-                # the local floor (grok-timeout incident 2026-07-17); with the
-                # fallback set the chain hops there first, floor stays last.
-                _chain = [_override]
-                _fb = get_model_override_fallback()
-                if _fb and _fb != _override and _fb in _valid_ids:
-                    _chain.append(_fb)
-                return HopPlan(
-                    first_id=_override,
-                    chain=_chain,
-                    score=ScoreResult(score=0, reasons=["admin_override"], role="", bias=""),
-                    mode="override",
-                    detail="admin_override:" + "→".join(_chain),
-                )
-            print(f"[router] WARNING: invalid model_override '{_override}' — ignoring")
-    except Exception as _ovr_e:
-        print(f"[router] override check skipped: {_ovr_e}")
+    """Cove Model / Fallback / floor. Grid, score, and cloud-middle do not pick.
 
-    sc = score or score_turn(
-        agent_id=agent_id,
-        message_text=message_text,
-        message_count=message_count,
-        approx_tokens=approx_tokens,
-        tool_names=tool_names,
-        operation_type=operation_type,
-        routing_bias=routing_bias,
-    )
+    Unused kwargs stay so callers do not break. Chat (operation_type channel/chat)
+    is Model only. Everything else is Model, Fallback, named floor.
+    """
+    from src.models.cove_hops import load_cove_settings, plan_cove_chain, hop_kind
 
-    # Failure pressure against configured primary
-    fp, freasons = _fail_pressure(primary_id, _provider_of(primary_id))
-    if fp:
-        sc = ScoreResult(
-            score=max(0, min(100, sc.score + fp)),
-            reasons=list(sc.reasons) + freasons,
-            role=sc.role,
-            bias=sc.bias,
-        )
-
-    local_id = None
-    api_ids: list[str] = []
-
-    for mid in (primary_id, fallback_id):
-        if not mid:
-            continue
-        if _is_local_id(mid):
-            if local_id is None:
-                local_id = mid
-        else:
-            if mid not in api_ids:
-                api_ids.append(mid)
-
-    # Prefer installed local if assignments didn't name one
-    if local_id is None:
-        local_id = _installed_local()
-
-    # Optional cloud middle (different upstream) — only if runnable and distinct
-    if allow_cloud_middle and cloud_middle_id:
-        try:
-            from src.models.provider import model_is_runnable
-            if model_is_runnable(cloud_middle_id):
-                cp = _provider_of(cloud_middle_id)
-                if cloud_middle_id not in api_ids and all(_provider_of(a) != cp for a in api_ids):
-                    api_ids.append(cloud_middle_id)
-                elif cloud_middle_id not in api_ids:
-                    # same-upstream twin risk — still allow as last api if nothing else
-                    if not api_ids:
-                        api_ids.append(cloud_middle_id)
-        except Exception:
-            pass
-
-    # Filter to runnable
-    api_ids = [a for a in api_ids if _runnable(a)]
-    if local_id and not _runnable(local_id):
-        # local tags are usually runnable without keys; if marked unrunnable keep try
-        pass
-
-    has_local = bool(local_id)
-    has_api = bool(api_ids)
-    if has_local and has_api:
-        mode = "local+api"
-    elif has_api:
-        mode = "api-only"
-    elif has_local:
-        mode = "local-only"
-    else:
-        mode = "none"
-
-    chain: list[str] = []
-
-    def _add(mid: str | None):
-        if mid and mid not in chain:
-            chain.append(mid)
-
-    if mode == "none":
-        # Last ditch: whatever primary was, even if we couldn't classify
-        _add(primary_id)
-        _add(fallback_id)
-        return HopPlan(
-            first_id=chain[0] if chain else None,
-            chain=chain,
-            score=sc,
-            mode=mode,
-            detail="no_classified_hops",
-        )
-
-    if mode == "local-only":
-        _add(local_id)
-        _add(fallback_id)
-        return HopPlan(first_id=chain[0], chain=chain, score=sc, mode=mode, detail="local_only")
-
-    if mode == "api-only":
-        # score still orders which api first if multiple
-        if sc.score >= THRESHOLD_API and len(api_ids) > 1:
-            # prefer non-recently-failed
-            ordered = sorted(api_ids, key=lambda m: _fail_pressure(m, _provider_of(m))[0])
-            for m in ordered:
-                _add(m)
-        else:
-            for m in api_ids:
-                _add(m)
-        return HopPlan(first_id=chain[0], chain=chain, score=sc, mode=mode, detail="api_only")
-
-    # local+api
-    prefer_local_first = sc.score < THRESHOLD_API
-    # high score → API first; mid → local if healthy else API; low → local
-    primary_is_local = _is_local_id(primary_id)
-
-    if sc.score >= THRESHOLD_API:
-        for m in api_ids:
-            _add(m)
-        _add(local_id)
-        detail = "api_first_hard"
-    elif sc.score >= THRESHOLD_LOCAL:
-        # mid: local if primary prefers local or local exists and not hot-failed
-        loc_fail, _ = _fail_pressure(local_id, "ollama")
-        if local_id and loc_fail < 25:
-            _add(local_id)
-            for m in api_ids:
-                _add(m)
-            detail = "local_first_mid"
-        else:
-            for m in api_ids:
-                _add(m)
-            _add(local_id)
-            detail = "api_first_mid_local_unhealthy"
-    else:
-        _add(local_id)
-        for m in api_ids:
-            _add(m)
-        detail = "local_first_easy"
-
-    # If assignment primary is API and score is mid/low, we still may have put local
-    # first — that's intentional for cost. If primary is API and score high, api first.
-
-    if not chain:
-        _add(primary_id)
-        _add(fallback_id)
-        _add(local_id)
-
+    kind = hop_kind(operation_type)
+    settings = load_cove_settings()
+    chain = plan_cove_chain(kind=kind, settings=settings)
     return HopPlan(
         first_id=chain[0] if chain else None,
         chain=chain,
-        score=sc,
-        mode=mode,
-        detail=detail,
+        score=ScoreResult(score=0, reasons=["cove_settings"], role="", bias=""),
+        mode=kind,
+        detail=settings.detail,
     )
 
 
@@ -456,56 +288,15 @@ def plan_for_agent(
     personal_fallback: str | None = None,
     tool_names: Iterable[str] | None = None,
 ) -> HopPlan:
-    """Resolve assignment + plan hops for an agent (protocol and channel shared entry)."""
-    
-    # === MANUAL MODE (admin override) ===
-    # Admin can force all chat to a specific model (model_override) with an
-    # optional manual fallback (#MDL1) — same chain shape as plan_hops' check.
-    from src.config import get_model_override, get_model_override_fallback, load_models_registry
-    override = get_model_override()
-    if override:
-        # Validate the override is a real model
-        valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
-        if override in valid_ids:
-            chain = [override]
-            fb = get_model_override_fallback()
-            if fb and fb != override and fb in valid_ids:
-                chain.append(fb)
-            return HopPlan(
-                first_id=override,
-                chain=chain,
-                score=ScoreResult(score=0, reasons=["admin_override"], role="", bias=""),
-                mode="override",
-                detail="admin_override:" + "→".join(chain),
-            )
-        # Invalid override logged but falls through to normal routing
-        print(f"[router] WARNING: Invalid model_override '{override}' — ignoring")
-    
-    from src.config import get_agent_model_assignment
-    try:
-        from src.models.provider import current_cove_brain, CLOUD_FALLBACK_MODEL
-    except Exception:
-        CLOUD_FALLBACK_MODEL = None  # type: ignore
-        def current_cove_brain():  # type: ignore
-            return {}
-
-    slot = "tuning" if (operation_type or "").lower() == "tuning" else None
-    assignment = get_agent_model_assignment(agent_id, slot=slot) or {}
-    primary = personal_primary or assignment.get("primary") or (current_cove_brain() or {}).get("model")
-    fallback = personal_fallback or assignment.get("fallback")
-
+    """Shared entry. Presence stored picks are ignored until the operator names them."""
     return plan_hops(
         agent_id=agent_id,
-        primary_id=primary,
-        fallback_id=fallback,
         message_text=message_text,
         message_count=message_count,
         approx_tokens=approx_tokens,
         tool_names=tool_names,
         operation_type=operation_type,
         routing_bias=routing_bias,
-        cloud_middle_id=CLOUD_FALLBACK_MODEL,
-        allow_cloud_middle=True,
     )
 
 

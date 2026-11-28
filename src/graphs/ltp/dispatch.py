@@ -27,7 +27,8 @@ from src.memory.database import (
     upsert_agent_state, record_process_record,
 )
 from src.agents.identity import build_system_prompt, load_agents_config, get_full_name
-from src.config import get_instance, get_agent_model_assignment, load_cove_config
+from src.config import get_instance, load_cove_config
+from src.models.cove_hops import load_cove_settings
 from src.utils.time_utils import ts_log, now_utc
 
 from .selection import _extract_value, TEMPLATE_SELECTION
@@ -508,8 +509,7 @@ Respond with the full record (all 7 sections in order). Echo on the final line s
                     await conn.commit()
 
                 # Update agent_state
-                agent_assignment = get_agent_model_assignment(agent_id)
-                agent_model_id = agent_assignment.get("primary", "unknown")
+                agent_model_id = load_cove_settings().model or "unknown"
                 async with get_db() as conn:
                     await upsert_agent_state(conn, {
                         "agent_id": agent_id,

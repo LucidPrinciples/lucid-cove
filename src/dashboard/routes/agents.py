@@ -482,7 +482,7 @@ async def list_model_assignments():
     DB-overridden (the Team-page model manager). Powers the model dropdowns on the Team page."""
     from src.config import get_agents, get_agent_model_assignment, load_models_registry
     from src.models.assignments import all_assignments, load_assignments_cache
-    from src.models.provider import current_cove_brain
+    from src.models.cove_hops import load_cove_settings
     # Refresh from DB so the table always shows the saved truth (and so a multi-worker
     # deployment can't display a stale cache from a worker that didn't handle the write).
     await load_assignments_cache()
@@ -493,8 +493,9 @@ async def list_model_assignments():
     ]
     # The Cove brain is the floor an unassigned agent actually runs on (get_primary_model),
     # so the grid can SHOW it as the effective '(Cove default)' instead of a blank (#13).
-    brain = current_cove_brain()
-    brain_model = brain.get("model")
+    cove = load_cove_settings()
+    brain = {"model": cove.model, "fallback": cove.fallback, "floor": cove.floor}
+    brain_model = cove.model
 
     # Resolve the personal agent's real name from the DB. The config file (agent.yaml)
     # seeds the personal agent with the placeholder "Agent" at provision time; the
@@ -553,73 +554,11 @@ async def list_model_assignments():
 
 @router.put("/api/agents/{agent_id}/model-assignment")
 async def set_model_assignment(agent_id: str, request: Request):
-    """Set an agent's WORKING + TUNING models in the DB (no restart, works under a
-    read-only config mount). Body: {working_primary, working_fallback, tuning_primary,
-    tuning_fallback}; any field blank/null = inherit from the YAML cascade. Model ids are
-    validated against the registry."""
-    try:
-        from src.config import get_agents, load_models_registry
-        from src.models.assignments import set_assignment
-
-        data = await request.json()
-        valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
-        known_agents = {a.get("id") for a in get_agents() if a.get("id")}
-        if agent_id not in known_agents:
-            return JSONResponse({"error": f"Unknown agent '{agent_id}'."}, status_code=404)
-
-        fields = {}
-        for k in ("working_primary", "working_fallback", "tuning_primary", "tuning_fallback"):
-            v = (data.get(k) or "").strip()
-            if v and v not in valid_ids:
-                return JSONResponse({"error": f"Unknown model id '{v}' for {k}."}, status_code=400)
-            fields[k] = v or None
-
-        await set_assignment(agent_id, fields["working_primary"], fields["working_fallback"],
-                             fields["tuning_primary"], fields["tuning_fallback"])
-        # #13 — a runnable pick in the grid IS configuring intelligence, so clear the
-        # onboarding 'add intelligence' nag (parity with the Add-Intelligence card). Gated
-        # on the model actually running (Ollama, or a provider key present) so a keyless
-        # cloud pick can't false-clear it. Non-fatal: the assignment already saved.
-        nag_cleared = False
-        wp = fields["working_primary"]
-        if wp:
-            try:
-                from src.models.provider import model_is_runnable
-                if model_is_runnable(wp):
-                    # E (jules 07-07): keep compute.llm in step with the chosen brain, so Compute
-                    # doesn't read "cloud" after the operator picked a LOCAL (Ollama) model. Provider
-                    # == ollama => local; anything else => cloud. Best-effort, never blocks the pick.
-                    try:
-                        from src.models.provider import _resolve_model_string
-                        from src.config import set_compute_config
-                        _prov, _ = _resolve_model_string(wp)
-                        set_compute_config("llm", mode=("local" if (_prov or "").strip().lower() == "ollama" else "cloud"))
-                    except Exception as _ce:
-                        log.warning("compute.llm sync skipped: %s", _ce)
-                    from src.dashboard.routes.presence import get_current_presence
-                    p = await get_current_presence(request)
-                    if p and p.get("id"):
-                        ac = p.get("agent_config") or {}
-                        if isinstance(ac, str):
-                            try:
-                                ac = json.loads(ac) or {}
-                            except Exception:
-                                ac = {}
-                        ac = dict(ac)
-                        if not ac.get("intelligence_configured"):
-                            ac["intelligence_configured"] = True
-                            from src.memory.database import get_db
-                            async with get_db() as conn:
-                                await conn.execute(
-                                    "UPDATE accounts SET agent_config = %s, updated_at = NOW() "
-                                    "WHERE id = %s",
-                                    (json.dumps(ac), str(p["id"])))
-                            nag_cleared = True
-            except Exception as _e:
-                log.warning("set_model_assignment nag-clear skipped: %s", _e)
-        return {"ok": True, "agent_id": agent_id, "nag_cleared": nag_cleared}
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+    """Retired. The per-agent grid is unused; writes nothing."""
+    return JSONResponse(
+        {"ok": False, "error": "retired: set Model, Fallback and Local floor on the Team page"},
+        status_code=410,
+    )
 
 
 @router.get("/api/agents/{agent_id}")

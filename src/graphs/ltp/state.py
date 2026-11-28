@@ -11,7 +11,7 @@ from src.env import env_bool
 
 from src.memory.database import get_db, upsert_agent_state
 from src.agents.identity import load_agents_config, get_full_name
-from src.config import get_agent_model_assignment
+from src.models.cove_hops import load_cove_settings
 from src.utils.time_utils import ts_log, now_utc
 
 
@@ -35,8 +35,7 @@ async def update_state(state: dict) -> dict:
     display_name = get_full_name(cfg.get("name", agent_id.title()))
     archetype = cfg.get("archetype", "The Steward")
 
-    assignment = get_agent_model_assignment(agent_id)
-    current_model_id = assignment.get("primary", "unknown")
+    current_model_id = load_cove_settings().model or "unknown"
 
     agent_record = {
         "agent_id": agent_id,

@@ -99,12 +99,8 @@ Generate the metadata for {PLATFORM_NAMES[platform]}. Write from THIS clip's win
         from src.models.provider import get_model_client, _resolve_model_string
         from langchain_core.messages import SystemMessage, HumanMessage
 
-        _candidates = ["gemini-flash", "kimi-k2.5"]
-        try:
-            from src.models.local_fallback import resolve_local_fallback_model
-            _candidates.append(resolve_local_fallback_model())
-        except Exception:
-            pass
+        from src.models.cove_hops import plan_cove_chain
+        _candidates = plan_cove_chain("background")
         for model_name in _candidates:
             try:
                 provider, model_string = _resolve_model_string(model_name)
