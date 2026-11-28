@@ -131,22 +131,10 @@ async def update_team_model(agent_id: str, body: TeamModelUpdate, request: Reque
     gate = await _admin_gate(request)
     if gate:
         return gate
-    try:
-        from src.config import load_models_registry
-        valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
-        for field_name, v in (("primary", body.primary), ("fallback", body.fallback)):
-            v = (v or "").strip()
-            if v and v not in valid_ids:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": f"Unknown model id '{v}' for {field_name} — "
-                                      "not in the model registry (config/models.yaml)."})
-        ok = set_team_model(agent_id, primary=body.primary, fallback=body.fallback)
-        if not ok:
-            return JSONResponse(status_code=500, content={"error": "save failed"})
-        return {"ok": True, "agent_id": agent_id, "model": get_agent_model_assignment(agent_id)}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    return JSONResponse(
+        status_code=410,
+        content={"ok": False, "error": "retired: set Model, Fallback and Local floor on the Team page"},
+    )
 
 
 # ── Compute backends (Admin Presence — where heavy work runs) ────────────────
@@ -596,21 +584,24 @@ async def patch_features(request: Request):
         )
 
 
-# ── Manual Model (admin override) ───────────────────────────────────────────
-# Admin can force all chat to a specific model, bypassing the D55 router.
-# #MDL1: plus an optional manual fallback the chain hops to when the forced
-# model fails, before the local floor.
+# ── Cove Model / Fallback / Local floor (same stored keys as the old override) ─
 
 @router.get("/api/settings/model-override")
 async def get_model_override_setting(request: Request):
-    """Get current model override + fallback (admin only) + catalog of available models."""
+    """Get Model, Fallback, Local floor (admin only) plus the registry catalog."""
     gate = await _admin_gate(request)
     if gate:
         return gate
     try:
-        from src.config import get_model_override, get_model_override_fallback, load_models_registry
+        from src.config import (
+            get_model_override,
+            get_model_override_fallback,
+            get_cove_local_floor,
+            load_models_registry,
+        )
         override = get_model_override()
         fallback = get_model_override_fallback()
+        floor = get_cove_local_floor()
         catalog = [
             {
                 "id": m.get("id"),
@@ -623,6 +614,7 @@ async def get_model_override_setting(request: Request):
         return {
             "override": override or "",
             "fallback": fallback or "",
+            "floor": floor or "",
             "catalog": catalog,
             "active": bool(override),
         }
@@ -631,34 +623,71 @@ async def get_model_override_setting(request: Request):
 
 
 class ModelOverrideUpdate(BaseModel):
-    override: Optional[str] = None  # empty string = clear
+    override: Optional[str] = None  # empty string = unset (Cove brain fills Model)
     fallback: Optional[str] = None  # empty string = clear; None = leave as-is
+    floor: Optional[str] = None     # empty string = clear; None = leave as-is
+
+
+def _id_is_installed_local(model_id: str, registry_rows: list) -> bool | None:
+    """True if an ollama id is installed, False if probed and missing, None if unknown."""
+    row = next((m for m in registry_rows if m.get("id") == model_id), None)
+    if not row or (row.get("provider") or "") != "ollama":
+        return True
+    tag = (row.get("model_string") or "").strip()
+    if not tag:
+        return None
+    try:
+        from src.models.local_fallback import _probe_installed_sync
+        installed = []
+        reachable = False
+        for entry in _probe_installed_sync():
+            if entry.get("reachable"):
+                reachable = True
+            for m in entry.get("models") or []:
+                name = (m.get("name") or "").strip()
+                if name:
+                    installed.append(name)
+                    if ":" not in name:
+                        installed.append(name + ":latest")
+        if not tag:
+            return None
+        if ":" not in tag:
+            tag = tag + ":latest"
+        if not installed and not reachable:
+            return None
+        return tag in installed
+    except Exception:
+        return None
 
 
 @router.put("/api/settings/model-override")
 async def set_model_override(request: Request, body: ModelOverrideUpdate):
-    """Set or clear the manual model override + fallback (admin only).
+    """Save Model, Fallback, and Local floor independently (admin only).
 
-    override: empty string clears Manual entirely (fallback goes with it).
-    fallback (#MDL1): empty string clears it; omitted/None leaves it as-is
-    (so an older client that only sends override can't silently wipe it).
-    Both are validated against the registry at save time — a bad id must be
-    impossible to store.
+    Keys stay model_override / model_override_fallback / model_override_floor.
+    Empty Model does not wipe Fallback or floor — the Cove brain fills Model.
+    Registry ids only; a local id that probes as not installed is rejected.
     """
     gate = await _admin_gate(request)
     if gate:
         return gate
     try:
-        from src.config import load_models_registry, save_cove_config, load_cove_config
+        from src.config import load_models_registry
 
-        # Validate if setting
-        valid_ids = {m.get("id") for m in load_models_registry() if m.get("id")}
-        override = (body.override or "").strip()
+        registry_rows = [m for m in load_models_registry() if m.get("id")]
+        valid_ids = {m.get("id") for m in registry_rows}
+        override = None if body.override is None else (body.override or "").strip()
         if override:
             if override not in valid_ids:
                 return JSONResponse(
                     status_code=400,
                     content={"error": f"Unknown model '{override}' — not in registry"}
+                )
+            installed = _id_is_installed_local(override, registry_rows)
+            if installed is False:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Local model '{override}' is not installed"}
                 )
         fallback = None if body.fallback is None else (body.fallback or "").strip()
         if fallback:
@@ -667,13 +696,37 @@ async def set_model_override(request: Request, body: ModelOverrideUpdate):
                     status_code=400,
                     content={"error": f"Unknown fallback model '{fallback}' — not in registry"}
                 )
-            if fallback == override:
+            installed = _id_is_installed_local(fallback, registry_rows)
+            if installed is False:
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "Fallback must be a different model than Force Model"}
+                    content={"error": f"Local fallback '{fallback}' is not installed"}
+                )
+            if override and fallback == override:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Fallback must be a different model than Model"}
+                )
+        floor = None if body.floor is None else (body.floor or "").strip()
+        if floor:
+            if floor not in valid_ids:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Unknown floor model '{floor}' — not in registry"}
+                )
+            floor_row = next((m for m in registry_rows if m.get("id") == floor), None)
+            if (floor_row or {}).get("provider") != "ollama":
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Local floor '{floor}' must be a local registry id"}
+                )
+            installed = _id_is_installed_local(floor, registry_rows)
+            if installed is False:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Local floor '{floor}' is not installed"}
                 )
 
-        # Update feature-overrides.yaml (runtime settings storage)
         import yaml
         from pathlib import Path
 
@@ -683,18 +736,21 @@ async def set_model_override(request: Request, body: ModelOverrideUpdate):
             with open(overrides_path) as f:
                 current_overrides = yaml.safe_load(f) or {}
 
-        if override:
-            current_overrides["model_override"] = override
-            if fallback is not None:
-                if fallback:
-                    current_overrides["model_override_fallback"] = fallback
-                else:
-                    current_overrides.pop("model_override_fallback", None)
-        else:
-            # Clearing Manual clears both — a fallback without a forced
-            # primary is meaningless and would confuse the next enable.
-            current_overrides.pop("model_override", None)
-            current_overrides.pop("model_override_fallback", None)
+        if override is not None:
+            if override:
+                current_overrides["model_override"] = override
+            else:
+                current_overrides.pop("model_override", None)
+        if fallback is not None:
+            if fallback:
+                current_overrides["model_override_fallback"] = fallback
+            else:
+                current_overrides.pop("model_override_fallback", None)
+        if floor is not None:
+            if floor:
+                current_overrides["model_override_floor"] = floor
+            else:
+                current_overrides.pop("model_override_floor", None)
 
         try:
             with open(overrides_path, "w") as f:
@@ -706,12 +762,13 @@ async def set_model_override(request: Request, body: ModelOverrideUpdate):
             ok = False
         if not ok:
             return JSONResponse(status_code=500, content={"error": "Failed to save config"})
-        
+
         return {
             "ok": True,
-            "override": override or "",
-            "fallback": (current_overrides.get("model_override_fallback") or "") if override else "",
-            "active": bool(override),
+            "override": current_overrides.get("model_override") or "",
+            "fallback": current_overrides.get("model_override_fallback") or "",
+            "floor": current_overrides.get("model_override_floor") or "",
+            "active": bool(current_overrides.get("model_override")),
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})

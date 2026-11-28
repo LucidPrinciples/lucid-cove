@@ -36,12 +36,15 @@ class LocalModelUnavailable(RuntimeError):
 
 
 _CACHE: dict = {"model": None, "ts": 0.0}
+_SMALL_CACHE: dict = {"model": None, "ts": 0.0}
 _CACHE_TTL = 60.0  # seconds — a pulled model shows up within a minute
 
 
 def reset_local_fallback_cache() -> None:
     _CACHE["model"] = None
     _CACHE["ts"] = 0.0
+    _SMALL_CACHE["model"] = None
+    _SMALL_CACHE["ts"] = 0.0
 
 
 def _ollama_base() -> str:
@@ -131,6 +134,40 @@ def resolve_local_fallback_model(force: bool = False) -> str:
         )
     _CACHE["model"] = model
     _CACHE["ts"] = now
+    return model
+
+
+def resolve_smallest_local_model(force: bool = False) -> str:
+    """Smallest INSTALLED registry-listed local chat tag, or raise.
+
+    The Cove floor default when no named floor is set. Opposite of
+    recommend_local (largest that fits). Never a hardcoded id.
+    """
+    now = time.time()
+    if not force and _SMALL_CACHE["model"] and (now - _SMALL_CACHE["ts"]) < _CACHE_TTL:
+        return _SMALL_CACHE["model"]
+    providers = _prefer_registry_models(_probe_installed_sync())
+    candidates = []
+    for p in providers:
+        if not p.get("reachable"):
+            continue
+        for m in p.get("models") or []:
+            if m.get("chat") is False:
+                continue
+            name = m.get("name") or ""
+            if not name:
+                continue
+            size = m.get("size_bytes") or 0
+            candidates.append((size if size else 10**18, name))
+    if not candidates:
+        raise LocalModelUnavailable(
+            "No local model installed to use as floor. Add one in Settings "
+            "(e.g. `ollama pull qwen3:8b`) or name a Local floor."
+        )
+    candidates.sort(key=lambda c: (c[0], c[1]))
+    model = candidates[0][1]
+    _SMALL_CACHE["model"] = model
+    _SMALL_CACHE["ts"] = now
     return model
 
 

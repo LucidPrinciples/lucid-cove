@@ -184,68 +184,22 @@ async function testNextcloud() {
     }
 }
 
-// Team model manager — the single home. DB-backed (/api/agents/model-assignments),
-// saves instantly with no restart and works under a read-only config mount. Two axes per
-// agent: WORKING (chat/build) and TUNING (LTP). The agent-detail page shows the same data.
+// Team model panel — Cove Grok connection only. Per-agent grid is unused by hops;
+// the assignments table stays in the database. Model / Fallback / Local floor
+// live in loadSettingsModelOverride.
 async function loadSettingsModel() {
     const el = document.getElementById('settings-model');
     if (!el) return;
     try {
-        const data = await fetch('/api/agents/model-assignments').then(r => r.json());
+        const data = await fetch('/api/settings/model-override').then(r => r.json());
         if (data.error) {
             el.innerHTML = `<div class="error-msg">${ESC(data.error)}</div>`;
             return;
         }
         const catalog = data.catalog || [];
-        const agentsObj = data.agents || {};
-        const agentIds = Object.keys(agentsObj);
-        const brain = data.cove_brain || {};
-
-        const opts = (sel, noneLabel) => [`<option value="">${ESC(noneLabel || '— none —')}</option>`].concat(
-            catalog.map(m => `<option value="${ESC(m.id)}"${m.id === sel ? ' selected' : ''}>${ESC(m.name)}${m.type ? ' · ' + ESC(m.type) : ''}</option>`)
-        ).join('');
-
-        // CSS grid keeps the headers aligned over the dropdowns; the media query stacks each
-        // agent's four dropdowns (with their own labels) on a phone, and the toggle collapses
-        // the whole table since it's long and rarely needed on mobile.
-        const style = `<style>
-          .tm-head,.tm-row{display:grid;grid-template-columns:84px 1fr 1fr 1fr 1fr 30px;gap:6px;align-items:center;}
-          .tm-head{font-size:0.55rem;text-transform:uppercase;letter-spacing:0.03em;opacity:0.55;margin:6px 0 4px;}
-          .tm-row{margin-bottom:6px;}
-          .tm-cell{display:flex;flex-direction:column;min-width:0;}
-          .tm-cell>select{width:100%;min-width:0;}
-          .tm-lbl{display:none;font-size:0.55rem;color:var(--dim);margin-bottom:2px;text-transform:uppercase;letter-spacing:0.03em;}
-          .tm-agent{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-          .tm-status{font-size:0.6rem;color:var(--dim);}
-          .tm-toggle{cursor:pointer;user-select:none;display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;}
-          @media(max-width:680px){
-            .tm-head{display:none;}
-            .tm-row{grid-template-columns:1fr;gap:4px;padding:8px 0;border-bottom:1px solid var(--border);}
-            .tm-agent{font-weight:600;}
-            .tm-lbl{display:block;}
-          }
-        </style>`;
-        const headRow = `<div class="tm-head"><span>Agent</span><span>Work · primary</span><span>Work · fallback</span><span>Tune · primary</span><span>Tune · fallback</span><span></span></div>`;
-        const cell = (aid, a, kind, none, label) =>
-            `<label class="tm-cell"><span class="tm-lbl">${label}</span><select class="settings-input team-model-sel" data-agent="${ESC(aid)}" data-kind="${kind}">${opts(a[kind], none)}</select></label>`;
-        const rows = agentIds.map(aid => {
-            const a = agentsObj[aid];
-            // When an axis isn't explicitly assigned, show what it ACTUALLY runs on (the
-            // Cove brain) right in the none-option, so "(Cove default)" never hides the model.
-            const wEff = a.working_primary ? '' : (a.working_effective ? ` · ${a.working_effective}` : '');
-            const tEff = a.tuning_primary ? '' : (a.tuning_effective ? ` · ${a.tuning_effective}` : '');
-            return `<div class="tm-row">
-                <span class="tm-agent">${ESC(a.name)}</span>
-                ${cell(aid, a, 'working_primary', `(Cove default${wEff})`, 'Work · primary')}
-                ${cell(aid, a, 'working_fallback', '(none)', 'Work · fallback')}
-                ${cell(aid, a, 'tuning_primary', `(use working${tEff})`, 'Tune · primary')}
-                ${cell(aid, a, 'tuning_fallback', '(none)', 'Tune · fallback')}
-                <span class="tm-status" data-agent="${ESC(aid)}"></span>
-            </div>`;
-        }).join('');
-        const brainLine = brain.model
-            ? `<div style="font-size:0.7rem;color:var(--dim);margin-bottom:6px;">Cove brain (the default an agent runs on when not overridden): <strong>${ESC(brain.model)}</strong>${brain.provider ? ' · ' + ESC(brain.provider) : ''}</div>`
-            : '';
+        const brainLine = data.override
+            ? `<div style="font-size:0.7rem;color:var(--dim);margin-bottom:6px;">Cove Model: <strong>${ESC(data.override)}</strong>${data.fallback ? ' · Fallback ' + ESC(data.fallback) : ''}${data.floor ? ' · Local floor ' + ESC(data.floor) : ''}</div>`
+            : `<div style="font-size:0.7rem;color:var(--dim);margin-bottom:6px;">Cove Model is unset — hops use the Cove brain, then Fallback, then Local floor.</div>`;
 
         // Cove-level Grok connection (admin Intelligence panel). The token is per-box /
         // Cove-wide (src/models/xai_oauth.py), so connecting here enables every agent
@@ -268,16 +222,7 @@ async function loadSettingsModel() {
                        <div id="cove-xai-error" style="display:none;margin-top:6px;font-size:0.7rem;color:#ff6b6b;"></div>`}
             </div>
         </div>`;
-        el.innerHTML = style +
-            `<div class="tm-toggle" onclick="var t=this.nextElementSibling;var h=t.style.display==='none';t.style.display=h?'':'none';this.querySelector('.tm-caret').textContent=h?'▾':'▸';">
-                <span class="tm-caret">▾</span>
-                <span style="font-size:0.7rem;color:var(--dim);">Build-team models — <strong>working</strong> (chat/build) + <strong>tuning</strong> per agent. Saved instantly, no restart. Presences override their own personal agent in their settings.</span>
-            </div>
-            ${brainLine}${coveXai}<div id="cove-truthgate-card"></div><div>${headRow}${rows}</div>`;
-
-        el.querySelectorAll('.team-model-sel').forEach(sel => {
-            sel.addEventListener('change', () => _saveTeamModel(sel.dataset.agent, el));
-        });
+        el.innerHTML = `${brainLine}${coveXai}<div id="cove-truthgate-card"></div>`;
         _loadTruthGateCard(catalog);
     } catch (err) {
         el.innerHTML = `<div class="error-msg">${ESC(err.message)}</div>`;
@@ -885,9 +830,8 @@ async function _loadTruthGateCard(catalog) {
 
 
 // =============================================================================
-// Manual Model (override) — force all chat to a specific model, with an
-// optional manual fallback the chain hops to when the forced model fails
-// (#MDL1). Clearing returns the Cove to Auto (pressure routing / the grid).
+// Cove Model / Fallback / Local floor — three settings, no emergency styling.
+// Stored keys stay model_override / model_override_fallback / model_override_floor.
 // =============================================================================
 
 async function loadSettingsModelOverride() {
@@ -903,39 +847,41 @@ async function loadSettingsModelOverride() {
         const catalog = data.catalog || [];
         const current = data.override || '';
         const currentFb = data.fallback || '';
-        const active = data.active;
+        const currentFloor = data.floor || '';
 
-        // Build dropdown options
-        const opts = ['<option value="">— Router decides (default) —</option>']
+        const opts = ['<option value="">— Cove brain (unset) —</option>']
             .concat(catalog.map(m =>
                 `<option value="${ESC(m.id)}"${m.id === current ? ' selected' : ''}>${ESC(m.name)}${m.type ? ' · ' + ESC(m.type) : ''}</option>`
             )).join('');
-        const fbOpts = ['<option value="">— None (local floor only) —</option>']
+        const fbOpts = ['<option value="">— None —</option>']
             .concat(catalog.map(m =>
                 `<option value="${ESC(m.id)}"${m.id === currentFb ? ' selected' : ''}>${ESC(m.name)}${m.type ? ' · ' + ESC(m.type) : ''}</option>`
             )).join('');
-
-        const statusColor = active ? 'var(--red, #f44336)' : 'var(--dim)';
+        const floorOpts = ['<option value="">— smallest installed —</option>']
+            .concat(catalog.filter(m => m.provider === 'ollama' || m.type === 'local').map(m =>
+                `<option value="${ESC(m.id)}"${m.id === currentFloor ? ' selected' : ''}>${ESC(m.name)}${m.type ? ' · ' + ESC(m.type) : ''}</option>`
+            )).join('');
 
         el.innerHTML = `
             <div style="margin-bottom:8px;">
                 <div class="settings-row" style="flex-wrap:wrap;gap:8px;align-items:center;">
-                    <span class="settings-label">Force Model</span>
+                    <span class="settings-label">Model</span>
                     <select id="model-override-select" class="settings-input" style="max-width:280px;">${opts}</select>
-                    <button class="btn-sm" onclick="saveModelOverride()">${active ? 'Update' : 'Lock'}</button>
-                    ${active ? `<button class="btn-sm" style="background:var(--red-bg, #5c3a3a);color:var(--red, #f44336);" onclick="clearModelOverride()">Clear</button>` : ''}
+                    <button class="btn-sm" onclick="saveModelOverride()">Save</button>
                 </div>
                 <div class="settings-row" style="flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;">
                     <span class="settings-label">Fallback</span>
                     <select id="model-override-fallback-select" class="settings-input" style="max-width:280px;">${fbOpts}</select>
                 </div>
-                <div style="font-size:0.62rem;color:${statusColor};margin-top:4px;">
-                    ${active
-                        ? ('⚠ Manual active — all chat uses Force Model' + (currentFb ? `, hopping to ${ESC(currentFb)} if it fails` : ', local floor only if it fails') + '; pressure routing bypassed')
-                        : 'Auto — router selects local/API based on turn pressure'}
+                <div class="settings-row" style="flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px;">
+                    <span class="settings-label">Local floor</span>
+                    <select id="model-override-floor-select" class="settings-input" style="max-width:280px;">${floorOpts}</select>
+                </div>
+                <div style="font-size:0.62rem;color:var(--dim);margin-top:4px;">
+                    Chat stays on Model. Background work walks Model, then Fallback, then Local floor.
                 </div>
                 <div style="font-size:0.58rem;color:var(--dim);margin-top:2px;">
-                    Use for family events, debugging, or pinning a preferred provider. Saves instantly, no restart.
+                    Saves instantly, no restart. Unset Model uses the Cove brain.
                 </div>
             </div>
             <div id="model-override-status" style="font-size:0.65rem;"></div>
@@ -950,24 +896,21 @@ async function saveModelOverride() {
     if (!sel) return;
     const override = sel.value;
     const fbSel = document.getElementById('model-override-fallback-select');
-    const fallback = fbSel ? fbSel.value : null;
+    const fallback = fbSel ? fbSel.value : '';
+    const floorSel = document.getElementById('model-override-floor-select');
+    const floor = floorSel ? floorSel.value : '';
     const status = document.getElementById('model-override-status');
-
-    if (!override) {
-        if (status) { status.textContent = 'Select a model or Clear to disable'; status.style.color = 'var(--dim)'; }
-        return;
-    }
 
     try {
         const r = await fetch('/api/settings/model-override', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ override, fallback }),
+            body: JSON.stringify({ override, fallback, floor }),
         });
         const d = await r.json();
         if (status) {
             if (d.ok) {
-                status.textContent = 'Saved — Manual active';
+                status.textContent = 'Saved';
                 status.style.color = 'var(--green, #4caf50)';
                 setTimeout(() => loadSettingsModelOverride(), 500);
             } else {
@@ -986,12 +929,12 @@ async function clearModelOverride() {
         const r = await fetch('/api/settings/model-override', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ override: '', fallback: '' }),
+            body: JSON.stringify({ override: '', fallback: '', floor: '' }),
         });
         const d = await r.json();
         if (status) {
             if (d.ok) {
-                status.textContent = 'Cleared — Auto routing active';
+                status.textContent = 'Cleared — Cove brain fills Model';
                 status.style.color = 'var(--green)';
                 setTimeout(() => loadSettingsModelOverride(), 500);
             } else {

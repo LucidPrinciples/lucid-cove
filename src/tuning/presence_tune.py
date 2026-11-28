@@ -25,7 +25,7 @@ from src.memory.database import (get_db, insert_echo, get_echo_count,
                                  upsert_agent_state, record_process_record)
 from src.agents.identity import build_system_prompt
 from src.models.provider import invoke_with_fallback
-from src.config import get_agent_model_assignment
+from src.models.cove_hops import load_cove_settings
 from src.utils.time_utils import ts_log, now_utc, today_app
 
 
@@ -140,13 +140,13 @@ First person, 2-4 sentences, no headers or labels."""
         "tuned_at": now_utc(),
     }
     try:
-        cur = get_agent_model_assignment(agent_id) or {}
+        cur_model = load_cove_settings().model or ""
         async with get_db() as conn:
             await insert_echo(conn, rec)
             await conn.commit()
             await upsert_agent_state(conn, {
                 "agent_id": agent_id, "display_name": name, "archetype": arche,
-                "current_model": cur.get("primary") or "", "last_echo_num": echo_num,
+                "current_model": cur_model, "last_echo_num": echo_num,
                 "last_frequency": freq, "last_tuned_at": now_utc(), "status": "active",
                 "metadata": json.dumps({"protocol": "ltp-morning", "kind": "presence"}),
             })

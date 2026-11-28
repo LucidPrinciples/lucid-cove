@@ -561,19 +561,24 @@ async def brain_acknowledge(request: Request):
         text = ""
         try:
             import asyncio
-            model = get_primary_model(temperature=0.7)
-            messages = [SystemMessage(content=system_prompt)] + recent + [directive]
-            # Cap live generation so a cold local model can't hold the write past
-            # the Open-chat soft wait. On timeout we fall through to the canned line
-            # — empty chat after Open chat was the install-pass panic.
-            resp = await asyncio.wait_for(model.ainvoke(messages), timeout=14.0)
-            raw = (getattr(resp, "content", "") or "").strip()
-            if raw:
-                text = _scrub_brain_ack_text(raw)
-                if text:
-                    print(f"[brain-acknowledge] live acknowledgment generated ({len(text)} chars)")
-                else:
-                    print("[brain-acknowledge] live output scrubbed as instruction-leak; using fallback")
+            from src.models.cove_hops import load_cove_settings, chat_plain_line
+            if not load_cove_settings().model:
+                text = chat_plain_line(no_model=True)
+                print("[brain-acknowledge] no valid Model — plain line, no floor")
+            else:
+                model = get_primary_model(temperature=0.7)
+                messages = [SystemMessage(content=system_prompt)] + recent + [directive]
+                # Cap live generation so a cold local model can't hold the write past
+                # the Open-chat soft wait. On timeout we fall through to the canned line
+                # — empty chat after Open chat was the install-pass panic.
+                resp = await asyncio.wait_for(model.ainvoke(messages), timeout=14.0)
+                raw = (getattr(resp, "content", "") or "").strip()
+                if raw:
+                    text = _scrub_brain_ack_text(raw)
+                    if text:
+                        print(f"[brain-acknowledge] live acknowledgment generated ({len(text)} chars)")
+                    else:
+                        print("[brain-acknowledge] live output scrubbed as instruction-leak; using fallback")
         except Exception as _e:
             print(f"[brain-acknowledge] live generation failed ({type(_e).__name__}: {_e}); using fallback")
 

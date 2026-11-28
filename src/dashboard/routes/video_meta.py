@@ -738,12 +738,8 @@ async def _invoke_polish_model(system_prompt: str, human_prompt: str) -> tuple[s
             logger.warning("Polish model %s failed: %s", polish_id, e)
 
     # 2) Fast draft chain (same as generate_platform_metadata)
-    candidates = ["gemini-flash", "kimi-k2.5"]
-    try:
-        from src.models.local_fallback import resolve_local_fallback_model
-        candidates.append(resolve_local_fallback_model())
-    except Exception:
-        pass
+    from src.models.cove_hops import plan_cove_chain
+    candidates = plan_cove_chain("background")
     try:
         from src.models.provider import get_model_client, _resolve_model_string
         for model_name in candidates:

@@ -316,17 +316,9 @@ def list_build_team_agents() -> list[dict]:
 
 
 def set_team_model(agent_id: str, primary: str = None, fallback: str = None) -> bool:
-    """Persist a build-team agent's model assignment into cove.yaml `team_models`
-    (the Stuart-level layer). Merges, writes via save_cove_config, clears cache."""
-    cove = load_cove_config()
-    team_models = dict(cove.get("team_models") or {})
-    entry = dict(team_models.get(agent_id) or {})
-    if primary is not None:
-        entry["primary"] = primary
-    if fallback is not None:
-        entry["fallback"] = fallback
-    team_models[agent_id] = entry
-    return save_cove_config({"team_models": team_models})
+    """Retired. Writes nothing. Set Model, Fallback and Local floor on the Team page."""
+    print("[set_team_model] retired: set Model, Fallback and Local floor on the Team page")
+    return False
 
 
 # ── Compute backends (where heavy work runs) ─────────────────────────────────
@@ -1112,6 +1104,27 @@ def get_model_override_fallback() -> str | None:
         fb = cfg.get("model_override_fallback")
         if fb and isinstance(fb, str) and fb.strip():
             return fb.strip()
+    except Exception:
+        pass
+    return None
+
+
+def get_cove_local_floor() -> str | None:
+    """Named Local floor registry id (optional). Stored beside Model/Fallback
+    as model_override_floor. Unset → caller names qwen3-8b at resolve time."""
+    import yaml
+    from pathlib import Path
+
+    overrides_path = Path("/app/data/feature-overrides.yaml")
+    if not overrides_path.exists():
+        return None
+
+    try:
+        with open(overrides_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        floor = cfg.get("model_override_floor")
+        if floor and isinstance(floor, str) and floor.strip():
+            return floor.strip()
     except Exception:
         pass
     return None

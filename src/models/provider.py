@@ -183,19 +183,22 @@ _OPENROUTER_PRIMARY_MODEL = "moonshotai/kimi-k2.5"  # default if registry lookup
 
 
 def _resolve_local_fallback() -> str:
-    """The local model to fall back to when no cloud brain is reachable: the best
-    model ACTUALLY INSTALLED on the box (#11/CF-106), never a hardcoded id. If the
-    resolver can't find one it raises LocalModelUnavailable LOUD — but callers on
-    the legacy hot path keep working against the seed id if the probe itself fails
-    for an unexpected reason (network hiccup, not 'nothing installed')."""
-    from src.models.local_fallback import resolve_local_fallback_model, LocalModelUnavailable
+    """Local floor tag: named Cove floor, else smallest installed chat model.
+
+    Never the largest-that-fits pick. recommend_local stays for onboarding only.
+    """
+    from src.models.local_fallback import LocalModelUnavailable, resolve_smallest_local_model
     try:
-        return resolve_local_fallback_model()
+        from src.models.cove_hops import cove_floor_tag
+        tag = cove_floor_tag()
+        if tag:
+            return tag
+        return resolve_smallest_local_model()
     except LocalModelUnavailable:
         raise
     except Exception as _e:
-        print(f"[provider] local-fallback probe failed ({_e}); using seed id")
-        return _DEFAULT_LOCAL_MODEL
+        print(f"[provider] local-floor probe failed ({_e}); using smallest installed")
+        return resolve_smallest_local_model()
 
 
 _WARNED_UNKNOWN_MODELS: set = set()
@@ -707,29 +710,21 @@ def get_primary_model(temperature: float = 0.7) -> ChatOpenAI | ChatOllama:
                 return _client_for(bp, use, temperature, key=byok.get("api_key"))
             except Exception as _e:
                 print(f"[provider] BYOK primary failed ({_e}); falling back")
-    # 2. The Cove's connected brain — the admin's Add-Intelligence choice (key is in env).
-    if not _cove_primary:
-        _restore_cove_brain()
-    if _cove_primary:
-        try:
-            return _client_for(_cove_primary[0], _cove_primary[1], temperature)
-        except Exception as _e:
-            print(f"[provider] Cove brain failed ({_e}); falling back")
-    # 3 / 4. Env OpenRouter, then local Ollama (resolved from INSTALLED tags —
-    # never a hardcoded id that might 404 on this box; #11/CF-106).
+    # 2. Cove Model (three settings). Empty Model is filled by the Cove brain
+    # inside load_cove_settings. BYOK above is Presence own-model.
     try:
-        return _openrouter_client(_OPENROUTER_PRIMARY_MODEL, temperature)
-    except RuntimeError as e:
-        print(f"[provider] WARNING: {e} — falling back to local Ollama")
-        return _ollama_client(_resolve_local_fallback(), temperature)
+        from src.models.cove_hops import load_cove_settings
+        s = load_cove_settings()
+        if s.model:
+            return get_model_client(s.model, temperature=temperature)
+    except Exception as _e:
+        print(f"[provider] Cove Model resolve failed ({_e}); falling back")
+    # 3. Local floor (named or smallest installed), never largest.
+    return _ollama_client(_resolve_local_fallback(), temperature)
 
 
 def get_local_model(temperature: float = 0.7) -> ChatOllama:
-    """Get the best INSTALLED local Ollama model. Legacy compatibility.
-
-    Resolves from live Ollama tags (#11/CF-106) — no hardcoded id. Raises
-    LocalModelUnavailable LOUD when nothing is installed rather than returning a
-    404 model that reads as a silent 'trouble responding'."""
+    """Local floor client: named Local floor, else smallest installed. Never largest."""
     return _ollama_client(_resolve_local_fallback(), temperature)
 
 
@@ -858,52 +853,22 @@ async def invoke_with_fallback(
         except Exception:
             pass
 
-    _slot = "tuning" if operation_type == "tuning" else None
-    assignment = get_agent_model_assignment(agent_id, slot=_slot)
-    primary_id = assignment.get("primary") or current_cove_brain().get("model")
-    fallback_id = assignment.get("fallback")
-
-    # Tuning: prefer ltp-tuner-v2 as local candidate when installed (#D44).
-    if operation_type == "tuning" and not fallback_id:
-        try:
-            from src.models.local_fallback import resolve_tuner_model
-            _tuner = resolve_tuner_model()
-            if _tuner:
-                fallback_id = _tuner
-                print(f"[{label}] Tuning work — resolved ltp-tuner-v2 '{_tuner}'")
-        except Exception:
-            pass
-
     from src.models.router import plan_hops, format_plan_log, record_hop_failure
     plan = plan_hops(
         agent_id=agent_id,
-        primary_id=primary_id,
-        fallback_id=fallback_id,
         message_text=message_text or "",
         message_count=len(messages or []),
         operation_type=operation_type,
         routing_bias=routing_bias or "balanced",
-        cloud_middle_id=CLOUD_FALLBACK_MODEL,
-        allow_cloud_middle=True,
     )
     print(format_plan_log(plan, label=label))
 
     chain = list(plan.chain or [])
-    if not chain:
-        # Absolute last ditch — same as pre-router single primary
-        if primary_id:
-            chain = [primary_id]
-        if fallback_id and fallback_id not in chain:
-            chain.append(fallback_id)
 
     last_err: Exception | None = None
     for hop_i, model_id in enumerate(chain):
         provider, model_str = _resolve_model_string(model_id)
-        # Local hops get the longer cold-load budget; others use caller timeout
         hop_timeout = LOCAL_FALLBACK_TIMEOUT if provider == "ollama" else timeout
-        # First hop: keep fail-fast spirit of #D16 when not local
-        if hop_i == 0 and provider != "ollama":
-            hop_timeout = min(hop_timeout, max(90, timeout))
         t0 = time.monotonic()
         try:
             client = get_model_client(model_id, temperature=temperature)
@@ -922,7 +887,7 @@ async def invoke_with_fallback(
                 )
                 print(
                     f"[{label}] Completed via {provider}/{model_str} "
-                    f"(hop {hop_i + 1}/{len(chain)}, score={plan.score.score}, {len(content)} chars)"
+                    f"(hop {hop_i + 1}/{len(chain)}, {len(content)} chars)"
                 )
                 return content
             print(f"[{label}] {provider}/{model_str} returned empty — next hop")
@@ -944,39 +909,6 @@ async def invoke_with_fallback(
                 tokens_in=None, tokens_out=None, duration_ms=duration_ms, succeeded=False,
             )
             record_hop_failure(model_id, provider)
-            last_err = e
-
-    # If chain never included a local floor, try installed local once more
-    try:
-        from src.models.local_fallback import resolve_local_fallback_model, LocalModelUnavailable
-        try:
-            floor_id = resolve_local_fallback_model()
-        except LocalModelUnavailable:
-            floor_id = None
-    except Exception:
-        floor_id = None
-    if floor_id and floor_id not in chain:
-        provider, model_str = _resolve_model_string(floor_id)
-        t0 = time.monotonic()
-        try:
-            client = get_model_client(floor_id, temperature=temperature)
-            response = await asyncio.wait_for(
-                client.ainvoke(messages), timeout=LOCAL_FALLBACK_TIMEOUT
-            )
-            duration_ms = int((time.monotonic() - t0) * 1000)
-            content = (response.content or "").strip()
-            await _write_jw_metric(
-                agent_id=agent_id, operation_type=operation_type, operation_label=label,
-                model_used=model_str, provider=provider,
-                tokens_in=None, tokens_out=None, duration_ms=duration_ms,
-                succeeded=bool(content),
-            )
-            if content:
-                print(f"[{label}] Completed via local floor {provider}/{model_str}")
-                return content
-            record_hop_failure(floor_id, provider)
-        except Exception as e:
-            record_hop_failure(floor_id, provider)
             last_err = e
 
     if last_err is not None:
